@@ -33,6 +33,10 @@ version = 2
 allow = [
     "MPL-2.0",
     "MIT",
+    # ISC is permissive and MIT-equivalent (the OpenBSD license). It arrives with the RISC-V
+    # runtime crates (riscv, riscv-pac, riscv-rt, riscv-target-parser) that esp-hal pulls in
+    # for the firmware members; reviewed and added when the radio family merged.
+    "ISC",
     "Apache-2.0",
     "Apache-2.0 WITH LLVM-exception",
     "BSD-1-Clause",
