@@ -5,6 +5,19 @@ edition = "2024"
 license = "MPL-2.0"
 publish = false
 
+# The host link is a build-time choice, and the two are mutually exclusive.
+#
+# `host-usb` is the default and the development and recovery personality: the ESP32-S3's USB
+# Serial/JTAG peripheral. Its clocks stop in Light-sleep and the host may fail to re-enumerate
+# it on wake, so it cannot be the low-power build.
+#
+# `host-uart-low-power` speaks the same direct-PHY byte protocol over UART0 on the exposed
+# header, which does survive Light-sleep and can wake the chip.
+[features]
+default = ["host-usb"]
+host-usb = []
+host-uart-low-power = []
+
 [dependencies]
 embassy-executor = "0.10.0"
 embassy-futures = "0.1.2"

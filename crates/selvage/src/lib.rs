@@ -19,6 +19,19 @@ pub const EVENT_DIAGNOSTIC: u8 = 0x84;
 /// Bytes in a complete [`CMD_CONFIG`] command.
 pub const CONFIG_COMMAND_LEN: usize = 16;
 
+/// The byte a host repeats to wake firmware whose host link sleeps.
+///
+/// A UART wake consumes the character that triggered it, and may lose the ones immediately
+/// behind it, so a command sent cold can arrive truncated. The host instead sends a run of
+/// this byte, waits for the link to settle, and only then sends the command.
+///
+/// It is deliberately not a valid command marker ([`CMD_TX`], [`CMD_CONFIG`]), so firmware can
+/// discard it without ambiguity — but only at a frame boundary, since the same value is
+/// perfectly legal *inside* a frame's length field or payload.
+pub const WAKE_BYTE: u8 = 0x00;
+
+const _: () = assert!(WAKE_BYTE != CMD_TX && WAKE_BYTE != CMD_CONFIG);
+
 /// Radio parameters that are independent of a particular HAL or driver.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PhyProfile {

@@ -6,6 +6,7 @@ use embassy_futures::select::{Either, select};
 use embassy_time::Delay;
 use embedded_hal_bus::spi::ExclusiveDevice;
 use esp_backtrace as _;
+use esp_hal::Config;
 use esp_hal::gpio::{Input, InputConfig, Level, Output, OutputConfig};
 use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::spi::{
@@ -14,18 +15,25 @@ use esp_hal::spi::{
 };
 use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
-use esp_hal::usb_serial_jtag::{UsbSerialJtag, UsbSerialJtagRx, UsbSerialJtagTx};
-use esp_hal::{Async, Config};
+#[cfg(feature = "host-uart-low-power")]
+use esp_hal::uart::{Config as UartConfig, Uart};
+#[cfg(feature = "host-usb")]
+use esp_hal::usb_serial_jtag::UsbSerialJtag;
 use lora_modulation::{Bandwidth, CodingRate, SpreadingFactor};
 use lora_phy::iv::GenericSx126xInterfaceVariant;
 use lora_phy::sx126x::{Config as Sx126xConfig, Sx126x, Sx1262, TcxoCtrlVoltage};
 use lora_phy::{LoRa, RxMode};
 use selvage::{
     CMD_CONFIG, CMD_TX, CONFIG_COMMAND_LEN, EVENT_CONFIG, EVENT_RX, EVENT_TX, MESHTASTIC_SYNC_WORD,
-    decode_config_command,
+    WAKE_BYTE, decode_config_command,
 };
 
 esp_bootloader_esp_idf::esp_app_desc!();
+
+/// Host UART line rate for the low-power personality. Matches the host default in
+/// `tulle::direct_phy_serial`.
+#[cfg(feature = "host-uart-low-power")]
+const HOST_UART_BAUD: u32 = 115_200;
 
 const FREQUENCY_HZ: u32 = 906_875_000;
 const TX_POWER_DBM: i32 = 17;
@@ -71,14 +79,16 @@ fn coding_rate(value: u8) -> Option<CodingRate> {
     })
 }
 
-async fn write_all(tx: &mut UsbSerialJtagTx<'static, Async>, bytes: &[u8]) -> bool {
+/// Write to whichever host link this build selected. Generic over the transport so the USB
+/// and UART personalities share one protocol implementation rather than drifting apart.
+async fn write_all<W: embedded_io_async::Write>(tx: &mut W, bytes: &[u8]) -> bool {
     embedded_io_async::Write::write_all(tx, bytes).await.is_ok()
         && embedded_io_async::Write::flush(tx).await.is_ok()
 }
 
-async fn serve_status_only(
-    mut rx: UsbSerialJtagRx<'static, Async>,
-    mut tx: UsbSerialJtagTx<'static, Async>,
+async fn serve_status_only<R: embedded_io_async::Read, W: embedded_io_async::Write>(
+    mut rx: R,
+    mut tx: W,
     status: &'static [u8],
 ) -> ! {
     let _ = write_all(&mut tx, status).await;
@@ -106,9 +116,27 @@ async fn main(_spawner: Spawner) {
     let timg0 = TimerGroup::new(peripherals.TIMG0);
     esp_rtos::start(timg0.timer0, sw_int.software_interrupt0);
 
+    // The host link. Both personalities implement `embedded_io_async::{Read, Write}`, so
+    // everything below is written once and built twice.
+    #[cfg(feature = "host-usb")]
     let (mut usb_rx, mut usb_tx) = UsbSerialJtag::new(peripherals.USB_DEVICE)
         .into_async()
         .split();
+
+    // UART0 on the exposed header: GPIO44 RX, GPIO43 TX. Unlike USB Serial/JTAG this survives
+    // Light-sleep and can wake the chip, which is what the low-power personality needs.
+    #[cfg(feature = "host-uart-low-power")]
+    let (mut usb_rx, mut usb_tx) = {
+        let uart = Uart::new(
+            peripherals.UART0,
+            UartConfig::default().with_baudrate(HOST_UART_BAUD),
+        )
+        .unwrap()
+        .with_rx(peripherals.GPIO44)
+        .with_tx(peripherals.GPIO43)
+        .into_async();
+        uart.split()
+    };
 
     let spi = Spi::new(
         peripherals.SPI2,
@@ -236,7 +264,21 @@ async fn main(_spawner: Spawner) {
             Either::First(Err(_)) => {}
             Either::First(Ok(0)) => {}
             Either::First(Ok(length)) => {
-                let packet = &usb_packet[..length];
+                let mut packet = &usb_packet[..length];
+                // Discard host wake bytes, but only while the parser sits at a frame
+                // boundary: the same value is perfectly legal inside a length field or a
+                // payload, so stripping it anywhere else would corrupt the frame.
+                if usb_command_len == 0 {
+                    let skip = packet
+                        .iter()
+                        .position(|byte| *byte != WAKE_BYTE)
+                        .unwrap_or(packet.len());
+                    packet = &packet[skip..];
+                    if packet.is_empty() {
+                        continue;
+                    }
+                }
+                let length = packet.len();
                 if packet == b"status\n" || packet == b"status\r\n" {
                     let _ = write_all(&mut usb_tx, online).await;
                     continue;

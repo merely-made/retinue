@@ -22,4 +22,4 @@ pub mod rnode;
 #[cfg(feature = "serial-async")]
 pub mod serial;
 
-pub use selvage::{PhyProfile, ProfileError};
+pub use selvage::{PhyProfile, ProfileError, WAKE_BYTE};

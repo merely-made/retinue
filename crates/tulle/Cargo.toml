@@ -15,7 +15,16 @@ serial-async = ["dep:serial2-tokio", "dep:tokio"]
 
 [dependencies]
 serial2-tokio = { version = "0.1.24", optional = true }
-tokio = { version = "1.53.1", features = ["io-util", "rt", "sync", "time"], optional = true }
+# `macros` is required by the library itself: the serial pumps use `tokio::select!`. Without
+# it `cargo test` still passes, because the dev-dependency below unifies the feature in, but a
+# plain library build fails — so it has to be declared here.
+tokio = { version = "1.53.1", features = [
+    "io-util",
+    "macros",
+    "rt",
+    "sync",
+    "time",
+], optional = true }
 selvage = { version = "0.0.1", path = "../selvage" }
 
 [dev-dependencies]

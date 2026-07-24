@@ -18,6 +18,32 @@ use crate::serial::{PumpError, PumpStatus, TransmitError};
 
 const INITIALIZATION_RETRY: Duration = Duration::from_millis(500);
 
+/// How to rouse firmware whose host link sleeps, before sending it a command.
+///
+/// A UART wake consumes the character that triggered it and may lose the ones immediately
+/// behind it, so a command sent cold arrives truncated — and a truncated command is worse than
+/// no command, because it desynchronises the parser for everything after it. The host instead
+/// sends a run of [`WAKE_BYTE`](selvage::WAKE_BYTE), waits for the link to settle, and only
+/// then writes the real bytes. Firmware discards those bytes at a frame boundary.
+///
+/// Not needed on a host link that never sleeps, which is why USB builds leave it `None`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WakeSequence {
+    /// Bytes sent to rouse the link. Long enough that losing the first few does not matter.
+    pub preamble: Vec<u8>,
+    /// How long to wait after the preamble before writing the command.
+    pub settle: Duration,
+}
+
+impl Default for WakeSequence {
+    fn default() -> Self {
+        Self {
+            preamble: vec![crate::WAKE_BYTE; 8],
+            settle: Duration::from_millis(10),
+        }
+    }
+}
+
 /// Runtime settings for a direct-PHY serial link.
 #[derive(Clone, Debug)]
 pub struct DirectPhySerialConfig {
@@ -27,6 +53,9 @@ pub struct DirectPhySerialConfig {
     pub transmit_timeout: Duration,
     pub tx_queue: usize,
     pub rx_queue: usize,
+    /// Wake handling for a sleeping host link. `None` (the default) writes commands directly,
+    /// which is correct for the USB personality and for any link that stays awake.
+    pub wake: Option<WakeSequence>,
 }
 
 impl Default for DirectPhySerialConfig {
@@ -38,8 +67,40 @@ impl Default for DirectPhySerialConfig {
             transmit_timeout: Duration::from_secs(5),
             tx_queue: 32,
             rx_queue: 32,
+            wake: None,
         }
     }
+}
+
+impl DirectPhySerialConfig {
+    /// Settings for firmware built with the low-power UART personality, whose host link
+    /// sleeps between commands.
+    pub fn low_power_uart() -> Self {
+        Self {
+            wake: Some(WakeSequence::default()),
+            ..Self::default()
+        }
+    }
+}
+
+/// Write one host command, rousing the link first if this build needs it.
+///
+/// Every command goes through here so no path can forget the wake and leave a truncated frame
+/// on a sleeping link.
+async fn write_command<W: AsyncWrite + Unpin>(
+    io: &mut W,
+    wake: Option<&WakeSequence>,
+    bytes: &[u8],
+) -> io::Result<()> {
+    if let Some(wake) = wake
+        && !wake.preamble.is_empty()
+    {
+        io.write_all(&wake.preamble).await?;
+        io.flush().await?;
+        sleep(wake.settle).await;
+    }
+    io.write_all(bytes).await?;
+    io.flush().await
 }
 
 struct TxRequest {
@@ -229,11 +290,9 @@ where
     let mut next_probe = Instant::now() + INITIALIZATION_RETRY;
     let mut saw_online = false;
     let mut configured = false;
-    io.write_all(b"status\n").await?;
-    io.flush().await?;
+    write_command(&mut io, config.wake.as_ref(), b"status\n").await?;
     sleep(Duration::from_millis(20)).await;
-    io.write_all(&configure).await?;
-    io.flush().await?;
+    write_command(&mut io, config.wake.as_ref(), &configure).await?;
     loop {
         let wake_at = online_deadline.min(next_probe);
         tokio::select! {
@@ -251,11 +310,9 @@ where
                         format!("direct-PHY firmware did not report {missing}"),
                     ));
                 }
-                io.write_all(b"status\n").await?;
-                io.flush().await?;
+                write_command(&mut io, config.wake.as_ref(), b"status\n").await?;
                 sleep(Duration::from_millis(20)).await;
-                io.write_all(&configure).await?;
-                io.flush().await?;
+                write_command(&mut io, config.wake.as_ref(), &configure).await?;
                 next_probe = Instant::now() + INITIALIZATION_RETRY;
             }
             read = io.read(&mut read_buf) => {
@@ -329,8 +386,7 @@ where
             if budget.may_transmit(now_ms, airtime_ms) {
                 let command = direct_phy::encode_transmit(&request.frame)
                     .expect("frame length checked above");
-                io.write_all(&command).await?;
-                io.flush().await?;
+                write_command(&mut io, config.wake.as_ref(), &command).await?;
                 budget.record(now_ms, airtime_ms);
                 let airtime = params.time_on_air(request.frame.len());
                 in_flight = Some(InFlight {
@@ -434,6 +490,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::WAKE_BYTE;
     use crate::lora::CodingRate;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -452,6 +509,150 @@ mod tests {
 
     fn profile() -> PhyProfile {
         PhyProfile::meshtastic_long_fast(906_875_000)
+    }
+
+    /// With a wake sequence configured, every host command is preceded by the wake preamble —
+    /// status, configure, and transmit alike. Firmware discards those bytes at a frame
+    /// boundary, so what remains is exactly the ordinary command stream.
+    #[tokio::test]
+    async fn wake_preamble_precedes_every_command() {
+        let (host, mut firmware) = tokio::io::duplex(2048);
+        let config = DirectPhySerialConfig {
+            open_settle: Duration::ZERO,
+            transmit_timeout: Duration::from_secs(1),
+            wake: Some(WakeSequence {
+                preamble: vec![WAKE_BYTE; 4],
+                settle: Duration::from_millis(1),
+            }),
+            ..Default::default()
+        };
+        let budget = AirtimeBudget::new(60_000, 1000);
+        let mut link = DirectPhySerialLink::spawn_io(host, profile(), params(), budget, config);
+
+        let firmware_task = tokio::spawn(async move {
+            // Status, wake-prefixed.
+            let mut wake = [0_u8; 4];
+            firmware.read_exact(&mut wake).await.unwrap();
+            assert_eq!(wake, [WAKE_BYTE; 4], "status must be roused first");
+            let mut status = [0_u8; 7];
+            firmware.read_exact(&mut status).await.unwrap();
+            assert_eq!(&status, b"status\n");
+            firmware
+                .write_all(b"tulle/test phy online\r\n")
+                .await
+                .unwrap();
+
+            // Configure, wake-prefixed.
+            firmware.read_exact(&mut wake).await.unwrap();
+            assert_eq!(wake, [WAKE_BYTE; 4], "configure must be roused first");
+            let mut configure = [0_u8; selvage::CONFIG_COMMAND_LEN];
+            firmware.read_exact(&mut configure).await.unwrap();
+            assert_eq!(selvage::decode_config_command(&configure), Ok(profile()));
+            firmware
+                .write_all(&[direct_phy::EVENT_CONFIG, 0])
+                .await
+                .unwrap();
+
+            // Transmit, wake-prefixed, and the command itself is untouched.
+            firmware.read_exact(&mut wake).await.unwrap();
+            assert_eq!(wake, [WAKE_BYTE; 4], "transmit must be roused first");
+            let mut command = [0_u8; 8];
+            firmware.read_exact(&mut command).await.unwrap();
+            assert_eq!(
+                &command, b"\x01\x05\x00hello",
+                "the wake bytes must not bleed into the command"
+            );
+            firmware
+                .write_all(&[direct_phy::EVENT_TX, 0, 5, 0])
+                .await
+                .unwrap();
+            sleep(Duration::from_millis(200)).await;
+        });
+
+        link.wait_online().await.unwrap();
+        link.send(b"hello".to_vec()).await.unwrap();
+        link.shutdown().await.unwrap();
+        firmware_task.await.unwrap();
+    }
+
+    /// The USB personality is the default and sends no wake bytes, so it pays nothing for a
+    /// mechanism it does not need.
+    #[tokio::test]
+    async fn usb_configuration_sends_no_wake_prefix() {
+        assert_eq!(DirectPhySerialConfig::default().wake, None);
+        assert!(DirectPhySerialConfig::low_power_uart().wake.is_some());
+
+        let (host, mut firmware) = tokio::io::duplex(2048);
+        let config = DirectPhySerialConfig {
+            open_settle: Duration::ZERO,
+            ..Default::default()
+        };
+        let budget = AirtimeBudget::new(60_000, 1000);
+        let mut link = DirectPhySerialLink::spawn_io(host, profile(), params(), budget, config);
+
+        let firmware_task = tokio::spawn(async move {
+            // The very first bytes are the command, with nothing in front of them.
+            let mut status = [0_u8; 7];
+            firmware.read_exact(&mut status).await.unwrap();
+            assert_eq!(&status, b"status\n");
+            firmware
+                .write_all(b"tulle/test phy online\r\n")
+                .await
+                .unwrap();
+            let mut configure = [0_u8; selvage::CONFIG_COMMAND_LEN];
+            firmware.read_exact(&mut configure).await.unwrap();
+            firmware
+                .write_all(&[direct_phy::EVENT_CONFIG, 0])
+                .await
+                .unwrap();
+            sleep(Duration::from_millis(200)).await;
+        });
+
+        link.wait_online().await.unwrap();
+        link.shutdown().await.unwrap();
+        firmware_task.await.unwrap();
+    }
+
+    /// A firmware event split across reads still decodes: the host decoder reassembles rather
+    /// than requiring each event to arrive whole.
+    #[tokio::test]
+    async fn fragmented_firmware_events_reassemble() {
+        let (host, mut firmware) = tokio::io::duplex(2048);
+        let config = DirectPhySerialConfig {
+            open_settle: Duration::ZERO,
+            ..Default::default()
+        };
+        let budget = AirtimeBudget::new(60_000, 1000);
+        let mut link = DirectPhySerialLink::spawn_io(host, profile(), params(), budget, config);
+
+        let firmware_task = tokio::spawn(async move {
+            let mut status = [0_u8; 7];
+            firmware.read_exact(&mut status).await.unwrap();
+            firmware
+                .write_all(b"tulle/test phy online\r\n")
+                .await
+                .unwrap();
+            let mut configure = [0_u8; selvage::CONFIG_COMMAND_LEN];
+            firmware.read_exact(&mut configure).await.unwrap();
+            firmware
+                .write_all(&[direct_phy::EVENT_CONFIG, 0])
+                .await
+                .unwrap();
+
+            // One RX event, dribbled out a byte at a time.
+            for byte in [direct_phy::EVENT_RX, 3, 0, 0xd8, 0xff, 9, 0, 7, 8, 9] {
+                firmware.write_all(&[byte]).await.unwrap();
+                sleep(Duration::from_millis(2)).await;
+            }
+            sleep(Duration::from_millis(200)).await;
+        });
+
+        link.wait_online().await.unwrap();
+        let received = link.recv().await.unwrap();
+        assert_eq!(received.frame, [7, 8, 9], "a split event still reassembles");
+        assert_eq!(received.rssi_dbm, -40);
+        link.shutdown().await.unwrap();
+        firmware_task.await.unwrap();
     }
 
     #[tokio::test]
