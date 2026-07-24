@@ -39,8 +39,6 @@ use std::time::Duration;
 
 #[cfg(feature = "tokio")]
 use crate::endpoint::{Endpoint, InterfaceSink};
-#[cfg(feature = "tokio")]
-use crate::packet::Packet;
 
 /// A seeded, deterministic loss model: a probability of dropping each packet and a
 /// bounded random delay applied to those that survive.
@@ -139,7 +137,7 @@ pub fn connect(a: &Endpoint, b: &Endpoint, a_to_b: LossModel, b_to_a: LossModel)
 /// the loss model: some are dropped, survivors delivered after a bounded delay.
 #[cfg(feature = "tokio")]
 async fn pump(
-    mut out: tokio::sync::mpsc::UnboundedReceiver<Packet>,
+    mut out: crate::endpoint::OutboundPackets,
     sink: InterfaceSink,
     mut model: LossModel,
 ) {

@@ -367,7 +367,7 @@ pub type InterfaceId = u32;
 /// [`next_outbound`]: Interface::next_outbound
 pub struct Interface {
     id: InterfaceId,
-    outbound: mpsc::UnboundedReceiver<Packet>,
+    outbound: OutboundPackets,
     router_tx: mpsc::Sender<(InterfaceId, Packet)>,
 }
 
@@ -420,6 +420,11 @@ pub struct RoutingPolicy {
     /// Hop ceiling for forwarded traffic. A packet at or above this is dropped rather than
     /// relayed, bounding how far this node will carry anything.
     pub max_hops: u8,
+    /// Each class's share of a contended interface. This is where transit is bounded against
+    /// local traffic, so it lives with the transit policy even though it governs both.
+    pub queue_weights: QueueWeights,
+    /// How deep each class may queue on one interface before packets are dropped.
+    pub queue_depths: QueueDepths,
 }
 
 impl Default for RoutingPolicy {
@@ -437,6 +442,8 @@ impl RoutingPolicy {
             allowed_ingress: InterfaceSelector::None,
             allowed_egress: InterfaceSelector::None,
             max_hops: 0,
+            queue_weights: QueueWeights::DEFAULT,
+            queue_depths: QueueDepths::DEFAULT,
         }
     }
 
@@ -449,6 +456,8 @@ impl RoutingPolicy {
             allowed_ingress: InterfaceSelector::All,
             allowed_egress: InterfaceSelector::All,
             max_hops: MAX_HOPS,
+            queue_weights: QueueWeights::DEFAULT,
+            queue_depths: QueueDepths::DEFAULT,
         }
     }
 
@@ -461,6 +470,44 @@ impl RoutingPolicy {
     fn relays_announce_from(&self, iface: InterfaceId) -> bool {
         self.forward_announces && self.allowed_ingress.allows(iface)
     }
+}
+
+/// A per-class tally.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ClassCounters {
+    pub control: u64,
+    pub interactive: u64,
+    pub background: u64,
+    pub transit: u64,
+}
+
+impl ClassCounters {
+    fn from_array(a: [u64; TrafficClass::COUNT]) -> Self {
+        Self {
+            control: a[TrafficClass::Control.index()],
+            interactive: a[TrafficClass::Interactive.index()],
+            background: a[TrafficClass::Background.index()],
+            transit: a[TrafficClass::Transit.index()],
+        }
+    }
+
+    fn add(&mut self, other: Self) {
+        self.control += other.control;
+        self.interactive += other.interactive;
+        self.background += other.background;
+        self.transit += other.transit;
+    }
+}
+
+/// What the outbound schedule has done, summed over every interface.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct QueueCounters {
+    /// Packets the schedule released to the wire, by class.
+    pub sent: ClassCounters,
+    /// Packets dropped because their class's queue was full, by class. A non-zero transit
+    /// count on an otherwise healthy node is the expected sign of a neighbour offering more
+    /// than this node agreed to carry.
+    pub dropped: ClassCounters,
 }
 
 /// A snapshot of what routing has done, for diagnostics and for proving a policy is enforced.
@@ -503,8 +550,8 @@ impl Interface {
         self.id
     }
 
-    /// The next packet the endpoint wants to send out this interface. `None` once
-    /// the endpoint is dropped.
+    /// The next packet the endpoint wants to send out this interface, chosen by the
+    /// per-class schedule. `None` once the endpoint is dropped.
     pub async fn next_outbound(&mut self) -> Option<Packet> {
         self.outbound.recv().await
     }
@@ -520,7 +567,7 @@ impl Interface {
 
     /// Split into the outbound packet stream and an inbound [`InterfaceSink`], the
     /// usual shape for a bidirectional pump.
-    pub fn split(self) -> (mpsc::UnboundedReceiver<Packet>, InterfaceSink) {
+    pub fn split(self) -> (OutboundPackets, InterfaceSink) {
         let sink = InterfaceSink {
             id: self.id,
             router_tx: self.router_tx,
@@ -545,10 +592,293 @@ impl InterfaceSink {
     }
 }
 
-/// An attached interface: the channel its writer task drains.
+/// What a packet is for, which decides how it shares a busy interface.
+///
+/// A radio is slow enough that packets genuinely queue in the endpoint, so the order they
+/// leave in is a policy choice rather than an accident of arrival. Classifying at the send
+/// site is deliberate: the bytes cannot say whether they are someone's chat message or a bulk
+/// sync, but the code putting them on the wire knows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum TrafficClass {
+    /// Protocol upkeep: announces, path responses, link setup, proofs. Small and infrequent;
+    /// starving it costs the network its ability to repair itself, so it is served first.
+    Control,
+    /// Local traffic someone is waiting on.
+    Interactive,
+    /// Local traffic that can wait: bulk transfer, replication.
+    Background,
+    /// Someone else's traffic, carried as a courtesy. Served last and capped, so a busy
+    /// public mesh cannot consume the capacity its host reserved for itself.
+    Transit,
+}
+
+impl TrafficClass {
+    const COUNT: usize = 4;
+
+    const fn index(self) -> usize {
+        match self {
+            Self::Control => 0,
+            Self::Interactive => 1,
+            Self::Background => 2,
+            Self::Transit => 3,
+        }
+    }
+
+    const ALL: [Self; Self::COUNT] = [
+        Self::Control,
+        Self::Interactive,
+        Self::Background,
+        Self::Transit,
+    ];
+}
+
+/// Each class's share of a busy interface, as a deficit-round-robin quantum multiplier.
+///
+/// These are *relative shares of a contended interface*, not rate limits: an idle interface
+/// sends whatever it has. They only bind when more traffic is offered than the medium can
+/// carry, which is exactly when a host's own traffic must not lose to transit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct QueueWeights {
+    pub control: u32,
+    pub interactive: u32,
+    pub background: u32,
+    pub transit: u32,
+}
+
+impl Default for QueueWeights {
+    fn default() -> Self {
+        Self::DEFAULT
+    }
+}
+
+impl QueueWeights {
+    /// Control first, then interactive, background, and transit last. The ratios matter more
+    /// than the values: transit gets a share, never priority.
+    pub const DEFAULT: Self = Self {
+        control: 8,
+        interactive: 4,
+        background: 2,
+        transit: 1,
+    };
+
+    fn for_class(&self, class: TrafficClass) -> u32 {
+        match class {
+            TrafficClass::Control => self.control,
+            TrafficClass::Interactive => self.interactive,
+            TrafficClass::Background => self.background,
+            TrafficClass::Transit => self.transit,
+        }
+    }
+}
+
+/// How many packets each class may hold on one interface before its next packet is dropped.
+///
+/// Bounded on purpose: an unbounded queue in front of a slow radio converts memory into
+/// latency and hides the loss instead of reporting it. Transit is held shallowest, so a
+/// flooding neighbour's backlog cannot grow without limit inside a node that is doing it a
+/// favour.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct QueueDepths {
+    pub control: usize,
+    pub interactive: usize,
+    pub background: usize,
+    pub transit: usize,
+}
+
+impl Default for QueueDepths {
+    fn default() -> Self {
+        Self::DEFAULT
+    }
+}
+
+impl QueueDepths {
+    /// Transit is held shallowest: a neighbour's backlog is their problem to retry, not this
+    /// node's to store.
+    pub const DEFAULT: Self = Self {
+        control: 64,
+        interactive: 256,
+        background: 256,
+        transit: 64,
+    };
+
+    fn for_class(&self, class: TrafficClass) -> usize {
+        match class {
+            TrafficClass::Control => self.control,
+            TrafficClass::Interactive => self.interactive,
+            TrafficClass::Background => self.background,
+            TrafficClass::Transit => self.transit,
+        }
+    }
+}
+
+/// The scheduling half of an interface's outbound path: per-class bounded queues drained by
+/// deficit round robin.
+///
+/// The quantum is in bytes, so the shares are of *airtime* rather than packet count — on a
+/// LoRa link a 500-byte packet costs far more than a 20-byte one, and counting packets would
+/// let a class of large frames quietly take more than its share.
+const QUANTUM_UNIT: u64 = 128;
+
+#[derive(Default)]
+struct QueueState {
+    queues: [VecDeque<Packet>; TrafficClass::COUNT],
+    deficit: [u64; TrafficClass::COUNT],
+    dropped: [u64; TrafficClass::COUNT],
+    sent: [u64; TrafficClass::COUNT],
+    cursor: usize,
+    /// Whether the class at `cursor` has already been credited its quantum for this visit.
+    /// Without this the cursor is re-credited on every `pop`, and a class with a standing
+    /// backlog never has to yield — which starves everything below it.
+    credited: bool,
+    closed: bool,
+}
+
+/// One interface's outbound scheduler: bounded per-class queues plus the parking spot for
+/// whoever is draining them.
+struct OutboundQueues {
+    state: Mutex<QueueState>,
+    ready: tokio::sync::Notify,
+    weights: Mutex<(QueueWeights, QueueDepths)>,
+}
+
+impl OutboundQueues {
+    fn new(weights: QueueWeights, depths: QueueDepths) -> Self {
+        Self {
+            state: Mutex::new(QueueState::default()),
+            ready: tokio::sync::Notify::new(),
+            weights: Mutex::new((weights, depths)),
+        }
+    }
+
+    /// Queue a packet in its class. Returns `false` if that class is full and the packet was
+    /// dropped, which is reported rather than hidden.
+    fn push(&self, pkt: Packet, class: TrafficClass) -> bool {
+        let depth = self.weights.lock().unwrap().1.for_class(class);
+        let mut state = self.state.lock().unwrap();
+        if state.closed {
+            return false;
+        }
+        let i = class.index();
+        if state.queues[i].len() >= depth {
+            state.dropped[i] += 1;
+            return false;
+        }
+        state.queues[i].push_back(pkt);
+        drop(state);
+        self.ready.notify_one();
+        true
+    }
+
+    /// Take the next packet the schedule allows, or `None` if every queue is empty.
+    fn pop(&self) -> Option<Packet> {
+        let weights = self.weights.lock().unwrap().0;
+        let mut state = self.state.lock().unwrap();
+        if state.queues.iter().all(VecDeque::is_empty) {
+            return None;
+        }
+        // Deficit round robin. A class is credited its quantum once per *visit*, not once per
+        // call: it then spends that credit over consecutive calls until its head packet costs
+        // more than it has banked, at which point the cursor moves on. A class that empties
+        // forfeits its credit, so it cannot bank capacity while idle and burst later.
+        //
+        // Progress is guaranteed: every full cycle credits each non-empty class at least
+        // QUANTUM_UNIT (weights are clamped to 1 below), and a packet costs at most the MTU,
+        // so a class becomes affordable within a few cycles.
+        for _ in 0..(TrafficClass::COUNT * 8) {
+            let i = state.cursor;
+            let class = TrafficClass::ALL[i];
+            if state.queues[i].is_empty() {
+                state.deficit[i] = 0;
+                state.credited = false;
+                state.cursor = (i + 1) % TrafficClass::COUNT;
+                continue;
+            }
+            if !state.credited {
+                // Clamped to 1: a zero weight would credit nothing and spin forever.
+                state.deficit[i] += u64::from(weights.for_class(class).max(1)) * QUANTUM_UNIT;
+                state.credited = true;
+            }
+            let cost = state.queues[i]
+                .front()
+                .map_or(1, |p| p.encoded_len() as u64)
+                .max(1);
+            if state.deficit[i] >= cost {
+                state.deficit[i] -= cost;
+                let pkt = state.queues[i].pop_front();
+                if state.queues[i].is_empty() {
+                    state.deficit[i] = 0;
+                    state.credited = false;
+                    state.cursor = (i + 1) % TrafficClass::COUNT;
+                }
+                state.sent[i] += 1;
+                return pkt;
+            }
+            state.credited = false;
+            state.cursor = (i + 1) % TrafficClass::COUNT;
+        }
+        // Unreachable given the progress argument above, but a scheduler that returns None
+        // with packets still queued would park the drain forever, so fall back to strict
+        // order rather than risk a stall.
+        for i in 0..TrafficClass::COUNT {
+            if let Some(pkt) = state.queues[i].pop_front() {
+                state.sent[i] += 1;
+                return Some(pkt);
+            }
+        }
+        None
+    }
+
+    fn set_policy(&self, weights: QueueWeights, depths: QueueDepths) {
+        *self.weights.lock().unwrap() = (weights, depths);
+    }
+
+    fn close(&self) {
+        self.state.lock().unwrap().closed = true;
+        self.ready.notify_waiters();
+    }
+
+    fn counters(&self) -> ([u64; TrafficClass::COUNT], [u64; TrafficClass::COUNT]) {
+        let state = self.state.lock().unwrap();
+        (state.sent, state.dropped)
+    }
+}
+
+/// The draining half of an interface's outbound path.
+///
+/// Shaped like the channel receiver it replaces — `recv().await` — so every pump keeps
+/// working, but the order packets arrive in is now the schedule's rather than arrival's.
+pub struct OutboundPackets {
+    queues: Arc<OutboundQueues>,
+}
+
+impl OutboundPackets {
+    /// The next packet to put on the wire, or `None` once the endpoint is gone.
+    pub async fn recv(&mut self) -> Option<Packet> {
+        loop {
+            if let Some(pkt) = self.queues.pop() {
+                return Some(pkt);
+            }
+            if self.queues.state.lock().unwrap().closed {
+                return None;
+            }
+            // Register before re-checking, so a push between the pop above and the wait here
+            // cannot be missed.
+            let notified = self.queues.ready.notified();
+            if let Some(pkt) = self.queues.pop() {
+                return Some(pkt);
+            }
+            if self.queues.state.lock().unwrap().closed {
+                return None;
+            }
+            notified.await;
+        }
+    }
+}
+
+/// An attached interface: the scheduler its writer task drains.
 struct Iface {
     id: InterfaceId,
-    outbound: mpsc::UnboundedSender<Packet>,
+    outbound: Arc<OutboundQueues>,
 }
 
 struct LinkEntry {
@@ -675,11 +1005,22 @@ struct PathEntry {
 }
 
 impl Shared {
-    /// Send a packet out every interface (announces, path requests).
+    /// Send a packet out every interface (announces, path requests). These are our own
+    /// protocol upkeep, so they ride the control class.
     fn broadcast(&self, pkt: Packet) {
         for i in self.interfaces.lock().unwrap().iter() {
-            let _ = i.outbound.send(pkt.clone());
+            i.outbound.push(pkt.clone(), TrafficClass::Control);
         }
+    }
+
+    /// The queue weights currently configured (from the routing policy).
+    fn queue_weights(&self) -> QueueWeights {
+        self.routing.lock().unwrap().queue_weights
+    }
+
+    /// The queue depths currently configured (from the routing policy).
+    fn queue_depths(&self) -> QueueDepths {
+        self.routing.lock().unwrap().queue_depths
     }
 
     /// Relay a packet out every interface except the one it arrived on, restricted to those
@@ -693,7 +1034,12 @@ impl Shared {
     ) -> usize {
         let mut sent = 0;
         for i in self.interfaces.lock().unwrap().iter() {
-            if i.id != except && egress.allows(i.id) && i.outbound.send(pkt.clone()).is_ok() {
+            // Relayed announces are someone else's upkeep: useful, but not at the expense of
+            // this node's own traffic, so they queue as transit.
+            if i.id != except
+                && egress.allows(i.id)
+                && i.outbound.push(pkt.clone(), TrafficClass::Transit)
+            {
                 sent += 1;
             }
         }
@@ -703,6 +1049,12 @@ impl Shared {
     /// Send a packet out one interface, addressed through that interface's transport node if
     /// it has one (header-type-2 `[transport][dest]`), so a transport node forwards it.
     fn send_on(&self, iface: InterfaceId, pkt: Packet) {
+        self.send_on_class(iface, pkt, TrafficClass::Interactive);
+    }
+
+    /// Send a packet out one interface in a chosen class. Local link traffic defaults to
+    /// interactive; setup, proofs, and keepalives are control; carried traffic is transit.
+    fn send_on_class(&self, iface: InterfaceId, pkt: Packet, class: TrafficClass) {
         let addressed = self.address_for(iface, pkt);
         if let Some(i) = self
             .interfaces
@@ -711,7 +1063,7 @@ impl Shared {
             .iter()
             .find(|i| i.id == iface)
         {
-            let _ = i.outbound.send(addressed);
+            i.outbound.push(addressed, class);
         }
     }
 
@@ -906,14 +1258,17 @@ impl Endpoint {
     /// oracle) plugs into; `attach_tcp_client` / `listen_tcp` are this plus framing.
     pub fn attach_interface(&self) -> Interface {
         let id = self.shared.next_iface_id.fetch_add(1, Ordering::Relaxed);
-        let (out_tx, out_rx) = mpsc::unbounded_channel::<Packet>();
+        let queues = Arc::new(OutboundQueues::new(
+            self.shared.queue_weights(),
+            self.shared.queue_depths(),
+        ));
         self.shared.interfaces.lock().unwrap().push(Iface {
             id,
-            outbound: out_tx,
+            outbound: Arc::clone(&queues),
         });
         Interface {
             id,
-            outbound: out_rx,
+            outbound: OutboundPackets { queues },
             router_tx: self.shared.router_tx.clone(),
         }
     }
@@ -959,7 +1314,26 @@ impl Endpoint {
     /// ([`RoutingPolicy::none`], the default) does not affect this endpoint's own links,
     /// announces, or registered destinations.
     pub fn set_routing_policy(&self, policy: RoutingPolicy) {
+        let (weights, depths) = (policy.queue_weights, policy.queue_depths);
         *self.shared.routing.lock().unwrap() = policy;
+        // Apply the queue policy to interfaces already attached, so a policy change is not
+        // silently limited to interfaces attached afterwards.
+        for i in self.shared.interfaces.lock().unwrap().iter() {
+            i.outbound.set_policy(weights, depths);
+        }
+    }
+
+    /// What the outbound schedule has done across every interface: released and dropped, by
+    /// class. Dropped transit is the visible sign of a bound being enforced rather than a
+    /// backlog quietly growing.
+    pub fn queue_counters(&self) -> QueueCounters {
+        let mut out = QueueCounters::default();
+        for i in self.shared.interfaces.lock().unwrap().iter() {
+            let (sent, dropped) = i.outbound.counters();
+            out.sent.add(ClassCounters::from_array(sent));
+            out.dropped.add(ClassCounters::from_array(dropped));
+        }
+        out
     }
 
     /// The transit policy currently installed.
@@ -1295,6 +1669,12 @@ impl Endpoint {
         for handle in self.shared.tasks.lock().unwrap().drain(..) {
             handle.abort();
         }
+        // Close every interface's outbound scheduler so a caller-driven pump parked in
+        // `next_outbound` wakes and sees the end, rather than waiting on a sender that will
+        // never come. (The channel this replaced ended implicitly when its sender dropped.)
+        for i in self.shared.interfaces.lock().unwrap().iter() {
+            i.outbound.close();
+        }
     }
 }
 
@@ -1313,13 +1693,17 @@ fn attach(shared: &Arc<Shared>, stream: TcpStream) -> InterfaceId {
     let _ = stream.set_nodelay(true);
     let id = shared.next_iface_id.fetch_add(1, Ordering::Relaxed);
     let (mut read_half, mut write_half) = stream.into_split();
-    let (out_tx, mut out_rx) = mpsc::unbounded_channel::<Packet>();
+    let queues = Arc::new(OutboundQueues::new(
+        shared.queue_weights(),
+        shared.queue_depths(),
+    ));
     shared.interfaces.lock().unwrap().push(Iface {
         id,
-        outbound: out_tx,
+        outbound: Arc::clone(&queues),
     });
 
-    // Writer: frame and send this interface's outbound packets.
+    // Writer: frame and send this interface's outbound packets, in schedule order.
+    let mut out_rx = OutboundPackets { queues };
     track(shared, async move {
         while let Some(pkt) = out_rx.recv().await {
             if write_half.write_all(&frame(&pkt.encode())).await.is_err() {
@@ -1673,10 +2057,11 @@ fn forward_on(shared: &Arc<Shared>, out: InterfaceId, mut pkt: Packet, policy: &
         .routing_stats
         .forwarded_packets
         .fetch_add(1, Ordering::Relaxed);
+    // Carried traffic queues as transit, so it can never outcompete this node's own.
     pkt.hops += 1;
     pkt.header_type = crate::packet::HeaderType::Type1;
     pkt.transport = None;
-    shared.send_on(out, pkt);
+    shared.send_on_class(out, pkt, TrafficClass::Transit);
 }
 
 /// Register a link for endpoint-driven resource packets.
