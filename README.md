@@ -28,10 +28,14 @@ MIT/Apache-2.0 licensing.
 
 ## License
 
-Mozilla Public License 2.0 ([LICENSE](LICENSE)), except where a subdirectory
-states otherwise. MPL-2.0 is file-level copyleft: these crates may be used in a
-larger work under any license, including a proprietary one, but modifications
-to *these files* must be published under the MPL.
+Mozilla Public License 2.0 ([LICENSE](LICENSE)), including the firmware. The one
+exception is `vendor/lora-phy`, a vendored third-party fork that keeps its own
+MIT/Apache-2.0 terms.
+
+MPL-2.0 is file-level copyleft: these crates may be used in a larger work under
+any license, including a proprietary one, but modifications to *these files*
+must be published under the MPL. It is GPL-compatible, so this code combines
+into the GPLv3 firmware images the product ships.
 
 `crates/tucket/NOTICE` records the MIT-licensed MeshCore portions it derives
 from, and `crates/sennet/PROVENANCE.md` records how that implementation was
