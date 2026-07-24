@@ -957,6 +957,9 @@ struct Shared {
     routing: Mutex<RoutingPolicy>,
     /// What routing has actually done, for diagnostics and policy proof.
     routing_stats: RoutingStats,
+    /// Upper bound, in milliseconds, of the random delay before relaying an announce. Zero
+    /// (the default) relays immediately. See [`Endpoint::set_relay_jitter`].
+    relay_jitter_ms: AtomicU64,
     /// First reliable-channel RTT estimate. Proofs adapt it after traffic starts.
     reliable_initial_rtt_ms: AtomicU64,
     /// Maximum unproved reliable frames allowed in flight on subsequently opened links.
@@ -1011,6 +1014,17 @@ impl Shared {
         for i in self.interfaces.lock().unwrap().iter() {
             i.outbound.push(pkt.clone(), TrafficClass::Control);
         }
+    }
+
+    /// A fresh random delay in `0..=relay_jitter_ms`, or zero when jitter is off.
+    fn relay_jitter(&self) -> Duration {
+        let max = self.relay_jitter_ms.load(Ordering::Relaxed);
+        if max == 0 {
+            return Duration::ZERO;
+        }
+        let mut b = [0u8; 8];
+        fill_random(&mut b);
+        Duration::from_millis(u64::from_le_bytes(b) % (max + 1))
     }
 
     /// The queue weights currently configured (from the routing policy).
@@ -1210,6 +1224,7 @@ impl Endpoint {
             next_iface_id: AtomicU32::new(0),
             routing: Mutex::new(RoutingPolicy::none()),
             routing_stats: RoutingStats::default(),
+            relay_jitter_ms: AtomicU64::new(0),
             reliable_initial_rtt_ms: AtomicU64::new(DEFAULT_RELIABLE_INITIAL_RTT_MS),
             reliable_max_window: AtomicU32::new(DEFAULT_RELIABLE_MAX_WINDOW),
             link_setup_retry_ms: AtomicU64::new(DEFAULT_LINK_SETUP_RETRY_MS),
@@ -1344,6 +1359,22 @@ impl Endpoint {
     /// What routing has done since this endpoint started: forwarded, refused, and dropped.
     pub fn routing_counters(&self) -> RoutingCounters {
         self.shared.routing_stats.snapshot()
+    }
+
+    /// Spread announce relays over a random delay of `0..=max`, instead of relaying the
+    /// instant the router hands the announce over.
+    ///
+    /// Every neighbour that heard an announce is about to relay it. On a shared medium,
+    /// relaying immediately means relaying *simultaneously*, so a flood partly destroys
+    /// itself. Jitter is the cheapest fix: local timing only, nothing on the wire, nothing
+    /// asked of the radio.
+    ///
+    /// Off by default, since it costs latency and buys nothing on a point-to-point link.
+    /// Set it on a shared radio, to something near the air time of an announce (hundreds of
+    /// milliseconds on slow spreading factors, tens on fast ones).
+    pub fn set_relay_jitter(&self, max: Duration) {
+        let ms = max.as_millis().min(u128::from(u64::MAX)) as u64;
+        self.shared.relay_jitter_ms.store(ms, Ordering::Relaxed);
     }
 
     /// Set the first reliable-channel RTT estimate for subsequently opened links.
@@ -1825,12 +1856,21 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                         fwd.hops += 1;
                         fwd.header_type = crate::packet::HeaderType::Type2;
                         fwd.transport = Some(shared.identity.public().hash());
-                        let sent = shared.broadcast_transit(iface, fwd, &policy.allowed_egress);
-                        if sent > 0 {
-                            shared
-                                .routing_stats
-                                .forwarded_announces
-                                .fetch_add(1, Ordering::Relaxed);
+                        // Every neighbour that heard this announce is about to relay it. If
+                        // they all relay the instant the router hands it over, they transmit
+                        // on top of each other and the flood partly destroys itself. A short
+                        // random delay spreads the relays out. This is local timing only: it
+                        // changes nothing on the wire and needs nothing of the radio.
+                        let jitter = shared.relay_jitter();
+                        if jitter.is_zero() {
+                            relay_announce(shared, iface, fwd, &policy.allowed_egress);
+                        } else {
+                            let shared = Arc::clone(shared);
+                            let egress = policy.allowed_egress.clone();
+                            track(&Arc::clone(&shared), async move {
+                                tokio::time::sleep(jitter).await;
+                                relay_announce(&shared, iface, fwd, &egress);
+                            });
                         }
                     }
                 }
@@ -2030,6 +2070,21 @@ fn forward(shared: &Arc<Shared>, from: InterfaceId, pkt: Packet, policy: &Routin
                 .insert(link_id, (from, out));
         }
         forward_on(shared, out, pkt, policy);
+    }
+}
+
+/// Put a relayed announce on every permitted interface, counting it if it went anywhere.
+fn relay_announce(
+    shared: &Arc<Shared>,
+    from: InterfaceId,
+    pkt: Packet,
+    egress: &InterfaceSelector,
+) {
+    if shared.broadcast_transit(from, pkt, egress) > 0 {
+        shared
+            .routing_stats
+            .forwarded_announces
+            .fetch_add(1, Ordering::Relaxed);
     }
 }
 

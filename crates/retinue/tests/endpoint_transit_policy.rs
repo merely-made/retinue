@@ -242,6 +242,50 @@ async fn announces_relay_while_packets_are_refused() {
     );
 }
 
+/// Relay jitter delays an announce relay without losing it. Every neighbour that hears an
+/// announce relays it, so relaying instantly means relaying simultaneously; spreading them in
+/// time is the cheapest defence against a flood colliding with itself.
+#[tokio::test]
+async fn relay_jitter_delays_the_relay_without_dropping_it() {
+    let (hub, a, mut b) = hub();
+    hub.enable_routing();
+    hub.set_relay_jitter(Duration::from_millis(300));
+
+    let started = tokio::time::Instant::now();
+    let far = teach_route(&hub, &a, 3, "c").await;
+
+    let relayed = tokio::time::timeout(Duration::from_secs(3), b.next_outbound())
+        .await
+        .expect("a jittered relay still arrives")
+        .expect("interface open");
+    assert_eq!(relayed.packet_type, PacketType::Announce);
+    assert_eq!(relayed.destination, far);
+    assert_eq!(relayed.hops, 1);
+    assert_eq!(
+        hub.routing_counters().forwarded_announces,
+        1,
+        "a jittered relay is still counted, once"
+    );
+    // It cannot have arrived before the announce was even injected.
+    assert!(started.elapsed() < Duration::from_secs(3));
+}
+
+/// Jitter off is the default, so a point-to-point link pays no latency for a defence it does
+/// not need.
+#[tokio::test]
+async fn relay_jitter_is_off_by_default() {
+    let (hub, a, mut b) = hub();
+    hub.enable_routing();
+
+    let far = teach_route(&hub, &a, 3, "c").await;
+    // With no jitter the relay is already queued by the time the route is learned.
+    let relayed = tokio::time::timeout(Duration::from_millis(500), b.next_outbound())
+        .await
+        .expect("an unjittered relay goes out immediately")
+        .expect("interface open");
+    assert_eq!(relayed.destination, far);
+}
+
 /// Turning transit off leaves the endpoint's own service untouched: it still announces its
 /// own destinations and answers its own path requests.
 #[tokio::test]
