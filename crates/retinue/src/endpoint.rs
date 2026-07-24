@@ -18,7 +18,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
@@ -371,6 +371,132 @@ pub struct Interface {
     router_tx: mpsc::Sender<(InterfaceId, Packet)>,
 }
 
+/// Which interfaces a routing rule applies to.
+///
+/// Transit is directional: an endpoint may accept forwarded traffic from one interface and
+/// emit it on another without the reverse being true. A node bridging a public radio to a
+/// private wired segment, for instance, can carry the radio's traffic outward while refusing
+/// to inject anything from the wire back onto the air.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum InterfaceSelector {
+    /// No interface. Nothing is accepted from, or sent to, any of them.
+    #[default]
+    None,
+    /// Every attached interface, including ones attached later.
+    All,
+    /// Only the listed interfaces.
+    Only(Vec<InterfaceId>),
+}
+
+impl InterfaceSelector {
+    /// Whether this selector covers `iface`.
+    pub fn allows(&self, iface: InterfaceId) -> bool {
+        match self {
+            Self::None => false,
+            Self::All => true,
+            Self::Only(list) => list.contains(&iface),
+        }
+    }
+}
+
+/// What this endpoint carries on behalf of others.
+///
+/// Transit is not one switch: a node may relay announces so its neighbours stay discoverable
+/// while refusing to carry their data, may accept transit from one interface only, or may cap
+/// how far it will propagate traffic. Every axis is independent, and the default
+/// ([`RoutingPolicy::none`]) carries nothing — an endpoint moves its own traffic until its
+/// owner opts in.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RoutingPolicy {
+    /// Re-broadcast others' announces (hops+1, de-duplicated, never back the way they came),
+    /// which is what makes destinations behind this node discoverable.
+    pub forward_announces: bool,
+    /// Forward others' data, link, and proof packets toward their destinations.
+    pub forward_packets: bool,
+    /// Interfaces this endpoint will accept transit *from*.
+    pub allowed_ingress: InterfaceSelector,
+    /// Interfaces this endpoint will emit transit *on*.
+    pub allowed_egress: InterfaceSelector,
+    /// Hop ceiling for forwarded traffic. A packet at or above this is dropped rather than
+    /// relayed, bounding how far this node will carry anything.
+    pub max_hops: u8,
+}
+
+impl Default for RoutingPolicy {
+    fn default() -> Self {
+        Self::none()
+    }
+}
+
+impl RoutingPolicy {
+    /// Carry nothing: the endpoint moves only its own traffic. The default.
+    pub const fn none() -> Self {
+        Self {
+            forward_announces: false,
+            forward_packets: false,
+            allowed_ingress: InterfaceSelector::None,
+            allowed_egress: InterfaceSelector::None,
+            max_hops: 0,
+        }
+    }
+
+    /// Carry everything, in both directions, out to the protocol's hop ceiling. This is what
+    /// [`Endpoint::enable_routing`] installs.
+    pub const fn transit() -> Self {
+        Self {
+            forward_announces: true,
+            forward_packets: true,
+            allowed_ingress: InterfaceSelector::All,
+            allowed_egress: InterfaceSelector::All,
+            max_hops: MAX_HOPS,
+        }
+    }
+
+    /// Whether a packet arriving on `iface` may be forwarded at all under this policy.
+    fn accepts_transit_from(&self, iface: InterfaceId) -> bool {
+        self.forward_packets && self.allowed_ingress.allows(iface)
+    }
+
+    /// Whether an announce arriving on `iface` may be re-broadcast under this policy.
+    fn relays_announce_from(&self, iface: InterfaceId) -> bool {
+        self.forward_announces && self.allowed_ingress.allows(iface)
+    }
+}
+
+/// A snapshot of what routing has done, for diagnostics and for proving a policy is enforced.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RoutingCounters {
+    /// Data, link, and proof packets forwarded on behalf of others.
+    pub forwarded_packets: u64,
+    /// Announces re-broadcast on behalf of others.
+    pub forwarded_announces: u64,
+    /// Packets a policy refused: transit disabled, or the ingress/egress interface not
+    /// permitted.
+    pub policy_rejected: u64,
+    /// Packets dropped for reaching the policy's hop ceiling.
+    pub hop_limit_dropped: u64,
+}
+
+/// The live counter cells behind [`RoutingCounters`].
+#[derive(Debug, Default)]
+struct RoutingStats {
+    forwarded_packets: AtomicU64,
+    forwarded_announces: AtomicU64,
+    policy_rejected: AtomicU64,
+    hop_limit_dropped: AtomicU64,
+}
+
+impl RoutingStats {
+    fn snapshot(&self) -> RoutingCounters {
+        RoutingCounters {
+            forwarded_packets: self.forwarded_packets.load(Ordering::Relaxed),
+            forwarded_announces: self.forwarded_announces.load(Ordering::Relaxed),
+            policy_rejected: self.policy_rejected.load(Ordering::Relaxed),
+            hop_limit_dropped: self.hop_limit_dropped.load(Ordering::Relaxed),
+        }
+    }
+}
+
 impl Interface {
     /// This interface's id.
     pub fn id(&self) -> InterfaceId {
@@ -498,7 +624,9 @@ struct Shared {
     pending_links: Mutex<HashMap<AddressHash, link::PendingLink>>,
     next_iface_id: AtomicU32,
     /// Whether this endpoint acts as a transport node (forwards announces and packets).
-    routing: AtomicBool,
+    routing: Mutex<RoutingPolicy>,
+    /// What routing has actually done, for diagnostics and policy proof.
+    routing_stats: RoutingStats,
     /// First reliable-channel RTT estimate. Proofs adapt it after traffic starts.
     reliable_initial_rtt_ms: AtomicU64,
     /// Maximum unproved reliable frames allowed in flight on subsequently opened links.
@@ -554,14 +682,22 @@ impl Shared {
         }
     }
 
-    /// Send a packet out every interface except one (announce forwarding: never back the
-    /// way it came).
-    fn broadcast_except(&self, except: InterfaceId, pkt: Packet) {
+    /// Relay a packet out every interface except the one it arrived on, restricted to those
+    /// the egress selector permits. Returns how many interfaces it went out on, so a caller
+    /// can tell a real relay from a policy that permitted nothing.
+    fn broadcast_transit(
+        &self,
+        except: InterfaceId,
+        pkt: Packet,
+        egress: &InterfaceSelector,
+    ) -> usize {
+        let mut sent = 0;
         for i in self.interfaces.lock().unwrap().iter() {
-            if i.id != except {
-                let _ = i.outbound.send(pkt.clone());
+            if i.id != except && egress.allows(i.id) && i.outbound.send(pkt.clone()).is_ok() {
+                sent += 1;
             }
         }
+        sent
     }
 
     /// Send a packet out one interface, addressed through that interface's transport node if
@@ -720,7 +856,8 @@ impl Endpoint {
             pending: Mutex::new(HashMap::new()),
             pending_links: Mutex::new(HashMap::new()),
             next_iface_id: AtomicU32::new(0),
-            routing: AtomicBool::new(false),
+            routing: Mutex::new(RoutingPolicy::none()),
+            routing_stats: RoutingStats::default(),
             reliable_initial_rtt_ms: AtomicU64::new(DEFAULT_RELIABLE_INITIAL_RTT_MS),
             reliable_max_window: AtomicU32::new(DEFAULT_RELIABLE_MAX_WINDOW),
             link_setup_retry_ms: AtomicU64::new(DEFAULT_LINK_SETUP_RETRY_MS),
@@ -808,8 +945,31 @@ impl Endpoint {
     /// Act as a transport node: forward announces (hops+1, de-duplicated, never back the way
     /// they came) and forward packets toward learned destinations. Off by default, since an
     /// endpoint carries only its own traffic unless it opts in.
+    ///
+    /// Shorthand for [`RoutingPolicy::transit`]; use
+    /// [`set_routing_policy`](Self::set_routing_policy) for anything narrower.
     pub fn enable_routing(&self) {
-        self.shared.routing.store(true, Ordering::Relaxed);
+        self.set_routing_policy(RoutingPolicy::transit());
+    }
+
+    /// Install the transit policy: what this endpoint carries for others, from and to which
+    /// interfaces, and how far. Takes effect for packets routed after it returns.
+    ///
+    /// Transit and local service are independent. Carrying nothing
+    /// ([`RoutingPolicy::none`], the default) does not affect this endpoint's own links,
+    /// announces, or registered destinations.
+    pub fn set_routing_policy(&self, policy: RoutingPolicy) {
+        *self.shared.routing.lock().unwrap() = policy;
+    }
+
+    /// The transit policy currently installed.
+    pub fn routing_policy(&self) -> RoutingPolicy {
+        self.shared.routing.lock().unwrap().clone()
+    }
+
+    /// What routing has done since this endpoint started: forwarded, refused, and dropped.
+    pub fn routing_counters(&self) -> RoutingCounters {
+        self.shared.routing_stats.snapshot()
     }
 
     /// Set the first reliable-channel RTT estimate for subsequently opened links.
@@ -1211,7 +1371,8 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
     }
     // Transport-node forwarding (announces are re-forwarded in their own arm instead, so
     // they still populate our address book).
-    if pkt.packet_type != PacketType::Announce && shared.routing.load(Ordering::Relaxed) {
+    let policy = shared.routing.lock().unwrap().clone();
+    if pkt.packet_type != PacketType::Announce {
         // A packet whose destination is a link we bridge goes to the opposite side, whatever
         // its header type: the two endpoints may address it differently (one type-2 through
         // us, one type-1 direct, e.g. a responder that never learned it is behind us).
@@ -1221,16 +1382,26 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
             .unwrap()
             .get(&pkt.destination)
             .copied();
-        if let Some((a, b)) = bridged {
-            forward_on(shared, if iface == a { b } else { a }, pkt);
-            return;
-        }
-        // A header-type-2 packet addressed to us as the transport hop: forward toward its
-        // destination (and record a bridge if it is a link request).
-        if pkt.header_type == crate::packet::HeaderType::Type2
-            && pkt.transport == Some(shared.identity.public().hash())
-        {
-            forward(shared, iface, pkt);
+        // A header-type-2 packet addressed to us as the transport hop is likewise someone
+        // else's traffic asking to be carried.
+        let addressed_to_us_as_hop = pkt.header_type == crate::packet::HeaderType::Type2
+            && pkt.transport == Some(shared.identity.public().hash());
+
+        if bridged.is_some() || addressed_to_us_as_hop {
+            // This is transit, not ours. Policy decides whether we carry it; a refusal is
+            // counted and the packet is dropped rather than falling through to local
+            // handling, since we are not its destination either way.
+            if !policy.accepts_transit_from(iface) {
+                shared
+                    .routing_stats
+                    .policy_rejected
+                    .fetch_add(1, Ordering::Relaxed);
+                return;
+            }
+            match bridged {
+                Some((a, b)) => forward_on(shared, if iface == a { b } else { a }, pkt, &policy),
+                None => forward(shared, iface, pkt, &policy),
+            }
             return;
         }
     }
@@ -1257,16 +1428,27 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                 });
                 // As a transport node, propagate the announce onward: hops+1, stamped with
                 // our identity as the transport node so downstream peers address replies
-                // through us, out every other interface, de-duplicated by packet hash.
-                if shared.routing.load(Ordering::Relaxed)
-                    && pkt.hops < MAX_HOPS
-                    && shared.announce_is_new(pkt.hash())
-                {
-                    let mut fwd = pkt;
-                    fwd.hops += 1;
-                    fwd.header_type = crate::packet::HeaderType::Type2;
-                    fwd.transport = Some(shared.identity.public().hash());
-                    shared.broadcast_except(iface, fwd);
+                // through us, out every permitted interface but the one it came in on,
+                // de-duplicated by packet hash.
+                if policy.relays_announce_from(iface) && shared.announce_is_new(pkt.hash()) {
+                    if pkt.hops >= policy.max_hops {
+                        shared
+                            .routing_stats
+                            .hop_limit_dropped
+                            .fetch_add(1, Ordering::Relaxed);
+                    } else {
+                        let mut fwd = pkt;
+                        fwd.hops += 1;
+                        fwd.header_type = crate::packet::HeaderType::Type2;
+                        fwd.transport = Some(shared.identity.public().hash());
+                        let sent = shared.broadcast_transit(iface, fwd, &policy.allowed_egress);
+                        if sent > 0 {
+                            shared
+                                .routing_stats
+                                .forwarded_announces
+                                .fetch_add(1, Ordering::Relaxed);
+                        }
+                    }
                 }
             }
         }
@@ -1430,8 +1612,12 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
 
 /// Forward a header-type-2 packet addressed to us as a transport hop, toward its
 /// destination. `from` is the interface it arrived on.
-fn forward(shared: &Arc<Shared>, from: InterfaceId, pkt: Packet) {
-    if pkt.hops >= MAX_HOPS {
+fn forward(shared: &Arc<Shared>, from: InterfaceId, pkt: Packet, policy: &RoutingPolicy) {
+    if pkt.hops >= policy.max_hops {
+        shared
+            .routing_stats
+            .hop_limit_dropped
+            .fetch_add(1, Ordering::Relaxed);
         return;
     }
     let dest = pkt.destination;
@@ -1439,6 +1625,15 @@ fn forward(shared: &Arc<Shared>, from: InterfaceId, pkt: Packet) {
     // Route toward the destination by the path table (unexpired routes only).
     let next = shared.path_iface(dest);
     if let Some(out) = next {
+        // Refuse before recording anything: a bridge recorded for a route policy will not
+        // carry would strand the link's later packets in a table that never fires.
+        if !policy.allowed_egress.allows(out) {
+            shared
+                .routing_stats
+                .policy_rejected
+                .fetch_add(1, Ordering::Relaxed);
+            return;
+        }
         // A link request establishes a bridge: record the link id's two interfaces so the
         // proof and subsequent link data forward back the way they came.
         if pkt.packet_type == PacketType::LinkRequest
@@ -1450,13 +1645,34 @@ fn forward(shared: &Arc<Shared>, from: InterfaceId, pkt: Packet) {
                 .unwrap()
                 .insert(link_id, (from, out));
         }
-        forward_on(shared, out, pkt);
+        forward_on(shared, out, pkt, policy);
     }
 }
 
 /// Re-address a forwarded packet for the interface it leaves on (stripping our transport
 /// stamp, so `send_on` re-adds the next hop's if there is one), bump hops, and send.
-fn forward_on(shared: &Arc<Shared>, out: InterfaceId, mut pkt: Packet) {
+///
+/// This is transit's single egress choke point: every packet carried for someone else leaves
+/// through here, so the egress permission and the forwarded count are both enforced once.
+fn forward_on(shared: &Arc<Shared>, out: InterfaceId, mut pkt: Packet, policy: &RoutingPolicy) {
+    if !policy.allowed_egress.allows(out) {
+        shared
+            .routing_stats
+            .policy_rejected
+            .fetch_add(1, Ordering::Relaxed);
+        return;
+    }
+    if pkt.hops >= policy.max_hops {
+        shared
+            .routing_stats
+            .hop_limit_dropped
+            .fetch_add(1, Ordering::Relaxed);
+        return;
+    }
+    shared
+        .routing_stats
+        .forwarded_packets
+        .fetch_add(1, Ordering::Relaxed);
     pkt.hops += 1;
     pkt.header_type = crate::packet::HeaderType::Type1;
     pkt.transport = None;
