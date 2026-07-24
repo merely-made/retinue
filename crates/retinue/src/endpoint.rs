@@ -143,12 +143,24 @@ pub struct LinkStream {
     inner: DuplexStream,
     /// The link id, exposed for diagnostics.
     link_id: AddressHash,
+    /// The interface this link arrived on (inbound) or was opened over (outbound).
+    iface: InterfaceId,
 }
 
 impl LinkStream {
     /// The id of the link carrying this stream.
     pub fn link_id(&self) -> AddressHash {
         self.link_id
+    }
+
+    /// The interface this link arrived on.
+    ///
+    /// Ingress is a *fact about the session*, so it lives on the stream rather
+    /// than only on the accepted-session wrappers: the reliable accept path
+    /// surfaces a bare `LinkStream`, and it must report the same ingress as the
+    /// best-effort and Resource paths instead of diverging.
+    pub fn interface(&self) -> InterfaceId {
+        self.iface
     }
 }
 
@@ -194,6 +206,11 @@ impl ResourceSession {
     /// The id of the link carrying this resource session.
     pub fn link_id(&self) -> AddressHash {
         self.link.id()
+    }
+
+    /// The interface this resource link arrived on.
+    pub fn interface(&self) -> InterfaceId {
+        self.iface
     }
 
     /// Replace the retry and overall timeout policy for subsequent transfer work.
@@ -317,6 +334,12 @@ pub struct Accepted {
     pub stream: LinkStream,
     /// The destination hash the link request targeted (an ALPN maps to one).
     pub destination: AddressHash,
+    /// The interface the link request arrived on.
+    ///
+    /// A transport fact, not a claim: it is the interface the router actually
+    /// received the packet on, so a policy layer above can distinguish a peer
+    /// reaching a service over the local mesh from one arriving over TCP.
+    pub interface: InterfaceId,
 }
 
 /// An accepted resource link and the destination it arrived on.
@@ -325,6 +348,8 @@ pub struct AcceptedResource {
     pub session: ResourceSession,
     /// The destination hash the link request targeted.
     pub destination: AddressHash,
+    /// The interface the link request arrived on.
+    pub interface: InterfaceId,
 }
 
 /// A live link and the channel that feeds its stream inbound bytes.
@@ -1313,6 +1338,7 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                             let _ = shared.resource_accepted_tx.send(AcceptedResource {
                                 session,
                                 destination: dest,
+                                interface: iface,
                             });
                         }
                         RegistrationKind::BestEffort => {
@@ -1320,6 +1346,7 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                             let _ = shared.accepted_tx.send(Accepted {
                                 stream,
                                 destination: dest,
+                                interface: iface,
                             });
                         }
                     }
@@ -1518,6 +1545,7 @@ fn register_stream(shared: &Arc<Shared>, link: Link, iface: InterfaceId) -> Link
     LinkStream {
         inner: mine,
         link_id,
+        iface,
     }
 }
 
@@ -1669,6 +1697,7 @@ fn register_reliable_stream(
     LinkStream {
         inner: mine,
         link_id,
+        iface,
     }
 }
 
