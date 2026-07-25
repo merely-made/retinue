@@ -19,6 +19,7 @@ host-usb = []
 host-uart-low-power = []
 
 [dependencies]
+critical-section = "1.2.0"
 embassy-executor = "0.10.0"
 embassy-futures = "0.1.2"
 embassy-time = "0.5.1"

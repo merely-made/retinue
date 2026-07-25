@@ -28,6 +28,8 @@ use selvage::{
     WAKE_BYTE, decode_config_command,
 };
 
+mod power;
+
 esp_bootloader_esp_idf::esp_app_desc!();
 
 /// Host UART line rate for the low-power personality. Matches the host default in
@@ -114,7 +116,16 @@ async fn main(_spawner: Spawner) {
 
     let sw_int = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     let timg0 = TimerGroup::new(peripherals.TIMG0);
+
+    // The USB personality keeps the stock idle loop: its host link cannot survive Light-sleep,
+    // so there is nothing to gain and a re-enumeration failure to lose.
+    #[cfg(feature = "host-usb")]
     esp_rtos::start(timg0.timer0, sw_int.software_interrupt0);
+
+    // The low-power personality installs a gated idle hook instead. It only sleeps once
+    // `power::arm` hands it the RTC, which happens after the radio is receiving.
+    #[cfg(feature = "host-uart-low-power")]
+    esp_rtos::start_with_idle_hook(timg0.timer0, sw_int.software_interrupt0, power::idle);
 
     // The host link. Both personalities implement `embedded_io_async::{Read, Write}`, so
     // everything below is written once and built twice.
@@ -226,8 +237,16 @@ async fn main(_spawner: Spawner) {
     let mut prepare_rx = true;
     let mut tx_power_dbm = TX_POWER_DBM;
 
+    // Hand the RTC to the idle hook. Only now is sleeping meaningful: the radio is about to be
+    // armed for continuous receive, so a sleeping CPU still hears packets.
+    #[cfg(feature = "host-uart-low-power")]
+    power::arm(esp_hal::rtc_cntl::Rtc::new(peripherals.LPWR));
+
     loop {
         if prepare_rx {
+            // Configuring the radio is SPI traffic; sleeping through it would abandon a
+            // half-finished transaction.
+            let _awake = power::Awake::new();
             if lora
                 .prepare_for_rx(RxMode::Continuous, &modulation, &rx_params)
                 .await
@@ -241,12 +260,23 @@ async fn main(_spawner: Spawner) {
 
         let mut usb_packet = [0_u8; 64];
         let mut radio_frame = [0_u8; MAX_RADIO_FRAME];
-        match select(
+        // The one point this loop is genuinely idle: both sides are merely waiting, the radio
+        // is listening on its own, and nothing is half-done. Sleeping is allowed here and
+        // nowhere else — but only at a frame boundary, since a wake eats the bytes that
+        // triggered it and would truncate a command already in progress.
+        let waiting = select(
             embedded_io_async::Read::read(&mut usb_rx, &mut usb_packet),
             lora.rx(&rx_params, &mut radio_frame),
-        )
-        .await
-        {
+        );
+        let outcome = if usb_command_len == 0 {
+            waiting.await
+        } else {
+            let _awake = power::Awake::new();
+            waiting.await
+        };
+        // Everything past here touches SPI, the radio, or the host link.
+        let _awake = power::Awake::new();
+        match outcome {
             Either::Second(Ok((length, packet_status))) => {
                 let length = usize::from(length);
                 let mut event = [0_u8; 7 + MAX_RADIO_FRAME];

@@ -2418,6 +2418,7 @@ dependencies = [
 name = "tulle-heltec-v4-phy"
 version = "0.0.1"
 dependencies = [
+ "critical-section",
  "embassy-executor",
  "embassy-futures",
  "embassy-time",
