@@ -24,8 +24,8 @@ use lora_phy::iv::GenericSx126xInterfaceVariant;
 use lora_phy::sx126x::{Config as Sx126xConfig, Sx126x, Sx1262, TcxoCtrlVoltage};
 use lora_phy::{LoRa, RxMode};
 use selvage::{
-    CMD_CONFIG, CMD_TX, CONFIG_COMMAND_LEN, EVENT_CONFIG, EVENT_RX, EVENT_TX, MESHTASTIC_SYNC_WORD,
-    WAKE_BYTE, decode_config_command,
+    CMD_CONFIG, CMD_TX, CONFIG_COMMAND_LEN, EVENT_CONFIG, EVENT_DIAGNOSTIC, EVENT_RX, EVENT_TX,
+    MESHTASTIC_SYNC_WORD, WAKE_BYTE, decode_config_command,
 };
 
 mod power;
@@ -315,6 +315,19 @@ async fn main(_spawner: Spawner) {
                 }
                 if packet == b"sync\n" || packet == b"sync\r\n" {
                     let _ = write_all(&mut usb_tx, b"2b 24b4\r\n").await;
+                    continue;
+                }
+                // Sleep diagnostics, for the power receipt: how many times the idle hook
+                // actually slept, and how many times it wanted to but the gate was closed.
+                // A build that never sleeps answers with zeros rather than nothing, so the
+                // bench can tell "not sleeping" from "wrong firmware".
+                if packet == b"sleep\n" || packet == b"sleep\r\n" {
+                    let (entries, blocked) = power::counters();
+                    let mut report = [0_u8; 9];
+                    report[0] = EVENT_DIAGNOSTIC;
+                    report[1..5].copy_from_slice(&entries.to_le_bytes());
+                    report[5..9].copy_from_slice(&blocked.to_le_bytes());
+                    let _ = write_all(&mut usb_tx, &report).await;
                     continue;
                 }
 

@@ -36,6 +36,12 @@ mod stub {
             Self
         }
     }
+
+    /// Always zero: this build has no idle hook and never sleeps. Answering rather than
+    /// staying silent lets the bench distinguish "not sleeping" from "wrong firmware".
+    pub fn counters() -> (u32, u32) {
+        (0, 0)
+    }
 }
 
 #[cfg(feature = "host-uart-low-power")]
