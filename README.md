@@ -13,6 +13,7 @@ its own README; this file is the map.
 | [`selvage`](crates/selvage) | The PHY parameter profile shared by the host stacks and the firmware. |
 | [`sennet`](crates/sennet) | Independent, permissively licensed mesh radio protocol implementation, Meshtastic-compatible on the wire. |
 | [`tucket`](crates/tucket) | MeshCore interop: node management, routing, and text interop over LoRa mesh. |
+| [`outrider`](crates/outrider) | LXMF boundary crate: message codec, delivery, and propagation over Reticulum. Founded; no wire code yet. |
 
 ## Firmware
 

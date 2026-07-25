@@ -53,7 +53,7 @@ jobs:
   # gets a compile error instead of a clean "requires a newer rustc". This job is
   # the defence.
   #
-  # It names the five host crates instead of running at the workspace root: the
+  # It names the six host crates instead of running at the workspace root: the
   # firmware is a workspace member that reaches rustc 1.93 through `fixed`, so a
   # root-level run would fail on a crate the MSRV deliberately does not cover.
   msrv:
@@ -62,7 +62,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.88.0
       - name: Build and test on the declared MSRV
-        run: cargo test -p retinue -p tulle -p selvage -p sennet -p tucket
+        run: cargo test -p retinue -p tulle -p selvage -p sennet -p tucket -p outrider
 
   # The firmware members build for their own targets and are not default members, so
   # the host jobs above never compile them. This guards the flash-critical path: a

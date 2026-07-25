@@ -1,0 +1,13 @@
+[package]
+name = "outrider"
+version = "0.0.1"
+edition = "2024"
+rust-version.workspace = true
+description = "LXMF boundary crate in the retinue family: message codec, delivery, and propagation over Reticulum."
+license = "MPL-2.0"
+repository = "https://github.com/mark-ik/retinue"
+readme = "README.md"
+keywords = ["lxmf", "reticulum", "mesh", "messaging"]
+categories = ["network-programming"]
+
+[dependencies]

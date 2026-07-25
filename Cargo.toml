@@ -6,6 +6,7 @@ members = [
     "crates/selvage",
     "crates/sennet",
     "crates/tucket",
+    "crates/outrider",
     "firmware/heltec-v4-phy",
     "firmware/t114-phy",
 ]
@@ -18,19 +19,20 @@ default-members = [
     "crates/selvage",
     "crates/sennet",
     "crates/tucket",
+    "crates/outrider",
 ]
 
 [workspace.package]
-# Minimum supported Rust version for the five published host crates. It is a
+# Minimum supported Rust version for the six published host crates. It is a
 # promise to anyone depending on them, so CI holds it: the `msrv` job builds
-# and tests those five on exactly this toolchain.
+# and tests those six on exactly this toolchain.
 #
 # 1.88 is measured. 1.85 (the edition-2024 floor) builds selvage and tulle but
 # fails retinue, sennet, and tucket on let-chains, stabilized in 1.88.
 #
 # The firmware does NOT inherit this: it reaches rustc 1.93 through `fixed`
 # (via the vendored lora-phy). It is unpublished, so a library floor would be a
-# promise with no consumer. That also means the MSRV job must name the five
+# promise with no consumer. That also means the MSRV job must name the six
 # crates rather than run at the workspace root, which would drag the firmware
 # in and fail on `fixed`.
 rust-version = "1.88"
