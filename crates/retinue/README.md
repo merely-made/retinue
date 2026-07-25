@@ -56,6 +56,11 @@ Honest about what is *not* done, so nobody deploys it expecting more:
 - **Routing**: route expiry, announce-rate budgeting, owned-destination path
   responses, and transport forwarding are implemented. Open-network hardening
   and announce-cache responses on behalf of other nodes remain outstanding.
+- **Spec parity**: IFAC (interface access codes) is not implemented; only the
+  header flag is decoded, so IFAC-protected interfaces cannot be joined.
+  Outbound single-packet ratchet encryption is not implemented either
+  (announce ratchets are parsed and validated; links have their own forward
+  secrecy). Both matter on community RNS networks, not on a private bench.
 - **Reliable interop**: both link directions use the captured IDENTIFY exchange,
   including bounded retransmission under loss. The complete reliable and Resource
   exchange through the Tulle radio pump passed on 2026-07-22; see

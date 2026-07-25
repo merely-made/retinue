@@ -9,7 +9,8 @@
 //!
 //! The wire vocabulary, links, resources, request/response, the endpoint runtime, opt-in
 //! transport-node routing, and reliable streaming are all implemented and checked
-//! byte-for-byte against RNS 1.3.8 (run as a black-box oracle; see *Provenance*). The
+//! byte-for-byte against a black-box RNS oracle (pinned at 1.4.0; the committed fixtures
+//! retain their observed 1.3.8 provenance; see *Provenance*). The
 //! layering:
 //!
 //! - **Sans-io core** — always available, no runtime or RNG: the packet codec
@@ -22,10 +23,13 @@
 //!   and opens/accepts links as streams. Turn the feature off and the sans-io core stands
 //!   alone.
 //!
-//! Transport-node routing is opt-in ([`endpoint::Endpoint::enable_routing`]); the default
-//! posture is endpoint-scoped. Not yet done: on-air interfaces (serial/RNode/UDP), an
-//! endpoint-level resource-transfer API, and route expiry/budgeting. See the README's
-//! *Maturity* section and `design_docs/`.
+//! Transport-node routing is opt-in ([`endpoint::Endpoint::enable_routing`], or a full
+//! [`endpoint::RoutingPolicy`]); the default posture is endpoint-scoped. On-air interfaces
+//! (RNode serial, direct PHY) live in the sibling `tulle` crate and are proven over real
+//! RF; endpoint-level resource sessions, route expiry, and announce budgeting are
+//! implemented. Not yet done: IFAC (only the header flag is decoded) and outbound
+//! single-packet ratchet encryption (announce ratchets are parsed and validated). See the
+//! README's *Maturity* section and `design_docs/`.
 //!
 //! # Provenance
 //!

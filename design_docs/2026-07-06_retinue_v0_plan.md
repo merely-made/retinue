@@ -1,5 +1,23 @@
 # retinue v0 — Endpoint-Scoped Reticulum
 
+**Status (2026-07-25): the on-air milestone is REAL.** R10's interface lane landed
+as the sibling `tulle` crate rather than `retinue::iface` modules: RNode host
+protocol (gold-tested against hardware), KISS, and the direct-PHY serial protocol,
+with headed RF receipts on real boards (`2026-07-21_first_reliable_link_over_rf.md`,
+`2026-07-22_tulle_headed_acceptance.md`, `2026-07-23_direct_phy_resource_acceptance.md`).
+The pre-R10 gate items all landed: Channel/Buffer reliability (lossy-oracle-tested,
+then RF-proven), RTT-adaptive retransmit, resource retries/cancels and bounded HMUs,
+route expiry, announce budgeting, and announce-relay jitter. The README exit
+criterion is executed. Remaining spec-parity debts: **R8 IFAC** (only the flag is
+decoded) and **R9 outbound ratchet encryption**. The naming question below is
+closed: the repo is now the radio-family workspace and "retinue" names the
+household, which restores the metaphor the routing scope change had broken.
+LXMF remains out of the RNS stack, but its disposition is decided (mere's
+`2026-07-06_lxmf_key_addressed_mail_research.md`, option C + 2026-07-24 addendum):
+a boundary-format adapter and offered propagation service, a candidate spec-based
+sibling crate in this workspace on the sennet posture, never the internal
+message semantics.
+
 **Status (2026-07-22):** **R0–R7 done and R5 (mere adoption) landed — retinue now
 backs mere's `Transport` trait, live-verified against RNS 1.4.0.** retinue holds
 an identity; builds and validates announces (ratcheted and not); frames HDLC; exchanges

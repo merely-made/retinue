@@ -2,7 +2,16 @@
 
 **Status:** research direction, revised 2026-07-19. This replaces the earlier
 interpretation of a GPL source port beside an unrelated embedded Retinue port.
-None of the firmware described here exists yet.
+
+**Update (2026-07-25):** "MIT/Apache" below is superseded: the household is
+MPL-2.0 since 2026-07-23 (ruling in
+`2026-07-20_mesh_household_tulle_tucket_sennet.md`), and the firmware crates
+live in this workspace rather than a separate one. Of the personalities below,
+the direct-PHY modem is built and RF-proven on V4 and T114 (it was not in this
+doc's table and leapfrogged the RNode-compatible image, which remains unbuilt).
+Native embedded Retinue has not begun. The Meshtastic-facing analysis stands;
+sennet's host-side clean-room work has since produced captures, fixtures, and
+stock-compatible frames over the air.
 
 ## Verdict
 

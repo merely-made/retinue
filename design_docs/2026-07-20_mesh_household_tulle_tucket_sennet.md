@@ -34,6 +34,17 @@ independent project needs an independent name and non-endorsement language
 
 ## Crate topology: separate crates, separate repos
 
+> **Superseded in part (2026-07-23):** the four crates now live in ONE workspace
+> (`repos/retinue`), merged by subtree with each repo's full history preserved
+> and the standalone repos archived. Reason 1 below argued for separate repos on
+> provenance grounds; the merge does not abandon that discipline, it relocates
+> it. The auditable artifacts are now: each crate's preserved pre-merge history,
+> `crates/sennet/PROVENANCE.md` (the front door for the clean-room story),
+> `crates/tucket/NOTICE` (the MIT derivation record), and the fact that sennet's
+> history demonstrably contains no GPL-schema contact before or after the merge.
+> A reviewer follows the per-crate paper trail, not the repo boundary. Reasons 2
+> and 3 stand unchanged; "separate crates" survives, "separate repos" does not.
+
 Tucket and Sennet are siblings on top of Tulle, never one combined mesh crate,
 and never folded into retinue. Three reasons, in order of weight:
 

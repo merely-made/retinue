@@ -1,8 +1,20 @@
 # Heltec, RNode, and embedded Rust
 
-**Status:** accepted direction, revised 2026-07-19. This extends R10 in the v0
-plan. The firmware direction is an independently authored MIT/Apache radio
-workspace, not a GPL source port; implementation has not begun.
+**Status:** accepted direction, revised 2026-07-19; see the 2026-07-25 update
+at the end of this block. This extends R10 in the v0 plan. The firmware
+direction is an independently authored MPL-2.0 radio workspace, not a GPL
+source port.
+
+**Update (2026-07-25):** the license posture became MPL-2.0 for the whole
+household on 2026-07-23 (licensing ruling in
+`2026-07-20_mesh_household_tulle_tucket_sennet.md`), and the firmware lives in
+THIS workspace (`firmware/heltec-v4-phy`, `firmware/t114-phy`), not a separate
+one. System 1 (stock RNode) and the direct-PHY modem personality are built and
+RF-proven. The RNode-compatible Rust personality was leapfrogged by direct-PHY
+and remains unbuilt. System 3 (Retinue on the board, the executor-neutral node
+split) has not begun and is the accepted firmware destination: the radio holds
+the node, hosts attach as lenses; on-device UI is a status surface, never a
+composer.
 This document does not claim that Retinue or Rust RNode firmware currently runs
 on these boards. The focused follow-up
 [`2026-07-19_modem_embedded_and_meshtastic_research.md`](2026-07-19_modem_embedded_and_meshtastic_research.md)
