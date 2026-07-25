@@ -2,6 +2,7 @@
 name = "sennet"
 version = "0.0.2"
 edition = "2024"
+rust-version.workspace = true
 description = "Independent, permissively licensed mesh radio protocol implementation in the retinue family."
 license = "MPL-2.0"
 repository = "https://github.com/mark-ik/retinue"

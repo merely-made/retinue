@@ -2,6 +2,7 @@
 name = "tulle"
 version = "0.0.2"
 edition = "2024"
+rust-version.workspace = true
 description = "Shared radio interface layer for LoRa mesh stacks: serial modem control, direct PHY, and medium access."
 license = "MPL-2.0"
 repository = "https://github.com/mark-ik/retinue"

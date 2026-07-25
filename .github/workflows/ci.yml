@@ -47,6 +47,23 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
 
+  # The published crates declare rust-version = "1.88", which is a promise to
+  # anyone depending on them. Cargo records that number but never checks the code
+  # actually builds on it, so an undefended MSRV drifts silently and downstream
+  # gets a compile error instead of a clean "requires a newer rustc". This job is
+  # the defence.
+  #
+  # It names the five host crates instead of running at the workspace root: the
+  # firmware is a workspace member that reaches rustc 1.93 through `fixed`, so a
+  # root-level run would fail on a crate the MSRV deliberately does not cover.
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.88.0
+      - name: Build and test on the declared MSRV
+        run: cargo test -p retinue -p tulle -p selvage -p sennet -p tucket
+
   # The firmware members build for their own targets and are not default members, so
   # the host jobs above never compile them. This guards the flash-critical path: a
   # workspace-wide dependency bump that breaks the embedded build should fail here,

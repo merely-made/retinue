@@ -9,6 +9,7 @@ members = [
     "firmware/heltec-v4-phy",
     "firmware/t114-phy",
 ]
+
 # Firmware targets thumbv7em/xtensa and is built by name, not by default:
 #   cargo build -p tulle-t114-phy --release --target thumbv7em-none-eabihf
 default-members = [
@@ -18,6 +19,21 @@ default-members = [
     "crates/sennet",
     "crates/tucket",
 ]
+
+[workspace.package]
+# Minimum supported Rust version for the five published host crates. It is a
+# promise to anyone depending on them, so CI holds it: the `msrv` job builds
+# and tests those five on exactly this toolchain.
+#
+# 1.88 is measured. 1.85 (the edition-2024 floor) builds selvage and tulle but
+# fails retinue, sennet, and tucket on let-chains, stabilized in 1.88.
+#
+# The firmware does NOT inherit this: it reaches rustc 1.93 through `fixed`
+# (via the vendored lora-phy). It is unpublished, so a library floor would be a
+# promise with no consumer. That also means the MSRV job must name the five
+# crates rather than run at the workspace root, which would drag the firmware
+# in and fail on `fixed`.
+rust-version = "1.88"
 
 # Inherited from the tulle workspace at the 2026-07-23 radio-family merge, and
 # kept byte-identical: the firmware images are flash-size-bound, and `lto` and
