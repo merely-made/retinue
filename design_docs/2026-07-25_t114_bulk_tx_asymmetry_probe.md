@@ -2,6 +2,14 @@
 
 **Date:** 2026-07-25
 
+> **Followed up and closed 2026-07-26** by
+> [`2026-07-26_rnode_bulk_frame_loss.md`](2026-07-26_rnode_bulk_frame_loss.md).
+> The suspicion recorded below was right that the defect lives in the stock
+> RNode lane, but wrong that it is about the T114: with all three radios on
+> RNode 1.86, **both** board families lose frames as senders, and two
+> independent witnesses proved the missing frames are never transmitted at
+> all. Read that receipt for the real characterisation.
+
 **Result:** the asymmetry does not reproduce under Tulle direct-PHY firmware.
 The 2026-07-22 finding (repeated 243-byte frames from the T114 sometimes
 stopped arriving) was observed under stock RNode firmware 1.86 at BW 125 kHz.

@@ -58,10 +58,16 @@ Neither is tonight's work.
    remaining step is reflashing one V4 to RNode 1.86 for a session, running
    `rnode_bulk_probe` at BW 125 and 250, then restoring the V4.
 3. **Restoring the T114 to direct-PHY** when wanted: the RNode nRF52 build
-   sits on the Adafruit core, so a 1200-baud serial touch should re-enter the
+   sits on the Adafruit core, so a 1200-baud serial touch re-enters the
    bootloader without a reset press; then serial DFU with
-   `firmware/t114-phy/tulle-t114-phy-v10.zip`. Unverified claim; if the touch
-   does not work, it is one physical double-tap of the reset button.
+   `firmware/t114-phy/tulle-t114-phy-v10.zip`. **Verified 2026-07-26**:
+   opening the port at 1200 baud with DTR low drops it to `239A:0071`, and
+   the round trip out to RNode and back was done twice without touching the
+   board.
+
+Item 2 was carried out on 2026-07-26: a second and third RNode were flashed
+and the retest ran. See
+[`2026-07-26_rnode_bulk_frame_loss.md`](2026-07-26_rnode_bulk_frame_loss.md).
 
 ## Probe instrument
 

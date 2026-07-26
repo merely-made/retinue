@@ -30,7 +30,7 @@ selvage = { version = "0.0.1", path = "../selvage" }
 
 [dev-dependencies]
 serde_json = "1.0.151"
-tokio = { version = "1.53.1", features = ["io-util", "macros", "rt", "sync", "time"] }
+tokio = { version = "1.53.1", features = ["io-util", "macros", "rt", "rt-multi-thread", "sync", "time"] }
 
 [[example]]
 name = "rnode_smoke"
