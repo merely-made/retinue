@@ -197,6 +197,17 @@ impl RNode {
     pub fn last_error(&self) -> Option<&[u8]> {
         self.last_error.as_deref()
     }
+
+    /// Take the last `ERROR` frame payload, clearing it.
+    ///
+    /// A pump calls this to forward the device's own complaints to the host
+    /// instead of latching them where nobody looks. Worth surfacing: a device
+    /// that silently declines to transmit is indistinguishable from a healthy
+    /// one unless something reads this
+    /// (`design_docs/2026-07-26_rnode_bulk_frame_loss.md`).
+    pub fn take_last_error(&mut self) -> Option<Vec<u8>> {
+        self.last_error.take()
+    }
 }
 
 /// The CR wire value: RNode takes the denominator (5..=8 for 4/5..4/8).

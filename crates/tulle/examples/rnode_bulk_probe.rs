@@ -159,6 +159,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let started = Instant::now();
+    let mut device_errors = 0u32;
     let mut frame = vec![0u8; frame_len.max(4)];
     for seq in 0..count {
         frame[..4].copy_from_slice(&seq.to_be_bytes());
@@ -167,12 +168,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // One frame per airtime plus turnaround keeps the channel breathing
         // (2026-07-21 finding 2). The probe measures the radio, not the pump.
         tokio::time::sleep(airtime + Duration::from_millis(pace_ms)).await;
+        // The device reports refusals out of band. Before these were surfaced
+        // a silent drop was invisible from the host, which is what made the
+        // 2026-07-22 loss so hard to attribute.
+        while let Some(error) = sender.take_device_error() {
+            device_errors += 1;
+            println!("device reported an error at seq {seq}: {error:02x?}");
+        }
         if (seq + 1) % 50 == 0 {
             println!("sent {} of {count}", seq + 1);
         }
     }
     println!(
-        "flood sent: {count} frames in {:.1}s",
+        "flood sent: {count} frames in {:.1}s; device reported {device_errors} errors",
         started.elapsed().as_secs_f64()
     );
 

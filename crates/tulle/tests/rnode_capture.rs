@@ -170,3 +170,26 @@ fn enqueue_frames_data_and_prices_airtime() {
     assert_eq!(frames[0][0], 0x00, "DATA command");
     assert_eq!(&frames[0][1..], packet.as_slice(), "raw packet, verbatim");
 }
+
+/// The device latches an `ERROR` frame, and a pump can take it exactly once.
+///
+/// Before `take_last_error` existed the codec recorded these and nothing ever
+/// read them, which is how a radio that silently declines to transmit looks
+/// perfectly healthy from the host (`design_docs/2026-07-26_rnode_bulk_frame_loss.md`).
+#[test]
+fn a_device_error_is_taken_once_and_then_cleared() {
+    let mut rnode = RNode::new(capture_params());
+    rnode.on_serial(&kiss::encode(&[0x90, 0x07]));
+
+    assert_eq!(
+        rnode.last_error(),
+        Some(&[0x07][..]),
+        "the frame is latched"
+    );
+    assert_eq!(rnode.take_last_error(), Some(vec![0x07]));
+    assert_eq!(
+        rnode.take_last_error(),
+        None,
+        "a taken error does not reappear and re-alarm the host"
+    );
+}

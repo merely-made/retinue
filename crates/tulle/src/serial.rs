@@ -140,6 +140,7 @@ struct TxRequest {
 pub struct RNodeSerialLink {
     tx: mpsc::Sender<TxRequest>,
     rx: mpsc::Receiver<Received>,
+    errors: mpsc::Receiver<Vec<u8>>,
     status: watch::Receiver<PumpStatus>,
     shutdown: Option<oneshot::Sender<()>>,
     task: Option<JoinHandle<Result<(), io::Error>>>,
@@ -180,6 +181,7 @@ impl RNodeSerialLink {
         let (tx, tx_rx) = mpsc::channel(config.tx_queue);
         let (rx_tx, rx) = mpsc::channel(config.rx_queue);
         let (status_tx, status) = watch::channel(PumpStatus::Settling);
+        let (error_tx, errors) = mpsc::channel(config.rx_queue);
         let (shutdown, shutdown_rx) = oneshot::channel();
         let task_status = status_tx.clone();
         let task = tokio::spawn(async move {
@@ -187,9 +189,12 @@ impl RNodeSerialLink {
                 io,
                 RadioLink::new(RNode::new(params), budget),
                 config,
-                tx_rx,
-                rx_tx,
-                status_tx,
+                PumpChannels {
+                    tx_rx,
+                    rx_tx,
+                    status_tx,
+                    error_tx,
+                },
                 shutdown_rx,
             )
             .await;
@@ -207,6 +212,7 @@ impl RNodeSerialLink {
         Self {
             tx,
             rx,
+            errors,
             status,
             shutdown: Some(shutdown),
             task: Some(task),
@@ -253,6 +259,17 @@ impl RNodeSerialLink {
         self.rx.recv().await
     }
 
+    /// Take the next `ERROR` frame the device reported, if any is waiting.
+    ///
+    /// Non-blocking, so a caller can check it beside ordinary traffic. The
+    /// device latches these when it refuses something; before this existed the
+    /// codec recorded them and nothing ever read them, which is precisely how
+    /// a radio that silently declines to transmit looks healthy from the host
+    /// (`design_docs/2026-07-26_rnode_bulk_frame_loss.md`).
+    pub fn take_device_error(&mut self) -> Option<Vec<u8>> {
+        self.errors.try_recv().ok()
+    }
+
     /// Stop the task and wait for the serial port to close.
     pub async fn shutdown(mut self) -> Result<(), PumpError> {
         if let Some(shutdown) = self.shutdown.take() {
@@ -276,18 +293,30 @@ impl Drop for RNodeSerialLink {
     }
 }
 
+/// The pump's ends of the channels it shares with its [`RNodeSerialLink`].
+struct PumpChannels {
+    tx_rx: mpsc::Receiver<TxRequest>,
+    rx_tx: mpsc::Sender<Received>,
+    status_tx: watch::Sender<PumpStatus>,
+    error_tx: mpsc::Sender<Vec<u8>>,
+}
+
 async fn run_pump<T>(
     mut io: T,
     mut link: RadioLink<RNode>,
     config: SerialPumpConfig,
-    mut tx_rx: mpsc::Receiver<TxRequest>,
-    rx_tx: mpsc::Sender<Received>,
-    status_tx: watch::Sender<PumpStatus>,
+    channels: PumpChannels,
     mut shutdown: oneshot::Receiver<()>,
 ) -> Result<(), io::Error>
 where
     T: AsyncRead + AsyncWrite + Unpin,
 {
+    let PumpChannels {
+        mut tx_rx,
+        rx_tx,
+        status_tx,
+        error_tx,
+    } = channels;
     let epoch = Instant::now();
     if !config.open_settle.is_zero() {
         tokio::select! {
@@ -311,6 +340,12 @@ where
             if rx_tx.send(received).await.is_err() {
                 return Ok(());
             }
+        }
+
+        // The device's own complaints. Dropped rather than blocking the pump
+        // if nobody is draining them: diagnostics must never stall traffic.
+        if let Some(error) = link.modem_mut().take_last_error() {
+            let _ = error_tx.try_send(error);
         }
 
         if link.modem().is_online() && !announced_online {
