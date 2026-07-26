@@ -15,10 +15,10 @@ use tulle::PhyProfile;
 use tulle::airtime::AirtimeBudget;
 use tulle::direct_phy_serial::{DirectPhySerialConfig, DirectPhySerialLink};
 
-fn profile() -> PhyProfile {
+fn profile(bandwidth_hz: u32) -> PhyProfile {
     PhyProfile {
         frequency_hz: 906_875_000,
-        bandwidth_hz: 250_000,
+        bandwidth_hz,
         spreading_factor: 8,
         coding_rate_denominator: 5,
         preamble_symbols: 16,
@@ -52,6 +52,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(|value| value.parse::<usize>())
         .transpose()?
         .unwrap_or(4_096);
+    let bandwidth_hz = args
+        .next()
+        .map(|value| value.parse::<u32>())
+        .transpose()?
+        .unwrap_or(250)
+        * 1_000;
+    let transfer_timeout_secs = args
+        .next()
+        .map(|value| value.parse::<u64>())
+        .transpose()?
+        .unwrap_or(180);
 
     let radio_config = DirectPhySerialConfig {
         online_timeout: Duration::from_secs(10),
@@ -60,13 +71,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let mut client_radio = DirectPhySerialLink::open(
         &client_port,
-        profile(),
+        profile(bandwidth_hz),
         AirtimeBudget::new(60_000, 60_000),
         radio_config.clone(),
     )?;
     let mut server_radio = DirectPhySerialLink::open(
         &server_port,
-        profile(),
+        profile(bandwidth_hz),
         AirtimeBudget::new(60_000, 60_000),
         radio_config,
     )?;
@@ -95,7 +106,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("discovery: resource destination announced over direct PHY");
 
     let transfer = ResourceTransferConfig {
-        timeout: Duration::from_secs(180),
+        timeout: Duration::from_secs(transfer_timeout_secs),
         retry_interval: Duration::from_secs(3),
         request_window: 1,
     };
@@ -110,6 +121,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             accepted.session.fetch().await
         }
     });
+    let publish_started = std::time::Instant::now();
     client
         .publish_resource_with_config(destination, *server_id.public(), &outbound, transfer)
         .await?;
@@ -117,7 +129,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if received != expected_outbound {
         return Err("client-to-server resource was not byte-exact".into());
     }
-    println!("publish: client to server {resource_len} bytes passed");
+    let elapsed = publish_started.elapsed().as_secs_f64();
+    println!("publish: client to server {resource_len} bytes passed in {elapsed:.1}s");
 
     tokio::time::sleep(Duration::from_secs(2)).await;
 
@@ -131,6 +144,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             accepted.session.publish(&inbound).await
         }
     });
+    let fetch_started = std::time::Instant::now();
     let fetched = client
         .fetch_resource_with_config(destination, *server_id.public(), transfer)
         .await?;
@@ -138,7 +152,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if fetched != expected_inbound {
         return Err("server-to-client resource was not byte-exact".into());
     }
-    println!("fetch: server to client {resource_len} bytes passed");
+    let elapsed = fetch_started.elapsed().as_secs_f64();
+    println!("fetch: server to client {resource_len} bytes passed in {elapsed:.1}s");
 
     client_driver.abort();
     server_driver.abort();
