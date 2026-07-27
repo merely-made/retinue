@@ -18,7 +18,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
@@ -76,6 +76,20 @@ const DEFAULT_RELIABLE_INITIAL_RTT_MS: u64 = 750;
 /// Default dynamic Channel ceiling, matching RNS. Strict half-duplex callers
 /// can lower it without changing the wire format.
 const DEFAULT_RELIABLE_MAX_WINDOW: u32 = crate::channel::WINDOW_MAX;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Lifecycle {
+    Running,
+    Quiescing,
+    Closed,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Quiesce {
+    Started,
+    InProgress,
+    Closed,
+}
 
 /// Default link MTU advertised by Reticulum. Radio callers can lower it to
 /// keep encrypted Channel frames and resource parts inside a proven RF size.
@@ -329,6 +343,7 @@ impl Drop for ResourceSession {
     fn drop(&mut self) {
         self.shared.links.lock().unwrap().remove(&self.link.id());
         self.shared.send_on(self.iface, self.link.close_packet());
+        self.shared.end_resource();
     }
 }
 
@@ -746,6 +761,8 @@ struct QueueState {
     /// Without this the cursor is re-credited on every `pop`, and a class with a standing
     /// backlog never has to yield — which starves everything below it.
     credited: bool,
+    /// Packets handed to the interface pump whose delivery has not completed yet.
+    in_flight: usize,
     closed: bool,
 }
 
@@ -785,14 +802,11 @@ impl OutboundQueues {
         true
     }
 
-    /// Whether every class is empty, i.e. nothing is waiting for the writer.
+    /// Whether every class is empty and the interface pump has completed the packet it
+    /// most recently took.
     fn is_drained(&self) -> bool {
-        self.state
-            .lock()
-            .unwrap()
-            .queues
-            .iter()
-            .all(VecDeque::is_empty)
+        let state = self.state.lock().unwrap();
+        state.in_flight == 0 && state.queues.iter().all(VecDeque::is_empty)
     }
 
     /// Take the next packet the schedule allows, or `None` if every queue is empty.
@@ -837,6 +851,7 @@ impl OutboundQueues {
                     state.cursor = (i + 1) % TrafficClass::COUNT;
                 }
                 state.sent[i] += 1;
+                state.in_flight += 1;
                 return pkt;
             }
             state.credited = false;
@@ -848,10 +863,17 @@ impl OutboundQueues {
         for i in 0..TrafficClass::COUNT {
             if let Some(pkt) = state.queues[i].pop_front() {
                 state.sent[i] += 1;
+                state.in_flight += 1;
                 return Some(pkt);
             }
         }
         None
+    }
+
+    fn delivery_complete(&self) {
+        let mut state = self.state.lock().unwrap();
+        debug_assert!(state.in_flight > 0);
+        state.in_flight = state.in_flight.saturating_sub(1);
     }
 
     fn set_policy(&self, weights: QueueWeights, depths: QueueDepths) {
@@ -875,13 +897,16 @@ impl OutboundQueues {
 /// working, but the order packets arrive in is now the schedule's rather than arrival's.
 pub struct OutboundPackets {
     queues: Arc<OutboundQueues>,
+    delivery_in_flight: bool,
 }
 
 impl OutboundPackets {
     /// The next packet to put on the wire, or `None` once the endpoint is gone.
     pub async fn recv(&mut self) -> Option<Packet> {
+        self.complete_delivery();
         loop {
             if let Some(pkt) = self.queues.pop() {
+                self.delivery_in_flight = true;
                 return Some(pkt);
             }
             if self.queues.state.lock().unwrap().closed {
@@ -891,6 +916,7 @@ impl OutboundPackets {
             // cannot be missed.
             let notified = self.queues.ready.notified();
             if let Some(pkt) = self.queues.pop() {
+                self.delivery_in_flight = true;
                 return Some(pkt);
             }
             if self.queues.state.lock().unwrap().closed {
@@ -898,6 +924,19 @@ impl OutboundPackets {
             }
             notified.await;
         }
+    }
+
+    fn complete_delivery(&mut self) {
+        if self.delivery_in_flight {
+            self.queues.delivery_complete();
+            self.delivery_in_flight = false;
+        }
+    }
+}
+
+impl Drop for OutboundPackets {
+    fn drop(&mut self) {
+        self.complete_delivery();
     }
 }
 
@@ -957,6 +996,8 @@ enum RegistrationKind {
 
 /// Shared router state.
 struct Shared {
+    lifecycle: Mutex<Lifecycle>,
+    closed_notify: tokio::sync::Notify,
     identity: PrivateIdentity,
     address_book: Mutex<AddressBook>,
     links: Links,
@@ -1024,11 +1065,15 @@ struct Shared {
     tasks: Mutex<Vec<tokio::task::AbortHandle>>,
     /// Tasks that *finish on their own* once the thing feeding them goes away,
     /// as opposed to the perpetual ones (router, interface readers/writers,
-    /// listeners) that only ever stop by being aborted. Today this is the link
-    /// relays: each ends when its `LinkStream` is dropped, after draining the
-    /// duplex. [`Endpoint::shutdown`] awaits these before it stops anything,
-    /// which is what lets a written reply reach the wire.
+    /// listeners) that only ever stop by being aborted. These are the best-effort
+    /// outbound relays and reliable channel drivers. [`Endpoint::shutdown`] awaits
+    /// them before it stops anything, which lets written and proven replies reach
+    /// the wire.
     drainable: Mutex<Vec<tokio::task::JoinHandle<()>>>,
+    /// Caller-driven resource sessions must finish or be dropped before their close packet
+    /// can be included in an orderly shutdown.
+    active_resources: AtomicUsize,
+    resource_notify: tokio::sync::Notify,
 }
 
 /// A learned route to a destination.
@@ -1042,6 +1087,60 @@ struct PathEntry {
 }
 
 impl Shared {
+    fn is_running(&self) -> bool {
+        *self.lifecycle.lock().unwrap() == Lifecycle::Running
+    }
+
+    fn is_closed(&self) -> bool {
+        *self.lifecycle.lock().unwrap() == Lifecycle::Closed
+    }
+
+    fn begin_quiesce(&self) -> Quiesce {
+        let mut state = self.lifecycle.lock().unwrap();
+        match *state {
+            Lifecycle::Running => {
+                *state = Lifecycle::Quiescing;
+                Quiesce::Started
+            }
+            Lifecycle::Quiescing => Quiesce::InProgress,
+            Lifecycle::Closed => Quiesce::Closed,
+        }
+    }
+
+    fn mark_closed(&self) -> bool {
+        let mut state = self.lifecycle.lock().unwrap();
+        if *state == Lifecycle::Closed {
+            false
+        } else {
+            *state = Lifecycle::Closed;
+            true
+        }
+    }
+
+    fn register_interface(&self, iface: Iface) -> bool {
+        let state = self.lifecycle.lock().unwrap();
+        if *state != Lifecycle::Running {
+            return false;
+        }
+        self.interfaces.lock().unwrap().push(iface);
+        true
+    }
+
+    fn begin_resource(&self) -> bool {
+        let state = self.lifecycle.lock().unwrap();
+        if *state != Lifecycle::Running {
+            return false;
+        }
+        self.active_resources.fetch_add(1, Ordering::AcqRel);
+        true
+    }
+
+    fn end_resource(&self) {
+        let previous = self.active_resources.fetch_sub(1, Ordering::AcqRel);
+        debug_assert!(previous > 0);
+        self.resource_notify.notify_waiters();
+    }
+
     /// Send a packet out every interface (announces, path requests). These are our own
     /// protocol upkeep, so they ride the control class.
     fn broadcast(&self, pkt: Packet) {
@@ -1232,6 +1331,32 @@ pub struct Endpoint {
     announce_rx: AsyncMutex<mpsc::UnboundedReceiver<PeerAnnounce>>,
 }
 
+fn endpoint_closed() -> io::Error {
+    io::Error::new(io::ErrorKind::BrokenPipe, "endpoint closed")
+}
+
+async fn recv_until_closed<T>(
+    shared: &Arc<Shared>,
+    receiver: &AsyncMutex<mpsc::UnboundedReceiver<T>>,
+) -> io::Result<T> {
+    let closed = shared.closed_notify.notified();
+    if shared.is_closed() {
+        return Err(endpoint_closed());
+    }
+    tokio::select! {
+        value = async {
+            receiver.lock().await.recv().await
+        } => {
+            if shared.is_closed() {
+                Err(endpoint_closed())
+            } else {
+                value.ok_or_else(endpoint_closed)
+            }
+        },
+        _ = closed => Err(endpoint_closed()),
+    }
+}
+
 impl Endpoint {
     /// Create an endpoint with no interfaces yet, and start its router.
     pub fn new(identity: PrivateIdentity) -> Self {
@@ -1243,6 +1368,8 @@ impl Endpoint {
         let (announce_tx, announce_rx) = mpsc::unbounded_channel::<PeerAnnounce>();
 
         let shared = Arc::new(Shared {
+            lifecycle: Mutex::new(Lifecycle::Running),
+            closed_notify: tokio::sync::Notify::new(),
             identity,
             address_book: Mutex::new(AddressBook::new()),
             links: Arc::new(Mutex::new(HashMap::new())),
@@ -1271,6 +1398,8 @@ impl Endpoint {
             link_transport: Mutex::new(HashMap::new()),
             tasks: Mutex::new(Vec::new()),
             drainable: Mutex::new(Vec::new()),
+            active_resources: AtomicUsize::new(0),
+            resource_notify: tokio::sync::Notify::new(),
         });
 
         let router = Arc::clone(&shared);
@@ -1298,7 +1427,7 @@ impl Endpoint {
 
     /// Attach a connected TCP stream as an interface, and return its id.
     pub fn attach_stream(&self, stream: TcpStream) -> InterfaceId {
-        attach(&self.shared, stream)
+        attach(&self.shared, stream).0
     }
 
     /// Attach a raw packet [`Interface`] and return its handle, doing no I/O or
@@ -1312,33 +1441,50 @@ impl Endpoint {
             self.shared.queue_weights(),
             self.shared.queue_depths(),
         ));
-        self.shared.interfaces.lock().unwrap().push(Iface {
+        if !self.shared.register_interface(Iface {
             id,
             outbound: Arc::clone(&queues),
-        });
+        }) {
+            queues.close();
+        }
         Interface {
             id,
-            outbound: OutboundPackets { queues },
+            outbound: OutboundPackets {
+                queues,
+                delivery_in_flight: false,
+            },
             router_tx: self.shared.router_tx.clone(),
         }
     }
 
     /// Dial a TCP peer and attach it as an interface.
     pub async fn attach_tcp_client(&self, addr: SocketAddr) -> io::Result<InterfaceId> {
-        Ok(attach(&self.shared, TcpStream::connect(addr).await?))
+        if !self.shared.is_running() {
+            return Err(endpoint_closed());
+        }
+        let (id, attached) = attach(&self.shared, TcpStream::connect(addr).await?);
+        attached.then_some(id).ok_or_else(endpoint_closed)
     }
 
     /// Listen on TCP; every accepted connection becomes an interface. Returns the bound
     /// address (pass port 0 to get an OS-assigned one).
     pub async fn listen_tcp(&self, addr: SocketAddr) -> io::Result<SocketAddr> {
+        if !self.shared.is_running() {
+            return Err(endpoint_closed());
+        }
         let listener = TcpListener::bind(addr).await?;
         let local = listener.local_addr()?;
         let shared = Arc::clone(&self.shared);
-        track(&self.shared, async move {
+        if !track(&self.shared, async move {
             while let Ok((stream, _)) = listener.accept().await {
+                if !shared.is_running() {
+                    break;
+                }
                 attach(&shared, stream);
             }
-        });
+        }) {
+            return Err(endpoint_closed());
+        }
         Ok(local)
     }
 
@@ -1535,7 +1681,7 @@ impl Endpoint {
     /// destination's identity (learned from an announce, e.g. via [`resolve`](Self::resolve)).
     pub async fn open(&self, dest: AddressHash, peer: Identity) -> io::Result<LinkStream> {
         let (link, iface) = self.establish(dest, peer).await?;
-        Ok(register_stream(&self.shared, link, iface))
+        register_stream(&self.shared, link, iface).ok_or_else(endpoint_closed)
     }
 
     /// Open a **reliable** link to a destination — the Channel/Buffer path with proof acks,
@@ -1545,12 +1691,7 @@ impl Endpoint {
     /// validate our proofs in turn.
     pub async fn open_reliable(&self, dest: AddressHash, peer: Identity) -> io::Result<LinkStream> {
         let (link, iface) = self.establish(dest, peer).await?;
-        Ok(register_reliable_stream(
-            &self.shared,
-            link,
-            iface,
-            Some(peer),
-        ))
+        register_reliable_stream(&self.shared, link, iface, Some(peer)).ok_or_else(endpoint_closed)
     }
 
     /// Open a link whose packets are driven by the resource transfer state machines.
@@ -1560,7 +1701,7 @@ impl Endpoint {
         peer: Identity,
     ) -> io::Result<ResourceSession> {
         let (link, iface) = self.establish(dest, peer).await?;
-        Ok(register_resource_session(&self.shared, link, iface))
+        register_resource_session(&self.shared, link, iface).ok_or_else(endpoint_closed)
     }
 
     /// Open a resource link and publish one payload over it.
@@ -1612,6 +1753,9 @@ impl Endpoint {
         dest: AddressHash,
         peer: Identity,
     ) -> io::Result<(Link, InterfaceId)> {
+        if !self.shared.is_running() {
+            return Err(endpoint_closed());
+        }
         let ephemeral = ephemeral_seed();
         let link_mtu = self.shared.link_mtu.load(Ordering::Relaxed);
         let (pending, request) = link::PendingLink::open(
@@ -1654,15 +1798,24 @@ impl Endpoint {
         let mut retries = tokio::time::interval_at(tokio::time::Instant::now() + retry, retry);
         retries.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let deadline = tokio::time::sleep(LINK_SETUP_TIMEOUT);
+        let closed = self.shared.closed_notify.notified();
         tokio::pin!(deadline);
         tokio::pin!(rx);
+        tokio::pin!(closed);
+        if self.shared.is_closed() {
+            return Err(endpoint_closed());
+        }
 
         loop {
             tokio::select! {
                 result = &mut rx => match result {
                     Ok(established) => {
                         guard.armed = false; // router removed both entries on success
-                        return Ok(established);
+                        if self.shared.is_running() {
+                            return Ok(established);
+                        }
+                        self.shared.send_on(established.1, established.0.close_packet());
+                        return Err(endpoint_closed());
                     }
                     Err(_) => return Err(io::Error::new(
                         io::ErrorKind::ConnectionReset,
@@ -1674,6 +1827,7 @@ impl Endpoint {
                     io::ErrorKind::TimedOut,
                     "link setup timed out",
                 )),
+                _ = &mut closed => return Err(endpoint_closed()),
             }
         }
     }
@@ -1686,12 +1840,7 @@ impl Endpoint {
     /// Wait for the next inbound link, with the destination it targeted (an ALPN maps to a
     /// destination, so a host can dispatch by protocol).
     pub async fn accept_on_any(&self) -> io::Result<Accepted> {
-        self.accepted_rx
-            .lock()
-            .await
-            .recv()
-            .await
-            .ok_or_else(|| io::Error::new(io::ErrorKind::BrokenPipe, "endpoint closed"))
+        recv_until_closed(&self.shared, &self.accepted_rx).await
     }
 
     /// Wait for the next inbound **reliable** link (to a destination registered with
@@ -1705,32 +1854,17 @@ impl Endpoint {
     /// Wait for the next inbound reliable link, retaining the destination and
     /// physical interface on which its request arrived.
     pub async fn accept_reliable_on_any(&self) -> io::Result<Accepted> {
-        self.reliable_accepted_rx
-            .lock()
-            .await
-            .recv()
-            .await
-            .ok_or_else(|| io::Error::new(io::ErrorKind::BrokenPipe, "endpoint closed"))
+        recv_until_closed(&self.shared, &self.reliable_accepted_rx).await
     }
 
     /// Wait for an inbound resource link, including the destination it targeted.
     pub async fn accept_resource(&self) -> io::Result<AcceptedResource> {
-        self.resource_accepted_rx
-            .lock()
-            .await
-            .recv()
-            .await
-            .ok_or_else(|| io::Error::new(io::ErrorKind::BrokenPipe, "endpoint closed"))
+        recv_until_closed(&self.shared, &self.resource_accepted_rx).await
     }
 
     /// The next validated announce, for building a host peer-id to destination map.
     pub async fn next_announcement(&self) -> io::Result<PeerAnnounce> {
-        self.announce_rx
-            .lock()
-            .await
-            .recv()
-            .await
-            .ok_or_else(|| io::Error::new(io::ErrorKind::BrokenPipe, "endpoint closed"))
+        recv_until_closed(&self.shared, &self.announce_rx).await
     }
 
     /// Stop the endpoint: abort the router, every interface reader and writer, any TCP
@@ -1738,15 +1872,22 @@ impl Endpoint {
     /// this too; use it to release everything at a chosen point. Streams handed out earlier
     /// will see their connection end. Idempotent.
     pub fn close(&self) {
+        if !self.shared.mark_closed() {
+            return;
+        }
         for handle in self.shared.tasks.lock().unwrap().drain(..) {
             handle.abort();
         }
+        // Drop every link sender after aborting its driver. This releases best-effort,
+        // reliable, and resource receivers even when the Endpoint itself remains alive.
+        self.shared.links.lock().unwrap().clear();
         // Close every interface's outbound scheduler so a caller-driven pump parked in
         // `next_outbound` wakes and sees the end, rather than waiting on a sender that will
         // never come. (The channel this replaced ended implicitly when its sender dropped.)
         for i in self.shared.interfaces.lock().unwrap().iter() {
             i.outbound.close();
         }
+        self.shared.closed_notify.notify_waiters();
     }
 }
 
@@ -1762,21 +1903,33 @@ impl Endpoint {
     /// returns once the bytes reach the relay's duplex, long before they are
     /// framed, queued, and written.
     ///
-    /// The shape that actually delivers is: drop the streams first, so each
-    /// relay drains its duplex and queues its packets, then await this. It
-    /// returns as soon as every interface queue is empty, or when `grace`
-    /// expires, and aborts everything either way.
+    /// Finish or drop streams and resource sessions first, then await this. It
+    /// waits for best-effort relays, reliable channel proofs, resource-session
+    /// release, and both queued and in-flight interface packets. The grace
+    /// deadline bounds the whole sequence, after which remaining work is aborted.
     ///
-    /// Note what it cannot do: a relay whose `LinkStream` a caller still holds
-    /// never reaches EOF, so its unread bytes are not recoverable here. Drop
-    /// the stream first.
+    /// A stream whose write side remains open, or a resource session still held
+    /// by its caller, cannot finish itself. The deadline bounds those cases.
     pub async fn shutdown(&self, grace: Duration) {
+        let closed = self.shared.closed_notify.notified();
+        match self.shared.begin_quiesce() {
+            Quiesce::Closed => return,
+            Quiesce::InProgress => {
+                if !self.shared.is_closed() {
+                    let _ = tokio::time::timeout(grace, closed).await;
+                }
+                if !self.shared.is_closed() {
+                    self.close();
+                }
+                return;
+            }
+            Quiesce::Started => {}
+        }
         let deadline = Instant::now() + grace;
 
-        // First the relays. Each ends once its stream is dropped, having read
-        // the duplex to EOF and queued every packet. Waiting on the queues
-        // alone would be a race: empty-because-finished and
-        // empty-because-not-started-yet look identical.
+        // First the link drivers. Best-effort relays finish once their stream is
+        // dropped; reliable drivers finish after both EOFs and all proofs. Waiting
+        // on queues alone would confuse finished with not-started-yet.
         let relays: Vec<_> = self.shared.drainable.lock().unwrap().drain(..).collect();
         for relay in relays {
             let remaining = deadline.saturating_duration_since(Instant::now());
@@ -1786,6 +1939,26 @@ impl Endpoint {
             // A relay whose stream a caller still holds never reaches EOF; the
             // deadline is what bounds that case.
             let _ = tokio::time::timeout(remaining, relay).await;
+        }
+
+        // Resource sessions are caller-driven rather than spawned tasks. Their Drop queues
+        // the link-close packet, so give active sessions the same bounded opportunity to
+        // finish or be released before checking the wire.
+        loop {
+            if self.shared.active_resources.load(Ordering::Acquire) == 0
+                || Instant::now() >= deadline
+            {
+                break;
+            }
+            let notified = self.shared.resource_notify.notified();
+            if self.shared.active_resources.load(Ordering::Acquire) == 0 {
+                break;
+            }
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            let _ = tokio::time::timeout(remaining, notified).await;
         }
 
         // Then the wire: let the interface writers drain what the relays queued.
@@ -1816,22 +1989,28 @@ impl Drop for Endpoint {
 
 /// Attach a connected stream as an interface: register it, and spawn its writer and reader
 /// tasks (the reader feeds the shared router, tagged with the interface id).
-fn attach(shared: &Arc<Shared>, stream: TcpStream) -> InterfaceId {
+fn attach(shared: &Arc<Shared>, stream: TcpStream) -> (InterfaceId, bool) {
     let _ = stream.set_nodelay(true);
     let id = shared.next_iface_id.fetch_add(1, Ordering::Relaxed);
-    let (mut read_half, mut write_half) = stream.into_split();
     let queues = Arc::new(OutboundQueues::new(
         shared.queue_weights(),
         shared.queue_depths(),
     ));
-    shared.interfaces.lock().unwrap().push(Iface {
+    if !shared.register_interface(Iface {
         id,
         outbound: Arc::clone(&queues),
-    });
+    }) {
+        queues.close();
+        return (id, false);
+    }
+    let (mut read_half, mut write_half) = stream.into_split();
 
     // Writer: frame and send this interface's outbound packets, in schedule order.
-    let mut out_rx = OutboundPackets { queues };
-    track(shared, async move {
+    let mut out_rx = OutboundPackets {
+        queues,
+        delivery_in_flight: false,
+    };
+    let writer_started = track(shared, async move {
         while let Some(pkt) = out_rx.recv().await {
             if write_half.write_all(&frame(&pkt.encode())).await.is_err() {
                 break;
@@ -1842,7 +2021,7 @@ fn attach(shared: &Arc<Shared>, stream: TcpStream) -> InterfaceId {
 
     // Reader: deframe, decode, hand to the router tagged with this interface.
     let router_tx = shared.router_tx.clone();
-    track(shared, async move {
+    let reader_started = track(shared, async move {
         let mut deframer = Deframer::new();
         let mut buf = [0u8; 4096];
         loop {
@@ -1863,7 +2042,18 @@ fn attach(shared: &Arc<Shared>, stream: TcpStream) -> InterfaceId {
         }
     });
 
-    id
+    let attached = writer_started && reader_started;
+    if !attached
+        && let Some(iface) = shared
+            .interfaces
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|iface| iface.id == id)
+    {
+        iface.outbound.close();
+    }
+    (id, attached)
 }
 
 /// Dispatch one inbound packet that arrived on `iface`.
@@ -1973,6 +2163,9 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
             }
         }
         PacketType::LinkRequest => {
+            if !shared.is_running() {
+                return;
+            }
             let dest = pkt.destination;
             let kind = shared
                 .registered
@@ -2032,28 +2225,33 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                         RegistrationKind::Reliable => {
                             // Register eagerly with no peer yet: the driver learns the
                             // initiator's identity from the IDENTIFY it sends.
-                            let stream = register_reliable_stream(shared, link, iface, None);
-                            let _ = shared.reliable_accepted_tx.send(Accepted {
-                                stream,
-                                destination: dest,
-                                interface: iface,
-                            });
+                            if let Some(stream) =
+                                register_reliable_stream(shared, link, iface, None)
+                            {
+                                let _ = shared.reliable_accepted_tx.send(Accepted {
+                                    stream,
+                                    destination: dest,
+                                    interface: iface,
+                                });
+                            }
                         }
                         RegistrationKind::Resource => {
-                            let session = register_resource_session(shared, link, iface);
-                            let _ = shared.resource_accepted_tx.send(AcceptedResource {
-                                session,
-                                destination: dest,
-                                interface: iface,
-                            });
+                            if let Some(session) = register_resource_session(shared, link, iface) {
+                                let _ = shared.resource_accepted_tx.send(AcceptedResource {
+                                    session,
+                                    destination: dest,
+                                    interface: iface,
+                                });
+                            }
                         }
                         RegistrationKind::BestEffort => {
-                            let stream = register_stream(shared, link, iface);
-                            let _ = shared.accepted_tx.send(Accepted {
-                                stream,
-                                destination: dest,
-                                interface: iface,
-                            });
+                            if let Some(stream) = register_stream(shared, link, iface) {
+                                let _ = shared.accepted_tx.send(Accepted {
+                                    stream,
+                                    destination: dest,
+                                    interface: iface,
+                                });
+                            }
                         }
                     }
                 }
@@ -2224,7 +2422,11 @@ fn register_resource_session(
     shared: &Arc<Shared>,
     link: Link,
     iface: InterfaceId,
-) -> ResourceSession {
+) -> Option<ResourceSession> {
+    if !shared.begin_resource() {
+        shared.send_on(iface, link.close_packet());
+        return None;
+    }
     let (packet_tx, packets) = mpsc::unbounded_channel();
     shared.links.lock().unwrap().insert(
         link.id(),
@@ -2234,18 +2436,18 @@ fn register_resource_session(
             iface,
         },
     );
-    ResourceSession {
+    Some(ResourceSession {
         shared: Arc::clone(shared),
         link,
         iface,
         packets,
         config: ResourceTransferConfig::default(),
-    }
+    })
 }
 
 /// Build a [`LinkStream`] for a live link on `iface`, wiring the inbound feed and the
 /// outbound relay, and register the link so the router can route to it.
-fn register_stream(shared: &Arc<Shared>, link: Link, iface: InterfaceId) -> LinkStream {
+fn register_stream(shared: &Arc<Shared>, link: Link, iface: InterfaceId) -> Option<LinkStream> {
     let (mine, theirs) = tokio::io::duplex(DUPLEX_BUF);
     let (mut read_half, mut write_half) = tokio::io::split(theirs);
     let (inbound_tx, mut inbound_rx) = mpsc::unbounded_channel::<Vec<u8>>();
@@ -2264,7 +2466,7 @@ fn register_stream(shared: &Arc<Shared>, link: Link, iface: InterfaceId) -> Link
     );
 
     // Inbound: decrypted data from the router → the stream's read side.
-    track(shared, async move {
+    let inbound_started = track(shared, async move {
         while let Some(bytes) = inbound_rx.recv().await {
             if write_half.write_all(&bytes).await.is_err() {
                 break;
@@ -2282,7 +2484,7 @@ fn register_stream(shared: &Arc<Shared>, link: Link, iface: InterfaceId) -> Link
     // duplex to EOF, so an orderly shutdown can wait for exactly that.
     let out_link = link;
     let iv_shared = Arc::clone(shared);
-    track_drainable(shared, async move {
+    let outbound_started = track_drainable(shared, async move {
         let mut buf = vec![0u8; write_chunk];
         loop {
             match read_half.read(&mut buf).await {
@@ -2301,11 +2503,16 @@ fn register_stream(shared: &Arc<Shared>, link: Link, iface: InterfaceId) -> Link
         }
     });
 
-    LinkStream {
+    if !inbound_started || !outbound_started {
+        shared.links.lock().unwrap().remove(&link_id);
+        return None;
+    }
+
+    Some(LinkStream {
         inner: mine,
         link_id,
         iface,
-    }
+    })
 }
 
 /// Build a **reliable** [`LinkStream`] for a live link: the RNS Channel/Buffer path with
@@ -2322,7 +2529,7 @@ fn register_reliable_stream(
     link: Link,
     iface: InterfaceId,
     peer: Option<Identity>,
-) -> LinkStream {
+) -> Option<LinkStream> {
     let (mine, theirs) = tokio::io::duplex(DUPLEX_BUF);
     let (mut read_half, mut write_half) = tokio::io::split(theirs);
     let (pkt_tx, mut pkt_rx) = mpsc::unbounded_channel::<Packet>();
@@ -2360,7 +2567,7 @@ fn register_reliable_stream(
         ),
     };
     let drv = Arc::clone(shared);
-    track(shared, async move {
+    let driver_started = track_drainable(shared, async move {
         // Identify to the responder so it can validate our proofs. RNS sends this once; we
         // re-send it over the first few ticks (in the clock arm below) so a dropped one still
         // lands on a lossy medium.
@@ -2453,34 +2660,49 @@ fn register_reliable_stream(
         drv.links.lock().unwrap().remove(&link_id);
     });
 
-    LinkStream {
+    if !driver_started {
+        shared.links.lock().unwrap().remove(&link_id);
+        return None;
+    }
+
+    Some(LinkStream {
         inner: mine,
         link_id,
         iface,
-    }
+    })
 }
 
 /// Spawn a task and record its abort handle on `shared`, so the endpoint's drop can cancel
 /// every task it started. Every `tokio::spawn` in this module goes through here; a task that
 /// is not tracked would outlive the endpoint.
-fn track<F>(shared: &Arc<Shared>, fut: F)
+fn track<F>(shared: &Arc<Shared>, fut: F) -> bool
 where
     F: std::future::Future<Output = ()> + Send + 'static,
 {
+    let state = shared.lifecycle.lock().unwrap();
+    if *state != Lifecycle::Running {
+        return false;
+    }
     let handle = tokio::spawn(fut);
     shared.tasks.lock().unwrap().push(handle.abort_handle());
+    true
 }
 
 /// Track a task that ends by itself once its input goes away, keeping the join
 /// handle so [`Endpoint::shutdown`] can wait for it to finish draining. Still
 /// abortable, so [`Endpoint::close`] remains an immediate stop.
-fn track_drainable<F>(shared: &Arc<Shared>, fut: F)
+fn track_drainable<F>(shared: &Arc<Shared>, fut: F) -> bool
 where
     F: std::future::Future<Output = ()> + Send + 'static,
 {
+    let state = shared.lifecycle.lock().unwrap();
+    if *state != Lifecycle::Running {
+        return false;
+    }
     let handle = tokio::spawn(fut);
     shared.tasks.lock().unwrap().push(handle.abort_handle());
     shared.drainable.lock().unwrap().push(handle);
+    true
 }
 
 /// Removes a link's pending-setup state — the `pending` waker and the `pending_links`
