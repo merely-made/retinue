@@ -769,6 +769,16 @@ impl OutboundQueues {
         true
     }
 
+    /// Whether every class is empty, i.e. nothing is waiting for the writer.
+    fn is_drained(&self) -> bool {
+        self.state
+            .lock()
+            .unwrap()
+            .queues
+            .iter()
+            .all(VecDeque::is_empty)
+    }
+
     /// Take the next packet the schedule allows, or `None` if every queue is empty.
     fn pop(&self) -> Option<Packet> {
         let weights = self.weights.lock().unwrap().0;
@@ -995,6 +1005,13 @@ struct Shared {
     /// what lets the router's `Arc<Shared>` — and thus `Shared` and every socket — be released
     /// rather than kept alive forever by the router<->`Shared` reference cycle.
     tasks: Mutex<Vec<tokio::task::AbortHandle>>,
+    /// Tasks that *finish on their own* once the thing feeding them goes away,
+    /// as opposed to the perpetual ones (router, interface readers/writers,
+    /// listeners) that only ever stop by being aborted. Today this is the link
+    /// relays: each ends when its `LinkStream` is dropped, after draining the
+    /// duplex. [`Endpoint::shutdown`] awaits these before it stops anything,
+    /// which is what lets a written reply reach the wire.
+    drainable: Mutex<Vec<tokio::task::JoinHandle<()>>>,
 }
 
 /// A learned route to a destination.
@@ -1236,6 +1253,7 @@ impl Endpoint {
             iface_transport: Mutex::new(HashMap::new()),
             link_transport: Mutex::new(HashMap::new()),
             tasks: Mutex::new(Vec::new()),
+            drainable: Mutex::new(Vec::new()),
         });
 
         let router = Arc::clone(&shared);
@@ -1709,6 +1727,61 @@ impl Endpoint {
     }
 }
 
+impl Endpoint {
+    /// Stop the endpoint, giving work already queued for the interfaces a
+    /// bounded chance to reach the wire first.
+    ///
+    /// [`close`](Self::close) and [`Drop`](Self::drop) are abrupt by design:
+    /// they abort every tracked task, including the interface writers, so a
+    /// packet sitting in an outbound queue dies with them. That is fine for a
+    /// hard stop and wrong for an orderly one, and the difference is not
+    /// visible from the caller's side — `AsyncWrite::flush` on a link stream
+    /// returns once the bytes reach the relay's duplex, long before they are
+    /// framed, queued, and written.
+    ///
+    /// The shape that actually delivers is: drop the streams first, so each
+    /// relay drains its duplex and queues its packets, then await this. It
+    /// returns as soon as every interface queue is empty, or when `grace`
+    /// expires, and aborts everything either way.
+    ///
+    /// Note what it cannot do: a relay whose `LinkStream` a caller still holds
+    /// never reaches EOF, so its unread bytes are not recoverable here. Drop
+    /// the stream first.
+    pub async fn shutdown(&self, grace: Duration) {
+        let deadline = Instant::now() + grace;
+
+        // First the relays. Each ends once its stream is dropped, having read
+        // the duplex to EOF and queued every packet. Waiting on the queues
+        // alone would be a race: empty-because-finished and
+        // empty-because-not-started-yet look identical.
+        let relays: Vec<_> = self.shared.drainable.lock().unwrap().drain(..).collect();
+        for relay in relays {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            // A relay whose stream a caller still holds never reaches EOF; the
+            // deadline is what bounds that case.
+            let _ = tokio::time::timeout(remaining, relay).await;
+        }
+
+        // Then the wire: let the interface writers drain what the relays queued.
+        loop {
+            let drained = {
+                let interfaces = self.shared.interfaces.lock().unwrap();
+                interfaces.iter().all(|i| i.outbound.is_drained())
+            };
+            if drained || Instant::now() >= deadline {
+                break;
+            }
+            // Short enough that an orderly close stays prompt, long enough not
+            // to spin: the writers only need to be scheduled.
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+        self.close();
+    }
+}
+
 impl Drop for Endpoint {
     fn drop(&mut self) {
         // Abort every spawned task. This releases the router's `Arc<Shared>` — breaking the
@@ -2177,9 +2250,11 @@ fn register_stream(shared: &Arc<Shared>, link: Link, iface: InterfaceId) -> Link
     });
 
     // Outbound: the stream's writes → encrypted link data packets, out the link's interface.
+    // Drainable: it ends on its own when the stream is dropped, having read the
+    // duplex to EOF, so an orderly shutdown can wait for exactly that.
     let out_link = link;
     let iv_shared = Arc::clone(shared);
-    track(shared, async move {
+    track_drainable(shared, async move {
         let mut buf = [0u8; WRITE_CHUNK];
         loop {
             match read_half.read(&mut buf).await {
@@ -2366,6 +2441,18 @@ where
 {
     let handle = tokio::spawn(fut);
     shared.tasks.lock().unwrap().push(handle.abort_handle());
+}
+
+/// Track a task that ends by itself once its input goes away, keeping the join
+/// handle so [`Endpoint::shutdown`] can wait for it to finish draining. Still
+/// abortable, so [`Endpoint::close`] remains an immediate stop.
+fn track_drainable<F>(shared: &Arc<Shared>, fut: F)
+where
+    F: std::future::Future<Output = ()> + Send + 'static,
+{
+    let handle = tokio::spawn(fut);
+    shared.tasks.lock().unwrap().push(handle.abort_handle());
+    shared.drainable.lock().unwrap().push(handle);
 }
 
 /// Removes a link's pending-setup state — the `pending` waker and the `pending_links`
