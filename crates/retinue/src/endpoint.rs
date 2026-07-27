@@ -40,11 +40,27 @@ use crate::packet::{DestinationType, Packet, PacketType};
 use crate::reliable::ReliableChannel;
 use crate::resource::RANDOM_HASH_LEN;
 use crate::resource_transfer::{ResourceReceiver, ResourceSender};
-use crate::token::IV_LEN;
+use crate::token::{IV_LEN, TOKEN_OVERHEAD};
 
 /// Largest plaintext chunk per link data packet. Kept under `ENCRYPTED_MDU` (383) so the
 /// encrypted token plus header always fits the MTU.
 const WRITE_CHUNK: usize = crate::packet::ENCRYPTED_MDU - 16;
+
+/// Largest best-effort stream plaintext whose padded encrypted token and
+/// Reticulum header fit the MTU negotiated for this link.
+///
+/// CBC always adds at least one padding byte and rounds to a 16-byte block.
+/// Keep the ordinary 500-byte path at its existing conservative ceiling while
+/// shrinking radio links enough that the interface driver never has to reject
+/// a packet after `AsyncWrite` already accepted its bytes.
+fn write_chunk_for_mtu(mtu: u32) -> usize {
+    let payload_room = (mtu as usize)
+        .saturating_sub(crate::packet::HEADER_MIN_LEN)
+        .min(crate::packet::MDU);
+    let ciphertext_room = payload_room.saturating_sub(TOKEN_OVERHEAD);
+    let padded_plaintext = (ciphertext_room / 16) * 16;
+    padded_plaintext.saturating_sub(1).clamp(1, WRITE_CHUNK)
+}
 
 /// In-memory buffer for a stream's inbound side.
 const DUPLEX_BUF: usize = 64 * 1024;
@@ -951,9 +967,10 @@ struct Shared {
     router_tx: mpsc::Sender<(InterfaceId, Packet)>,
     /// Inbound accepted links (stream + destination), surfaced to `accept`.
     accepted_tx: mpsc::UnboundedSender<Accepted>,
-    /// Inbound accepted reliable streams, surfaced to `accept_reliable`. Registered eagerly
-    /// (the peer identity is learned from the initiator's IDENTIFY, not needed up front).
-    reliable_accepted_tx: mpsc::UnboundedSender<LinkStream>,
+    /// Inbound accepted reliable links, surfaced to `accept_reliable_on_any`. Registered
+    /// eagerly (the peer identity is learned from the initiator's IDENTIFY, not needed up
+    /// front).
+    reliable_accepted_tx: mpsc::UnboundedSender<Accepted>,
     /// Inbound resource links, surfaced to `accept_resource`.
     resource_accepted_tx: mpsc::UnboundedSender<AcceptedResource>,
     /// Validated announces, surfaced to `announcements`.
@@ -1210,7 +1227,7 @@ impl Shared {
 pub struct Endpoint {
     shared: Arc<Shared>,
     accepted_rx: AsyncMutex<mpsc::UnboundedReceiver<Accepted>>,
-    reliable_accepted_rx: AsyncMutex<mpsc::UnboundedReceiver<LinkStream>>,
+    reliable_accepted_rx: AsyncMutex<mpsc::UnboundedReceiver<Accepted>>,
     resource_accepted_rx: AsyncMutex<mpsc::UnboundedReceiver<AcceptedResource>>,
     announce_rx: AsyncMutex<mpsc::UnboundedReceiver<PeerAnnounce>>,
 }
@@ -1220,7 +1237,7 @@ impl Endpoint {
     pub fn new(identity: PrivateIdentity) -> Self {
         let (router_tx, mut router_rx) = mpsc::channel::<(InterfaceId, Packet)>(ROUTER_QUEUE);
         let (accepted_tx, accepted_rx) = mpsc::unbounded_channel::<Accepted>();
-        let (reliable_accepted_tx, reliable_accepted_rx) = mpsc::unbounded_channel::<LinkStream>();
+        let (reliable_accepted_tx, reliable_accepted_rx) = mpsc::unbounded_channel::<Accepted>();
         let (resource_accepted_tx, resource_accepted_rx) =
             mpsc::unbounded_channel::<AcceptedResource>();
         let (announce_tx, announce_rx) = mpsc::unbounded_channel::<PeerAnnounce>();
@@ -1682,6 +1699,12 @@ impl Endpoint {
     /// identity is learned from the IDENTIFY it sends, so — unlike before — no peer identity
     /// need be supplied here; the driver validates the initiator's proofs once it arrives.
     pub async fn accept_reliable(&self) -> io::Result<LinkStream> {
+        Ok(self.accept_reliable_on_any().await?.stream)
+    }
+
+    /// Wait for the next inbound reliable link, retaining the destination and
+    /// physical interface on which its request arrived.
+    pub async fn accept_reliable_on_any(&self) -> io::Result<Accepted> {
         self.reliable_accepted_rx
             .lock()
             .await
@@ -2010,7 +2033,11 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                             // Register eagerly with no peer yet: the driver learns the
                             // initiator's identity from the IDENTIFY it sends.
                             let stream = register_reliable_stream(shared, link, iface, None);
-                            let _ = shared.reliable_accepted_tx.send(stream);
+                            let _ = shared.reliable_accepted_tx.send(Accepted {
+                                stream,
+                                destination: dest,
+                                interface: iface,
+                            });
                         }
                         RegistrationKind::Resource => {
                             let session = register_resource_session(shared, link, iface);
@@ -2223,6 +2250,7 @@ fn register_stream(shared: &Arc<Shared>, link: Link, iface: InterfaceId) -> Link
     let (mut read_half, mut write_half) = tokio::io::split(theirs);
     let (inbound_tx, mut inbound_rx) = mpsc::unbounded_channel::<Vec<u8>>();
     let link_id = link.id();
+    let write_chunk = write_chunk_for_mtu(link.mtu());
 
     shared.links.lock().unwrap().insert(
         link_id,
@@ -2255,7 +2283,7 @@ fn register_stream(shared: &Arc<Shared>, link: Link, iface: InterfaceId) -> Link
     let out_link = link;
     let iv_shared = Arc::clone(shared);
     track_drainable(shared, async move {
-        let mut buf = [0u8; WRITE_CHUNK];
+        let mut buf = vec![0u8; write_chunk];
         loop {
             match read_half.read(&mut buf).await {
                 Ok(0) | Err(_) => {

@@ -33,8 +33,10 @@ where
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidData,
                         format!(
-                            "retinue packet is {} bytes, radio frame limit is {max_frame_len}",
-                            bytes.len()
+                            "retinue {:?} packet (context {}) is {} bytes, radio frame limit is {max_frame_len}",
+                            packet.packet_type,
+                            packet.context,
+                            bytes.len(),
                         ),
                     ));
                 }

@@ -7,6 +7,7 @@ use retinue::destination::DestinationName;
 use retinue::endpoint::Endpoint;
 use retinue::identity::PrivateIdentity;
 use retinue::iface::tulle::drive;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{Notify, mpsc};
 use tulle::link::Received;
 use tulle::radio_io::PacketRadio;
@@ -117,4 +118,66 @@ async fn physical_frame_limit_is_reported() {
         .expect("driver task")
         .expect_err("oversize packet must stop the interface");
     assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+}
+
+#[tokio::test]
+async fn negotiated_radio_mtu_chunks_a_best_effort_stream() {
+    let client = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x44; 64]));
+    let server_id = PrivateIdentity::from_secret_bytes(&[0x55; 64]);
+    let server = Arc::new(Endpoint::new(server_id.clone()));
+    client.set_link_mtu(255);
+    server.set_link_mtu(255);
+
+    let name = DestinationName::new("bench", ["radio-stream"]);
+    let destination = name.destination_hash(server_id.public());
+    server.register(name.clone(), b"");
+
+    let (client_radio, server_radio) = radio_pair(255);
+    let client_task = tokio::spawn(drive(client.attach_interface(), client_radio));
+    let server_task = tokio::spawn(drive(server.attach_interface(), server_radio));
+    server.announce(&name, b"");
+
+    tokio::time::timeout(Duration::from_secs(2), client.next_announcement())
+        .await
+        .expect("announce crossed the capped radio")
+        .expect("client remains live");
+
+    let expected: Vec<u8> = (0..1_024u32).map(|n| (n * 17 + 3) as u8).collect();
+    let expected_server = expected.clone();
+    let server_for_accept = Arc::clone(&server);
+    let accept = tokio::spawn(async move {
+        let mut stream = server_for_accept.accept().await.expect("accept stream");
+        let mut received = vec![0u8; expected_server.len()];
+        stream
+            .read_exact(&mut received)
+            .await
+            .expect("read chunked stream");
+        assert_eq!(received, expected_server);
+        stream.write_all(b"ok").await.expect("write reply");
+        stream.flush().await.expect("flush reply");
+    });
+
+    let mut stream = tokio::time::timeout(
+        Duration::from_secs(5),
+        client.open(destination, *server_id.public()),
+    )
+    .await
+    .expect("link setup timed out")
+    .expect("open stream");
+    stream.write_all(&expected).await.expect("write 1 KiB");
+    stream.flush().await.expect("flush 1 KiB");
+    let mut reply = [0u8; 2];
+    tokio::time::timeout(Duration::from_secs(5), stream.read_exact(&mut reply))
+        .await
+        .expect("reply timed out")
+        .expect("read reply");
+    assert_eq!(&reply, b"ok");
+    accept.await.expect("accept task");
+
+    assert!(
+        !client_task.is_finished() && !server_task.is_finished(),
+        "a 255-byte radio driver must stay live for a negotiated 255-byte link"
+    );
+    client_task.abort();
+    server_task.abort();
 }

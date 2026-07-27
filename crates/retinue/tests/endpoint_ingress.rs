@@ -166,16 +166,19 @@ async fn reliable_accept_preserves_the_same_ingress_as_best_effort() {
 
     // Reliable over the same bearer must report that same interface.
     let rel_client = leaf.open_reliable(rel_dest, hub_identity).await.unwrap();
-    let rel_accepted = tokio::time::timeout(Duration::from_secs(10), hub.accept_reliable())
+    let rel_accepted = tokio::time::timeout(Duration::from_secs(10), hub.accept_reliable_on_any())
         .await
         .expect("reliable accept should not time out")
         .unwrap();
 
     assert_eq!(
-        rel_accepted.interface(),
-        be_accepted.interface,
+        rel_accepted.interface, be_accepted.interface,
         "a reliable accept must report the same ingress as a best-effort accept \
          over the same bearer"
+    );
+    assert_eq!(
+        rel_accepted.destination, rel_dest,
+        "reliable dispatch retains the destination it targeted"
     );
     // And the initiator's own reliable stream knows the interface it went out on.
     assert_eq!(
