@@ -1,128 +1,192 @@
 # On-device UI: the PANEL×LEDGER face
 
-**Status:** accepted (design pass, 2026-07-25)
-**Prototype:** interactive simulator + mockups in the "UI design for retinue radios"
-design project (Radio Simulator / Firmware UI Directions).
+**Status:** accepted direction (2026-07-25), corrected for implementation
+(2026-07-28)
+**Prototype:** interactive simulator and mockups in the "UI design for retinue
+radios" design project (Radio Simulator / Firmware UI Directions).
+**Execution plan:** `design_docs/2026-07-28_on_device_ui_implementation_plan.md`.
+
+The prototype remains the visual and interaction reference. Its always-present
+node identity/peer pages, editable preset, pairing, OTA, breathing sleep LED,
+and bench-style power counters predate the corrections below and are not
+implementation authority.
 
 ## What the on-device UI is
 
-A glanceable status surface, not an app. Every glyph on the panel is a value
-the firmware actually owns — link state, last announce heard and from whom,
-peer count, queue depth, battery, channel/preset. No placebo: if a value
-doesn't exist yet (pre-provisioning, no host), the gauge renders an em-dash.
-No text entry on the device, ever; input lives on the connected host (phone,
-laptop). The same state machine drives screen, LED, or both, so screenless
-radios (Qi-back puck) speak the LED dialect alone.
+A glanceable status surface, not an app. PANEL×LEDGER is the shared visual
+language for the V4 OLED, the optional T114 TFT, and screenless radios using
+the LED dialect.
+
+Every value names its authority:
+
+- **LOCAL** values come from the board firmware: board and firmware identity,
+  radio initialization, the applied PHY profile, raw frame counts, last
+  RSSI/SNR, local faults, display state, and locally available power facts.
+- **HOST** values come from an attached Retinue, Sennet, or MeshCore process:
+  node identity, links, peers, routes, protocol queues, IFAC state, and
+  delivery or propagation events.
+- Unavailable values render as an em-dash. A page whose subject is entirely
+  unavailable is left out of the page cycle.
+
+The current direct-PHY images are modems. They do not infer Retinue identity,
+peers, routes, or links from opaque radio frames. A future embedded Retinue
+node can fill those fields locally without changing the renderer.
+
+Text entry and unbounded configuration live on the connected host.
 
 ## Visual system
 
-- **Layout:** persistent header strip + body + optional event ticker.
-  - Strip: pixel icon + screen title (left) · link chevron + battery glyph (right).
-    No page counter — the icon is the "where am I".
-  - Body: 2×2 label-over-value gauges for numeric subjects; ledger rows for
-    list subjects (peers). A screen is gauges unless its subject is a list.
-  - Ticker (bottom, ruled off): one live event line with timestamp
-    ("RX 243B FROM ESQUIRE 12:41"). Earns its line by being live.
-- **Five-line rule:** max 5 lines on 128×64 including strip and ticker.
-  Lists get at most 3 rows; overflow renders "+N MORE" in the ticker, never a
-  6th row.
-- **Type roles:** blocky pixel face for names/labels (Silkscreen-class),
-  condensed tall face for values (VT323-class). Two bitmap fonts total.
-- **Emphasis:** inverse video only — menu selection, fault banner. No other
-  emphasis mechanism exists.
-- **Color:** monochrome design; on color panels (T114) the accent tints
-  chrome per personality, layout unchanged.
+- **Layout:** persistent header strip, body, and optional event ticker.
+  - Strip: pixel icon and screen title at left, local radio/host health and
+    battery or power glyph at right.
+  - Body: 2×2 label-over-value gauges for numeric subjects, ledger rows for
+    lists.
+  - Ticker: one bounded event line, such as `RX 243B · -97 · 6DB` or
+    `DIRECT DELIVERED 12:41`. Event text states whether it came from LOCAL or
+    HOST when the source would otherwise be ambiguous.
+- **Five-line rule:** at most five lines on 128×64, including strip and
+  ticker. Lists get at most three rows; overflow renders `+N MORE`.
+- **Type roles:** one blocky bitmap face for names and labels, one condensed
+  bitmap face for values. The implementation chooses fonts by measured glyph
+  bounds at 128×64 and 240×135. The web fonts are mood references, not build
+  dependencies.
+- **Emphasis:** inverse video for selection and a steady fault banner. Urgent
+  state may blink the LED; the whole display does not blink.
+- **Color:** monochrome first. The T114 TFT may tint chrome by personality,
+  while preserving contrast and layout.
 
-## Faces
+## Page registry
 
-Short A/B cycles: IDENTITY → POWER → RADIO → TRAFFIC → PEERS.
+The page cycle is capability-driven rather than fixed.
 
-1. **IDENTITY** — name, addr tail, role, uptime.
-2. **POWER** — batt %, volt (label flips to USB PWR at 5.00), naps
-   (light-sleep count), held-awake count.
-3. **RADIO** — freq, SF·BW, TX pwr, preset name (selvage profile).
-4. **TRAFFIC** — TX/RX counters, queue depth ("3 HELD"), airtime %/h,
-   last-RX RSSI·SNR. Ticker: last frame event.
-5. **PEERS** — up to 3 rows: NAME · ^DIRECT|VIA hop · age. Ticker:
-   "+N MORE · HEARD name HH:MM".
+### Available from direct-PHY firmware
 
-Modal faces (not in the cycle):
+1. **STATUS**: board, firmware, modem personality, uptime, radio state, and
+   host attachment. This replaces the fictional node identity shown by the
+   current simulator when no node snapshot exists.
+2. **POWER**: power source, battery/voltage if measured, display state, and
+   sleep policy. The UART low-power build may also show the last wake source
+   and current blocker. Raw `NAPS` and `HELD AWAKE` counters remain host
+   diagnostics, not primary user values.
+3. **RADIO**: applied frequency, SF/BW/CR, TX power, sync word, and profile
+   name when the host supplied one.
+4. **TRAFFIC**: raw TX/RX frame counts, last RX RSSI/SNR, last transmit result,
+   and a bounded local event ticker.
 
-- **BOOT** — wordmark + board/firmware line + init checks in real order
-  ("RADIO OK · KEYS OK · HOST —"). No strip: identity isn't loaded yet, so
-  nothing pretends.
-- **PROVISION** — strip reads "RET·NEW · PROVISION VIA HOST"; gauges show
-  em-dashes for name/addr, KEY NONE, HOST state. Keys are minted from host.
-- **VERIFY** (hold A) — identicon + full 16-byte fingerprint in two groups
-  of 4×4 hex, "COMPARE IN PERSON". Any key exits. Identicon and hash both
-  derive from the key.
-- **MENU** (hold A+B ≈900ms) — PRESET / BRIGHTNESS / PAIR HOST / REBOOT.
-  A moves down, B selects, hold B backs out. Bounded choices only.
-- **PRESET** — selvage profiles by name with SF/dBm; current marked "·IN
-  USE"; footer states the regional cap ("REGION CAPS TX + AIRTIME").
-- **PAIR** — BLE numeric comparison: 6-digit code, "SAME CODE ON YOUR
-  PHONE?", A YES · B NO. The one time buttons answer a question.
-- **OTA** — "PHY V10 > V11", segmented progress bar, "58% · 121/208 KB ·
-  KEEP POWER". Verify-then-reboot; on failure boot the old image and say so.
-- **FAULT** — strip persists (the panel never lies about who it is), inverse
-  banner blinks the firmware's own error string ("FAULT · SX1262 INIT
-  FAILED"), retry countdown, "SEE HOST LOG". Preempts the cycle until
-  cleared.
-- **SLEEP** — face shows ~2s ("KEYS OR RADIO WAKE · DISPLAY OFF IN 2S"),
-  then the panel is truly off. A lit screen while "sleeping" is a placebo.
-  Wake replays the face you left.
+### Added only when a Retinue host supplies node truth
+
+5. **IDENTITY**: node name, address tail, role, and node uptime.
+6. **LINKS**: admitted-link count and state. Link state means a Retinue link,
+   not merely an attached USB cable or a received LoRa frame.
+7. **PEERS**: up to three names, direct/via state, and age.
+
+IFAC state is a host-supplied interface fact. The panel may show `IFAC ON` or
+an interface label, but never key material. Direct delivery and propagation
+appear as bounded HOST events; message content stays on the host.
+
+## Modal faces
+
+- **BOOT**: wordmark, board/firmware line, and checks in actual initialization
+  order. The display must initialize early enough to report a later radio
+  failure.
+- **VERIFY**: identicon and full fingerprint, only when a trusted node
+  snapshot supplied it. Any key exits.
+- **MENU**: brightness, display off, status detail, and reboot. Entries appear
+  only when implemented.
+- **PROFILE**: read-only applied PHY settings in the first release. The host
+  currently configures the radio at attachment, so the device must not also
+  claim preset authority. A later request/accept handshake can enable editing.
+- **FAULT**: persistent identity chrome and a bounded firmware-owned error,
+  such as `FAULT · SX1262 INIT`. It preempts normal pages until recovery.
+- **DISPLAY OFF**: a brief `DISPLAY OFF · KEY TO WAKE` face, then the panel
+  turns off. This is distinct from CPU sleep. USB builds cannot preserve
+  their host link through ESP32-S3 Light-sleep; the UART personality sleeps
+  automatically when its gate permits.
+- **PAIR** and **OTA**: reserved until BLE pairing and verified update/rollback
+  contracts exist. They are not placeholder menu entries.
 
 ## Button grammar
 
-Two buttons (A right, B left). One-button radios keep A; B's verbs move into
-the menu.
+Press classification is shared code with fixed thresholds:
 
-- A short: next screen · B short: previous screen
-- A hold (≥650ms): identity fingerprint
-- B hold: sleep now / wake
-- A+B hold (≈900ms): menu
-- Any press wakes the display; the wake press is consumed (doesn't page).
-- In MENU: A down, B select, hold B back. In PAIR: A yes, B no.
+- long press: at least 650 ms
+- two-button chord: at least 900 ms
+- any press wakes an off display and is consumed
 
-## LED dialect (single LED; whole UI for screenless boards)
+Two-button boards:
 
-- slow breathe — asleep, healthy
-- two quick blinks — frame received
-- solid — link up / host attached
-- three-pulse pattern — fault, needs host
+- A short: next page
+- B short: previous page
+- A long: verify, when available
+- B long: display off
+- A+B chord: menu
+- In a menu, A moves, B selects, and B long goes back
+
+One-button boards:
+
+- A short: next page
+- A long: open the menu
+- In a menu, A short moves and A long selects
+- `BACK`, `VERIFY`, and `DISPLAY OFF` are explicit menu rows
+
+This removes the conflicting earlier suggestion that a one-button radio could
+both verify identity and enter a useful menu with the same hold.
+
+## LED dialect
+
+The LED and screen consume the same event/state model, but the LED policy is
+power-aware:
+
+- off: healthy idle or healthy sleep
+- two short pulses: a frame was received or transmitted
+- slow pulse: a user-requested pairing/update operation is active
+- repeating three-pulse fault: host attention required
+
+A screenless radio reports healthy status on demand after a button press.
+Healthy sleep does not breathe continuously.
 
 ## Per-personality adaptation
 
-One strip slot carries the personality's vital sign; one gauge may swap per
-face. Everything else is identical.
+The renderer combines `LocalStatus` with an optional `HostSnapshot`.
 
-- **RET (native node):** link state · peers/queue as designed.
-- **RND (RNode modem):** vital sign = HOST OK + fw version; TRAFFIC leads
-  with host throughput; PEERS face hidden if the host owns the peer table.
-- **MCR (MeshCore relay):** vital sign = repeat count + zone; TRAFFIC leads
-  with repeats; queue = relay backlog.
-- **SNT (sennet):** vital sign = channel util % + node count.
+- **PHY** (direct-PHY modem): local radio and host-link truth; node-only pages
+  are absent until a host snapshot arrives.
+- **RND** (RNode modem): host state and firmware version; peer and route truth
+  remain host-supplied.
+- **RET** (embedded or hosted Retinue node): identity, admitted links, peers,
+  queue state, IFAC state, and bounded delivery/propagation events.
+- **MCR** (MeshCore relay): repeat count, zone, and relay backlog supplied by
+  its owner.
+- **SNT** (Sennet): channel utilization and node count supplied by its owner.
 
-Each personality fills a shared `Status` struct from what it actually knows;
-missing fields render em-dashes.
+Cross-protocol UI structs contain display facts, not Retinue, LXMF, Sennet, or
+MeshCore domain types.
 
-## Implementation sketch (retinue-face crate)
+## Implementation shape
 
-- `embedded-graphics` over trait draw targets: ssd1306/sh1106 (128×64 mono,
-  1KB framebuffer) and mipidsi (T114 135×240 color). Same drawing code.
-- Two `MonoFont` bitmap fonts (~2–4KB flash); icons are tiny sprites.
-- `enum Face { Boot, Cycle(Page), Verify, Menu, Preset, Pair, Ota, Fault,
-  Sleep }` — the simulator's logic class is near-pseudocode for it.
-- Redraw on event or 1Hz tick, not a render loop. Sleep = display-off
-  command + LED PWM. Brightness maps to panel contrast.
-- Input: two GPIOs, debounce + press-length classification (short <650ms /
-  long / both-held) as one embassy task.
-- Est. 1–2K lines total, shared across boards.
+The shared `radio-face` crate is `no_std` and owns:
 
-## Open questions
+- `LocalStatus`, optional `HostSnapshot`, capabilities, and bounded events
+- page selection and modal state
+- one-button and two-button input reducers
+- LED intents
+- PANEL×LEDGER rendering over `embedded-graphics` draw targets
+- fixed-size host snapshot encoding used by the direct-PHY control channel
 
-- Whether TRAFFIC/PEERS tickers persist last event across sleep (currently:
-  yes, redrawn from Status).
-- Peer-name truncation width on 128×64 (currently 8 chars before the ledger
-  columns collide).
-- Whether OTA face needs a distinct LED pattern (currently reuses solid).
+Board firmware owns pins, display drivers, clocks, battery sensing, and local
+status production. Tulle owns host transport and delivery of optional UI
+snapshots. Protocol adapters decide which host facts they disclose.
+
+Rendering is event-driven with an optional 1 Hz clock tick. The V4 OLED may
+use a 1 KB monochrome framebuffer. The T114 path must not require a full
+240×135 RGB framebuffer.
+
+## Settled details
+
+- TRAFFIC and PEERS may redraw the last bounded event after display wake.
+- Names are truncated by measured glyph width, not a fixed character count.
+- Status detail is host-configurable (`minimal` or `named`); `minimal` omits
+  peer names and the full identity face.
+- The USB-first implementation can prove display, input, local state, host
+  snapshots, and RF non-regression. Current and energy claims remain gated on
+  a current profiler.

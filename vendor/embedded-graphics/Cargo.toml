@@ -1,0 +1,24 @@
+[package]
+name = "embedded-graphics"
+version = "0.8.2"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/embedded-graphics/embedded-graphics"
+description = "Embedded graphics library for small hardware displays"
+publish = false
+
+[features]
+default = []
+defmt = ["dep:defmt", "embedded-graphics-core/defmt"]
+fixed_point = ["dep:fixed", "dep:half"]
+nalgebra_support = ["embedded-graphics-core/nalgebra_support"]
+
+[dependencies]
+az = "1.3"
+byteorder = { version = "1.4.3", default-features = false }
+defmt = { version = "0.3.2", optional = true }
+embedded-graphics-core = { path = "../embedded-graphics-core", version = "0.4.1" }
+fixed = { version = "1.31", optional = true, default-features = false }
+float-cmp = "0.9.0"
+half = { version = "2.4.1", optional = true, default-features = false }
+micromath = { version = "2.0.0", default-features = false }

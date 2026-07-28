@@ -1,13 +1,16 @@
 #![no_std]
 #![no_main]
 
+use core::fmt::Write as _;
+
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_time::Delay;
 use embedded_hal_bus::spi::ExclusiveDevice;
 use esp_backtrace as _;
 use esp_hal::Config;
-use esp_hal::gpio::{Input, InputConfig, Level, Output, OutputConfig};
+use esp_hal::gpio::{Input, InputConfig, Level, Output, OutputConfig, Pull};
+use esp_hal::i2c::master::{Config as I2cConfig, I2c};
 use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::spi::{
     Mode,
@@ -28,7 +31,9 @@ use selvage::{
     MESHTASTIC_SYNC_WORD, WAKE_BYTE, decode_config_command,
 };
 
+mod board;
 mod power;
+mod ui;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -37,8 +42,6 @@ esp_bootloader_esp_idf::esp_app_desc!();
 #[cfg(feature = "host-uart-low-power")]
 const HOST_UART_BAUD: u32 = 115_200;
 
-const FREQUENCY_HZ: u32 = 906_875_000;
-const TX_POWER_DBM: i32 = 17;
 const MAX_RADIO_FRAME: usize = 255;
 
 fn spreading_factor(value: u8) -> Option<SpreadingFactor> {
@@ -111,7 +114,7 @@ async fn serve_status_only<R: embedded_io_async::Read, W: embedded_io_async::Wri
 }
 
 #[esp_rtos::main]
-async fn main(_spawner: Spawner) {
+async fn main(spawner: Spawner) {
     let peripherals = esp_hal::init(Config::default());
 
     let sw_int = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
@@ -149,6 +152,25 @@ async fn main(_spawner: Spawner) {
         uart.split()
     };
 
+    let i2c = I2c::new(
+        peripherals.I2C0,
+        I2cConfig::default().with_frequency(Rate::from_khz(400)),
+    )
+    .unwrap()
+    .with_sda(peripherals.GPIO17)
+    .with_scl(peripherals.GPIO18)
+    .into_async();
+    let button = Input::new(
+        peripherals.GPIO0,
+        InputConfig::default().with_pull(Pull::Up),
+    );
+    let oled_reset = Output::new(peripherals.GPIO21, Level::High, OutputConfig::default());
+    let vext = Output::new(peripherals.GPIO36, Level::Low, OutputConfig::default());
+    let led = Output::new(peripherals.GPIO35, Level::Low, OutputConfig::default());
+    let mut local_status = board::initial_status();
+    spawner.spawn(ui::button_task(button).unwrap());
+    spawner.spawn(ui::screen_task(i2c, oled_reset, vext, led, local_status).unwrap());
+
     let spi = Spi::new(
         peripherals.SPI2,
         SpiConfig::default()
@@ -180,6 +202,12 @@ async fn main(_spawner: Spawner) {
     let mut lora = match LoRa::new_with_sync_word(radio, MESHTASTIC_SYNC_WORD, Delay).await {
         Ok(lora) => lora,
         Err(_) => {
+            local_status.radio = radio_face::RadioState::Fault;
+            local_status.fault = Some(radio_face::Fault {
+                code: 1,
+                message: radio_face::Text::from_truncated("SX1262 INIT"),
+            });
+            ui::publish(local_status, radio_face::LedSignal::Idle);
             serve_status_only(
                 usb_rx,
                 usb_tx,
@@ -193,10 +221,16 @@ async fn main(_spawner: Spawner) {
         SpreadingFactor::_11,
         Bandwidth::_250KHz,
         CodingRate::_4_5,
-        FREQUENCY_HZ,
+        board::DEFAULT_FREQUENCY_HZ,
     ) {
         Ok(params) => params,
         Err(_) => {
+            local_status.radio = radio_face::RadioState::Fault;
+            local_status.fault = Some(radio_face::Fault {
+                code: 2,
+                message: radio_face::Text::from_truncated("PHY PARAMS"),
+            });
+            ui::publish(local_status, radio_face::LedSignal::Idle);
             serve_status_only(
                 usb_rx,
                 usb_tx,
@@ -208,6 +242,12 @@ async fn main(_spawner: Spawner) {
     let mut tx_params = match lora.create_tx_packet_params(16, false, true, false, &modulation) {
         Ok(params) => params,
         Err(_) => {
+            local_status.radio = radio_face::RadioState::Fault;
+            local_status.fault = Some(radio_face::Fault {
+                code: 3,
+                message: radio_face::Text::from_truncated("TX PARAMS"),
+            });
+            ui::publish(local_status, radio_face::LedSignal::Idle);
             serve_status_only(
                 usb_rx,
                 usb_tx,
@@ -220,6 +260,12 @@ async fn main(_spawner: Spawner) {
     {
         Ok(params) => params,
         Err(_) => {
+            local_status.radio = radio_face::RadioState::Fault;
+            local_status.fault = Some(radio_face::Fault {
+                code: 4,
+                message: radio_face::Text::from_truncated("RX PARAMS"),
+            });
+            ui::publish(local_status, radio_face::LedSignal::Idle);
             serve_status_only(
                 usb_rx,
                 usb_tx,
@@ -231,11 +277,14 @@ async fn main(_spawner: Spawner) {
 
     let online =
         b"tulle/heltec-v4 phy online; sx1262 online; sync=2b reg=24b4; longfast=906875000\r\n";
+    local_status.radio = radio_face::RadioState::Online;
+    local_status.fault = None;
+    ui::publish(local_status, radio_face::LedSignal::Idle);
     let _ = write_all(&mut usb_tx, online).await;
     let mut usb_command = [0_u8; 3 + MAX_RADIO_FRAME];
     let mut usb_command_len = 0_usize;
     let mut prepare_rx = true;
-    let mut tx_power_dbm = TX_POWER_DBM;
+    let mut tx_power_dbm = i32::from(board::DEFAULT_TX_POWER_DBM);
 
     // Hand the RTC to the idle hook. Only now is sleeping meaningful: the radio is about to be
     // armed for continuous receive, so a sleeping CPU still hears packets.
@@ -252,9 +301,18 @@ async fn main(_spawner: Spawner) {
                 .await
                 .is_err()
             {
+                local_status.radio = radio_face::RadioState::Fault;
+                local_status.fault = Some(radio_face::Fault {
+                    code: 5,
+                    message: radio_face::Text::from_truncated("RX SETUP"),
+                });
+                ui::publish(local_status, radio_face::LedSignal::Idle);
                 let _ = write_all(&mut usb_tx, b"radio rx setup failed\r\n").await;
                 continue;
             }
+            local_status.radio = radio_face::RadioState::Online;
+            local_status.fault = None;
+            ui::publish(local_status, radio_face::LedSignal::Idle);
             prepare_rx = false;
         }
 
@@ -286,14 +344,31 @@ async fn main(_spawner: Spawner) {
                 event[5..7].copy_from_slice(&packet_status.snr.to_le_bytes());
                 event[7..7 + length].copy_from_slice(&radio_frame[..length]);
                 let _ = write_all(&mut usb_tx, &event[..7 + length]).await;
+                local_status.rx_frames = local_status.rx_frames.saturating_add(1);
+                local_status.last_rx = Some(radio_face::RxSummary {
+                    frame_len: length as u16,
+                    rssi_dbm: packet_status.rssi,
+                    snr_tenths_db: packet_status.snr.saturating_mul(10),
+                });
+                local_status.last_wake = radio_face::WakeSource::Radio;
+                ui::publish(local_status, radio_face::LedSignal::Activity);
             }
             Either::Second(Err(_)) => {
+                local_status.radio = radio_face::RadioState::Fault;
+                local_status.fault = Some(radio_face::Fault {
+                    code: 6,
+                    message: radio_face::Text::from_truncated("RADIO RX"),
+                });
+                ui::publish(local_status, radio_face::LedSignal::Idle);
                 let _ = write_all(&mut usb_tx, b"radio rx failed\r\n").await;
                 prepare_rx = true;
             }
             Either::First(Err(_)) => {}
             Either::First(Ok(0)) => {}
             Either::First(Ok(length)) => {
+                local_status.host = radio_face::HostState::Attached;
+                local_status.last_wake = radio_face::WakeSource::Host;
+                ui::publish(local_status, radio_face::LedSignal::Idle);
                 let mut packet = &usb_packet[..length];
                 // Discard host wake bytes, but only while the parser sits at a frame
                 // boundary: the same value is perfectly legal inside a length field or a
@@ -315,6 +390,36 @@ async fn main(_spawner: Spawner) {
                 }
                 if packet == b"sync\n" || packet == b"sync\r\n" {
                     let _ = write_all(&mut usb_tx, b"2b 24b4\r\n").await;
+                    continue;
+                }
+                if packet == b"ui\n" || packet == b"ui\r\n" {
+                    let diagnostic = ui::diagnostic();
+                    let mut reply = radio_face::Text::<80>::empty();
+                    let _ = write!(
+                        &mut reply,
+                        "ui={}; display={}; screen={}; button={}\r\n",
+                        diagnostic.state, diagnostic.display, diagnostic.screen, diagnostic.button,
+                    );
+                    let _ = write_all(&mut usb_tx, reply.as_str().as_bytes()).await;
+                    continue;
+                }
+                #[cfg(feature = "ui-bench")]
+                if packet == b"fault\n" || packet == b"fault\r\n" {
+                    local_status.radio = radio_face::RadioState::Fault;
+                    local_status.fault = Some(radio_face::Fault {
+                        code: 0xfe,
+                        message: radio_face::Text::from_truncated("BENCH FAULT"),
+                    });
+                    ui::publish(local_status, radio_face::LedSignal::Idle);
+                    let _ = write_all(&mut usb_tx, b"ui bench fault set\r\n").await;
+                    continue;
+                }
+                #[cfg(feature = "ui-bench")]
+                if packet == b"clear\n" || packet == b"clear\r\n" {
+                    local_status.radio = radio_face::RadioState::Online;
+                    local_status.fault = None;
+                    ui::publish(local_status, radio_face::LedSignal::Idle);
+                    let _ = write_all(&mut usb_tx, b"ui bench fault cleared\r\n").await;
                     continue;
                 }
                 // Sleep diagnostics, for the power receipt: how many times the idle hook
@@ -397,6 +502,10 @@ async fn main(_spawner: Spawner) {
                                                         rx_params = new_rx;
                                                         tx_power_dbm =
                                                             i32::from(profile.tx_power_dbm);
+                                                        board::apply_profile(
+                                                            &mut local_status,
+                                                            profile,
+                                                        );
                                                         prepare_rx = true;
                                                         0
                                                     } else {
@@ -450,6 +559,15 @@ async fn main(_spawner: Spawner) {
                     &[EVENT_TX, result, length_bytes[0], length_bytes[1]],
                 )
                 .await;
+                if result == 0 {
+                    local_status.tx_frames = local_status.tx_frames.saturating_add(1);
+                    local_status.last_tx = radio_face::TxResult::Sent {
+                        frame_len: sent_len,
+                    };
+                } else {
+                    local_status.last_tx = radio_face::TxResult::Failed { code: result };
+                }
+                ui::publish(local_status, radio_face::LedSignal::Activity);
             }
         }
     }

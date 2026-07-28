@@ -1,0 +1,13 @@
+[package]
+name = "radio-face"
+version = "0.0.1"
+edition = "2024"
+rust-version.workspace = true
+license = "MPL-2.0"
+publish = false
+
+[dependencies]
+embedded-graphics = { path = "../../vendor/embedded-graphics" }
+
+[dev-dependencies]
+png = "0.17.16"

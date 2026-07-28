@@ -17,13 +17,17 @@ publish = false
 default = ["host-usb"]
 host-usb = []
 host-uart-low-power = []
+ui-bench = []
 
 [dependencies]
 critical-section = "1.2.0"
 embassy-executor = "0.10.0"
 embassy-futures = "0.1.2"
+embassy-sync = "0.8.0"
 embassy-time = "0.5.1"
+embedded-graphics = { path = "../../vendor/embedded-graphics" }
 embedded-hal-bus = { version = "0.3.0", features = ["async"] }
+embedded-hal-async = "1.0.0"
 embedded-io-async = "0.7.0"
 esp-backtrace = { version = "0.19.0", features = ["esp32s3", "panic-handler", "println"] }
 esp-bootloader-esp-idf = { version = "0.5.0", features = ["esp32s3"] }
@@ -32,4 +36,5 @@ esp-println = { version = "0.17.0", default-features = false, features = ["esp32
 esp-rtos = { version = "0.3.0", features = ["embassy", "esp32s3"] }
 lora-modulation = "0.1.5"
 lora-phy = { path = "../../vendor/lora-phy" }
+radio-face = { path = "../../crates/radio-face" }
 selvage = { path = "../../crates/selvage" }
