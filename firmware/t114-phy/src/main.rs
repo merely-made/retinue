@@ -1,12 +1,13 @@
 #![no_std]
 #![no_main]
 
-use core::convert::Infallible;
+use core::{convert::Infallible, fmt::Write as _};
 
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_nrf::config::HfclkSource;
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
+use embassy_nrf::spim::{Config as SpimConfig, Frequency, Spim};
 use embassy_nrf::usb::Driver;
 use embassy_nrf::usb::vbus_detect::HardwareVbusDetect;
 use embassy_nrf::{bind_interrupts, peripherals, usb};
@@ -28,9 +29,13 @@ use selvage::{
 };
 use static_cell::StaticCell;
 
+mod board;
+mod ui;
+
 bind_interrupts!(struct Irqs {
     USBD => usb::InterruptHandler<peripherals::USBD>;
     CLOCK_POWER => usb::vbus_detect::InterruptHandler;
+    SPIM3 => embassy_nrf::spim::InterruptHandler<peripherals::SPI3>;
 });
 
 type UsbDriver = Driver<'static, HardwareVbusDetect>;
@@ -206,6 +211,21 @@ fn diagnostic_event(irq_status: u16, device_errors: u16, sync_word: [u8; 2]) -> 
     ]
 }
 
+fn publish_fault(status: &mut radio_face::LocalStatus, code: u8, message: &'static str) {
+    status.radio = radio_face::RadioState::Fault;
+    status.fault = Some(radio_face::Fault {
+        code,
+        message: radio_face::Text::from_truncated(message),
+    });
+    ui::publish(*status, radio_face::LedSignal::Idle);
+}
+
+fn publish_online(status: &mut radio_face::LocalStatus) {
+    status.radio = radio_face::RadioState::Online;
+    status.fault = None;
+    ui::publish(*status, radio_face::LedSignal::Idle);
+}
+
 async fn write_all(class: &mut CdcAcmClass<'static, UsbDriver>, bytes: &[u8]) -> bool {
     for chunk in bytes.chunks(USB_PACKET) {
         if class.write_packet(chunk).await.is_err() {
@@ -245,6 +265,42 @@ async fn main(spawner: Spawner) {
     let mut nrf_config = embassy_nrf::config::Config::default();
     nrf_config.hfclk_source = HfclkSource::ExternalXtal;
     let p = embassy_nrf::init(nrf_config);
+
+    let mut display_config = SpimConfig::default();
+    display_config.frequency = Frequency::M32;
+    let display_spi = Spim::new_txonly(
+        p.SPI3,
+        Irqs,
+        p.P1_08,
+        p.P1_09,
+        display_config,
+    );
+    let display_cs = Output::new(p.P0_11, Level::High, OutputDrive::HighDrive);
+    let display_dc = Output::new(p.P0_12, Level::Low, OutputDrive::Standard);
+    let display_reset = Output::new(p.P0_02, Level::High, OutputDrive::Standard);
+    let display_power = Output::new(p.P0_03, Level::High, OutputDrive::Standard);
+    let display_backlight = Output::new(p.P0_15, Level::High, OutputDrive::Standard);
+    let status_led = Output::new(p.P1_03, Level::High, OutputDrive::Standard);
+    let button_rev21 = Input::new(p.P1_11, Pull::Up);
+    let button_variant = Input::new(p.P1_10, Pull::Up);
+    let mut local_status = board::initial_status();
+    match spawner.spawn(ui::button_task(button_rev21, button_variant)) {
+        Ok(()) => {}
+        Err(_) => panic!(),
+    }
+    match spawner.spawn(ui::screen_task(
+        display_spi,
+        display_cs,
+        display_dc,
+        display_reset,
+        display_power,
+        display_backlight,
+        status_led,
+        local_status,
+    )) {
+        Ok(()) => {}
+        Err(_) => panic!(),
+    }
 
     let driver = Driver::new(p.USBD, Irqs, HardwareVbusDetect::new(Irqs));
     let mut usb_config = Config::new(0x1915, 0x521f);
@@ -307,6 +363,7 @@ async fn main(spawner: Spawner) {
     let mut lora = match init {
         Ok(Ok(lora)) => lora,
         Ok(Err(_)) => {
+            publish_fault(&mut local_status, 1, "SX1262 INIT");
             serve_status_only(
                 class,
                 b"tulle/t114 phy online; sx1262 init failed\r\n".as_slice(),
@@ -314,6 +371,7 @@ async fn main(spawner: Spawner) {
             .await
         }
         Err(_) => {
+            publish_fault(&mut local_status, 1, "SX1262 TIMEOUT");
             serve_status_only(
                 class,
                 b"tulle/t114 phy online; sx1262 init timed out\r\n".as_slice(),
@@ -330,12 +388,14 @@ async fn main(spawner: Spawner) {
     ) {
         Ok(params) => params,
         Err(_) => {
+            publish_fault(&mut local_status, 2, "PHY PARAMS");
             serve_status_only(class, b"tulle/t114 phy modulation invalid\r\n".as_slice()).await
         }
     };
     let mut tx_params = match lora.create_tx_packet_params(16, false, true, false, &modulation) {
         Ok(params) => params,
         Err(_) => {
+            publish_fault(&mut local_status, 3, "TX PARAMS");
             serve_status_only(
                 class,
                 b"tulle/t114 phy tx parameters invalid\r\n".as_slice(),
@@ -347,6 +407,7 @@ async fn main(spawner: Spawner) {
     {
         Ok(params) => params,
         Err(_) => {
+            publish_fault(&mut local_status, 4, "RX PARAMS");
             serve_status_only(
                 class,
                 b"tulle/t114 phy rx parameters invalid\r\n".as_slice(),
@@ -356,6 +417,7 @@ async fn main(spawner: Spawner) {
     };
 
     let online = b"tulle/t114 phy online; sx1262 online; spi=software; irq=poll; sync=2b reg=24b4; longfast=906875000\r\n";
+    publish_online(&mut local_status);
     let mut usb_command = [0_u8; 3 + MAX_RADIO_FRAME];
     let mut usb_command_len;
     let mut tx_power_dbm = TX_POWER_DBM;
