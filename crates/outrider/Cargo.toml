@@ -10,4 +10,27 @@ readme = "README.md"
 keywords = ["lxmf", "reticulum", "mesh", "messaging"]
 categories = ["network-programming"]
 
+[features]
+tulle-radio = ["retinue/tulle-radio", "dep:tulle"]
+
 [dependencies]
+hkdf = "0.12"
+retinue = { path = "../retinue" }
+rmpv = "1.3.1"
+sha2 = "0.10"
+thiserror = "2"
+tulle = { version = "0.0.2", path = "../tulle", features = ["serial-async"], optional = true }
+
+[dev-dependencies]
+hex = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+
+[[example]]
+name = "direct_phy_delivery"
+required-features = ["tulle-radio"]
+
+[[example]]
+name = "direct_phy_opportunistic"
+required-features = ["tulle-radio"]

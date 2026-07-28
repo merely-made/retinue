@@ -1,9 +1,13 @@
 # Outrider: LXMF as a boundary crate
 
 **Date:** 2026-07-25
-**Status:** founded. Name decided and verified free on crates.io (2026-07-25);
-no code exists. This records scope, provenance, and gates so the crate starts
-with the same discipline sennet did.
+**Status:** gates 1–8 complete locally against pinned LXMF 0.9.6 /
+RNS 1.4.2 black-box oracles. Direct and Resource-backed propagation responses
+work in both directions, and direct delivery has been repeated over product
+RF. Propagation state survives host-controlled process restarts.
+Opportunistic delivery passes in both stock directions over ratcheted
+single packets; its reduced plaintext grammar is fixture-pinned, and compact
+cost-8 messages pass in both directions over product RF.
 **Siblings:** `2026-07-20_mesh_household_tulle_tucket_sennet.md` (household,
 layering, licensing ruling), mere's
 `2026-07-06_lxmf_key_addressed_mail_research.md` (option C and the 2026-07-24
@@ -98,20 +102,44 @@ Outrider sits in the desk lane after the bench session, beside or after R9
 (its opportunistic mode depends on it; direct and propagation delivery do
 not). Ordered gates, capture first as always:
 
-1. **Oracle:** pin a stock LXMF/Sideband baseline; capture message bytes,
-   announce conventions, and a propagation session; commit fixtures.
-2. **Codec:** parse and rebuild captured messages byte-exactly, opaque
-   fields included.
-3. **Direct delivery:** a message from outrider to a pinned stock client
-   over a live link, and the reverse, both verified in the stock UI and
-   byte-exactly on the wire.
-4. **Propagation client:** submit to and fetch from a stock propagation
-   node.
-5. **Propagation server:** a stock client submits to and fetches from an
-   outrider node; capacity and expiry behavior deterministic under test.
-6. **Opportunistic delivery** once R9 lands, against the same oracle.
-7. **Radio receipt:** gate 3 repeated over a real RF link through the tulle
-   stack, which is the receipt that matters for the product story.
+1. **Oracle:** complete for the message object, delivery and propagation
+   announces, propagation submit, and the two-request fetch session against
+   LXMF 0.9.6 / RNS 1.4.2. Fixed fixtures replay without Python.
+2. **Codec:** complete for the captured message object. Decode, encode,
+   message id, signature preimage, opaque MessagePack fields, bounds, and
+   malformed-input refusal have executable receipts.
+3. **Direct delivery:** complete in both directions over live links, judged by
+   stock delivery callbacks. Cost-8 stamps are generated and enforced; small
+   messages use one data packet and 4 KiB messages use a Resource.
+4. **Propagation client:** complete for stamped submit to and two-stage fetch
+   from a stock propagation node, including decryption and source-signature
+   verification.
+5. **Propagation server:** complete for the captured one-message lane. A stock
+   client submits to and fetches from Outrider; stamp verification, duplicate
+   suppression, owner scoping, acknowledgement, capacity, and expiry are
+   deterministic. The default in-memory store caps fetched encrypted messages
+   at 240 bytes, while caller-selected larger limits degrade the response to a
+   request-bound Resource. A 4 KiB message passed against stock clients in
+   both directions. Receipt:
+   `2026-07-28_outrider_large_propagation_response.md`.
+6. **Opportunistic delivery:** complete. Stock omits the 16-byte LXMF
+   destination from the encrypted single-packet plaintext because Reticulum's
+   header already carries it; Outrider prepends it and reuses the ordinary
+   signed codec. Fixed-fixture replay, cost-8 in-process enforcement, a
+   transport-node hop, and live un-stamped stock delivery pass in both
+   directions. Receipt: `2026-07-28_outrider_opportunistic_delivery.md`.
+7. **Radio receipt:** complete. Gate 3 passed in both directions through the
+   Tulle direct-PHY stack between a Heltec V4 and T114: cost-8 stamped Data
+   and 4 KiB Resource messages arrived byte-exact and authenticated. Receipt:
+   `2026-07-28_outrider_direct_phy_delivery.md`. Opportunistic cost-8 messages
+   also passed in both directions as one 243-byte ratcheted RF packet. Receipt:
+   `2026-07-28_outrider_direct_phy_opportunistic.md`.
+8. **Host persistence:** complete. `PropagationStore` encodes versioned state;
+   restore re-derives transient ids and byte counts and reapplies current
+   capacity, expiry, duplicate, and owner-scoping rules. A filesystem host
+   survived two real process starts against a stock client, while the
+   in-process restart receipt also persisted owner-scoped acknowledgement.
+   Receipt: `2026-07-28_outrider_propagation_persistence.md`.
 
 ## Licensing
 
@@ -120,5 +148,9 @@ Exhibit B. `deny.toml` posture unchanged.
 
 ## Next click
 
-Reserve the crates.io name with a 0.0.1 stub stating scope, as retinue,
-tulle, sennet, and tucket each did at founding.
+Node peering remains deferred. The open compatibility item is a live
+cost-bearing stock opportunistic send: cost-8 works in Outrider's executable
+test, but the stock oracle did not emit that variant during its bounded run.
+Per-interface frame-limit admission is complete: a headed run refused a
+291-byte opportunistic packet before the 255-byte direct-PHY queue, kept both
+drivers alive, then delivered fitting packets in both directions.
