@@ -237,6 +237,40 @@ fn we_can_decrypt_a_token_rns_encrypted_to_us() {
     );
 }
 
+/// RNS ratchet packets do not carry a ratchet id. The receiver must try its retained
+/// secrets, while still using the destination identity hash as the HKDF salt.
+#[test]
+fn we_can_decrypt_a_stock_packet_with_a_retained_ratchet() {
+    let doc: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/ratchet_packet.json")).unwrap();
+    let decode = |field: &str| hex::decode(doc[field].as_str().unwrap()).unwrap();
+
+    let identity_secret: [u8; 64] = decode("identity_secret_hex").try_into().unwrap();
+    let recipient = PrivateIdentity::from_secret_bytes(&identity_secret);
+    assert_eq!(
+        recipient.hash().to_string(),
+        doc["identity_hash_hex"].as_str().unwrap(),
+    );
+
+    let packet = Packet::decode(&decode("packet_hex")).unwrap();
+    assert_eq!(
+        packet.destination.to_string(),
+        doc["destination_hash_hex"].as_str().unwrap(),
+    );
+    assert_eq!(packet.packet_type, PacketType::Data);
+    assert!(!packet.context_flag);
+
+    let ratchet_secret: [u8; 32] = decode("ratchet_secret_hex").try_into().unwrap();
+    let (plaintext, ratchet_id) =
+        token::decrypt_with_ratchets(&recipient, &[[0x72; 32], ratchet_secret], &packet.payload)
+            .expect("decrypting the stock ratchet packet");
+    assert_eq!(plaintext, decode("plaintext_hex"));
+    assert_eq!(
+        ratchet_id.to_string(),
+        doc["ratchet_id_hex"].as_str().unwrap(),
+    );
+}
+
 #[test]
 fn a_tampered_token_is_rejected() {
     let mut raw = fixture("token_identity.bin");

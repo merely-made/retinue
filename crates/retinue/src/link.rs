@@ -638,7 +638,10 @@ impl Link {
                 Some(KEEPALIVE_RESPONSE) => Inbound::KeepAliveResponse,
                 _ => Inbound::Unknown,
             },
-            CTX_LINKCLOSE => Inbound::Close,
+            CTX_LINKCLOSE => match self.decrypt(packet) {
+                Ok(data) if data == self.id.as_slice() => Inbound::Close,
+                _ => Inbound::Unknown,
+            },
             _ => Inbound::Unknown,
         })
     }
@@ -673,8 +676,15 @@ impl Link {
     }
 
     /// Tear the link down.
-    pub fn close_packet(&self) -> Packet {
-        link_packet(CTX_LINKCLOSE, self.id, self.id.as_slice().to_vec())
+    ///
+    /// The payload is the link id sealed under the link keys. RNS rejects an
+    /// unsealed 16-byte id as a truncated token.
+    pub fn close_packet(&self, iv: &[u8; IV_LEN]) -> Packet {
+        link_packet(
+            CTX_LINKCLOSE,
+            self.id,
+            self.keys.encrypt(self.id.as_slice(), iv),
+        )
     }
 }
 
@@ -852,7 +862,11 @@ mod tests {
             link.receive(&link.keepalive_packet(KEEPALIVE_RESPONSE)),
             Some(Inbound::KeepAliveResponse),
         );
-        assert_eq!(link.receive(&link.close_packet()), Some(Inbound::Close));
+        let close = link.close_packet(&[0x44; IV_LEN]);
+        assert_eq!(link.receive(&close), Some(Inbound::Close));
+        let mut malformed_close = close;
+        malformed_close.payload.truncate(16);
+        assert_eq!(link.receive(&malformed_close), Some(Inbound::Unknown));
 
         // A packet for a different link id is not ours.
         let mut foreign = link.keepalive_packet(KEEPALIVE_REQUEST);

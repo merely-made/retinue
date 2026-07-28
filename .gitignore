@@ -9,3 +9,9 @@
 # The oracle's Python venv. Recreate with oracle/requirements.txt (currently rns==1.4.0);
 # see oracle/README.md. The fixtures it produces ARE committed, so tests need no Python.
 oracle/.venv/
+
+# Weave's local merge state is machine-local generated data.
+.weave/
+
+# Hardware receipts can contain MAC addresses and serial-port observations.
+design_docs/2026-07-28_v4_on_device_ui_acceptance.md

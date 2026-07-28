@@ -129,7 +129,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 Some(Inbound::Rtt) => println!("RECV_RTT"),
                 Some(Inbound::Close) => {
-                    println!("RECV_CLOSE");
+                    println!("RECV_CLOSE {}", hex::encode(&packet.payload));
                     break;
                 }
                 Some(Inbound::KeepAliveResponse) => println!("RECV_KEEPALIVE_RESPONSE"),

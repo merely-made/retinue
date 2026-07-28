@@ -28,7 +28,7 @@ py -m venv .venv
 ```
 
 `requirements.txt` pins `rns==1.4.0`, which includes the 1.3.9 `rnsh` security update and
-is the current PyPI release. Re-pin deliberately, not on every upstream release. The
+is Retinue's current compatibility target. Re-pin deliberately, not on every upstream release. The
 committed fixture corpus remains labelled 1.3.8 because those files are historical byte
 observations; current compatibility is established by the live gates below.
 
@@ -53,6 +53,10 @@ facts it pins down.
 The fixtures are **committed**. `cargo test` replays them and needs no Python, so CI stays
 Python-free. The live oracle is a local gate, run when the wire format is in question.
 
+`capture_ifac.py` separately emits a deterministic authenticated plain packet
+(`ifac_packet.bin` and its JSON manifest). It states and falsifies derivation,
+signature, placement, and mask hypotheses against stock RNS output.
+
 ## What the oracle settled
 
 These were unanswerable from the manual and from Beechat, and a wrong guess on any of them
@@ -76,6 +80,10 @@ is a silent, total wire incompatibility.
   `Identity` path, which hardcodes a 16-byte split that is only correct under a non-default
   feature.
 - **`NAME_HASH_LENGTH` is 10 bytes**, which appears nowhere in the manual.
+- **IFAC is a carrier envelope.** The oracle pinned credential hashing, the
+  64-byte HKDF identity key, Ed25519 signature-suffix truncation, code placement,
+  and the per-packet HKDF mask. The logical packet is recovered before packet
+  decoding and is re-signed for every egress interface.
 
 ## The live interop gate
 
@@ -83,7 +91,8 @@ is a silent, total wire incompatibility.
 ./.venv/Scripts/python.exe -u run_live.py
 ```
 
-This runs all eleven live gates in isolated processes: announce, path resolution, links in
+This runs all twelve live gates in isolated processes: open and IFAC-authenticated
+announce, path resolution, links in
 both roles, request/response, endpoint streaming, Resources in both directions (including
 the 2.5 MB segmented cases), and transport routing. `interop_r1.py` is the first gate. It
 starts retinue (`examples/interop_tcp.rs`), points a real RNS `TCPClientInterface` at it,
@@ -93,7 +102,11 @@ and checks **both** directions:
   signed and framed. Reaching the handler at all means it passed RNS's signature
   validation.
 - **RNS -> retinue.** retinue de-frames, decodes and validates RNS's announce over the
-  same socket.
+same socket.
+
+`interop_ifac.py` repeats that receipt over a named, passphrase-protected
+interface. RNS accepts Retinue's authenticated announce and Retinue unmasks,
+verifies, and validates RNS's announce on the same connection.
 
 Either direction failing means we are not wire-compatible, whatever the unit tests say.
 This is a **local gate**, not CI: CI replays the committed fixtures instead.

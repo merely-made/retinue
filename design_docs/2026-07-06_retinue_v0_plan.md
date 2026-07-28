@@ -1,6 +1,6 @@
 # retinue v0 — Endpoint-Scoped Reticulum
 
-**Status (2026-07-25): the on-air milestone is REAL.** R10's interface lane landed
+**Status (2026-07-28): the on-air milestone is REAL and R9 is complete.** R10's interface lane landed
 as the sibling `tulle` crate rather than `retinue::iface` modules: RNode host
 protocol (gold-tested against hardware), KISS, and the direct-PHY serial protocol,
 with headed RF receipts on real boards (`2026-07-21_first_reliable_link_over_rf.md`,
@@ -8,8 +8,15 @@ with headed RF receipts on real boards (`2026-07-21_first_reliable_link_over_rf.
 The pre-R10 gate items all landed: Channel/Buffer reliability (lossy-oracle-tested,
 then RF-proven), RTT-adaptive retransmit, resource retries/cancels and bounded HMUs,
 route expiry, announce budgeting, and announce-relay jitter. The README exit
-criterion is executed. Remaining spec-parity debts: **R8 IFAC** (only the flag is
-decoded) and **R9 outbound ratchet encryption**. The naming question below is
+criterion is executed. R9 now encrypts link-less packets to advertised ratchets,
+tries retained receive epochs, rotates under caller policy, and emits versioned
+host-owned snapshots; both crypto directions pass RNS 1.4.0 and Outrider makes
+the path load-bearing. Per-interface frame admission also prevents a
+sub-500-byte carrier from rejecting a packet after the endpoint issued its
+queue receipt; the 255-byte direct-PHY boundary passed headed. R8 IFAC now
+derives stock-compatible interface identities, authenticates and masks each
+carrier frame, counts its overhead against frame admission, and passes RNS
+1.4.0 in both directions over TCP. The naming question below is
 closed: the repo is now the radio-family workspace and "retinue" names the
 household, which restores the metaphor the routing scope change had broken.
 LXMF remains out of the RNS stack, but its disposition is decided (mere's
@@ -32,8 +39,8 @@ interop gates** (announce,
 link initiate/respond, request/response, R2 path, resource both ways, routing both
 ways, endpoint stream). **R5 mere wiring is done**: `ReticulumTransport` runs on
 `retinue::endpoint::Endpoint`; mere's reticulum-lane tests pass (bilateral round-trip
-included) and the Beechat pin is deleted. Remaining: the R8–R10 spec-parity phases
-(IFAC, full ratchets, remaining interface types) and headed Tulle/RF proofs.
+included) and the Beechat pin is deleted. R9 ratchets and R10's Tulle-owned
+interface lane and R8 IFAC have since landed.
 Direction decided in the Mere workspace (mere design_docs,
 `2026-06-29_reticulum_transport_plan.md` Direction section and
 `2026-07-06_lxmf_key_addressed_mail_research.md`): Mere stewards its own
@@ -360,12 +367,21 @@ proposal, not fixed.
   - Deferred (non-essential): the ~2% announce-bandwidth cap and path-request *responses*
     (retinue emits path requests; answering them is a transport-node nicety, not needed
     for the above); path/link-transport table expiry.
-- **R8 — IFAC.** Interface access codes: derive the shared Ed25519 signing identity
-  from a passphrase/network name, sign every outbound packet, verify + drop on inbound.
-  1–64-byte codes. retinue already decodes the IFAC flag.
-- **R9 — ratchet encryption.** Encrypt single packets to a destination's current
-  ratchet (retinue already parses + stores ratchets from announces); ratchet rotation
-  and retention. Forward secrecy for the asymmetric-packet path.
+- **R8 — IFAC. COMPLETE 2026-07-28.** `ifac::Ifac` derives the shared
+  identity from a network name and/or passphrase, emits stock-compatible
+  1–64-byte codes, masks outbound frames, and verifies before packet decode.
+  IFAC is per interface: routed ingress is stripped to a logical packet and
+  every egress applies its own credentials. TCP, raw interfaces, and Tulle use
+  the same codec. The fixed RNS 1.4.0 vector, wrong-key/tamper rejection,
+  cross-IFAC routing, frame-cap accounting, and the bidirectional mixed-runtime
+  gate all pass. Receipt:
+  `2026-07-28_ifac_interop.md`.
+- **R9 — ratchet encryption. COMPLETE 2026-07-28.** Single packets select the
+  current ratchet from a validated announce. Receivers try retained private
+  epochs because the packet carries no ratchet id. `RatchetStore` owns
+  configurable rotation, count/age retention, and versioned caller-persisted
+  snapshots. RNS 1.4.0 decrypts Retinue output; Retinue decrypts the fixed stock
+  packet. Outrider opportunistic delivery is the real consumer.
 - **R10 — remaining interfaces.** Serial/KISS, RNode, UDP, and the others, behind the
   same interface seam as TCP. The Heltec/RNode route, embedded Rust boundary,
   and stock-firmware versus Rust-firmware sequencing are specified in
@@ -534,13 +550,15 @@ the Python dependency stays off the critical path.
 
 ## Open questions
 
-- **Ratchets in announces: ANSWERED 2026-07-13.** A 32-byte X25519 ratchet key is
+- **Ratchets: ANSWERED 2026-07-28.** A 32-byte X25519 ratchet key is
   inserted between `rand_hash` and the signature, signalled by header bit 5 (the
-  Context Flag), and covered by the signature. retinue implements it. The
-  remaining ratchet question is the *link* half: how a sender selects which
-  ratchet to encrypt to, and what a receiver retains (`RATCHET_COUNT = 512`,
-  `RATCHET_INTERVAL = 1800`, `RATCHET_EXPIRY = 30 days`). Settle at R3, the same
-  way: by capture.
+  Context Flag), and covered by the signature. A ratcheted single packet keeps
+  the ordinary header and token layout; X25519 uses the advertised ratchet
+  public key while HKDF keeps the recipient identity hash as salt. No ratchet
+  id is carried, so the receiver tries retained private epochs until HMAC
+  verification succeeds. Defaults are count 512, interval 1800 seconds, and
+  expiry 30 days. Links remain ratchet-independent because their ephemeral
+  handshake supplies their forward secrecy.
 - **Link trailer and link id: ANSWERED 2026-07-13** by `oracle/capture_link.py`.
   A link request is **67** bytes and a proof **99**: both carry a 3-byte trailer of
   `mode(3 bits) | mtu(21 bits)`, big-endian. The initiator asks for AES-256 and MTU
@@ -558,10 +576,10 @@ the Python dependency stays off the critical path.
   that is invisible; over LoRa it is not. Decide at R3 whether `AsyncRead`/
   `AsyncWrite` on a link implies retinue sequences and retransmits, or whether
   the stream type is only offered on reliable interfaces.
-- **IFAC** (interface access codes) is not derivable from any allowed source:
-  Beechat declares the type and never serialises it. retinue currently decodes the
-  IFAC flag and ignores the field. Needed only for IFAC-protected interfaces, so
-  it can wait, but it must not be forgotten.
+- **IFAC is now captured and implemented.** The black-box RNS 1.4.0 oracle
+  settled derivation, signature input and truncation, field placement, and
+  masking without reading the reference source. The implementation remains a
+  carrier boundary rather than contaminating logical packets.
 
 ## Lessons from the Beechat probe
 

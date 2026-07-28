@@ -73,6 +73,10 @@ name = "interop_tcp"
 required-features = ["tokio"]
 
 [[example]]
+name = "interop_ifac"
+required-features = ["tokio"]
+
+[[example]]
 name = "link_interop"
 required-features = ["tokio"]
 
@@ -144,6 +148,14 @@ required-features = ["tulle-radio"]
 name = "direct_phy_resource"
 required-features = ["tulle-radio"]
 
+[[example]]
+name = "direct_phy_bytes"
+required-features = ["tulle-radio"]
+
+[[example]]
+name = "direct_phy_resource_trace"
+required-features = ["tulle-radio"]
+
 [[test]]
 name = "endpoint_multi"
 required-features = ["tokio"]
@@ -158,6 +170,10 @@ required-features = ["tokio"]
 
 [[test]]
 name = "endpoint_resource"
+required-features = ["tokio"]
+
+[[test]]
+name = "endpoint_single"
 required-features = ["tokio"]
 
 [[test]]

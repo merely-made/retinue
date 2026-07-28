@@ -16,6 +16,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
 use super::hdlc::{Deframer, frame};
+use crate::ifac::Ifac;
 use crate::packet::Packet;
 
 /// Anything that can go wrong reading a packet off an interface.
@@ -49,6 +50,7 @@ impl core::error::Error for RecvError {}
 pub struct TcpInterface {
     stream: TcpStream,
     deframer: Deframer,
+    ifac: Option<Ifac>,
     /// Frames that arrived in the same read as an earlier one, not yet handed out.
     pending: VecDeque<Vec<u8>>,
 }
@@ -59,13 +61,31 @@ impl TcpInterface {
         Ok(Self::from_stream(TcpStream::connect(addr).await?))
     }
 
+    /// Dial a peer through an IFAC-authenticated virtual network.
+    pub async fn connect_with_ifac(addr: SocketAddr, ifac: Ifac) -> io::Result<Self> {
+        Ok(Self::from_stream_with_ifac(
+            TcpStream::connect(addr).await?,
+            ifac,
+        ))
+    }
+
     /// Wrap an already-connected socket, as a server does after accepting.
     pub fn from_stream(stream: TcpStream) -> Self {
+        Self::from_stream_access(stream, None)
+    }
+
+    /// Wrap an already-connected socket with IFAC authentication.
+    pub fn from_stream_with_ifac(stream: TcpStream, ifac: Ifac) -> Self {
+        Self::from_stream_access(stream, Some(ifac))
+    }
+
+    fn from_stream_access(stream: TcpStream, ifac: Option<Ifac>) -> Self {
         // Reticulum packets are small and latency matters more than packing.
         let _ = stream.set_nodelay(true);
         Self {
             stream,
             deframer: Deframer::new(),
+            ifac,
             pending: VecDeque::new(),
         }
     }
@@ -77,7 +97,14 @@ impl TcpInterface {
 
     /// Frame a packet and put it on the wire.
     pub async fn send(&mut self, packet: &Packet) -> io::Result<()> {
-        self.send_raw(&packet.encode()).await
+        let logical = packet.encode();
+        let wire = match &self.ifac {
+            Some(ifac) => ifac
+                .seal(&logical)
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?,
+            None => logical,
+        };
+        self.send_raw(&wire).await
     }
 
     /// Frame raw packet bytes and put them on the wire.
@@ -109,13 +136,18 @@ impl TcpInterface {
     /// Read until a whole packet arrives, and decode it.
     pub async fn recv(&mut self) -> Result<Packet, RecvError> {
         let raw = self.recv_frame().await?;
-        Packet::decode(&raw).map_err(RecvError::Wire)
+        let logical = match &self.ifac {
+            Some(ifac) => ifac.open(&raw).map_err(RecvError::Wire)?,
+            None => raw,
+        };
+        Packet::decode(&logical).map_err(RecvError::Wire)
     }
 }
 
 /// Accept incoming TCP interface connections.
 pub struct TcpInterfaceListener {
     listener: TcpListener,
+    ifac: Option<Ifac>,
 }
 
 impl TcpInterfaceListener {
@@ -125,6 +157,15 @@ impl TcpInterfaceListener {
     pub async fn bind(addr: SocketAddr) -> io::Result<Self> {
         Ok(Self {
             listener: TcpListener::bind(addr).await?,
+            ifac: None,
+        })
+    }
+
+    /// Bind an IFAC-authenticated TCP interface listener.
+    pub async fn bind_with_ifac(addr: SocketAddr, ifac: Ifac) -> io::Result<Self> {
+        Ok(Self {
+            listener: TcpListener::bind(addr).await?,
+            ifac: Some(ifac),
         })
     }
 
@@ -136,6 +177,9 @@ impl TcpInterfaceListener {
     /// Wait for a peer to connect.
     pub async fn accept(&self) -> io::Result<TcpInterface> {
         let (stream, _) = self.listener.accept().await?;
-        Ok(TcpInterface::from_stream(stream))
+        Ok(match &self.ifac {
+            Some(ifac) => TcpInterface::from_stream_with_ifac(stream, ifac.clone()),
+            None => TcpInterface::from_stream(stream),
+        })
     }
 }

@@ -1,11 +1,8 @@
 //! Resources: segmented transfer of large payloads over a link.
 //!
-//! **Status: the advertisement is implemented and verified; the transfer state machine is
-//! not.** A full resource transfer is a windowed protocol (see the RNS constants: `WINDOW`,
-//! `SDU = 464`, `MAPHASH_LEN = 4`, hashmap updates, retries, proofs) with bz2 compression.
-//! This module currently models the advertisement, which is the packet that opens every
-//! transfer, so the rest can be built on a verified foundation. See the wire reference,
-//! section 0.2, for the full protocol as reversed from capture.
+//! The advertisement codec and segmented transfer state machines are implemented and verified
+//! against captured RNS traffic, loss tests, and live stock clients. Transfers cover hashmap
+//! updates, retries, proofs, optional bz2 compression, and request-response Resources.
 //!
 //! The advertisement is a msgpack map. Its keys are single letters; the meanings below are
 //! from decoding a real RNS 1.3.8 advertisement:
@@ -19,7 +16,9 @@
 //! r  random hash     (4)
 //! f  flags
 //! m  hashmap         (MAPHASH_LEN = 4 bytes per part)
-//! i, l, q            carried opaque (interleave / split / request), not yet interpreted
+//! i  segment index
+//! l  total segments
+//! q  binary request id for a response Resource, nil otherwise
 //! ```
 
 use crate::hash::full_hash;
@@ -38,6 +37,8 @@ pub const SDU: usize = 464;
 pub const FLAG_ENCRYPTED: u64 = 0x01;
 /// Advertisement flag bit: the payload is bz2-compressed.
 pub const FLAG_COMPRESSED: u64 = 0x02;
+/// Advertisement flag bit: this Resource carries a request response.
+pub const FLAG_RESPONSE: u64 = 0x10;
 
 /// The resource hash: `SHA256(uncompressed_data || random_hash)`. It binds the resource to
 /// its content and this transfer's random hash. Verified against RNS 1.3.8.
@@ -210,8 +211,8 @@ pub struct Advertisement {
     pub i: i64,
     /// `l`, carried opaque.
     pub l: i64,
-    /// `q`, carried opaque (present-but-nil is `None`).
-    pub q: Option<i64>,
+    /// `q`: request id for a response Resource, or nil for a generic Resource.
+    pub q: Option<Vec<u8>>,
 }
 
 impl Advertisement {
@@ -245,7 +246,7 @@ impl Advertisement {
                 b'm' => hashmap = Some(r.bin()?.to_vec()),
                 b'i' => i = Some(r.int()?),
                 b'l' => l = Some(r.int()?),
-                b'q' => q = r.int_or_nil()?,
+                b'q' => q = r.bin_or_nil()?.map(Vec::from),
                 _ => r.skip_value()?,
             }
         }
@@ -285,8 +286,8 @@ impl Advertisement {
         w.str_key(b'l');
         w.int(self.l);
         w.str_key(b'q');
-        match self.q {
-            Some(v) => w.int(v),
+        match &self.q {
+            Some(v) => w.bin(v),
             None => w.nil(),
         }
         w.str_key(b'f');
@@ -649,6 +650,7 @@ pub struct Outgoing {
     total_segments: i64,
     /// The full resource's data size, carried in every segment's advertisement `d` field.
     total_data_size: u64,
+    request_id: Option<[u8; 16]>,
     /// All part map hashes, in transfer order.
     map_hashes: Vec<[u8; MAPHASH_LEN]>,
     /// Parts (raw token slices) keyed by map hash.
@@ -694,6 +696,7 @@ impl Outgoing {
             segment_index: 1,
             total_segments: 1,
             total_data_size: data.len() as u64,
+            request_id: None,
             expected_proof: proof(data, &hash),
             map_hashes,
             by_hash,
@@ -718,6 +721,12 @@ impl Outgoing {
         self
     }
 
+    /// Mark this Resource as the response to one request.
+    pub fn with_request_id(mut self, request_id: [u8; 16]) -> Self {
+        self.request_id = Some(request_id);
+        self
+    }
+
     /// The advertisement, carrying the first [`HASHMAP_MAX_PARTS`] map hashes.
     pub fn advertisement(&self) -> Advertisement {
         self.advertisement_with_hash_limit(HASHMAP_MAX_PARTS)
@@ -737,6 +746,9 @@ impl Outgoing {
         if self.compressed {
             flags |= FLAG_COMPRESSED;
         }
+        if self.request_id.is_some() {
+            flags |= FLAG_RESPONSE;
+        }
         Advertisement {
             transfer_size: self.transfer_size,
             data_size: self.total_data_size,
@@ -748,7 +760,7 @@ impl Outgoing {
             hashmap,
             i: self.segment_index,
             l: self.total_segments,
-            q: None,
+            q: self.request_id.map(|id| id.to_vec()),
         }
     }
 
@@ -958,12 +970,12 @@ impl<'a> MapReader<'a> {
             }
         }
     }
-    fn int_or_nil(&mut self) -> Result<Option<i64>> {
+    fn bin_or_nil(&mut self) -> Result<Option<&'a [u8]>> {
         if self.b.get(self.i) == Some(&0xc0) {
             self.i += 1;
             Ok(None)
         } else {
-            Ok(Some(self.int()?))
+            Ok(Some(self.bin()?))
         }
     }
     fn bin(&mut self) -> Result<&'a [u8]> {
@@ -1043,6 +1055,24 @@ mod tests {
         assert_eq!(a.i, 1);
         assert_eq!(a.l, 1);
         assert_eq!(a.q, None);
+    }
+
+    #[test]
+    fn parses_a_stock_large_response_advertisement() {
+        let bytes = hex::decode(
+            "8ba174cd1130a164cd10f7a16e0aa168c420896316a0df053d734e4cd8e3083fc5cb8a73d3dd3785841629b57855ddbd14e3a172c40488b2d5c1a16fc420896316a0df053d734e4cd8e3083fc5cb8a73d3dd3785841629b57855ddbd14e3a16901a16c01a171c41069c41c05952ff04e3a85ab84308b680da16611a16dc4289e5812aaca15c16a87ed653a2ba66a913f7321b838797399b1345d19cf17141453d40e601bfd8856",
+        )
+        .unwrap();
+        let advertisement = Advertisement::parse(&bytes).unwrap();
+        assert_eq!(advertisement.transfer_size, 4_400);
+        assert_eq!(advertisement.data_size, 4_343);
+        assert_eq!(advertisement.parts, 10);
+        assert_eq!(advertisement.flags, FLAG_ENCRYPTED | FLAG_RESPONSE);
+        assert_eq!(advertisement.hashmap_parts(), 10);
+        assert_eq!(
+            advertisement.q,
+            Some(hex::decode("69c41c05952ff04e3a85ab84308b680d").unwrap())
+        );
     }
 
     /// Re-packing the parsed advertisement reproduces the exact captured bytes. This is the

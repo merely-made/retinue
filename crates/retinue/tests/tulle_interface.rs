@@ -103,7 +103,7 @@ async fn endpoint_announces_cross_the_tulle_packet_boundary() {
 }
 
 #[tokio::test]
-async fn physical_frame_limit_is_reported() {
+async fn physical_frame_limit_is_applied_before_the_driver_runs() {
     let endpoint = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x33; 64]));
     let (radio, _peer) = radio_pair(20);
     let interface = endpoint.attach_interface();
@@ -113,11 +113,12 @@ async fn physical_frame_limit_is_reported() {
         &DestinationName::new("bench", ["oversize"]),
         b"larger than cap",
     );
-    let error = task
-        .await
-        .expect("driver task")
-        .expect_err("oversize packet must stop the interface");
-    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    assert!(
+        !task.is_finished(),
+        "carrier admission must refuse the packet before it can stop the driver"
+    );
+    task.abort();
 }
 
 #[tokio::test]

@@ -27,9 +27,10 @@
 //! [`endpoint::RoutingPolicy`]); the default posture is endpoint-scoped. On-air interfaces
 //! (RNode serial, direct PHY) live in the sibling `tulle` crate and are proven over real
 //! RF; endpoint-level resource sessions, route expiry, and announce budgeting are
-//! implemented. Not yet done: IFAC (only the header flag is decoded) and outbound
-//! single-packet ratchet encryption (announce ratchets are parsed and validated). See the
-//! README's *Maturity* section and `design_docs/`.
+//! implemented. Ratcheted single packets use caller-owned rotation and retained-key state.
+//! IFAC virtual-network authentication is applied at each carrier boundary,
+//! including TCP and Tulle. See the README's *Maturity* section and
+//! `design_docs/`.
 //!
 //! # Provenance
 //!
@@ -48,11 +49,13 @@ pub mod destination;
 pub mod endpoint;
 pub mod hash;
 pub mod identity;
+pub mod ifac;
 pub mod iface;
 pub mod link;
 pub mod lossy;
 pub mod packet;
 pub mod path;
+pub mod ratchet;
 pub mod reliable;
 pub mod request;
 pub mod resource;
@@ -64,7 +67,9 @@ pub use announce::Announce;
 pub use destination::DestinationName;
 pub use hash::{AddressHash, NameHash};
 pub use identity::{Identity, PrivateIdentity};
+pub use ifac::Ifac;
 pub use packet::Packet;
+pub use ratchet::{RatchetPolicy, RatchetStore};
 pub use reliable::ReliableChannel;
 
 /// Anything that can go wrong decoding or validating.
@@ -80,6 +85,8 @@ pub enum Error {
     /// The Ed25519 signature did not verify. For an announce this means the peer does not
     /// hold the private key for the identity it is announcing.
     BadSignature,
+    /// An interface frame did not carry the expected access code.
+    BadIfac,
     /// The destination hash in the header is not the one the announced identity and name
     /// imply: a correctly signed announce for a destination that is not the one claimed.
     DestinationMismatch,
@@ -112,6 +119,7 @@ impl core::fmt::Display for Error {
             Self::Oversize => "packet exceeds the wire MTU",
             Self::BadKey => "invalid public key",
             Self::BadSignature => "signature did not verify",
+            Self::BadIfac => "interface access code did not verify",
             Self::DestinationMismatch => "destination hash does not match the announced identity",
             Self::BadMac => "token HMAC did not verify",
             Self::BadPadding => "malformed padding",

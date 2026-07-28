@@ -4,9 +4,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use retinue::destination::DestinationName;
-use retinue::endpoint::Endpoint;
+use retinue::endpoint::{Endpoint, PayloadMode, ReceivedPayload, ResourceTransferConfig};
 use retinue::identity::PrivateIdentity;
 use retinue::lossy::{LossModel, connect};
+use retinue::request::Request;
 
 #[tokio::test]
 async fn endpoint_publishes_and_fetches_a_resource() {
@@ -29,23 +30,151 @@ async fn endpoint_publishes_and_fetches_a_resource() {
         async move {
             let mut accepted = server.accept_resource().await.unwrap();
             assert_eq!(accepted.destination, destination);
-            accepted.session.fetch().await.unwrap()
+            accepted.session.receive().await.unwrap()
         }
     });
 
-    tokio::time::timeout(
+    let sent = tokio::time::timeout(
         Duration::from_secs(10),
-        client.publish_resource(destination, *server_id.public(), &payload),
+        client.send_payload_with_config(
+            destination,
+            *server_id.public(),
+            &payload,
+            ResourceTransferConfig {
+                timeout: Duration::from_secs(5),
+                retry_interval: Duration::from_millis(100),
+                request_window: 1,
+            },
+        ),
     )
     .await
     .expect("publish completes")
     .expect("receiver proves the resource");
+    assert_eq!(sent, PayloadMode::Resource);
 
     let fetched = tokio::time::timeout(Duration::from_secs(5), receiver)
         .await
         .expect("receiver completes")
         .unwrap();
-    assert_eq!(fetched, expected);
+    assert_eq!(fetched, ReceivedPayload::Resource(expected));
+}
+
+#[tokio::test]
+async fn resource_registration_also_receives_best_effort_data() {
+    let server_id = PrivateIdentity::from_secret_bytes(&[0x66; 64]);
+    let client_id = PrivateIdentity::from_secret_bytes(&[0x55; 64]);
+    let server = Arc::new(Endpoint::new(server_id.clone()));
+    let client = Endpoint::new(client_id);
+
+    let name = DestinationName::new("retinue", ["mixed"]);
+    let destination = name.destination_hash(server_id.public());
+    server.register_resource(name, b"");
+    connect(&client, &server, LossModel::new(5), LossModel::new(6));
+
+    let receiver = tokio::spawn({
+        let server = Arc::clone(&server);
+        async move {
+            let mut accepted = server.accept_resource().await.unwrap();
+            assert_eq!(accepted.destination, destination);
+            accepted.session.receive().await.unwrap()
+        }
+    });
+
+    let mode = client
+        .send_payload(destination, *server_id.public(), b"small message")
+        .await
+        .unwrap();
+    assert_eq!(mode, PayloadMode::Data);
+
+    let received = tokio::time::timeout(Duration::from_secs(5), receiver)
+        .await
+        .expect("receiver completes")
+        .unwrap();
+    assert_eq!(received, ReceivedPayload::Data(b"small message".to_vec()));
+}
+
+#[tokio::test]
+async fn resource_session_carries_a_matching_request_and_response() {
+    let server_id = PrivateIdentity::from_secret_bytes(&[0x76; 64]);
+    let client_id = PrivateIdentity::from_secret_bytes(&[0x75; 64]);
+    let server = Arc::new(Endpoint::new(server_id.clone()));
+    let client = Endpoint::new(client_id);
+
+    let name = DestinationName::new("retinue", ["request"]);
+    let destination = name.destination_hash(server_id.public());
+    server.register_resource(name, b"");
+    connect(&client, &server, LossModel::new(75), LossModel::new(76));
+
+    let responder = tokio::spawn({
+        let server = Arc::clone(&server);
+        async move {
+            let mut accepted = server.accept_resource().await.unwrap();
+            let received = accepted.session.receive_request().await.unwrap();
+            assert_eq!(received.request.data, b"ping");
+            accepted
+                .session
+                .respond(received.request_id, b"pong".to_vec());
+        }
+    });
+    let request = Request::new(b"/echo", b"ping".to_vec(), 1_753_603_206.5);
+    let response = tokio::time::timeout(
+        Duration::from_secs(5),
+        client.request(destination, *server_id.public(), &request),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(response.data, b"pong");
+    tokio::time::timeout(Duration::from_secs(5), responder)
+        .await
+        .unwrap()
+        .unwrap();
+}
+
+#[tokio::test]
+async fn a_large_response_degrades_to_a_matching_resource() {
+    let server_id = PrivateIdentity::from_secret_bytes(&[0x78; 64]);
+    let client_id = PrivateIdentity::from_secret_bytes(&[0x77; 64]);
+    let server = Arc::new(Endpoint::new(server_id.clone()));
+    let client = Endpoint::new(client_id);
+
+    let name = DestinationName::new("retinue", ["large-response"]);
+    let destination = name.destination_hash(server_id.public());
+    server.register_resource(name, b"");
+    connect(&client, &server, LossModel::new(77), LossModel::new(78));
+
+    let payload: Vec<u8> = (0..4_096_u32)
+        .map(|value| value.wrapping_mul(73).wrapping_add(19) as u8)
+        .collect();
+    let expected = payload.clone();
+    let responder = tokio::spawn({
+        let server = Arc::clone(&server);
+        async move {
+            let mut accepted = server.accept_resource().await.unwrap();
+            let received = accepted.session.receive_request().await.unwrap();
+            accepted
+                .session
+                .respond_auto(received.request_id, payload)
+                .await
+                .unwrap()
+        }
+    });
+    let request = Request::new(b"/large", Vec::new(), 1_753_603_207.5);
+    let response = tokio::time::timeout(
+        Duration::from_secs(10),
+        client.request(destination, *server_id.public(), &request),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(response.data, expected);
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(5), responder)
+            .await
+            .unwrap()
+            .unwrap(),
+        PayloadMode::Resource
+    );
 }
 
 #[tokio::test]

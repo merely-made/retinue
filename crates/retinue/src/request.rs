@@ -105,6 +105,31 @@ impl Response {
         let data = r.bin()?.to_vec();
         Ok(Self { request_id, data })
     }
+
+    /// Pack a response whose data is already one MessagePack value.
+    pub fn pack_value(request_id: AddressHash, packed_value: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.push(0x92);
+        write_bin(&mut out, request_id.as_slice());
+        out.extend_from_slice(packed_value);
+        out
+    }
+
+    /// Pack opaque response bytes as one MessagePack binary value.
+    pub fn pack_binary_value(data: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        write_bin(&mut out, data);
+        out
+    }
+
+    /// Read only the echoed request id, leaving the application value opaque.
+    pub fn request_id(bytes: &[u8]) -> Result<AddressHash> {
+        let mut reader = Reader::new(bytes);
+        if reader.array_header()? != 2 {
+            return Err(Error::BadRequest);
+        }
+        AddressHash::from_slice(reader.bin()?).ok_or(Error::BadRequest)
+    }
 }
 
 // --- the sliver of msgpack these two shapes need ---
@@ -215,6 +240,14 @@ mod tests {
     fn response_round_trips() {
         let r = Response::new(AddressHash::from_bytes([0xAB; 16]), b"pong".to_vec());
         assert_eq!(Response::unpack(&r.pack()).unwrap(), r);
+    }
+
+    #[test]
+    fn raw_response_value_preserves_application_messagepack() {
+        let id = AddressHash::from_bytes([0xAB; 16]);
+        let packed = Response::pack_value(id, &[0x92, 0xc0, 0xc0]);
+        assert_eq!(Response::request_id(&packed).unwrap(), id);
+        assert_eq!(&packed[19..], &[0x92, 0xc0, 0xc0]);
     }
 
     #[test]

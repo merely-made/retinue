@@ -30,14 +30,17 @@ use tokio::sync::{Mutex as AsyncMutex, mpsc, oneshot};
 use crate::address_book::AddressBook;
 use crate::announce::{self, Announce, RAND_HASH_LEN};
 use crate::destination::DestinationName;
-use crate::hash::AddressHash;
-use crate::identity::{Identity, PrivateIdentity};
+use crate::hash::{AddressHash, NameHash};
+use crate::identity::{Identity, KEY_LEN, PrivateIdentity};
+use crate::ifac::Ifac;
 use crate::iface::hdlc::{Deframer, frame};
 use crate::link::{
     self, CTX_CHANNEL, CTX_LINKCLOSE, CTX_LINKIDENTIFY, Inbound, Link, LinkMode, LinkTrailer,
 };
 use crate::packet::{DestinationType, Packet, PacketType};
+use crate::ratchet::RatchetStore;
 use crate::reliable::ReliableChannel;
+use crate::request::{Request, Response};
 use crate::resource::RANDOM_HASH_LEN;
 use crate::resource_transfer::{ResourceReceiver, ResourceSender};
 use crate::token::{IV_LEN, TOKEN_OVERHEAD};
@@ -224,12 +227,63 @@ impl AsyncWrite for LinkStream {
 ///
 /// One session carries one transfer at a time. A peer may either publish to this session or
 /// fetch from it; the other side performs the complementary operation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ReceivedPayload {
+    /// One decrypted best-effort link packet.
+    Data(Vec<u8>),
+    /// One fully received, verified Resource.
+    Resource(Vec<u8>),
+}
+
+/// The wire form selected for one payload on a link.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PayloadMode {
+    /// One encrypted link data packet.
+    Data,
+    /// A segmented, proved Resource transfer.
+    Resource,
+}
+
+/// One request received over a resource-capable link.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReceivedRequest {
+    /// The decoded request body.
+    pub request: Request,
+    /// Hash of the encrypted request packet, echoed by the response.
+    pub request_id: AddressHash,
+    /// Identity proven by a preceding link IDENTIFY, when present.
+    pub peer: Option<Identity>,
+}
+
+/// One decrypted request packet before an application interprets its
+/// MessagePack value.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReceivedRawRequest {
+    /// Complete decrypted request structure.
+    pub packed: Vec<u8>,
+    /// Hash of the encrypted request packet, echoed by the response.
+    pub request_id: AddressHash,
+    /// Identity proven by a preceding link IDENTIFY, when present.
+    pub peer: Option<Identity>,
+}
+
+/// One decrypted response before an application interprets its MessagePack
+/// value.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReceivedRawResponse {
+    /// Complete decrypted response structure.
+    pub packed: Vec<u8>,
+    /// Request id read from the first response item.
+    pub request_id: AddressHash,
+}
+
 pub struct ResourceSession {
     shared: Arc<Shared>,
     link: Link,
     iface: InterfaceId,
     packets: mpsc::UnboundedReceiver<Packet>,
     config: ResourceTransferConfig,
+    identified_peer: Option<Identity>,
 }
 
 impl ResourceSession {
@@ -252,7 +306,28 @@ impl ResourceSession {
     pub async fn publish(&mut self, data: &[u8]) -> io::Result<()> {
         let mut random_hash = [0_u8; RANDOM_HASH_LEN];
         fill_random(&mut random_hash);
-        let mut sender = ResourceSender::publish(self.link.clone(), data, random_hash, &next_iv());
+        let sender = ResourceSender::publish(self.link.clone(), data, random_hash, &next_iv());
+        self.publish_sender(sender).await
+    }
+
+    async fn publish_response_value(
+        &mut self,
+        request_id: AddressHash,
+        packed_value: &[u8],
+    ) -> io::Result<()> {
+        let mut random_hash = [0_u8; RANDOM_HASH_LEN];
+        fill_random(&mut random_hash);
+        let sender = ResourceSender::respond(
+            self.link.clone(),
+            packed_value,
+            *request_id.as_bytes(),
+            random_hash,
+            &next_iv(),
+        );
+        self.publish_sender(sender).await
+    }
+
+    async fn publish_sender(&mut self, mut sender: ResourceSender) -> io::Result<()> {
         self.shared
             .send_on(self.iface, sender.advertisement(&next_iv()));
 
@@ -337,12 +412,281 @@ impl ResourceSession {
             .await
             .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "resource fetch timed out"))?
     }
+
+    /// Receive either one best-effort data packet or one complete Resource.
+    ///
+    /// Protocols such as LXMF use both delivery forms on the same destination.
+    /// Register that destination with [`Endpoint::register_resource`], then use
+    /// this method instead of deciding the inbound form before the link arrives.
+    pub async fn receive(&mut self) -> io::Result<ReceivedPayload> {
+        let mut receiver =
+            ResourceReceiver::with_request_window(self.link.clone(), self.config.request_window);
+        let shared = Arc::clone(&self.shared);
+        let link = self.link.clone();
+        let iface = self.iface;
+        let packets = &mut self.packets;
+        let retry = self.config.retry_interval;
+        let transfer = async move {
+            let mut interval = tokio::time::interval(retry);
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            interval.tick().await;
+            loop {
+                tokio::select! {
+                    maybe = packets.recv() => {
+                        let packet = maybe.ok_or_else(|| {
+                            io::Error::new(io::ErrorKind::BrokenPipe, "resource link closed")
+                        })?;
+                        match link.receive(&packet) {
+                            Some(Inbound::Data(data)) => {
+                                return Ok(ReceivedPayload::Data(data));
+                            }
+                            Some(Inbound::Close) => {
+                                return Err(io::Error::new(
+                                    io::ErrorKind::BrokenPipe,
+                                    "resource link closed",
+                                ));
+                            }
+                            _ => {}
+                        }
+                        for outbound in receiver.on_packet(&packet, next_iv) {
+                            shared.send_on(iface, outbound);
+                        }
+                        if let Some(data) = receiver.data() {
+                            return Ok(ReceivedPayload::Resource(data.to_vec()));
+                        } else if receiver.is_canceled() {
+                            return Err(io::Error::new(
+                                io::ErrorKind::ConnectionAborted,
+                                "resource fetch canceled by sender",
+                            ));
+                        }
+                    }
+                    _ = interval.tick() => {
+                        for outbound in receiver.retransmit(next_iv) {
+                            shared.send_on(iface, outbound);
+                        }
+                    }
+                }
+            }
+        };
+        tokio::time::timeout(self.config.timeout, transfer)
+            .await
+            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "payload receive timed out"))?
+    }
+
+    /// Wait for one request packet on this link.
+    pub async fn receive_request(&mut self) -> io::Result<ReceivedRequest> {
+        let raw = self.receive_raw_request().await?;
+        let request = Request::unpack(&raw.packed).map_err(|_| {
+            io::Error::new(io::ErrorKind::InvalidData, "invalid byte request payload")
+        })?;
+        Ok(ReceivedRequest {
+            request,
+            request_id: raw.request_id,
+            peer: raw.peer,
+        })
+    }
+
+    /// Wait for one request and retain its complete decrypted MessagePack.
+    ///
+    /// RNS permits the request's third item to be an application value rather
+    /// than a binary blob. Consumers with their own grammar use this method;
+    /// byte-oriented requests can use [`receive_request`](Self::receive_request).
+    pub async fn receive_raw_request(&mut self) -> io::Result<ReceivedRawRequest> {
+        let link = self.link.clone();
+        let packets = &mut self.packets;
+        let mut peer = self.identified_peer;
+        let receive = async move {
+            loop {
+                let packet = packets.recv().await.ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::BrokenPipe, "request link closed")
+                })?;
+                if let Some(identity) = link.read_identify(&packet) {
+                    peer = Some(identity);
+                    continue;
+                }
+                match link.receive(&packet) {
+                    Some(Inbound::Request(bytes)) => {
+                        return Ok(ReceivedRawRequest {
+                            packed: bytes,
+                            request_id: packet.hash(),
+                            peer,
+                        });
+                    }
+                    Some(Inbound::Close) => {
+                        return Err(io::Error::new(
+                            io::ErrorKind::BrokenPipe,
+                            "request link closed",
+                        ));
+                    }
+                    _ => {}
+                }
+            }
+        };
+        let received = tokio::time::timeout(self.config.timeout, receive)
+            .await
+            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "request receive timed out"))??;
+        self.identified_peer = received.peer;
+        Ok(received)
+    }
+
+    /// Send one response to a request received on this session.
+    pub fn respond(&self, request_id: AddressHash, data: Vec<u8>) {
+        let response = Response::new(request_id, data);
+        self.shared.send_on(
+            self.iface,
+            self.link.response_packet(&response.pack(), &next_iv()),
+        );
+    }
+
+    /// Send a response whose data is already one MessagePack value.
+    pub fn respond_value(&self, request_id: AddressHash, packed_value: &[u8]) {
+        let packed = Response::pack_value(request_id, packed_value);
+        self.shared
+            .send_on(self.iface, self.link.response_packet(&packed, &next_iv()));
+    }
+
+    /// Respond with opaque bytes, degrading to a Resource when the complete
+    /// response envelope does not fit one encrypted link packet.
+    pub async fn respond_auto(
+        &mut self,
+        request_id: AddressHash,
+        data: Vec<u8>,
+    ) -> io::Result<PayloadMode> {
+        let packed_value = Response::pack_binary_value(&data);
+        self.respond_value_auto(request_id, &packed_value).await
+    }
+
+    /// Respond with one already-packed MessagePack value, degrading to a
+    /// Resource when the complete response envelope does not fit one encrypted
+    /// link packet.
+    pub async fn respond_value_auto(
+        &mut self,
+        request_id: AddressHash,
+        packed_value: &[u8],
+    ) -> io::Result<PayloadMode> {
+        let packed = Response::pack_value(request_id, packed_value);
+        if packed.len() <= write_chunk_for_mtu(self.link.mtu()) {
+            self.shared
+                .send_on(self.iface, self.link.response_packet(&packed, &next_iv()));
+            Ok(PayloadMode::Data)
+        } else {
+            self.publish_response_value(request_id, &packed).await?;
+            Ok(PayloadMode::Resource)
+        }
+    }
+
+    /// Identify this endpoint's local identity to the remote link.
+    pub fn identify(&self) {
+        self.shared.send_on(
+            self.iface,
+            self.link.identify_packet(&self.shared.identity, &next_iv()),
+        );
+    }
+
+    /// Send one request and wait for its matching response.
+    pub async fn request(&mut self, request: &Request) -> io::Result<Response> {
+        let raw = self.request_raw(&request.pack()).await?;
+        Response::unpack(&raw.packed).map_err(|_| {
+            io::Error::new(io::ErrorKind::InvalidData, "invalid byte response payload")
+        })
+    }
+
+    /// Send one already-packed request and retain the raw matching response.
+    pub async fn request_raw(&mut self, packed_request: &[u8]) -> io::Result<ReceivedRawResponse> {
+        let packet = self.link.request_packet(packed_request, &next_iv());
+        let request_id = packet.hash();
+        self.shared.send_on(self.iface, packet);
+
+        let link = self.link.clone();
+        let shared = Arc::clone(&self.shared);
+        let iface = self.iface;
+        let packets = &mut self.packets;
+        let retry = self.config.retry_interval;
+        let request_window = self.config.request_window;
+        let receive = async move {
+            let mut receiver = ResourceReceiver::with_request_window(link.clone(), request_window);
+            let mut interval = tokio::time::interval(retry);
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            interval.tick().await;
+            loop {
+                tokio::select! {
+                    maybe = packets.recv() => {
+                        let packet = maybe.ok_or_else(|| {
+                            io::Error::new(io::ErrorKind::BrokenPipe, "request link closed")
+                        })?;
+                        match link.receive(&packet) {
+                            Some(Inbound::Response(bytes)) => {
+                                let response_id = Response::request_id(&bytes).map_err(|_| {
+                                    io::Error::new(io::ErrorKind::InvalidData, "invalid response envelope")
+                                })?;
+                                if response_id == request_id {
+                                    return Ok(ReceivedRawResponse {
+                                        packed: bytes,
+                                        request_id: response_id,
+                                    });
+                                }
+                            }
+                            Some(Inbound::Close) => {
+                                return Err(io::Error::new(
+                                    io::ErrorKind::BrokenPipe,
+                                    "request link closed",
+                                ));
+                            }
+                            _ => {}
+                        }
+                        for outbound in receiver.on_packet(&packet, next_iv) {
+                            shared.send_on(iface, outbound);
+                        }
+                        if let Some(bytes) = receiver.data() {
+                            let packed = bytes.to_vec();
+                            let response_id = Response::request_id(&packed).map_err(|_| {
+                                io::Error::new(
+                                    io::ErrorKind::InvalidData,
+                                    "invalid response resource",
+                                )
+                            })?;
+                            if let Some(advertised_id) = receiver.response_request_id()
+                                && AddressHash::from_bytes(advertised_id) != response_id
+                            {
+                                return Err(io::Error::new(
+                                    io::ErrorKind::InvalidData,
+                                    "response Resource request id mismatch",
+                                ));
+                            }
+                            if response_id == request_id {
+                                return Ok(ReceivedRawResponse {
+                                    packed,
+                                    request_id: response_id,
+                                });
+                            }
+                            receiver =
+                                ResourceReceiver::with_request_window(link.clone(), request_window);
+                        } else if receiver.is_canceled() {
+                            return Err(io::Error::new(
+                                io::ErrorKind::ConnectionAborted,
+                                "response resource canceled by sender",
+                            ));
+                        }
+                    }
+                    _ = interval.tick() => {
+                        for outbound in receiver.retransmit(next_iv) {
+                            shared.send_on(iface, outbound);
+                        }
+                    }
+                }
+            }
+        };
+        tokio::time::timeout(self.config.timeout, receive)
+            .await
+            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "response receive timed out"))?
+    }
 }
 
 impl Drop for ResourceSession {
     fn drop(&mut self) {
         self.shared.links.lock().unwrap().remove(&self.link.id());
-        self.shared.send_on(self.iface, self.link.close_packet());
+        self.shared
+            .send_on(self.iface, self.link.close_packet(&next_iv()));
         self.shared.end_resource();
     }
 }
@@ -357,6 +701,26 @@ pub struct PeerAnnounce {
     pub identity: Identity,
     /// The app data the announce carried (a host binds its own peer id here).
     pub app_data: Vec<u8>,
+}
+
+/// One authenticated link-less asymmetric packet received by a registered destination.
+#[derive(Clone, Debug)]
+pub struct ReceivedSingle {
+    pub destination: AddressHash,
+    pub interface: InterfaceId,
+    pub data: Vec<u8>,
+    /// The retained receive ratchet that authenticated it. `None` means the destination was
+    /// registered without ratchets and the long-term identity key authenticated the token.
+    pub ratchet_id: Option<NameHash>,
+}
+
+/// Evidence that a link-less packet was encrypted and accepted by local interface queues.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SinglePacketReceipt {
+    pub destination: AddressHash,
+    pub ratchet_id: NameHash,
+    /// One for a learned route; possibly several when an expired route requires broadcast.
+    pub queued_interfaces: usize,
 }
 
 /// An accepted inbound link and the destination it arrived on.
@@ -400,6 +764,8 @@ pub struct Interface {
     id: InterfaceId,
     outbound: OutboundPackets,
     router_tx: mpsc::Sender<(InterfaceId, Packet)>,
+    frame_limit: Arc<AtomicUsize>,
+    ifac: Option<Ifac>,
 }
 
 /// Which interfaces a routing rule applies to.
@@ -581,6 +947,24 @@ impl Interface {
         self.id
     }
 
+    /// Maximum complete Reticulum packet this interface currently admits.
+    ///
+    /// Raw interface owners can set an initial cap through
+    /// [`Endpoint::attach_interface_with_frame_limit`]. Tulle also constrains
+    /// this value synchronously when its driver is constructed.
+    pub fn frame_limit(&self) -> usize {
+        self.frame_limit.load(Ordering::Acquire)
+    }
+
+    /// Lower this interface's admission limit to a carrier-discovered cap.
+    ///
+    /// This is monotonic and should be called before the endpoint can queue
+    /// traffic. Prefer [`Endpoint::attach_interface_with_frame_limit`] when the
+    /// limit is already known.
+    pub fn constrain_frame_limit(&self, max_frame_len: usize) {
+        self.frame_limit.fetch_min(max_frame_len, Ordering::AcqRel);
+    }
+
     /// The next packet the endpoint wants to send out this interface, chosen by the
     /// per-class schedule. `None` once the endpoint is dropped.
     pub async fn next_outbound(&mut self) -> Option<Packet> {
@@ -593,6 +977,7 @@ impl Interface {
         InterfaceSink {
             id: self.id,
             router_tx: self.router_tx.clone(),
+            ifac: self.ifac.clone(),
         }
     }
 
@@ -602,6 +987,7 @@ impl Interface {
         let sink = InterfaceSink {
             id: self.id,
             router_tx: self.router_tx,
+            ifac: self.ifac,
         };
         (self.outbound, sink)
     }
@@ -613,6 +999,7 @@ impl Interface {
 pub struct InterfaceSink {
     id: InterfaceId,
     router_tx: mpsc::Sender<(InterfaceId, Packet)>,
+    ifac: Option<Ifac>,
 }
 
 impl InterfaceSink {
@@ -620,6 +1007,18 @@ impl InterfaceSink {
     /// has been dropped.
     pub fn deliver(&self, pkt: Packet) -> bool {
         self.router_tx.try_send((self.id, pkt)).is_ok()
+    }
+
+    /// Authenticate and decode one complete carrier frame, then deliver it.
+    ///
+    /// An IFAC-configured interface rejects open, incorrectly keyed, and
+    /// modified frames before they reach the endpoint router.
+    pub fn deliver_frame(&self, frame: &[u8]) -> crate::Result<bool> {
+        let packet = match &self.ifac {
+            Some(ifac) => Packet::decode(&ifac.open(frame)?)?,
+            None => Packet::decode(frame)?,
+        };
+        Ok(self.deliver(packet))
     }
 }
 
@@ -898,6 +1297,7 @@ impl OutboundQueues {
 pub struct OutboundPackets {
     queues: Arc<OutboundQueues>,
     delivery_in_flight: bool,
+    ifac: Option<Ifac>,
 }
 
 impl OutboundPackets {
@@ -926,6 +1326,15 @@ impl OutboundPackets {
         }
     }
 
+    /// Encode one queued packet for this interface, applying IFAC when configured.
+    pub fn encode(&self, packet: &Packet) -> crate::Result<Vec<u8>> {
+        let logical = packet.encode();
+        match &self.ifac {
+            Some(ifac) => ifac.seal(&logical),
+            None => Ok(logical),
+        }
+    }
+
     fn complete_delivery(&mut self) {
         if self.delivery_in_flight {
             self.queues.delivery_complete();
@@ -944,6 +1353,57 @@ impl Drop for OutboundPackets {
 struct Iface {
     id: InterfaceId,
     outbound: Arc<OutboundQueues>,
+    frame_limit: Arc<AtomicUsize>,
+    wire_overhead: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum QueueAdmission {
+    Queued,
+    Full,
+    FrameLimit { actual: usize, limit: usize },
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct SingleQueueResult {
+    queued: usize,
+    frame_capable: bool,
+    frame_limit_rejection: Option<(usize, usize)>,
+}
+
+impl SingleQueueResult {
+    fn observe(&mut self, admission: QueueAdmission) {
+        match admission {
+            QueueAdmission::Queued => {
+                self.queued += 1;
+                self.frame_capable = true;
+            }
+            QueueAdmission::Full => self.frame_capable = true,
+            QueueAdmission::FrameLimit { actual, limit } => {
+                if self
+                    .frame_limit_rejection
+                    .is_none_or(|(_, recorded_limit)| limit > recorded_limit)
+                {
+                    self.frame_limit_rejection = Some((actual, limit));
+                }
+            }
+        }
+    }
+}
+
+impl Iface {
+    fn push(&self, packet: Packet, class: TrafficClass) -> QueueAdmission {
+        let actual = packet.encoded_len() + self.wire_overhead;
+        let limit = self.frame_limit.load(Ordering::Acquire);
+        if actual > limit {
+            return QueueAdmission::FrameLimit { actual, limit };
+        }
+        if self.outbound.push(packet, class) {
+            QueueAdmission::Queued
+        } else {
+            QueueAdmission::Full
+        }
+    }
 }
 
 struct LinkEntry {
@@ -985,6 +1445,10 @@ struct Registered {
     /// it can be answered by re-announcing it as a path response.
     name: DestinationName,
     app_data: Vec<u8>,
+    /// Receive ratchets supplied and persisted by the host. `Some` also means identity-key
+    /// fallback is refused for single packets, preventing an advertised ratchet from being
+    /// silently downgraded.
+    ratchets: Option<RatchetStore>,
 }
 
 #[derive(Clone, Copy)]
@@ -1016,6 +1480,8 @@ struct Shared {
     resource_accepted_tx: mpsc::UnboundedSender<AcceptedResource>,
     /// Validated announces, surfaced to `announcements`.
     announce_tx: mpsc::UnboundedSender<PeerAnnounce>,
+    /// Decrypted link-less single packets, surfaced to `accept_single`.
+    single_tx: mpsc::UnboundedSender<ReceivedSingle>,
     /// Pending outbound links awaiting a proof, keyed by destination: the waiter to wake
     /// (with the interface the proof came in on), and the half-open link that verifies it.
     pending: Mutex<HashMap<AddressHash, oneshot::Sender<(Link, InterfaceId)>>>,
@@ -1145,7 +1611,7 @@ impl Shared {
     /// protocol upkeep, so they ride the control class.
     fn broadcast(&self, pkt: Packet) {
         for i in self.interfaces.lock().unwrap().iter() {
-            i.outbound.push(pkt.clone(), TrafficClass::Control);
+            let _ = i.push(pkt.clone(), TrafficClass::Control);
         }
     }
 
@@ -1185,7 +1651,10 @@ impl Shared {
             // this node's own traffic, so they queue as transit.
             if i.id != except
                 && egress.allows(i.id)
-                && i.outbound.push(pkt.clone(), TrafficClass::Transit)
+                && matches!(
+                    i.push(pkt.clone(), TrafficClass::Transit),
+                    QueueAdmission::Queued
+                )
             {
                 sent += 1;
             }
@@ -1202,6 +1671,10 @@ impl Shared {
     /// Send a packet out one interface in a chosen class. Local link traffic defaults to
     /// interactive; setup, proofs, and keepalives are control; carried traffic is transit.
     fn send_on_class(&self, iface: InterfaceId, pkt: Packet, class: TrafficClass) {
+        let _ = self.try_send_on_class(iface, pkt, class);
+    }
+
+    fn try_send_on_class(&self, iface: InterfaceId, pkt: Packet, class: TrafficClass) -> bool {
         let addressed = self.address_for(iface, pkt);
         if let Some(i) = self
             .interfaces
@@ -1210,8 +1683,43 @@ impl Shared {
             .iter()
             .find(|i| i.id == iface)
         {
-            i.outbound.push(addressed, class);
+            return matches!(i.push(addressed, class), QueueAdmission::Queued);
         }
+        false
+    }
+
+    fn queue_single_on(&self, iface: InterfaceId, pkt: Packet) -> QueueAdmission {
+        let addressed = self.address_for(iface, pkt);
+        self.interfaces
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|candidate| candidate.id == iface)
+            .map_or(QueueAdmission::Full, |candidate| {
+                candidate.push(addressed, TrafficClass::Interactive)
+            })
+    }
+
+    /// Queue a local single packet on its learned route, or broadcast when the cached route
+    /// has expired. Records whether a candidate queue could carry the complete encoded frame,
+    /// so the caller can distinguish carrier refusal from temporary queue pressure.
+    fn queue_single(&self, dest: AddressHash, pkt: Packet) -> SingleQueueResult {
+        let mut result = SingleQueueResult::default();
+        if let Some(iface) = self.path_iface(dest) {
+            result.observe(self.queue_single_on(iface, pkt));
+            return result;
+        }
+        let interfaces: Vec<_> = self
+            .interfaces
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|interface| interface.id)
+            .collect();
+        for interface in interfaces {
+            result.observe(self.queue_single_on(interface, pkt.clone()));
+        }
+        result
     }
 
     /// Wrap a packet for the interface it will go out on: if that interface reaches a
@@ -1232,11 +1740,12 @@ impl Shared {
     fn path_response(&self, target: AddressHash) -> Option<Packet> {
         let reg = self.registered.lock().unwrap();
         let r = reg.iter().find(|r| r.dest == target)?;
+        let ratchet = r.ratchets.as_ref().and_then(RatchetStore::current_public);
         let mut pkt = announce::build(
             &self.identity,
             r.name.name_hash(),
             &rand_hash(),
-            None,
+            ratchet.as_ref(),
             &r.app_data,
         );
         pkt.context = crate::path::CTX_PATH_RESPONSE;
@@ -1329,10 +1838,20 @@ pub struct Endpoint {
     reliable_accepted_rx: AsyncMutex<mpsc::UnboundedReceiver<Accepted>>,
     resource_accepted_rx: AsyncMutex<mpsc::UnboundedReceiver<AcceptedResource>>,
     announce_rx: AsyncMutex<mpsc::UnboundedReceiver<PeerAnnounce>>,
+    single_rx: AsyncMutex<mpsc::UnboundedReceiver<ReceivedSingle>>,
 }
 
 fn endpoint_closed() -> io::Error {
     io::Error::new(io::ErrorKind::BrokenPipe, "endpoint closed")
+}
+
+fn require_current_ratchet(ratchets: &RatchetStore) -> io::Result<()> {
+    ratchets.current_public().map(|_| ()).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "ratchet store has no current epoch",
+        )
+    })
 }
 
 async fn recv_until_closed<T>(
@@ -1366,6 +1885,7 @@ impl Endpoint {
         let (resource_accepted_tx, resource_accepted_rx) =
             mpsc::unbounded_channel::<AcceptedResource>();
         let (announce_tx, announce_rx) = mpsc::unbounded_channel::<PeerAnnounce>();
+        let (single_tx, single_rx) = mpsc::unbounded_channel::<ReceivedSingle>();
 
         let shared = Arc::new(Shared {
             lifecycle: Mutex::new(Lifecycle::Running),
@@ -1380,6 +1900,7 @@ impl Endpoint {
             reliable_accepted_tx,
             resource_accepted_tx,
             announce_tx,
+            single_tx,
             pending: Mutex::new(HashMap::new()),
             pending_links: Mutex::new(HashMap::new()),
             next_iface_id: AtomicU32::new(0),
@@ -1415,6 +1936,7 @@ impl Endpoint {
             reliable_accepted_rx: AsyncMutex::new(reliable_accepted_rx),
             resource_accepted_rx: AsyncMutex::new(resource_accepted_rx),
             announce_rx: AsyncMutex::new(announce_rx),
+            single_rx: AsyncMutex::new(single_rx),
         }
     }
 
@@ -1427,7 +1949,12 @@ impl Endpoint {
 
     /// Attach a connected TCP stream as an interface, and return its id.
     pub fn attach_stream(&self, stream: TcpStream) -> InterfaceId {
-        attach(&self.shared, stream).0
+        attach(&self.shared, stream, None).0
+    }
+
+    /// Attach an IFAC-authenticated connected TCP stream.
+    pub fn attach_stream_with_ifac(&self, stream: TcpStream, ifac: Ifac) -> InterfaceId {
+        attach(&self.shared, stream, Some(ifac)).0
     }
 
     /// Attach a raw packet [`Interface`] and return its handle, doing no I/O or
@@ -1436,39 +1963,117 @@ impl Endpoint {
     /// This is the seam a non-TCP medium (serial, or a deterministic test loss
     /// oracle) plugs into; `attach_tcp_client` / `listen_tcp` are this plus framing.
     pub fn attach_interface(&self) -> Interface {
+        self.attach_interface_with_frame_limit(crate::packet::MTU)
+            .expect("the Reticulum protocol MTU is a valid interface frame limit")
+    }
+
+    /// Attach a raw packet interface with an explicit complete-frame limit.
+    ///
+    /// The effective limit cannot exceed Reticulum's own protocol MTU. Interface
+    /// drivers may lower it again if they discover a stricter carrier limit.
+    pub fn attach_interface_with_frame_limit(&self, max_frame_len: usize) -> io::Result<Interface> {
+        self.attach_interface_access(max_frame_len, None)
+    }
+
+    /// Attach an IFAC-authenticated raw packet interface.
+    ///
+    /// `max_frame_len` includes the access code, so an eight-byte IFAC leaves
+    /// eight fewer bytes for the logical packet on a fixed-size radio frame.
+    pub fn attach_interface_with_ifac(
+        &self,
+        max_frame_len: usize,
+        ifac: Ifac,
+    ) -> io::Result<Interface> {
+        self.attach_interface_access(max_frame_len, Some(ifac))
+    }
+
+    fn attach_interface_access(
+        &self,
+        max_frame_len: usize,
+        ifac: Option<Ifac>,
+    ) -> io::Result<Interface> {
+        let wire_overhead = ifac.as_ref().map_or(0, Ifac::size);
+        if max_frame_len < crate::packet::HEADER_MIN_LEN + wire_overhead {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "interface frame limit cannot hold a Reticulum header and access code",
+            ));
+        }
         let id = self.shared.next_iface_id.fetch_add(1, Ordering::Relaxed);
         let queues = Arc::new(OutboundQueues::new(
             self.shared.queue_weights(),
             self.shared.queue_depths(),
         ));
+        let frame_limit = Arc::new(AtomicUsize::new(
+            max_frame_len.min(crate::packet::MTU + wire_overhead),
+        ));
         if !self.shared.register_interface(Iface {
             id,
             outbound: Arc::clone(&queues),
+            frame_limit: Arc::clone(&frame_limit),
+            wire_overhead,
         }) {
             queues.close();
         }
-        Interface {
+        Ok(Interface {
             id,
             outbound: OutboundPackets {
                 queues,
                 delivery_in_flight: false,
+                ifac: ifac.clone(),
             },
             router_tx: self.shared.router_tx.clone(),
-        }
+            frame_limit,
+            ifac,
+        })
     }
 
     /// Dial a TCP peer and attach it as an interface.
     pub async fn attach_tcp_client(&self, addr: SocketAddr) -> io::Result<InterfaceId> {
+        self.attach_tcp_client_access(addr, None).await
+    }
+
+    /// Dial an IFAC-authenticated TCP peer and attach it.
+    pub async fn attach_tcp_client_with_ifac(
+        &self,
+        addr: SocketAddr,
+        ifac: Ifac,
+    ) -> io::Result<InterfaceId> {
+        self.attach_tcp_client_access(addr, Some(ifac)).await
+    }
+
+    async fn attach_tcp_client_access(
+        &self,
+        addr: SocketAddr,
+        ifac: Option<Ifac>,
+    ) -> io::Result<InterfaceId> {
         if !self.shared.is_running() {
             return Err(endpoint_closed());
         }
-        let (id, attached) = attach(&self.shared, TcpStream::connect(addr).await?);
+        let (id, attached) = attach(&self.shared, TcpStream::connect(addr).await?, ifac);
         attached.then_some(id).ok_or_else(endpoint_closed)
     }
 
     /// Listen on TCP; every accepted connection becomes an interface. Returns the bound
     /// address (pass port 0 to get an OS-assigned one).
     pub async fn listen_tcp(&self, addr: SocketAddr) -> io::Result<SocketAddr> {
+        self.listen_tcp_access(addr, None).await
+    }
+
+    /// Listen for IFAC-authenticated TCP connections.
+    pub async fn listen_tcp_with_ifac(
+        &self,
+        addr: SocketAddr,
+        ifac: Ifac,
+    ) -> io::Result<SocketAddr> {
+        self.listen_tcp_access(addr, Some(ifac)).await
+    }
+
+    async fn listen_tcp_access(
+        &self,
+        addr: SocketAddr,
+        ifac: Option<Ifac>,
+    ) -> io::Result<SocketAddr> {
         if !self.shared.is_running() {
             return Err(endpoint_closed());
         }
@@ -1480,7 +2085,7 @@ impl Endpoint {
                 if !shared.is_running() {
                     break;
                 }
-                attach(&shared, stream);
+                attach(&shared, stream, ifac.clone());
             }
         }) {
             return Err(endpoint_closed());
@@ -1618,7 +2223,24 @@ impl Endpoint {
     /// Register a destination to accept best-effort links on, and announce it. Accept these
     /// with [`accept`](Self::accept).
     pub fn register(&self, name: DestinationName, app_data: &[u8]) {
-        self.register_with(name, app_data, RegistrationKind::BestEffort);
+        self.register_with(name, app_data, RegistrationKind::BestEffort, None);
+    }
+
+    /// Register a best-effort-link destination that also receives ratcheted single packets.
+    pub fn register_with_ratchets(
+        &self,
+        name: DestinationName,
+        app_data: &[u8],
+        ratchets: &RatchetStore,
+    ) -> io::Result<()> {
+        require_current_ratchet(ratchets)?;
+        self.register_with(
+            name,
+            app_data,
+            RegistrationKind::BestEffort,
+            Some(ratchets.clone()),
+        );
+        Ok(())
     }
 
     /// Register a destination to accept **reliable** links on — the Channel/Buffer path with
@@ -1626,23 +2248,71 @@ impl Endpoint {
     /// [`accept_reliable`](Self::accept_reliable); the initiator's identity arrives over the
     /// link, so none need be supplied.
     pub fn register_reliable(&self, name: DestinationName, app_data: &[u8]) {
-        self.register_with(name, app_data, RegistrationKind::Reliable);
+        self.register_with(name, app_data, RegistrationKind::Reliable, None);
     }
 
     /// Register a destination that accepts resource sessions, then announce it.
     pub fn register_resource(&self, name: DestinationName, app_data: &[u8]) {
-        self.register_with(name, app_data, RegistrationKind::Resource);
+        self.register_with(name, app_data, RegistrationKind::Resource, None);
     }
 
-    fn register_with(&self, name: DestinationName, app_data: &[u8], kind: RegistrationKind) {
+    /// Register a resource destination that also receives ratcheted single packets.
+    pub fn register_resource_with_ratchets(
+        &self,
+        name: DestinationName,
+        app_data: &[u8],
+        ratchets: &RatchetStore,
+    ) -> io::Result<()> {
+        require_current_ratchet(ratchets)?;
+        self.register_with(
+            name,
+            app_data,
+            RegistrationKind::Resource,
+            Some(ratchets.clone()),
+        );
+        Ok(())
+    }
+
+    fn register_with(
+        &self,
+        name: DestinationName,
+        app_data: &[u8],
+        kind: RegistrationKind,
+        ratchets: Option<RatchetStore>,
+    ) {
         let dest = name.destination_hash(self.shared.identity.public());
         self.shared.registered.lock().unwrap().push(Registered {
             dest,
             kind,
             name: name.clone(),
             app_data: app_data.to_vec(),
+            ratchets,
         });
         self.announce(&name, app_data);
+    }
+
+    /// Replace a registered destination's active receive-ratchet state and announce its
+    /// current public key. The caller retains the canonical store and persists its snapshot.
+    pub fn update_ratchets(
+        &self,
+        name: &DestinationName,
+        ratchets: &RatchetStore,
+    ) -> io::Result<()> {
+        require_current_ratchet(ratchets)?;
+        let dest = name.destination_hash(self.shared.identity.public());
+        let app_data = {
+            let mut registered = self.shared.registered.lock().unwrap();
+            let registration = registered
+                .iter_mut()
+                .find(|registration| registration.dest == dest)
+                .ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::NotFound, "destination is not registered")
+                })?;
+            registration.ratchets = Some(ratchets.clone());
+            registration.app_data.clone()
+        };
+        self.announce(name, &app_data);
+        Ok(())
     }
 
     /// Broadcast a path request for `dest`, asking the network to make it reachable. The
@@ -1657,14 +2327,95 @@ impl Endpoint {
 
     /// Emit an announce for a destination on every interface.
     pub fn announce(&self, name: &DestinationName, app_data: &[u8]) {
+        let dest = name.destination_hash(self.shared.identity.public());
+        let ratchet = self
+            .shared
+            .registered
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|registration| registration.dest == dest)
+            .and_then(|registration| registration.ratchets.as_ref())
+            .and_then(RatchetStore::current_public);
         let pkt = announce::build(
             &self.shared.identity,
             name.name_hash(),
             &rand_hash(),
-            None,
+            ratchet.as_ref(),
             app_data,
         );
         self.shared.broadcast(pkt);
+    }
+
+    /// Encrypt and queue one link-less packet to a destination's advertised ratchet.
+    ///
+    /// This is delivery, not a receipt from the peer. Success means the packet was encrypted
+    /// to the latest validated announce and accepted by at least one local interface queue.
+    pub fn send_single(&self, dest: AddressHash, data: &[u8]) -> io::Result<SinglePacketReceipt> {
+        if !self.shared.is_running() {
+            return Err(endpoint_closed());
+        }
+        if data.len() > crate::packet::ENCRYPTED_MDU {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "single-packet plaintext exceeds ENCRYPTED_MDU",
+            ));
+        }
+        let (peer, ratchet) = {
+            let address_book = self.shared.address_book.lock().unwrap();
+            let peer = address_book.resolve(dest).ok_or_else(|| {
+                io::Error::new(io::ErrorKind::NotFound, "destination has not announced")
+            })?;
+            let ratchet = peer.ratchet.ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "destination did not advertise a ratchet",
+                )
+            })?;
+            (peer.identity, ratchet)
+        };
+
+        let mut ephemeral = [0u8; KEY_LEN];
+        fill_random(&mut ephemeral);
+        let payload =
+            crate::token::encrypt_to_ratchet(&peer, &ratchet, &ephemeral, &next_iv(), data);
+        let packet = Packet {
+            ifac: false,
+            header_type: crate::packet::HeaderType::Type1,
+            context_flag: false,
+            propagation: crate::packet::Propagation::Broadcast,
+            destination_type: DestinationType::Single,
+            packet_type: PacketType::Data,
+            hops: 0,
+            transport: None,
+            destination: dest,
+            context: 0,
+            payload,
+        };
+        debug_assert!(packet.within_mtu());
+
+        let queued = self.shared.queue_single(dest, packet);
+        if queued.queued == 0 {
+            if !queued.frame_capable
+                && let Some((actual, limit)) = queued.frame_limit_rejection
+            {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!(
+                        "single packet is {actual} bytes after encryption, interface frame limit is {limit}"
+                    ),
+                ));
+            }
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "no interface accepted the single packet",
+            ));
+        }
+        Ok(SinglePacketReceipt {
+            destination: dest,
+            ratchet_id: NameHash::of(&ratchet),
+            queued_interfaces: queued.queued,
+        })
     }
 
     /// The address book, for resolving learned peers.
@@ -1726,6 +2477,72 @@ impl Endpoint {
         let mut session = self.open_resource(dest, peer).await?;
         session.set_config(config);
         session.publish(data).await
+    }
+
+    /// Send one indivisible payload using the form that fits the negotiated link.
+    ///
+    /// A payload that fits one encrypted data packet takes the low-overhead path.
+    /// Larger payloads use a proved Resource on the same established link. This
+    /// does not split a logical message into several independent data packets.
+    pub async fn send_payload(
+        &self,
+        dest: AddressHash,
+        peer: Identity,
+        data: &[u8],
+    ) -> io::Result<PayloadMode> {
+        self.send_payload_with_config(dest, peer, data, ResourceTransferConfig::default())
+            .await
+    }
+
+    /// Send one indivisible payload, with explicit policy for the Resource
+    /// path used when it does not fit one encrypted data packet.
+    ///
+    /// The policy is ignored for a payload that takes the Data path.
+    pub async fn send_payload_with_config(
+        &self,
+        dest: AddressHash,
+        peer: Identity,
+        data: &[u8],
+        config: ResourceTransferConfig,
+    ) -> io::Result<PayloadMode> {
+        let (link, iface) = self.establish(dest, peer).await?;
+        if data.len() <= write_chunk_for_mtu(link.mtu()) {
+            let mut stream =
+                register_stream(&self.shared, link, iface).ok_or_else(endpoint_closed)?;
+            stream.write_all(data).await?;
+            stream.shutdown().await?;
+            drop(stream);
+            Ok(PayloadMode::Data)
+        } else {
+            let mut session =
+                register_resource_session(&self.shared, link, iface).ok_or_else(endpoint_closed)?;
+            session.set_config(config);
+            session.publish(data).await?;
+            Ok(PayloadMode::Resource)
+        }
+    }
+
+    /// Open a link, send one request, and return its matching response.
+    pub async fn request(
+        &self,
+        dest: AddressHash,
+        peer: Identity,
+        request: &Request,
+    ) -> io::Result<Response> {
+        let mut session = self.open_resource(dest, peer).await?;
+        session.request(request).await
+    }
+
+    /// Open a link, send one already-packed request, and retain the raw
+    /// matching response.
+    pub async fn request_raw(
+        &self,
+        dest: AddressHash,
+        peer: Identity,
+        packed_request: &[u8],
+    ) -> io::Result<ReceivedRawResponse> {
+        let mut session = self.open_resource(dest, peer).await?;
+        session.request_raw(packed_request).await
     }
 
     /// Open a resource link and fetch one payload published by the peer.
@@ -1812,9 +2629,17 @@ impl Endpoint {
                     Ok(established) => {
                         guard.armed = false; // router removed both entries on success
                         if self.shared.is_running() {
+                            // The responder does not activate an inbound link until the
+                            // initiator reports its measured RTT. Keep this ahead of any
+                            // application packet emitted by the returned session.
+                            self.shared.send_on(
+                                established.1,
+                                established.0.rtt_packet(0.05, &next_iv()),
+                            );
                             return Ok(established);
                         }
-                        self.shared.send_on(established.1, established.0.close_packet());
+                        self.shared
+                            .send_on(established.1, established.0.close_packet(&next_iv()));
                         return Err(endpoint_closed());
                     }
                     Err(_) => return Err(io::Error::new(
@@ -1865,6 +2690,11 @@ impl Endpoint {
     /// The next validated announce, for building a host peer-id to destination map.
     pub async fn next_announcement(&self) -> io::Result<PeerAnnounce> {
         recv_until_closed(&self.shared, &self.announce_rx).await
+    }
+
+    /// Wait for the next authenticated link-less single packet.
+    pub async fn accept_single(&self) -> io::Result<ReceivedSingle> {
+        recv_until_closed(&self.shared, &self.single_rx).await
     }
 
     /// Stop the endpoint: abort the router, every interface reader and writer, any TCP
@@ -1989,16 +2819,19 @@ impl Drop for Endpoint {
 
 /// Attach a connected stream as an interface: register it, and spawn its writer and reader
 /// tasks (the reader feeds the shared router, tagged with the interface id).
-fn attach(shared: &Arc<Shared>, stream: TcpStream) -> (InterfaceId, bool) {
+fn attach(shared: &Arc<Shared>, stream: TcpStream, ifac: Option<Ifac>) -> (InterfaceId, bool) {
     let _ = stream.set_nodelay(true);
     let id = shared.next_iface_id.fetch_add(1, Ordering::Relaxed);
     let queues = Arc::new(OutboundQueues::new(
         shared.queue_weights(),
         shared.queue_depths(),
     ));
+    let wire_overhead = ifac.as_ref().map_or(0, Ifac::size);
     if !shared.register_interface(Iface {
         id,
         outbound: Arc::clone(&queues),
+        frame_limit: Arc::new(AtomicUsize::new(crate::packet::MTU + wire_overhead)),
+        wire_overhead,
     }) {
         queues.close();
         return (id, false);
@@ -2009,10 +2842,14 @@ fn attach(shared: &Arc<Shared>, stream: TcpStream) -> (InterfaceId, bool) {
     let mut out_rx = OutboundPackets {
         queues,
         delivery_in_flight: false,
+        ifac: ifac.clone(),
     };
     let writer_started = track(shared, async move {
         while let Some(pkt) = out_rx.recv().await {
-            if write_half.write_all(&frame(&pkt.encode())).await.is_err() {
+            let Ok(wire) = out_rx.encode(&pkt) else {
+                break;
+            };
+            if write_half.write_all(&frame(&wire)).await.is_err() {
                 break;
             }
             let _ = write_half.flush().await;
@@ -2030,10 +2867,17 @@ fn attach(shared: &Arc<Shared>, stream: TcpStream) -> (InterfaceId, bool) {
                 Ok(n) => n,
             };
             for raw in deframer.push(&buf[..n]) {
+                let logical = match &ifac {
+                    Some(ifac) => match ifac.open(&raw) {
+                        Ok(logical) => logical,
+                        Err(_) => continue,
+                    },
+                    None => raw,
+                };
                 // Await on a full router queue rather than dropping: this back-pressures the
                 // socket read, so TCP flow control slows a flooding peer. `send` errors only
                 // when the router is gone, which means the endpoint is shutting down.
-                if let Ok(pkt) = Packet::decode(&raw)
+                if let Ok(pkt) = Packet::decode(&logical)
                     && router_tx.send((id, pkt)).await.is_err()
                 {
                     return;
@@ -2054,6 +2898,40 @@ fn attach(shared: &Arc<Shared>, stream: TcpStream) -> (InterfaceId, bool) {
         iface.outbound.close();
     }
     (id, attached)
+}
+
+fn deliver_single(shared: &Arc<Shared>, iface: InterfaceId, pkt: &Packet) {
+    if !shared.is_running() {
+        return;
+    }
+    let registration = shared
+        .registered
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|registration| registration.dest == pkt.destination)
+        .map(|registration| registration.ratchets.clone());
+    let Some(ratchets) = registration else {
+        return;
+    };
+
+    let decrypted = match ratchets {
+        Some(ratchets) => ratchets
+            .decrypt(&shared.identity, &pkt.payload)
+            .ok()
+            .map(|(data, ratchet_id)| (data, Some(ratchet_id))),
+        None => crate::token::decrypt_to_identity(&shared.identity, &pkt.payload)
+            .ok()
+            .map(|data| (data, None)),
+    };
+    if let Some((data, ratchet_id)) = decrypted {
+        let _ = shared.single_tx.send(ReceivedSingle {
+            destination: pkt.destination,
+            interface: iface,
+            data,
+            ratchet_id,
+        });
+    }
 }
 
 /// Dispatch one inbound packet that arrived on `iface`.
@@ -2327,6 +3205,8 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                     }
                     _ => {}
                 }
+            } else if pkt.destination_type == DestinationType::Single {
+                deliver_single(shared, iface, &pkt);
             }
         }
     }
@@ -2424,7 +3304,7 @@ fn register_resource_session(
     iface: InterfaceId,
 ) -> Option<ResourceSession> {
     if !shared.begin_resource() {
-        shared.send_on(iface, link.close_packet());
+        shared.send_on(iface, link.close_packet(&next_iv()));
         return None;
     }
     let (packet_tx, packets) = mpsc::unbounded_channel();
@@ -2442,6 +3322,7 @@ fn register_resource_session(
         iface,
         packets,
         config: ResourceTransferConfig::default(),
+        identified_peer: None,
     })
 }
 
@@ -2492,7 +3373,7 @@ fn register_stream(shared: &Arc<Shared>, link: Link, iface: InterfaceId) -> Opti
                     // The stream was shut down or dropped: close the link so the
                     // peer's read side sees EOF. This is what lets a read-to-end
                     // protocol (e.g. gemini) end a response by closing the stream.
-                    iv_shared.send_on(iface, out_link.close_packet());
+                    iv_shared.send_on(iface, out_link.close_packet(&next_iv()));
                     break;
                 }
                 Ok(n) => {
@@ -2653,7 +3534,7 @@ fn register_reliable_stream(
             // sending (its eof arrived). This preserves half-close: after our write closes we
             // keep delivering the peer's reply until it, too, ends. Then close the link.
             if !writer_open && peer_done && rc.send_idle() {
-                drv.send_on(iface, close_link.close_packet());
+                drv.send_on(iface, close_link.close_packet(&next_iv()));
                 break;
             }
         }
@@ -2761,6 +3642,42 @@ fn next_iv() -> [u8; IV_LEN] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ifac_overhead_counts_against_interface_frame_admission() {
+        let queues = Arc::new(OutboundQueues::new(
+            QueueWeights::DEFAULT,
+            QueueDepths::DEFAULT,
+        ));
+        let packet = Packet {
+            ifac: false,
+            header_type: crate::packet::HeaderType::Type1,
+            context_flag: false,
+            propagation: crate::packet::Propagation::Broadcast,
+            destination_type: DestinationType::Plain,
+            packet_type: PacketType::Data,
+            hops: 0,
+            transport: None,
+            destination: AddressHash::from_bytes([0x51; 16]),
+            context: 0,
+            payload: b"frame admission".to_vec(),
+        };
+        let actual = packet.encoded_len() + 8;
+        let interface = Iface {
+            id: 1,
+            outbound: queues,
+            frame_limit: Arc::new(AtomicUsize::new(actual - 1)),
+            wire_overhead: 8,
+        };
+
+        assert_eq!(
+            interface.push(packet, TrafficClass::Interactive),
+            QueueAdmission::FrameLimit {
+                actual,
+                limit: actual - 1,
+            }
+        );
+    }
 
     #[tokio::test]
     async fn a_learned_route_expires_and_is_evicted() {

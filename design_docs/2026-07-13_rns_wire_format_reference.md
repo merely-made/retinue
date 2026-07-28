@@ -1,6 +1,6 @@
 # RNS 1.x wire format reference (retinue's ground truth)
 
-**Status (2026-07-22, amended):** first consolidated wire reference. The byte-fixture
+**Status (2026-07-28, amended):** first consolidated wire reference. The byte-fixture
 corpus is pinned to **RNS 1.3.8**; current live compatibility is verified against
 **RNS 1.4.0**.
 Assembled from the public-domain Reticulum manual and the MIT Beechat crate
@@ -514,7 +514,9 @@ diagram is neutral (`[HASH1][HASH2]`). It is corroborated internally by the pack
 covers only the *destination* and would otherwise not be stable across hops. Still: a swapped
 order silently yields garbage destinations on every forwarded packet. Open question O-9.
 
-**Every offset shifts by N when the IFAC flag is set.** Beechat never parses IFAC at all
+**After IFAC unmasking, every offset shifts by N when the IFAC flag is set.**
+On the carrier, the two header bytes and the packet body are masked; only the
+inserted code at bytes `2..2+N` remains directly visible. Beechat never parses IFAC at all
 ([B] `serde.rs:85-92` hardcodes `ifac: None` and ignores bit 7), so it misparses every
 IFAC-flagged packet. See 3.2.5.
 
@@ -586,7 +588,7 @@ each oracle feature and logging the context byte. Beechat *implements* only 0x00
 unknown context to 0x00, as the crate does, changes the packet hash and destroys forward
 compatibility.
 
-#### 3.2.5 IFAC: VERIFIED [M], and it is not the black box previously reported
+#### 3.2.5 IFAC: VERIFIED [M][O], COMPLETE 2026-07-28
 
 [M] understanding.html, "Interface Access Codes": an interface with a named virtual network or
 passphrase "will derive a shared Ed25519 signing identity, and for every outbound packet
@@ -596,14 +598,27 @@ interface, the IFAC can be the full 512-bit Ed25519 signature, or a truncated ve
 receipt the interface checks the signature and drops the packet on mismatch. 512 bits = 64
 bytes, which is why `PACKET_IFAC_MAX_LENGTH = 64` ([B] `packet.rs:10`).
 
-What remains unknown: the exact key derivation from name + passphrase, and the exact byte
-range signed (is bit 7 set or clear during signing? are the IFAC bytes present-and-zeroed or
-absent?). O-23.
+The pinned RNS 1.4.0 oracle (`oracle/capture_ifac.py`) settled O-23:
 
-**The IFAC length is not on the wire.** A receiver with no IFAC configuration cannot parse an
-IFAC-flagged packet at all. The only correct behavior is: **check bit 7 on decode; if set and
-we have no IFAC config, drop the packet with a distinct error.** Never misparse it. Retinue
-never sets bit 7 (v0 has no IFAC lane).
+```text
+origin    = [SHA256(network_name)] || [SHA256(passphrase)]
+origin_h  = SHA256(origin)
+ifac_key  = HKDF-SHA256(ikm=origin_h, salt=IFAC_SALT, info=<empty>, len=64)
+identity  = Ed25519(seed=ifac_key[32..64])
+code      = Ed25519.sign(logical_packet)[64-N..64]
+wire      = (flags|0x80) || hops || code || logical_packet[2..]
+mask      = HKDF-SHA256(ikm=code, salt=ifac_key, info=<empty>, len=len(wire))
+```
+
+The mask is XORed over header bytes `0..2` and body bytes `2+N..`; the code
+itself stays unmasked. The signed packet has bit 7 clear and contains no IFAC
+field. Inbound performs the inverse mask, requires bit 7, removes the code,
+clears bit 7, recomputes the signature suffix, and drops on mismatch.
+
+**The IFAC length is not on the wire.** A carrier must know its configured
+length and credentials before packet decode. Retinue therefore opens IFAC in
+`ifac::Ifac` at the interface boundary. The logical `Packet` handed to routing
+has neither the flag nor field, and every egress carrier seals it anew.
 
 #### 3.2.6 Packet hash: VERIFIED [B] `packet.rs:250-262`
 
@@ -1289,7 +1304,7 @@ Ranked by blast radius: how badly a wrong guess hurts, and how silently.
 | **O-20** | **Random hash structure.** Are the 10 bytes pure randomness, or is part a timestamp? Capture several announces from one destination seconds apart and look for monotonic structure. | Signature interop is unaffected (the field is opaque to a verifier). Only affects de-dup and freshness. Low. |
 | **O-21** | **MDU enforcement on receive.** Does RNS drop an over-MDU packet on ingress, or only refuse to emit one? Is the ceiling 464 or 465? | Determines how strict our decoder should be. Low. |
 | **O-22** | **Ed25519 strictness.** Does RNS ever emit signatures that `verify_strict` would reject (small-order A, non-canonical R)? | Liveness only: strictness can make us drop announces RNS accepts, never the reverse. One adversarial fixture. Low. |
-| **O-23** | **IFAC derivation.** Exact key derivation from `network_name` + `passphrase`, and the exact byte range signed (bit 7 set or clear? IFAC bytes zeroed or absent?). | Only needed if retinue ever speaks to an IFAC segment. Not v0. |
+| **O-23** | **IFAC derivation. ANSWERED 2026-07-28 (§3.2.5).** Per-credential SHA-256, combined SHA-256, 64-byte HKDF with the fixed salt, Ed25519 over the logical packet with bit 7 clear and no code, signature suffix truncation, code at offset 2, and HKDF masking keyed by code + interface key. Fixed RNS 1.4.0 bytes and mixed-runtime acceptance prove it. | Implemented at the carrier boundary. |
 
 **Nothing in R0 should be written before O-1, O-2 and O-5 are answered. Nothing in R3 before
 O-4/O-4b/O-4c and O-6.**
@@ -1324,8 +1339,10 @@ suggestions.
    over-MDU packets as a wire error. Beechat panics on a >2048-byte data field
    (`buffer.rs:100-103`) and on a >32-byte hash output (`hash.rs:15-19`).
 
-7. **IFAC-flagged packets are dropped with a distinct error, never parsed.** The IFAC length is
-   not on the wire. Retinue never sets bit 7 in v0.
+7. **IFAC is opened before packet decode.** The length is not on the wire, so
+   only an interface with configured credentials can unmask, authenticate, and
+   remove it. Routing sees a logical packet and egress applies that interface's
+   own IFAC. Wrong-key and modified frames return `BadIfac`.
 
 8. **Announce decoding rejects on malformed keys.** Never `unwrap_or_default()` a verifying key
    (Beechat does, on the live link-proof path, and then hashes the substitute into an identity).

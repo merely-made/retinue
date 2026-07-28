@@ -36,8 +36,8 @@ use crate::link::{
 };
 use crate::packet::Packet;
 use crate::resource::{
-    Advertisement, Incoming, Outgoing, RANDOM_HASH_LEN, SDU, content, parse_hmu, parse_proof,
-    parse_request,
+    Advertisement, FLAG_RESPONSE, Incoming, Outgoing, RANDOM_HASH_LEN, SDU, content, parse_hmu,
+    parse_proof, parse_request,
 };
 use crate::token::IV_LEN;
 
@@ -61,11 +61,35 @@ impl ResourceSender {
         random_hash: [u8; RANDOM_HASH_LEN],
         iv: &[u8; IV_LEN],
     ) -> Self {
+        Self::prepare(link, data, random_hash, iv, None)
+    }
+
+    /// Prepare a Resource whose advertisement binds it to a request id.
+    pub fn respond(
+        link: Link,
+        data: &[u8],
+        request_id: [u8; 16],
+        random_hash: [u8; RANDOM_HASH_LEN],
+        iv: &[u8; IV_LEN],
+    ) -> Self {
+        Self::prepare(link, data, random_hash, iv, Some(request_id))
+    }
+
+    fn prepare(
+        link: Link,
+        data: &[u8],
+        random_hash: [u8; RANDOM_HASH_LEN],
+        iv: &[u8; IV_LEN],
+        request_id: Option<[u8; 16]>,
+    ) -> Self {
         let token = link.seal(&content(data, &random_hash), iv);
         let part_size = (link.mtu() as usize)
             .saturating_sub(crate::packet::HEADER_MIN_LEN)
             .clamp(1, SDU);
-        let out = Outgoing::new_with_part_size(data, &token, random_hash, false, part_size);
+        let mut out = Outgoing::new_with_part_size(data, &token, random_hash, false, part_size);
+        if let Some(request_id) = request_id {
+            out = out.with_request_id(request_id);
+        }
         let mtu = link.mtu() as usize;
         let mut hash_window = out
             .total_parts()
@@ -175,6 +199,7 @@ pub struct ResourceReceiver {
     canceled: bool,
     request_window: usize,
     outstanding: usize,
+    response_request_id: Option<[u8; 16]>,
 }
 
 impl ResourceReceiver {
@@ -192,6 +217,7 @@ impl ResourceReceiver {
             canceled: false,
             request_window: request_window.clamp(1, crate::resource::HASHMAP_MAX_PARTS),
             outstanding: 0,
+            response_request_id: None,
         }
     }
 
@@ -212,6 +238,17 @@ impl ResourceReceiver {
                 let Ok(adv) = Advertisement::parse(&plain) else {
                     return vec![];
                 };
+                let response_request_id = if adv.flags & FLAG_RESPONSE != 0 {
+                    let Some(request_id) = adv.q.as_deref() else {
+                        return vec![];
+                    };
+                    let Ok(request_id) = <[u8; 16]>::try_from(request_id) else {
+                        return vec![];
+                    };
+                    Some(request_id)
+                } else {
+                    None
+                };
                 let incoming = match Incoming::new(&adv) {
                     Ok(inc) => inc,
                     Err(_) => return vec![],
@@ -223,6 +260,7 @@ impl ResourceReceiver {
                 if is_new {
                     self.inc = Some(incoming);
                     self.outstanding = 0;
+                    self.response_request_id = response_request_id;
                 }
                 self.next_requests(&mut iv)
             }
@@ -343,6 +381,11 @@ impl ResourceReceiver {
     /// The recovered payload, once the transfer is complete and verified.
     pub fn data(&self) -> Option<&[u8]> {
         self.data.as_deref()
+    }
+
+    /// Request id carried by a response Resource advertisement.
+    pub fn response_request_id(&self) -> Option<[u8; 16]> {
+        self.response_request_id
     }
 
     /// Whether the payload has been fully received and verified.

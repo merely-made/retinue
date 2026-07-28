@@ -1,0 +1,15 @@
+{
+  "rns_version": "1.4.0",
+  "network_name": "retinue-ifac",
+  "passphrase": "wire-compatibility",
+  "ifac_bits": 64,
+  "destination_hash": "c3421c254bb3b6e25d8040f395d960f9",
+  "wire_hex": "ffca585fe5b00229b202daa5521eb182669baf92a39d3268fa74070f0ff793d514d3743939b730f22ba6e5f189fb07",
+  "identity_derivation": "HKDF(H(H(name) || H(passphrase)), IFAC_SALT)",
+  "signed_input": "packet with IFAC flag clear",
+  "truncation": "signature suffix",
+  "ifac_offset": 2,
+  "ifac_hex": "585fe5b00229b202",
+  "mask_derivation": "HKDF(IFAC, salt=IFAC key)",
+  "logical_hex": "0800c3421c254bb3b6e25d8040f395d960f900726574696e75652d696661632d66697874757265"
+}

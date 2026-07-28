@@ -15,6 +15,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 GATES = (
     "interop_r1.py",
+    "interop_ifac.py",
     "interop_r2.py",
     "interop_link.py",
     "interop_link_responder.py",

@@ -17,8 +17,9 @@ retain their observed RNS 1.3.8 provenance; the live mixed-runtime gates pass
 against the current RNS 1.4.0 pin:
 
 - **Wire vocabulary** — identities, hashes, destination naming, the packet
-  codec, announces (including ratchets), and the encrypted token. Sans-io: pure
-  functions over bytes, replayable against fixtures.
+  codec, announces, identity and ratchet tokens, and caller-persisted receive
+  ratchet rotation/retention. Sans-io: pure functions over bytes, replayable
+  against fixtures.
 - **Links** — the handshake (ephemeral ECDH + the mode/MTU trailer), the link
   id derivation, encrypted link data, keepalives, and the request/response and
   resource contexts.
@@ -33,9 +34,18 @@ against the current RNS 1.4.0 pin:
   default) that attaches interfaces, routes inbound packets, opens and accepts
   links, and surfaces them as streams. Turn the feature off and the codec,
   framing, and reliability machinery still stand alone.
+- **Interface access codes** — network-name/passphrase identity derivation,
+  1–64-byte codes, outbound masking, and inbound verification at the carrier
+  boundary. TCP, raw interfaces, routed egress, and Tulle share the same
+  sans-I/O codec. A pinned RNS 1.4.0 gate passes in both directions.
 - **Transport-node routing** — opt-in (`enable_routing`). The default posture is
   endpoint-scoped — a retinue accompanies a peer — but a node can forward
   announces and link traffic between its interfaces when asked to.
+- **Link-less asymmetric packets** — outbound encryption selects the current
+  ratchet from a validated announce; registered destinations receive against
+  retained epochs, with explicit rotation and versioned caller-owned snapshots.
+  Current and retained epochs pass endpoint tests, a transport hop, and stock
+  RNS 1.4.0 in both crypto directions.
 
 ## Maturity
 
@@ -52,15 +62,20 @@ Honest about what is *not* done, so nobody deploys it expecting more:
   Resource request window are caller settings. Reliable chunks, Resource parts,
   advertisements, and hashmap updates derive their size from the selected link
   MTU. The current headed profile uses MTU 255 and one frame/part per half-duplex
-  turn. Per-interface automatic MTU selection is not implemented.
+  turn. Raw interface owners can set a complete-frame cap when attaching;
+  Tulle installs its radio cap synchronously. Every outbound queue applies that
+  cap after transport addressing, and link-less sends receive no queue receipt
+  unless at least one selected interface can carry the encrypted frame.
+  IFAC bytes count against the same cap; a caller advertising a link MTU over
+  a fixed-size carrier must subtract its configured code length (for example,
+  255 physical becomes 247 logical with the usual eight-byte code).
+  Automatic link-MTU negotiation is not implemented.
 - **Routing**: route expiry, announce-rate budgeting, owned-destination path
   responses, and transport forwarding are implemented. Open-network hardening
   and announce-cache responses on behalf of other nodes remain outstanding.
-- **Spec parity**: IFAC (interface access codes) is not implemented; only the
-  header flag is decoded, so IFAC-protected interfaces cannot be joined.
-  Outbound single-packet ratchet encryption is not implemented either
-  (announce ratchets are parsed and validated; links have their own forward
-  secrecy). Both matter on community RNS networks, not on a private bench.
+- **Spec parity**: IFAC-protected interfaces and ratcheted single packets are
+  implemented. Automatic ratchet clock/entropy/persistence policy remains with
+  the host, which must rotate and save `RatchetStore`.
 - **Reliable interop**: both link directions use the captured IDENTIFY exchange,
   including bounded retransmission under loss. The complete reliable and Resource
   exchange through the Tulle radio pump passed on 2026-07-22; see

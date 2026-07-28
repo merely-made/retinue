@@ -41,7 +41,7 @@ use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use x25519_dalek::PublicKey as XPublicKey;
 
-use crate::hash::AddressHash;
+use crate::hash::{AddressHash, NameHash};
 use crate::identity::{Identity, KEY_LEN, PrivateIdentity};
 use crate::{Error, Result};
 
@@ -153,6 +153,37 @@ pub fn decrypt_to_identity(recipient: &PrivateIdentity, token: &[u8]) -> Result<
     keys.decrypt(&token[KEY_LEN..])
 }
 
+/// Decrypt a token against retained ratchet secrets.
+///
+/// Ratcheted single packets carry no ratchet id. RNS therefore tries retained private
+/// ratchets until one authenticates the token. The identity hash, not the ratchet id,
+/// remains the HKDF salt. The returned id identifies the ratchet that succeeded.
+pub fn decrypt_with_ratchets<'a>(
+    recipient: &PrivateIdentity,
+    retained_secrets: impl IntoIterator<Item = &'a [u8; KEY_LEN]>,
+    token: &[u8],
+) -> Result<(Vec<u8>, NameHash)> {
+    if token.len() < KEY_LEN + TOKEN_OVERHEAD {
+        return Err(Error::Truncated);
+    }
+    let eph: [u8; KEY_LEN] = token[..KEY_LEN].try_into().expect("checked length");
+    let eph = XPublicKey::from(eph);
+
+    for retained in retained_secrets {
+        let secret = x25519_dalek::StaticSecret::from(*retained);
+        let public = XPublicKey::from(&secret);
+        let shared = secret.diffie_hellman(&eph).to_bytes();
+        let keys = DerivedKeys::derive(&shared, recipient.hash());
+        match keys.decrypt(&token[KEY_LEN..]) {
+            Ok(plaintext) => return Ok((plaintext, NameHash::of(public.as_bytes()))),
+            Err(Error::BadMac) => {}
+            Err(error) => return Err(error),
+        }
+    }
+
+    Err(Error::BadMac)
+}
+
 /// Encrypt a token to a peer identity, given a caller-supplied ephemeral secret and IV.
 ///
 /// Both are parameters rather than generated here so this module needs no RNG and stays
@@ -168,7 +199,32 @@ pub fn encrypt_to_identity(
     let eph_public = XPublicKey::from(&secret);
     let shared = secret.diffie_hellman(recipient.x25519()).to_bytes();
 
-    // Salt is the *recipient's* identity hash: the sender must know who it is talking to.
+    let keys = DerivedKeys::derive(&shared, recipient.hash());
+
+    let mut out = Vec::new();
+    out.extend_from_slice(eph_public.as_bytes());
+    out.extend_from_slice(&keys.encrypt(plaintext, iv));
+    out
+}
+
+/// Encrypt a token to a destination's advertised ratchet public key.
+///
+/// This has the same wire layout as [`encrypt_to_identity`]. Only the X25519 peer changes:
+/// the ephemeral secret is combined with the ratchet public key, while the destination
+/// identity hash remains the HKDF salt.
+pub fn encrypt_to_ratchet(
+    recipient: &Identity,
+    ratchet_public: &[u8; KEY_LEN],
+    ephemeral_secret: &[u8; KEY_LEN],
+    iv: &[u8; IV_LEN],
+    plaintext: &[u8],
+) -> Vec<u8> {
+    let secret = x25519_dalek::StaticSecret::from(*ephemeral_secret);
+    let eph_public = XPublicKey::from(&secret);
+    let shared = secret
+        .diffie_hellman(&XPublicKey::from(*ratchet_public))
+        .to_bytes();
+
     let keys = DerivedKeys::derive(&shared, recipient.hash());
 
     let mut out = Vec::new();
@@ -209,5 +265,42 @@ mod tests {
             decrypt_to_identity(&recipient, &token),
             Err(Error::BadMac)
         ));
+    }
+
+    #[test]
+    fn retained_ratchets_are_tried_until_one_authenticates() {
+        let recipient = PrivateIdentity::from_secret_bytes(&[7u8; 64]);
+        let current = [11u8; KEY_LEN];
+        let public = XPublicKey::from(&x25519_dalek::StaticSecret::from(current));
+        let token = encrypt_to_ratchet(
+            recipient.public(),
+            public.as_bytes(),
+            &[9u8; KEY_LEN],
+            &[3u8; IV_LEN],
+            b"hello retained ratchet",
+        );
+
+        let (plaintext, ratchet_id) =
+            decrypt_with_ratchets(&recipient, &[[12u8; KEY_LEN], current], &token).unwrap();
+        assert_eq!(plaintext, b"hello retained ratchet");
+        assert_eq!(ratchet_id, NameHash::of(public.as_bytes()));
+    }
+
+    #[test]
+    fn an_unknown_ratchet_fails_authentication() {
+        let recipient = PrivateIdentity::from_secret_bytes(&[7u8; 64]);
+        let public = XPublicKey::from(&x25519_dalek::StaticSecret::from([11u8; KEY_LEN]));
+        let token = encrypt_to_ratchet(
+            recipient.public(),
+            public.as_bytes(),
+            &[9u8; KEY_LEN],
+            &[3u8; IV_LEN],
+            b"not for the retained key",
+        );
+
+        assert_eq!(
+            decrypt_with_ratchets(&recipient, &[[12u8; KEY_LEN]], &token).unwrap_err(),
+            Error::BadMac,
+        );
     }
 }

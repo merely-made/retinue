@@ -1,0 +1,29 @@
+{
+  "destination_hash_hex": "0f0f25a59228834337ca79abbe293e44",
+  "facts": {
+    "derived_key_layout": "hmac_key(32) || aes256_key(32)",
+    "hkdf_info": "empty",
+    "hkdf_salt": "recipient identity hash",
+    "ratchet_id_on_wire": false,
+    "receiver_selection": "trial retained ratchet secrets until HMAC verifies",
+    "shared_secret": "x25519(ephemeral_secret, ratchet_public)",
+    "token_layout": "ephemeral_public(32) || iv(16) || ciphertext || hmac_sha256(32)"
+  },
+  "identity_hash_hex": "7bc6325db0f17979145131f6a3b84322",
+  "identity_secret_hex": "62626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262",
+  "packet": {
+    "context": 0,
+    "context_flag": false,
+    "flags": 0,
+    "payload_len": 96
+  },
+  "packet_hex": "00000f0f25a59228834337ca79abbe293e440030215cce422099db0e6483290a0aa000d770f34a5b4757c5bbec80dc7c4a670ceb04cbba3d1145ea53837457ef32b4fcc55f923c9bb4b87820a7ceacc5d57e0d9cd04f9c4a9916cbbab5bf9474e21755bd839cc8fce78889576c26804215a988",
+  "plaintext_hex": "52392d574952452d5041434b4554",
+  "ratchet_id_hex": "23f8d01ac9a21ffaed0d",
+  "ratchet_public_hex": "ab4f197998fcc56cc6ed68c1d931af9bb522ec00743e181f7330915df4aa3176",
+  "ratchet_secret_hex": "7171717171717171717171717171717171717171717171717171717171717171",
+  "stock": {
+    "method": "Identity.encrypt(plaintext, ratchet=public_key)",
+    "rns_version": "1.4.0"
+  }
+}
