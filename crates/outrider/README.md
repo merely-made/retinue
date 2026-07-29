@@ -3,7 +3,7 @@
 LXMF as a boundary crate in the retinue family: message codec, delivery state
 machines, and a propagation client/server over
 [Reticulum](https://reticulum.network/), riding on
-[retinue](https://github.com/mark-ik/retinue)'s destinations, links, and
+[retinue](https://github.com/merely-made/retinue)'s destinations, links, and
 resources. An outrider rides ahead of the party to scout and carry word.
 
 Not affiliated with or endorsed by the Reticulum or LXMF projects.

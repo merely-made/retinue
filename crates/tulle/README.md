@@ -2,9 +2,9 @@
 
 The shared radio interface layer for LoRa mesh stacks: serial modem control
 (RNode/KISS style framing) and medium access (listen-before-talk, duty-cycle
-accounting), beneath [retinue](https://github.com/mark-ik/retinue) and its
-mesh interop siblings, [tucket](https://github.com/mark-ik/retinue) and
-[sennet](https://github.com/mark-ik/retinue).
+accounting), beneath [retinue](https://github.com/merely-made/retinue) and its
+mesh interop siblings, [tucket](https://github.com/merely-made/retinue) and
+[sennet](https://github.com/merely-made/retinue).
 
 A tulle is a fine net fabric: the material every protocol is woven across.
 

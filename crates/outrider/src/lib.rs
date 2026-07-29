@@ -4,7 +4,7 @@
 //! word. This crate carries mail for the household: an implementation of LXMF,
 //! the message format and delivery system of the
 //! [Reticulum](https://reticulum.network/) ecosystem, riding on
-//! [retinue](https://github.com/mark-ik/retinue)'s destinations, links, and
+//! [retinue](https://github.com/merely-made/retinue)'s destinations, links, and
 //! resources. Not affiliated with the Reticulum or LXMF projects.
 //!
 //! Outrider is a boundary crate: a codec, delivery state machines, and a
