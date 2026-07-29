@@ -61,14 +61,17 @@ Honest about what is *not* done, so nobody deploys it expecting more:
 - **Radio MTU**: link MTU, reliable in-flight window, setup retry interval, and
   Resource request window are caller settings. Reliable chunks, Resource parts,
   advertisements, and hashmap updates derive their size from the selected link
-  MTU. The current headed profile uses MTU 255 and one frame/part per half-duplex
-  turn. Raw interface owners can set a complete-frame cap when attaching;
+  MTU. The open headed profile uses MTU 255; its eight-byte IFAC profile uses
+  MTU 247. Both use one frame/part per half-duplex turn. Raw interface owners
+  can set a complete-frame cap when attaching;
   Tulle installs its radio cap synchronously. Every outbound queue applies that
   cap after transport addressing, and link-less sends receive no queue receipt
   unless at least one selected interface can carry the encrypted frame.
   IFAC bytes count against the same cap; a caller advertising a link MTU over
   a fixed-size carrier must subtract its configured code length (for example,
-  255 physical becomes 247 logical with the usual eight-byte code).
+  255 physical becomes 247 logical with the usual eight-byte code). That exact
+  IFAC Resource boundary is covered by both an in-memory carrier regression
+  and a headed Outrider propagation receipt.
   Automatic link-MTU negotiation is not implemented.
 - **Routing**: route expiry, announce-rate budgeting, owned-destination path
   responses, and transport forwarding are implemented. Open-network hardening

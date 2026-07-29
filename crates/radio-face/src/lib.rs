@@ -25,4 +25,7 @@ pub use status::{
     NodeSummary, PeerPath, PeerSummary, Personality, PowerSource, RadioProfile, RadioState,
     RxSummary, SleepState, Text, TextError, TxResult, UiEvent, WakeSource,
 };
-pub use wire::{MAX_SNAPSHOT_LEN, SNAPSHOT_VERSION, WireError, decode_snapshot, encode_snapshot};
+pub use wire::{
+    MAX_SNAPSHOT_LEN, MAX_VALIDITY_SECS, SNAPSHOT_VERSION, WireError, decode_snapshot,
+    encode_snapshot,
+};

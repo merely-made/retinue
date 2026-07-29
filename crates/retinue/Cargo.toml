@@ -48,6 +48,7 @@ x25519-dalek = { version = "2", features = ["static_secrets"] }
 
 [dev-dependencies]
 hex = "0.4.3"
+radio-face = { path = "../radio-face" }
 tokio = { version = "1", features = ["net", "io-util", "rt-multi-thread", "macros", "time"] }
 serde = "1.0.228"
 serde_json = "1.0.150"
@@ -154,6 +155,10 @@ required-features = ["tulle-radio"]
 
 [[example]]
 name = "direct_phy_resource_trace"
+required-features = ["tulle-radio"]
+
+[[example]]
+name = "direct_phy_ui_snapshot"
 required-features = ["tulle-radio"]
 
 [[test]]

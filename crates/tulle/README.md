@@ -15,6 +15,13 @@ initialisation retry, airtime pacing, and bounded frame queues.
 The same feature now exposes `DirectPhySerialLink`, the reusable host wrapper
 for Tulle's USB direct-PHY firmware. It handles split USB events, bounded queues,
 transmit acknowledgements, RSSI/SNR delivery, and the shared airtime budget.
+`publish_ui_snapshot` adds a separately acknowledged, bounded opaque control
+payload; Tulle does not depend on or interpret `radio-face` domain types.
+`DirectPhySerialConfig` makes DTR and RTS policy explicit. DTR remains asserted
+by default because nRF USB CDC gates output on it; native ESP32-S3 USB callers
+can leave DTR deasserted so opening and closing the host handle does not reset
+the board. RTS remains deasserted by default because it enters reset/boot on
+ESP32 boards.
 
 The workspace also contains direct-PHY Embassy firmware for the Heltec WiFi
 LoRa 32 v4 and T114, plus a reusable `selvage` crate. Both targets
@@ -34,8 +41,8 @@ Run the two-board hardware acceptance with:
 cargo run --features serial-async --example rnode_roundtrip -- COM5 COM6
 ```
 
-The accepted T114 DFU package is produced at
-`firmware/t114-phy/tulle-t114-phy-v10.zip`.
+The current T114 DFU package is produced at
+`firmware/t114-phy/tulle-t114-phy-v14.zip`.
 
 Build and flash the v4 target with:
 

@@ -4,9 +4,10 @@ use std::time::Duration;
 use outrider::{
     DeliveryAnnounce, LxmfPayload, PROPAGATION_METADATA_NAME, PropagationAnnounce,
     PropagationBatch, PropagationCosts, PropagationStore, PropagationStoreLimits,
-    fetch_propagation, prepare_propagation, register_delivery, register_propagation, serve_fetch,
+    fetch_propagation_with_resource_config, prepare_propagation, register_delivery,
+    register_propagation, serve_fetch,
 };
-use retinue::endpoint::Endpoint;
+use retinue::endpoint::{Endpoint, ResourceTransferConfig};
 use retinue::identity::PrivateIdentity;
 use retinue::lossy::{LossModel, connect};
 use rmpv::Value;
@@ -91,6 +92,11 @@ async fn large_fetch_response_uses_a_resource_and_authenticates() {
         let node = Arc::clone(&node);
         async move {
             let mut accepted = node.accept_resource().await.unwrap();
+            accepted.session.set_config(ResourceTransferConfig {
+                timeout: Duration::from_secs(5),
+                retry_interval: Duration::from_millis(50),
+                request_window: 1,
+            });
             serve_fetch(&node, &mut accepted, &mut store, 1_753_603_206.0)
                 .await
                 .unwrap()
@@ -98,7 +104,7 @@ async fn large_fetch_response_uses_a_resource_and_authenticates() {
     });
     let receipt = tokio::time::timeout(
         Duration::from_secs(15),
-        fetch_propagation(
+        fetch_propagation_with_resource_config(
             &recipient,
             &recipient_identity,
             &node_announce,
@@ -107,6 +113,11 @@ async fn large_fetch_response_uses_a_resource_and_authenticates() {
             1_753_603_206.0,
             16 * 1024,
             16 * 1024,
+            ResourceTransferConfig {
+                timeout: Duration::from_secs(5),
+                retry_interval: Duration::from_millis(50),
+                request_window: 1,
+            },
         ),
     )
     .await

@@ -97,6 +97,9 @@ enum Quiesce {
 /// Default link MTU advertised by Reticulum. Radio callers can lower it to
 /// keep encrypted Channel frames and resource parts inside a proven RF size.
 const DEFAULT_LINK_MTU: u32 = crate::packet::MTU as u32;
+/// Smallest link MTU currently exercised by the direct-PHY Data and Resource
+/// paths. It leaves room for an eight-byte IFAC on a 255-byte packet radio.
+const MIN_LINK_MTU: u32 = 247;
 
 /// How many times an initiator sends its IDENTIFY over the opening retransmit ticks. RNS
 /// sends it once; on a lossy medium a single drop leaves the responder unable to validate our
@@ -335,7 +338,7 @@ impl ResourceSession {
         let iface = self.iface;
         let packets = &mut self.packets;
         let retry = self.config.retry_interval;
-        let transfer = async move {
+        let transfer = async {
             let mut interval = tokio::time::interval(retry);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             interval.tick().await;
@@ -365,9 +368,22 @@ impl ResourceSession {
                 }
             }
         };
-        tokio::time::timeout(self.config.timeout, transfer)
-            .await
-            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "resource publish timed out"))?
+        match tokio::time::timeout(self.config.timeout, transfer).await {
+            Ok(result) => result,
+            Err(_) => {
+                let message = if sender.served_parts() > 0 {
+                    format!(
+                        "resource publish timed out after serving {} requested part(s)",
+                        sender.served_parts()
+                    )
+                } else if sender.has_started() {
+                    "resource publish timed out after receiver request matched no parts".to_string()
+                } else {
+                    "resource publish timed out before receiver request".to_string()
+                };
+                Err(io::Error::new(io::ErrorKind::TimedOut, message))
+            }
+        }
     }
 
     /// Fetch one payload published by the peer, returning after verification and proof.
@@ -1288,6 +1304,11 @@ impl OutboundQueues {
         let state = self.state.lock().unwrap();
         (state.sent, state.dropped)
     }
+
+    fn depth(&self) -> usize {
+        let state = self.state.lock().unwrap();
+        state.in_flight + state.queues.iter().map(VecDeque::len).sum::<usize>()
+    }
 }
 
 /// The draining half of an interface's outbound path.
@@ -2137,6 +2158,20 @@ impl Endpoint {
         out
     }
 
+    /// Packets currently queued or in flight across attached interfaces.
+    ///
+    /// This is a point-in-time host observation. It does not alter scheduling
+    /// and must not be used as a delivery receipt.
+    pub fn outbound_queue_depth(&self) -> usize {
+        self.shared
+            .interfaces
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|interface| interface.outbound.depth())
+            .sum()
+    }
+
     /// The transit policy currently installed.
     pub fn routing_policy(&self) -> RoutingPolicy {
         self.shared.routing.lock().unwrap().clone()
@@ -2194,11 +2229,13 @@ impl Endpoint {
     /// Set the MTU requested and offered by subsequently established links.
     ///
     /// The lower bound keeps link setup, identify, and resource control packets
-    /// representable. The default remains Reticulum's 500-byte MTU.
+    /// representable while allowing the standard eight-byte IFAC on a 255-byte
+    /// packet radio. The default remains Reticulum's 500-byte MTU.
     pub fn set_link_mtu(&self, mtu: u32) {
-        self.shared
-            .link_mtu
-            .store(mtu.clamp(255, crate::packet::MTU as u32), Ordering::Relaxed);
+        self.shared.link_mtu.store(
+            mtu.clamp(MIN_LINK_MTU, crate::packet::MTU as u32),
+            Ordering::Relaxed,
+        );
     }
 
     /// The interface a learned destination is reachable over, and its hop count. An expired

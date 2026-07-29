@@ -5,7 +5,7 @@ use crate::status::{
 
 pub const SNAPSHOT_VERSION: u8 = 1;
 pub const MAX_SNAPSHOT_LEN: usize = 160;
-const MAX_VALIDITY_SECS: u16 = 300;
+pub const MAX_VALIDITY_SECS: u16 = 300;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WireError {

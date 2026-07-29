@@ -14,8 +14,9 @@ objects, ratcheted opportunistic delivery in both directions, cost-8 stamped
 direct delivery in both directions, small data and 4 KiB Resource delivery,
 the same direct lane over V4-to-T114 direct-PHY RF, compact cost-8
 opportunistic messages as one ratcheted RF packet in both directions,
-submit/fetch against stock propagation nodes, and a stock client submitting
-to and fetching from Outrider's bounded server. The
+Resource-backed propagation submit/store/fetch over the same IFAC-protected
+direct-PHY pair, submit/fetch against stock propagation nodes, and a stock
+client submitting to and fetching from Outrider's bounded server. The
 founding scope, provenance discipline, and ordered gates are recorded in
 [`design_docs/2026-07-25_outrider_lxmf_founding.md`](../../design_docs/2026-07-25_outrider_lxmf_founding.md).
 

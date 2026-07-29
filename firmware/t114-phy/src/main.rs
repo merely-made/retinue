@@ -24,8 +24,11 @@ use lora_phy::sx126x::{Config as Sx126xConfig, Sx126x, Sx1262, TcxoCtrlVoltage};
 use lora_phy::{LoRa, RxMode};
 use panic_halt as _;
 use selvage::{
-    CMD_CONFIG, CMD_TX, CONFIG_COMMAND_LEN, EVENT_CONFIG, EVENT_DIAGNOSTIC, EVENT_RX, EVENT_TX,
-    MESHTASTIC_SYNC_WORD, decode_config_command, sx126x_sync_word,
+    CONFIG_COMMAND_LEN, CommandEvent, CommandKind, CommandStream, EVENT_CONFIG, EVENT_DIAGNOSTIC,
+    EVENT_RX, EVENT_TX, EVENT_UI_SNAPSHOT, MAX_COMMAND_LEN, MAX_UI_SNAPSHOT_LEN,
+    MESHTASTIC_SYNC_WORD, UI_SNAPSHOT_MALFORMED, UI_SNAPSHOT_TOO_LONG,
+    UI_SNAPSHOT_UNSUPPORTED_VERSION, decode_config_command, decode_ui_snapshot_command,
+    sx126x_sync_word,
 };
 use static_cell::StaticCell;
 
@@ -35,7 +38,7 @@ mod ui;
 bind_interrupts!(struct Irqs {
     USBD => usb::InterruptHandler<peripherals::USBD>;
     CLOCK_POWER => usb::vbus_detect::InterruptHandler;
-    SPIM3 => embassy_nrf::spim::InterruptHandler<peripherals::SPI3>;
+    TWISPI0 => embassy_nrf::spim::InterruptHandler<peripherals::TWISPI0>;
 });
 
 type UsbDriver = Driver<'static, HardwareVbusDetect>;
@@ -267,14 +270,8 @@ async fn main(spawner: Spawner) {
     let p = embassy_nrf::init(nrf_config);
 
     let mut display_config = SpimConfig::default();
-    display_config.frequency = Frequency::M32;
-    let display_spi = Spim::new_txonly(
-        p.SPI3,
-        Irqs,
-        p.P1_08,
-        p.P1_09,
-        display_config,
-    );
+    display_config.frequency = Frequency::M8;
+    let display_spi = Spim::new_txonly(p.TWISPI0, Irqs, p.P1_08, p.P1_09, display_config);
     let display_cs = Output::new(p.P0_11, Level::High, OutputDrive::HighDrive);
     let display_dc = Output::new(p.P0_12, Level::Low, OutputDrive::Standard);
     let display_reset = Output::new(p.P0_02, Level::High, OutputDrive::Standard);
@@ -284,11 +281,8 @@ async fn main(spawner: Spawner) {
     let button_rev21 = Input::new(p.P1_11, Pull::Up);
     let button_variant = Input::new(p.P1_10, Pull::Up);
     let mut local_status = board::initial_status();
-    match spawner.spawn(ui::button_task(button_rev21, button_variant)) {
-        Ok(()) => {}
-        Err(_) => panic!(),
-    }
-    match spawner.spawn(ui::screen_task(
+    spawner.spawn(ui::button_task(button_rev21, button_variant).unwrap());
+    let screen_hardware = ui::screen_hardware(
         display_spi,
         display_cs,
         display_dc,
@@ -296,11 +290,8 @@ async fn main(spawner: Spawner) {
         display_power,
         display_backlight,
         status_led,
-        local_status,
-    )) {
-        Ok(()) => {}
-        Err(_) => panic!(),
-    }
+    );
+    spawner.spawn(ui::screen_task(screen_hardware, local_status).unwrap());
 
     let driver = Driver::new(p.USBD, Irqs, HardwareVbusDetect::new(Irqs));
     let mut usb_config = Config::new(0x1915, 0x521f);
@@ -418,16 +409,19 @@ async fn main(spawner: Spawner) {
 
     let online = b"tulle/t114 phy online; sx1262 online; spi=software; irq=poll; sync=2b reg=24b4; longfast=906875000\r\n";
     publish_online(&mut local_status);
-    let mut usb_command = [0_u8; 3 + MAX_RADIO_FRAME];
-    let mut usb_command_len;
     let mut tx_power_dbm = TX_POWER_DBM;
 
     loop {
         class.wait_connection().await;
+        local_status.host = radio_face::HostState::Attached;
+        ui::publish(local_status, radio_face::LedSignal::Idle);
         if !write_all(&mut class, online).await {
+            local_status.host = radio_face::HostState::Detached;
+            ui::publish(local_status, radio_face::LedSignal::Idle);
             continue;
         }
-        usb_command_len = 0;
+        let mut command_stream = CommandStream::new();
+        let mut usb_command = [0_u8; MAX_COMMAND_LEN];
         let mut prepare_rx = true;
 
         'connected: loop {
@@ -437,11 +431,13 @@ async fn main(spawner: Spawner) {
                     .await
                     .is_err()
                 {
+                    publish_fault(&mut local_status, 5, "RX SETUP");
                     if !write_all(&mut class, b"radio rx setup failed\r\n").await {
                         break;
                     }
                     continue;
                 }
+                publish_online(&mut local_status);
                 prepare_rx = false;
             }
 
@@ -464,8 +460,17 @@ async fn main(spawner: Spawner) {
                     if !write_all(&mut class, &event[..7 + length]).await {
                         break;
                     }
+                    local_status.rx_frames = local_status.rx_frames.saturating_add(1);
+                    local_status.last_rx = Some(radio_face::RxSummary {
+                        frame_len: length as u16,
+                        rssi_dbm: packet_status.rssi,
+                        snr_tenths_db: packet_status.snr.saturating_mul(10),
+                    });
+                    local_status.last_wake = radio_face::WakeSource::Radio;
+                    ui::publish(local_status, radio_face::LedSignal::Activity);
                 }
                 Either::Second(Err(_)) => {
+                    publish_fault(&mut local_status, 6, "RADIO RX");
                     if !write_all(&mut class, b"radio rx failed\r\n").await {
                         break;
                     }
@@ -473,8 +478,12 @@ async fn main(spawner: Spawner) {
                 }
                 Either::First(Err(_)) => break,
                 Either::First(Ok(length)) => {
+                    local_status.host = radio_face::HostState::Attached;
+                    local_status.last_wake = radio_face::WakeSource::Host;
+                    ui::publish(local_status, radio_face::LedSignal::Idle);
                     let packet = &usb_packet[..length];
-                    if packet == b"bootloader\n" || packet == b"bootloader\r\n" {
+                    let at_boundary = command_stream.is_boundary();
+                    if at_boundary && (packet == b"bootloader\n" || packet == b"bootloader\r\n") {
                         let _ = write_all(&mut class, b"entering serial bootloader\r\n").await;
                         Timer::after_millis(20).await;
                         embassy_nrf::pac::POWER
@@ -482,13 +491,13 @@ async fn main(spawner: Spawner) {
                             .write(|value| value.set_gpregret(0x4e));
                         cortex_m::peripheral::SCB::sys_reset();
                     }
-                    if packet == b"status\n" || packet == b"status\r\n" {
+                    if at_boundary && (packet == b"status\n" || packet == b"status\r\n") {
                         if !write_all(&mut class, online).await {
                             break;
                         }
                         continue;
                     }
-                    if packet == b"sync\n" || packet == b"sync\r\n" {
+                    if at_boundary && (packet == b"sync\n" || packet == b"sync\r\n") {
                         let sync = sx126x_sync_word(MESHTASTIC_SYNC_WORD);
                         let reply = if sync == [0x24, 0xb4] {
                             b"2b 24b4\r\n".as_slice()
@@ -500,7 +509,7 @@ async fn main(spawner: Spawner) {
                         }
                         continue;
                     }
-                    if packet == b"radio\n" || packet == b"radio\r\n" {
+                    if at_boundary && (packet == b"radio\n" || packet == b"radio\r\n") {
                         let reply = match lora.sx126x_diagnostics().await {
                             Ok(diagnostics) => diagnostic_event(
                                 diagnostics.irq_status,
@@ -514,155 +523,260 @@ async fn main(spawner: Spawner) {
                         }
                         continue;
                     }
-
-                    if usb_command_len + length > usb_command.len() {
-                        usb_command_len = 0;
-                        let reply = [EVENT_TX, 2, 0, 0];
-                        if !write_all(&mut class, &reply).await {
+                    if at_boundary && (packet == b"ui\n" || packet == b"ui\r\n") {
+                        let diagnostic = ui::diagnostic();
+                        let mut reply = radio_face::Text::<96>::empty();
+                        let _ = write!(
+                            &mut reply,
+                            "ui={}; display={}; screen={}; button={}; host={}; tft=write-only\r\n",
+                            diagnostic.state,
+                            diagnostic.display,
+                            diagnostic.screen,
+                            diagnostic.button,
+                            diagnostic.host,
+                        );
+                        if !write_all(&mut class, reply.as_str().as_bytes()).await {
                             break;
                         }
                         continue;
                     }
-                    usb_command[usb_command_len..usb_command_len + length].copy_from_slice(packet);
-                    usb_command_len += length;
-
-                    let command_len = match usb_command.first().copied() {
-                        Some(CMD_TX) if usb_command_len >= 3 => {
-                            3 + usize::from(u16::from_le_bytes([usb_command[1], usb_command[2]]))
+                    #[cfg(feature = "ui-bench")]
+                    if at_boundary && (packet == b"fault\n" || packet == b"fault\r\n") {
+                        publish_fault(&mut local_status, 0xfe, "BENCH FAULT");
+                        if !write_all(&mut class, b"ui bench fault set\r\n").await {
+                            break;
                         }
-                        Some(CMD_CONFIG) => CONFIG_COMMAND_LEN,
-                        Some(_) if usb_command_len >= 1 => {
-                            usb_command_len = 0;
-                            let reply = [EVENT_TX, 3, 0, 0];
-                            if !write_all(&mut class, &reply).await {
-                                break;
-                            }
-                            continue;
+                        continue;
+                    }
+                    #[cfg(feature = "ui-bench")]
+                    if at_boundary && (packet == b"clear\n" || packet == b"clear\r\n") {
+                        publish_online(&mut local_status);
+                        if !write_all(&mut class, b"ui bench fault cleared\r\n").await {
+                            break;
                         }
-                        _ => continue,
-                    };
-                    if usb_command_len < command_len {
                         continue;
                     }
 
-                    if usb_command[0] == CMD_CONFIG {
-                        let result = match decode_config_command(&usb_command[..CONFIG_COMMAND_LEN])
-                        {
-                            Ok(profile) => {
-                                let radio_params = spreading_factor(profile.spreading_factor)
-                                    .zip(bandwidth(profile.bandwidth_hz))
-                                    .zip(coding_rate(profile.coding_rate_denominator));
-                                match radio_params {
-                                    Some(((sf, bw), cr)) => {
-                                        match lora.create_modulation_params(
-                                            sf,
-                                            bw,
-                                            cr,
-                                            profile.frequency_hz,
-                                        ) {
-                                            Ok(new_modulation) => {
-                                                let new_tx = lora.create_tx_packet_params(
-                                                    profile.preamble_symbols,
-                                                    !profile.explicit_header,
-                                                    profile.crc,
-                                                    profile.invert_iq,
-                                                    &new_modulation,
-                                                );
-                                                let new_rx = lora.create_rx_packet_params(
-                                                    profile.preamble_symbols,
-                                                    !profile.explicit_header,
-                                                    255,
-                                                    profile.crc,
-                                                    profile.invert_iq,
-                                                    &new_modulation,
-                                                );
-                                                match (new_tx, new_rx) {
-                                                    (Ok(new_tx), Ok(new_rx)) => {
-                                                        if lora
-                                                            .set_sync_word(profile.sync_word)
-                                                            .await
-                                                            .is_ok()
-                                                        {
-                                                            modulation = new_modulation;
-                                                            tx_params = new_tx;
-                                                            rx_params = new_rx;
-                                                            tx_power_dbm =
-                                                                i32::from(profile.tx_power_dbm);
-                                                            prepare_rx = true;
-                                                            0
-                                                        } else {
-                                                            3
-                                                        }
-                                                    }
-                                                    _ => 2,
-                                                }
-                                            }
-                                            Err(_) => 2,
-                                        }
-                                    }
-                                    None => 2,
+                    for &byte in packet {
+                        match command_stream.push(byte, &mut usb_command) {
+                            CommandEvent::Pending => {}
+                            CommandEvent::Unknown { .. } => {
+                                if !write_all(&mut class, &[EVENT_TX, 3, 0, 0]).await {
+                                    break 'connected;
                                 }
                             }
-                            Err(_) => 1,
-                        };
-                        usb_command_len = 0;
-                        if !write_all(&mut class, &[EVENT_CONFIG, result]).await {
-                            break;
+                            CommandEvent::TooLong {
+                                kind: CommandKind::UiSnapshot,
+                                ..
+                            } => {
+                                if !write_all(
+                                    &mut class,
+                                    &[EVENT_UI_SNAPSHOT, UI_SNAPSHOT_TOO_LONG],
+                                )
+                                .await
+                                {
+                                    break 'connected;
+                                }
+                            }
+                            CommandEvent::TooLong {
+                                kind: CommandKind::Transmit,
+                                declared,
+                            } => {
+                                let length = (declared as u16).to_le_bytes();
+                                if !write_all(&mut class, &[EVENT_TX, 4, length[0], length[1]])
+                                    .await
+                                {
+                                    break 'connected;
+                                }
+                            }
+                            CommandEvent::TooLong {
+                                kind: CommandKind::Configure,
+                                ..
+                            } => unreachable!("configure commands have a fixed length"),
+                            CommandEvent::Complete {
+                                kind: CommandKind::UiSnapshot,
+                                len,
+                            } => {
+                                let mut snapshot_bytes = [0_u8; MAX_UI_SNAPSHOT_LEN];
+                                let result = match decode_ui_snapshot_command(
+                                    &usb_command[..len],
+                                    &mut snapshot_bytes,
+                                ) {
+                                    Ok(snapshot_len) => {
+                                        match radio_face::decode_snapshot(
+                                            &snapshot_bytes[..snapshot_len],
+                                        ) {
+                                            Ok(snapshot) => {
+                                                ui::publish_host(snapshot);
+                                                selvage::UI_SNAPSHOT_ACCEPTED
+                                            }
+                                            Err(radio_face::WireError::UnsupportedVersion(_)) => {
+                                                UI_SNAPSHOT_UNSUPPORTED_VERSION
+                                            }
+                                            Err(radio_face::WireError::TooLong) => {
+                                                UI_SNAPSHOT_TOO_LONG
+                                            }
+                                            Err(_) => UI_SNAPSHOT_MALFORMED,
+                                        }
+                                    }
+                                    Err(selvage::UiSnapshotWireError::TooLong) => {
+                                        UI_SNAPSHOT_TOO_LONG
+                                    }
+                                    Err(_) => UI_SNAPSHOT_MALFORMED,
+                                };
+                                if !write_all(&mut class, &[EVENT_UI_SNAPSHOT, result]).await {
+                                    break 'connected;
+                                }
+                            }
+                            CommandEvent::Complete {
+                                kind: CommandKind::Configure,
+                                len,
+                            } => {
+                                debug_assert_eq!(len, CONFIG_COMMAND_LEN);
+                                let result =
+                                    match decode_config_command(&usb_command[..CONFIG_COMMAND_LEN])
+                                    {
+                                        Ok(profile) => {
+                                            let radio_params =
+                                                spreading_factor(profile.spreading_factor)
+                                                    .zip(bandwidth(profile.bandwidth_hz))
+                                                    .zip(coding_rate(
+                                                        profile.coding_rate_denominator,
+                                                    ));
+                                            match radio_params {
+                                                Some(((sf, bw), cr)) => {
+                                                    match lora.create_modulation_params(
+                                                        sf,
+                                                        bw,
+                                                        cr,
+                                                        profile.frequency_hz,
+                                                    ) {
+                                                        Ok(new_modulation) => {
+                                                            let new_tx = lora
+                                                                .create_tx_packet_params(
+                                                                    profile.preamble_symbols,
+                                                                    !profile.explicit_header,
+                                                                    profile.crc,
+                                                                    profile.invert_iq,
+                                                                    &new_modulation,
+                                                                );
+                                                            let new_rx = lora
+                                                                .create_rx_packet_params(
+                                                                    profile.preamble_symbols,
+                                                                    !profile.explicit_header,
+                                                                    255,
+                                                                    profile.crc,
+                                                                    profile.invert_iq,
+                                                                    &new_modulation,
+                                                                );
+                                                            match (new_tx, new_rx) {
+                                                                (Ok(new_tx), Ok(new_rx)) => {
+                                                                    if lora
+                                                                        .set_sync_word(
+                                                                            profile.sync_word,
+                                                                        )
+                                                                        .await
+                                                                        .is_ok()
+                                                                    {
+                                                                        modulation = new_modulation;
+                                                                        tx_params = new_tx;
+                                                                        rx_params = new_rx;
+                                                                        tx_power_dbm = i32::from(
+                                                                            profile.tx_power_dbm,
+                                                                        );
+                                                                        board::apply_profile(
+                                                                            &mut local_status,
+                                                                            profile,
+                                                                        );
+                                                                        ui::publish(
+                                                                        local_status,
+                                                                        radio_face::LedSignal::Idle,
+                                                                    );
+                                                                        prepare_rx = true;
+                                                                        0
+                                                                    } else {
+                                                                        3
+                                                                    }
+                                                                }
+                                                                _ => 2,
+                                                            }
+                                                        }
+                                                        Err(_) => 2,
+                                                    }
+                                                }
+                                                None => 2,
+                                            }
+                                        }
+                                        Err(_) => 1,
+                                    };
+                                if !write_all(&mut class, &[EVENT_CONFIG, result]).await {
+                                    break 'connected;
+                                }
+                            }
+                            CommandEvent::Complete {
+                                kind: CommandKind::Transmit,
+                                len,
+                            } => {
+                                let frame_len = len - 3;
+                                let sent_len = frame_len as u16;
+                                let prepared = lora
+                                    .prepare_for_tx(
+                                        &modulation,
+                                        &mut tx_params,
+                                        tx_power_dbm,
+                                        &usb_command[3..len],
+                                    )
+                                    .await
+                                    .is_ok();
+                                let result = if !prepared {
+                                    1
+                                } else {
+                                    match with_timeout(Duration::from_secs(3), lora.tx()).await {
+                                        Ok(Ok(())) => 0,
+                                        Ok(Err(_)) => 1,
+                                        Err(_) => 5,
+                                    }
+                                };
+                                if result == 5 {
+                                    publish_fault(&mut local_status, 7, "TX TIMEOUT");
+                                    let diagnostic = match lora.sx126x_diagnostics().await {
+                                        Ok(diagnostics) => diagnostic_event(
+                                            diagnostics.irq_status,
+                                            diagnostics.device_errors,
+                                            diagnostics.sync_word,
+                                        ),
+                                        Err(_) => {
+                                            [EVENT_DIAGNOSTIC, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]
+                                        }
+                                    };
+                                    if !write_all(&mut class, &diagnostic).await {
+                                        break 'connected;
+                                    }
+                                }
+                                prepare_rx = true;
+                                let length_bytes = sent_len.to_le_bytes();
+                                let reply = [EVENT_TX, result, length_bytes[0], length_bytes[1]];
+                                if !write_all(&mut class, &reply).await {
+                                    break 'connected;
+                                }
+                                if result == 0 {
+                                    local_status.tx_frames =
+                                        local_status.tx_frames.saturating_add(1);
+                                    local_status.last_tx = radio_face::TxResult::Sent {
+                                        frame_len: sent_len,
+                                    };
+                                } else {
+                                    local_status.last_tx =
+                                        radio_face::TxResult::Failed { code: result };
+                                }
+                                ui::publish(local_status, radio_face::LedSignal::Activity);
+                            }
                         }
-                        continue;
-                    }
-
-                    let frame_len = command_len - 3;
-                    if frame_len > MAX_RADIO_FRAME {
-                        usb_command_len = 0;
-                        let reply = [EVENT_TX, 4, 0, 0];
-                        if !write_all(&mut class, &reply).await {
-                            break;
-                        }
-                        continue;
-                    }
-
-                    let sent_len = frame_len as u16;
-                    let prepared = lora
-                        .prepare_for_tx(
-                            &modulation,
-                            &mut tx_params,
-                            tx_power_dbm,
-                            &usb_command[3..3 + frame_len],
-                        )
-                        .await
-                        .is_ok();
-                    let result = if !prepared {
-                        1
-                    } else {
-                        match with_timeout(Duration::from_secs(3), lora.tx()).await {
-                            Ok(Ok(())) => 0,
-                            Ok(Err(_)) => 1,
-                            Err(_) => 5,
-                        }
-                    };
-                    if result == 5 {
-                        let diagnostic = match lora.sx126x_diagnostics().await {
-                            Ok(diagnostics) => diagnostic_event(
-                                diagnostics.irq_status,
-                                diagnostics.device_errors,
-                                diagnostics.sync_word,
-                            ),
-                            Err(_) => [EVENT_DIAGNOSTIC, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
-                        };
-                        if !write_all(&mut class, &diagnostic).await {
-                            break 'connected;
-                        }
-                    }
-                    usb_command_len = 0;
-                    prepare_rx = true;
-                    let length_bytes = sent_len.to_le_bytes();
-                    let reply = [EVENT_TX, result, length_bytes[0], length_bytes[1]];
-                    if !write_all(&mut class, &reply).await {
-                        break 'connected;
                     }
                 }
             }
         }
+        local_status.host = radio_face::HostState::Detached;
+        ui::publish(local_status, radio_face::LedSignal::Idle);
     }
 }

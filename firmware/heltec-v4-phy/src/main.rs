@@ -2,6 +2,10 @@
 #![no_main]
 
 use core::fmt::Write as _;
+#[cfg(all(feature = "host-uart-low-power", feature = "rf-sleep-proof"))]
+use core::future::{Future, poll_fn};
+#[cfg(all(feature = "host-uart-low-power", feature = "rf-sleep-proof"))]
+use core::task::Poll;
 
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
@@ -9,6 +13,8 @@ use embassy_time::Delay;
 use embedded_hal_bus::spi::ExclusiveDevice;
 use esp_backtrace as _;
 use esp_hal::Config;
+#[cfg(feature = "rf-sleep-proof")]
+use esp_hal::delay::Delay as BlockingDelay;
 use esp_hal::gpio::{Input, InputConfig, Level, Output, OutputConfig, Pull};
 use esp_hal::i2c::master::{Config as I2cConfig, I2c};
 use esp_hal::interrupt::software::SoftwareInterruptControl;
@@ -27,13 +33,16 @@ use lora_phy::iv::GenericSx126xInterfaceVariant;
 use lora_phy::sx126x::{Config as Sx126xConfig, Sx126x, Sx1262, TcxoCtrlVoltage};
 use lora_phy::{LoRa, RxMode};
 use selvage::{
-    CMD_CONFIG, CMD_TX, CONFIG_COMMAND_LEN, EVENT_CONFIG, EVENT_DIAGNOSTIC, EVENT_RX, EVENT_TX,
-    MESHTASTIC_SYNC_WORD, WAKE_BYTE, decode_config_command,
+    CONFIG_COMMAND_LEN, CommandEvent, CommandKind, CommandStream, EVENT_CONFIG, EVENT_DIAGNOSTIC,
+    EVENT_RX, EVENT_TX, EVENT_UI_SNAPSHOT, MAX_COMMAND_LEN, MAX_UI_SNAPSHOT_LEN,
+    MESHTASTIC_SYNC_WORD, UI_SNAPSHOT_MALFORMED, UI_SNAPSHOT_TOO_LONG,
+    UI_SNAPSHOT_UNSUPPORTED_VERSION, WAKE_BYTE, decode_config_command, decode_ui_snapshot_command,
 };
 
 mod board;
 mod power;
 mod ui;
+mod wake_input;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -43,6 +52,40 @@ esp_bootloader_esp_idf::esp_app_desc!();
 const HOST_UART_BAUD: u32 = 115_200;
 
 const MAX_RADIO_FRAME: usize = 255;
+
+#[cfg(feature = "rf-sleep-proof")]
+const RF_SLEEP_PROOF_CHALLENGE: &[u8; 21] = b"tulle/sleep-proof/v1?";
+#[cfg(feature = "rf-sleep-proof")]
+const RF_SLEEP_PROOF_RECEIPT: &[u8; 21] = b"tulle/sleep-proof/v1!";
+
+#[cfg(feature = "rf-sleep-proof")]
+fn sleep_proof_nonce(frame: &[u8]) -> Option<u32> {
+    let nonce = frame.strip_prefix(RF_SLEEP_PROOF_CHALLENGE)?;
+    let nonce: [u8; 4] = nonce.try_into().ok()?;
+    Some(u32::from_le_bytes(nonce))
+}
+
+#[cfg(feature = "rf-sleep-proof")]
+fn sleep_proof_receipt(
+    nonce: u32,
+    sleep_entries: u32,
+    wake_registrations: u32,
+    received_frames: u32,
+    last_sleep_us: u32,
+    sleep_enabled: bool,
+    reset_reason: u32,
+) -> [u8; 49] {
+    let mut receipt = [0_u8; 49];
+    receipt[..RF_SLEEP_PROOF_RECEIPT.len()].copy_from_slice(RF_SLEEP_PROOF_RECEIPT);
+    receipt[21..25].copy_from_slice(&nonce.to_le_bytes());
+    receipt[25..29].copy_from_slice(&sleep_entries.to_le_bytes());
+    receipt[29..33].copy_from_slice(&wake_registrations.to_le_bytes());
+    receipt[33..37].copy_from_slice(&received_frames.to_le_bytes());
+    receipt[37..41].copy_from_slice(&last_sleep_us.to_le_bytes());
+    receipt[41..45].copy_from_slice(&u32::from(sleep_enabled).to_le_bytes());
+    receipt[45..49].copy_from_slice(&reset_reason.to_le_bytes());
+    receipt
+}
 
 fn spreading_factor(value: u8) -> Option<SpreadingFactor> {
     Some(match value {
@@ -91,6 +134,14 @@ async fn write_all<W: embedded_io_async::Write>(tx: &mut W, bytes: &[u8]) -> boo
         && embedded_io_async::Write::flush(tx).await.is_ok()
 }
 
+#[cfg(feature = "rf-sleep-proof")]
+async fn ignore_host<R: embedded_io_async::Read>(
+    _rx: &mut R,
+    _buffer: &mut [u8],
+) -> Result<usize, R::Error> {
+    core::future::pending().await
+}
+
 async fn serve_status_only<R: embedded_io_async::Read, W: embedded_io_async::Write>(
     mut rx: R,
     mut tx: W,
@@ -116,18 +167,22 @@ async fn serve_status_only<R: embedded_io_async::Read, W: embedded_io_async::Wri
 #[esp_rtos::main]
 async fn main(spawner: Spawner) {
     let peripherals = esp_hal::init(Config::default());
+    #[cfg(feature = "rf-sleep-proof")]
+    let proof_reset_reason = esp_hal::system::reset_reason()
+        .map(|reason| reason as u32)
+        .unwrap_or_default();
 
     let sw_int = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     let timg0 = TimerGroup::new(peripherals.TIMG0);
 
     // The USB personality keeps the stock idle loop: its host link cannot survive Light-sleep,
     // so there is nothing to gain and a re-enumeration failure to lose.
-    #[cfg(feature = "host-usb")]
+    #[cfg(any(feature = "host-usb", feature = "rf-sleep-proof"))]
     esp_rtos::start(timg0.timer0, sw_int.software_interrupt0);
 
     // The low-power personality installs a gated idle hook instead. It only sleeps once
     // `power::arm` hands it the RTC, which happens after the radio is receiving.
-    #[cfg(feature = "host-uart-low-power")]
+    #[cfg(all(feature = "host-uart-low-power", not(feature = "rf-sleep-proof")))]
     esp_rtos::start_with_idle_hook(timg0.timer0, sw_int.software_interrupt0, power::idle);
 
     // The host link. Both personalities implement `embedded_io_async::{Read, Write}`, so
@@ -186,8 +241,14 @@ async fn main(spawner: Spawner) {
     let spi = ExclusiveDevice::new(spi, cs, Delay).unwrap();
 
     let reset = Output::new(peripherals.GPIO12, Level::High, OutputConfig::default());
-    let busy = Input::new(peripherals.GPIO13, InputConfig::default());
-    let dio1 = Input::new(peripherals.GPIO14, InputConfig::default());
+    let busy = wake_input::V4Input::new(
+        Input::new(peripherals.GPIO13, InputConfig::default()),
+        false,
+    );
+    let dio1 = wake_input::V4Input::new(
+        Input::new(peripherals.GPIO14, InputConfig::default()),
+        cfg!(feature = "host-uart-low-power"),
+    );
     let interface = GenericSx126xInterfaceVariant::new(reset, dio1, busy, None, None).unwrap();
     let radio = Sx126x::new(
         spi,
@@ -281,14 +342,21 @@ async fn main(spawner: Spawner) {
     local_status.fault = None;
     ui::publish(local_status, radio_face::LedSignal::Idle);
     let _ = write_all(&mut usb_tx, online).await;
-    let mut usb_command = [0_u8; 3 + MAX_RADIO_FRAME];
-    let mut usb_command_len = 0_usize;
+    let mut command_stream = CommandStream::new();
+    let mut usb_command = [0_u8; MAX_COMMAND_LEN];
     let mut prepare_rx = true;
     let mut tx_power_dbm = i32::from(board::DEFAULT_TX_POWER_DBM);
 
+    // The proof enters Light-sleep from the radio task itself. This preserves the pending
+    // receive future across sleep rather than asking the scheduler's idle hook to do so.
+    #[cfg(all(feature = "host-uart-low-power", feature = "rf-sleep-proof"))]
+    let mut proof_rtc = esp_hal::rtc_cntl::Rtc::new(peripherals.LPWR);
+    #[cfg(all(feature = "host-uart-low-power", feature = "rf-sleep-proof"))]
+    let mut proof_sleep_enabled = false;
+
     // Hand the RTC to the idle hook. Only now is sleeping meaningful: the radio is about to be
     // armed for continuous receive, so a sleeping CPU still hears packets.
-    #[cfg(feature = "host-uart-low-power")]
+    #[cfg(all(feature = "host-uart-low-power", not(feature = "rf-sleep-proof")))]
     power::arm(esp_hal::rtc_cntl::Rtc::new(peripherals.LPWR));
 
     loop {
@@ -322,11 +390,42 @@ async fn main(spawner: Spawner) {
         // is listening on its own, and nothing is half-done. Sleeping is allowed here and
         // nowhere else — but only at a frame boundary, since a wake eats the bytes that
         // triggered it and would truncate a command already in progress.
-        let waiting = select(
-            embedded_io_async::Read::read(&mut usb_rx, &mut usb_packet),
-            lora.rx(&rx_params, &mut radio_frame),
-        );
-        let outcome = if usb_command_len == 0 {
+        #[cfg(not(feature = "rf-sleep-proof"))]
+        let host_read = embedded_io_async::Read::read(&mut usb_rx, &mut usb_packet);
+        #[cfg(feature = "rf-sleep-proof")]
+        let host_read = ignore_host(&mut usb_rx, &mut usb_packet);
+        #[cfg(all(feature = "host-uart-low-power", feature = "rf-sleep-proof"))]
+        let radio_receive = async {
+            if !proof_sleep_enabled {
+                return lora.rx(&rx_params, &mut radio_frame).await;
+            }
+
+            let mut receive = core::pin::pin!(lora.rx(&rx_params, &mut radio_frame));
+            poll_fn(|cx| match receive.as_mut().poll(cx) {
+                Poll::Ready(outcome) => Poll::Ready(outcome),
+                Poll::Pending if wake_input::radio_wake_armed() => {
+                    let elapsed = power::sleep_once(&mut proof_rtc);
+                    if elapsed >= 4_500_000 {
+                        // The RTC safety timer has no Embassy future to wake. GPIO and rejected
+                        // sleeps already have their own pending interrupt or radio waiter.
+                        cx.waker().wake_by_ref();
+                    }
+                    Poll::Pending
+                }
+                Poll::Pending => {
+                    // `lora.rx()` may first yield while its asynchronous SPI setup is still
+                    // putting the SX1262 into receive. Re-poll until the DIO1 waiter confirms
+                    // that both continuous receive and its CPU/wake interrupts are armed.
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
+                }
+            })
+            .await
+        };
+        #[cfg(not(all(feature = "host-uart-low-power", feature = "rf-sleep-proof")))]
+        let radio_receive = lora.rx(&rx_params, &mut radio_frame);
+        let waiting = select(host_read, radio_receive);
+        let outcome = if command_stream.is_boundary() {
             waiting.await
         } else {
             let _awake = power::Awake::new();
@@ -337,13 +436,6 @@ async fn main(spawner: Spawner) {
         match outcome {
             Either::Second(Ok((length, packet_status))) => {
                 let length = usize::from(length);
-                let mut event = [0_u8; 7 + MAX_RADIO_FRAME];
-                event[0] = EVENT_RX;
-                event[1..3].copy_from_slice(&(length as u16).to_le_bytes());
-                event[3..5].copy_from_slice(&packet_status.rssi.to_le_bytes());
-                event[5..7].copy_from_slice(&packet_status.snr.to_le_bytes());
-                event[7..7 + length].copy_from_slice(&radio_frame[..length]);
-                let _ = write_all(&mut usb_tx, &event[..7 + length]).await;
                 local_status.rx_frames = local_status.rx_frames.saturating_add(1);
                 local_status.last_rx = Some(radio_face::RxSummary {
                     frame_len: length as u16,
@@ -352,6 +444,57 @@ async fn main(spawner: Spawner) {
                 });
                 local_status.last_wake = radio_face::WakeSource::Radio;
                 ui::publish(local_status, radio_face::LedSignal::Activity);
+
+                // The low-power board's UART host is intentionally absent from this bench.
+                // A feature-gated RF challenge therefore returns the counters through the
+                // already attached T114. Each matching receipt proves that this exact RF
+                // frame resumed the CPU after at least the reported number of sleep entries.
+                #[cfg(feature = "rf-sleep-proof")]
+                if let Some(nonce) = sleep_proof_nonce(&radio_frame[..length]) {
+                    let (sleep_entries, _) = power::counters();
+                    let receipt = sleep_proof_receipt(
+                        nonce,
+                        sleep_entries,
+                        wake_input::radio_wake_registrations(),
+                        local_status.rx_frames,
+                        power::last_sleep_us(),
+                        proof_sleep_enabled,
+                        proof_reset_reason,
+                    );
+                    // Give the T114 time to finish its TX acknowledgement and re-arm RX.
+                    // This deliberately uses a blocking HAL delay rather than introducing
+                    // an Embassy timer into the very clock behavior under examination.
+                    BlockingDelay::new().delay_millis(250);
+                    let sent = lora
+                        .prepare_for_tx(&modulation, &mut tx_params, tx_power_dbm, &receipt)
+                        .await
+                        .is_ok()
+                        && lora.tx().await.is_ok();
+                    prepare_rx = true;
+                    if sent {
+                        local_status.tx_frames = local_status.tx_frames.saturating_add(1);
+                        local_status.last_tx = radio_face::TxResult::Sent {
+                            frame_len: receipt.len() as u16,
+                        };
+                    } else {
+                        local_status.last_tx = radio_face::TxResult::Failed { code: 1 };
+                    }
+                    ui::publish(local_status, radio_face::LedSignal::Activity);
+                    #[cfg(all(feature = "host-uart-low-power", feature = "rf-sleep-proof"))]
+                    {
+                        // The first matching challenge is the awake control. Every subsequent
+                        // receive begins with a registered DIO1 waiter followed by Light-sleep.
+                        proof_sleep_enabled = true;
+                    }
+                }
+
+                let mut event = [0_u8; 7 + MAX_RADIO_FRAME];
+                event[0] = EVENT_RX;
+                event[1..3].copy_from_slice(&(length as u16).to_le_bytes());
+                event[3..5].copy_from_slice(&packet_status.rssi.to_le_bytes());
+                event[5..7].copy_from_slice(&packet_status.snr.to_le_bytes());
+                event[7..7 + length].copy_from_slice(&radio_frame[..length]);
+                let _ = write_all(&mut usb_tx, &event[..7 + length]).await;
             }
             Either::Second(Err(_)) => {
                 local_status.radio = radio_face::RadioState::Fault;
@@ -373,7 +516,7 @@ async fn main(spawner: Spawner) {
                 // Discard host wake bytes, but only while the parser sits at a frame
                 // boundary: the same value is perfectly legal inside a length field or a
                 // payload, so stripping it anywhere else would corrupt the frame.
-                if usb_command_len == 0 {
+                if command_stream.is_boundary() {
                     let skip = packet
                         .iter()
                         .position(|byte| *byte != WAKE_BYTE)
@@ -383,28 +526,32 @@ async fn main(spawner: Spawner) {
                         continue;
                     }
                 }
-                let length = packet.len();
-                if packet == b"status\n" || packet == b"status\r\n" {
+                let at_boundary = command_stream.is_boundary();
+                if at_boundary && (packet == b"status\n" || packet == b"status\r\n") {
                     let _ = write_all(&mut usb_tx, online).await;
                     continue;
                 }
-                if packet == b"sync\n" || packet == b"sync\r\n" {
+                if at_boundary && (packet == b"sync\n" || packet == b"sync\r\n") {
                     let _ = write_all(&mut usb_tx, b"2b 24b4\r\n").await;
                     continue;
                 }
-                if packet == b"ui\n" || packet == b"ui\r\n" {
+                if at_boundary && (packet == b"ui\n" || packet == b"ui\r\n") {
                     let diagnostic = ui::diagnostic();
                     let mut reply = radio_face::Text::<80>::empty();
                     let _ = write!(
                         &mut reply,
-                        "ui={}; display={}; screen={}; button={}\r\n",
-                        diagnostic.state, diagnostic.display, diagnostic.screen, diagnostic.button,
+                        "ui={}; display={}; screen={}; button={}; host={}\r\n",
+                        diagnostic.state,
+                        diagnostic.display,
+                        diagnostic.screen,
+                        diagnostic.button,
+                        diagnostic.host,
                     );
                     let _ = write_all(&mut usb_tx, reply.as_str().as_bytes()).await;
                     continue;
                 }
                 #[cfg(feature = "ui-bench")]
-                if packet == b"fault\n" || packet == b"fault\r\n" {
+                if at_boundary && (packet == b"fault\n" || packet == b"fault\r\n") {
                     local_status.radio = radio_face::RadioState::Fault;
                     local_status.fault = Some(radio_face::Fault {
                         code: 0xfe,
@@ -415,7 +562,7 @@ async fn main(spawner: Spawner) {
                     continue;
                 }
                 #[cfg(feature = "ui-bench")]
-                if packet == b"clear\n" || packet == b"clear\r\n" {
+                if at_boundary && (packet == b"clear\n" || packet == b"clear\r\n") {
                     local_status.radio = radio_face::RadioState::Online;
                     local_status.fault = None;
                     ui::publish(local_status, radio_face::LedSignal::Idle);
@@ -426,7 +573,7 @@ async fn main(spawner: Spawner) {
                 // actually slept, and how many times it wanted to but the gate was closed.
                 // A build that never sleeps answers with zeros rather than nothing, so the
                 // bench can tell "not sleeping" from "wrong firmware".
-                if packet == b"sleep\n" || packet == b"sleep\r\n" {
+                if at_boundary && (packet == b"sleep\n" || packet == b"sleep\r\n") {
                     let (entries, blocked) = power::counters();
                     let mut report = [0_u8; 9];
                     report[0] = EVENT_DIAGNOSTIC;
@@ -436,138 +583,174 @@ async fn main(spawner: Spawner) {
                     continue;
                 }
 
-                if usb_command_len + length > usb_command.len() {
-                    usb_command_len = 0;
-                    let _ = write_all(&mut usb_tx, &[EVENT_TX, 2, 0, 0]).await;
-                    continue;
-                }
-                usb_command[usb_command_len..usb_command_len + length].copy_from_slice(packet);
-                usb_command_len += length;
-
-                let command_len = match usb_command.first().copied() {
-                    Some(CMD_TX) if usb_command_len >= 3 => {
-                        3 + usize::from(u16::from_le_bytes([usb_command[1], usb_command[2]]))
-                    }
-                    Some(CMD_CONFIG) => CONFIG_COMMAND_LEN,
-                    Some(_) if usb_command_len >= 1 => {
-                        usb_command_len = 0;
-                        let _ = write_all(&mut usb_tx, &[EVENT_TX, 3, 0, 0]).await;
-                        continue;
-                    }
-                    _ => continue,
-                };
-                if usb_command_len < command_len {
-                    continue;
-                }
-
-                if usb_command[0] == CMD_CONFIG {
-                    let result = match decode_config_command(&usb_command[..CONFIG_COMMAND_LEN]) {
-                        Ok(profile) => {
-                            let radio_params = spreading_factor(profile.spreading_factor)
-                                .zip(bandwidth(profile.bandwidth_hz))
-                                .zip(coding_rate(profile.coding_rate_denominator));
-                            match radio_params {
-                                Some(((sf, bw), cr)) => {
-                                    match lora.create_modulation_params(
-                                        sf,
-                                        bw,
-                                        cr,
-                                        profile.frequency_hz,
-                                    ) {
-                                        Ok(new_modulation) => {
-                                            let new_tx = lora.create_tx_packet_params(
-                                                profile.preamble_symbols,
-                                                !profile.explicit_header,
-                                                profile.crc,
-                                                profile.invert_iq,
-                                                &new_modulation,
-                                            );
-                                            let new_rx = lora.create_rx_packet_params(
-                                                profile.preamble_symbols,
-                                                !profile.explicit_header,
-                                                255,
-                                                profile.crc,
-                                                profile.invert_iq,
-                                                &new_modulation,
-                                            );
-                                            match (new_tx, new_rx) {
-                                                (Ok(new_tx), Ok(new_rx)) => {
-                                                    if lora
-                                                        .set_sync_word(profile.sync_word)
-                                                        .await
-                                                        .is_ok()
-                                                    {
-                                                        modulation = new_modulation;
-                                                        tx_params = new_tx;
-                                                        rx_params = new_rx;
-                                                        tx_power_dbm =
-                                                            i32::from(profile.tx_power_dbm);
-                                                        board::apply_profile(
-                                                            &mut local_status,
-                                                            profile,
-                                                        );
-                                                        prepare_rx = true;
-                                                        0
-                                                    } else {
-                                                        3
-                                                    }
-                                                }
-                                                _ => 2,
-                                            }
-                                        }
-                                        Err(_) => 2,
-                                    }
-                                }
-                                None => 2,
-                            }
+                for &byte in packet {
+                    match command_stream.push(byte, &mut usb_command) {
+                        CommandEvent::Pending => {}
+                        CommandEvent::Unknown { .. } => {
+                            let _ = write_all(&mut usb_tx, &[EVENT_TX, 3, 0, 0]).await;
                         }
-                        Err(_) => 1,
-                    };
-                    usb_command_len = 0;
-                    let _ = write_all(&mut usb_tx, &[EVENT_CONFIG, result]).await;
-                    continue;
+                        CommandEvent::TooLong {
+                            kind: CommandKind::UiSnapshot,
+                            ..
+                        } => {
+                            let _ =
+                                write_all(&mut usb_tx, &[EVENT_UI_SNAPSHOT, UI_SNAPSHOT_TOO_LONG])
+                                    .await;
+                        }
+                        CommandEvent::TooLong {
+                            kind: CommandKind::Transmit,
+                            declared,
+                        } => {
+                            let length = (declared as u16).to_le_bytes();
+                            let _ =
+                                write_all(&mut usb_tx, &[EVENT_TX, 4, length[0], length[1]]).await;
+                        }
+                        CommandEvent::TooLong {
+                            kind: CommandKind::Configure,
+                            ..
+                        } => unreachable!("configure commands have a fixed length"),
+                        CommandEvent::Complete {
+                            kind: CommandKind::UiSnapshot,
+                            len,
+                        } => {
+                            let mut snapshot_bytes = [0_u8; MAX_UI_SNAPSHOT_LEN];
+                            let result = match decode_ui_snapshot_command(
+                                &usb_command[..len],
+                                &mut snapshot_bytes,
+                            ) {
+                                Ok(snapshot_len) => match radio_face::decode_snapshot(
+                                    &snapshot_bytes[..snapshot_len],
+                                ) {
+                                    Ok(snapshot) => {
+                                        ui::publish_host(snapshot);
+                                        selvage::UI_SNAPSHOT_ACCEPTED
+                                    }
+                                    Err(radio_face::WireError::UnsupportedVersion(_)) => {
+                                        UI_SNAPSHOT_UNSUPPORTED_VERSION
+                                    }
+                                    Err(radio_face::WireError::TooLong) => UI_SNAPSHOT_TOO_LONG,
+                                    Err(_) => UI_SNAPSHOT_MALFORMED,
+                                },
+                                Err(selvage::UiSnapshotWireError::TooLong) => UI_SNAPSHOT_TOO_LONG,
+                                Err(_) => UI_SNAPSHOT_MALFORMED,
+                            };
+                            let _ = write_all(&mut usb_tx, &[EVENT_UI_SNAPSHOT, result]).await;
+                        }
+                        CommandEvent::Complete {
+                            kind: CommandKind::Configure,
+                            len,
+                        } => {
+                            debug_assert_eq!(len, CONFIG_COMMAND_LEN);
+                            let result =
+                                match decode_config_command(&usb_command[..CONFIG_COMMAND_LEN]) {
+                                    Ok(profile) => {
+                                        let radio_params =
+                                            spreading_factor(profile.spreading_factor)
+                                                .zip(bandwidth(profile.bandwidth_hz))
+                                                .zip(coding_rate(profile.coding_rate_denominator));
+                                        match radio_params {
+                                            Some(((sf, bw), cr)) => {
+                                                match lora.create_modulation_params(
+                                                    sf,
+                                                    bw,
+                                                    cr,
+                                                    profile.frequency_hz,
+                                                ) {
+                                                    Ok(new_modulation) => {
+                                                        let new_tx = lora.create_tx_packet_params(
+                                                            profile.preamble_symbols,
+                                                            !profile.explicit_header,
+                                                            profile.crc,
+                                                            profile.invert_iq,
+                                                            &new_modulation,
+                                                        );
+                                                        let new_rx = lora.create_rx_packet_params(
+                                                            profile.preamble_symbols,
+                                                            !profile.explicit_header,
+                                                            255,
+                                                            profile.crc,
+                                                            profile.invert_iq,
+                                                            &new_modulation,
+                                                        );
+                                                        match (new_tx, new_rx) {
+                                                            (Ok(new_tx), Ok(new_rx)) => {
+                                                                if lora
+                                                                    .set_sync_word(
+                                                                        profile.sync_word,
+                                                                    )
+                                                                    .await
+                                                                    .is_ok()
+                                                                {
+                                                                    modulation = new_modulation;
+                                                                    tx_params = new_tx;
+                                                                    rx_params = new_rx;
+                                                                    tx_power_dbm = i32::from(
+                                                                        profile.tx_power_dbm,
+                                                                    );
+                                                                    board::apply_profile(
+                                                                        &mut local_status,
+                                                                        profile,
+                                                                    );
+                                                                    prepare_rx = true;
+                                                                    0
+                                                                } else {
+                                                                    3
+                                                                }
+                                                            }
+                                                            _ => 2,
+                                                        }
+                                                    }
+                                                    Err(_) => 2,
+                                                }
+                                            }
+                                            None => 2,
+                                        }
+                                    }
+                                    Err(_) => 1,
+                                };
+                            let _ = write_all(&mut usb_tx, &[EVENT_CONFIG, result]).await;
+                        }
+                        CommandEvent::Complete {
+                            kind: CommandKind::Transmit,
+                            len,
+                        } => {
+                            let frame_len = len - 3;
+                            let sent_len = frame_len as u16;
+                            let result = if lora
+                                .prepare_for_tx(
+                                    &modulation,
+                                    &mut tx_params,
+                                    tx_power_dbm,
+                                    &usb_command[3..len],
+                                )
+                                .await
+                                .is_ok()
+                                && lora.tx().await.is_ok()
+                            {
+                                0
+                            } else {
+                                1
+                            };
+                            prepare_rx = true;
+                            let length_bytes = sent_len.to_le_bytes();
+                            let _ = write_all(
+                                &mut usb_tx,
+                                &[EVENT_TX, result, length_bytes[0], length_bytes[1]],
+                            )
+                            .await;
+                            if result == 0 {
+                                local_status.tx_frames = local_status.tx_frames.saturating_add(1);
+                                local_status.last_tx = radio_face::TxResult::Sent {
+                                    frame_len: sent_len,
+                                };
+                            } else {
+                                local_status.last_tx =
+                                    radio_face::TxResult::Failed { code: result };
+                            }
+                            ui::publish(local_status, radio_face::LedSignal::Activity);
+                        }
+                    }
                 }
-
-                let frame_len = command_len - 3;
-                if frame_len > MAX_RADIO_FRAME {
-                    usb_command_len = 0;
-                    let _ = write_all(&mut usb_tx, &[EVENT_TX, 4, 0, 0]).await;
-                    continue;
-                }
-
-                let sent_len = frame_len as u16;
-                let result = if lora
-                    .prepare_for_tx(
-                        &modulation,
-                        &mut tx_params,
-                        tx_power_dbm,
-                        &usb_command[3..3 + frame_len],
-                    )
-                    .await
-                    .is_ok()
-                    && lora.tx().await.is_ok()
-                {
-                    0
-                } else {
-                    1
-                };
-                usb_command_len = 0;
-                prepare_rx = true;
-                let length_bytes = sent_len.to_le_bytes();
-                let _ = write_all(
-                    &mut usb_tx,
-                    &[EVENT_TX, result, length_bytes[0], length_bytes[1]],
-                )
-                .await;
-                if result == 0 {
-                    local_status.tx_frames = local_status.tx_frames.saturating_add(1);
-                    local_status.last_tx = radio_face::TxResult::Sent {
-                        frame_len: sent_len,
-                    };
-                } else {
-                    local_status.last_tx = radio_face::TxResult::Failed { code: result };
-                }
-                ui::publish(local_status, radio_face::LedSignal::Activity);
             }
         }
     }

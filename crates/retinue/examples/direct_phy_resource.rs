@@ -3,10 +3,17 @@
 //! The first link publishes from the initiating endpoint and fetches on the
 //! accepting endpoint. The second link exercises the complementary endpoint
 //! wrapper: the initiator fetches while the accepting endpoint publishes.
+//! Supplying a network name and passphrase after the timeout argument applies
+//! an eight-byte IFAC and subtracts it from the negotiated logical MTU.
+//! `RETINUE_DIRECT_PHY_PREFLIGHT_SECS` and `RETINUE_DIRECT_PHY_POSTFLIGHT_SECS`
+//! keep both serial handles open around RF for physical state observations.
+//! `RETINUE_DIRECT_PHY_CLIENT_DTR=false` keeps DTR deasserted for a native-USB
+//! client such as the V4 while the nRF CDC server retains the default.
 
 use std::sync::Arc;
 use std::time::Duration;
 
+use retinue::Ifac;
 use retinue::destination::DestinationName;
 use retinue::endpoint::{Endpoint, ResourceTransferConfig};
 use retinue::identity::PrivateIdentity;
@@ -63,8 +70,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(|value| value.parse::<u64>())
         .transpose()?
         .unwrap_or(180);
+    let preflight_secs = std::env::var("RETINUE_DIRECT_PHY_PREFLIGHT_SECS")
+        .ok()
+        .map(|value| value.parse::<u64>())
+        .transpose()?
+        .unwrap_or(0);
+    let postflight_secs = std::env::var("RETINUE_DIRECT_PHY_POSTFLIGHT_SECS")
+        .ok()
+        .map(|value| value.parse::<u64>())
+        .transpose()?
+        .unwrap_or(0);
+    let client_dtr = std::env::var("RETINUE_DIRECT_PHY_CLIENT_DTR")
+        .ok()
+        .map(|value| value.parse::<bool>())
+        .transpose()?
+        .unwrap_or(true);
+    let network_name = args.next();
+    let passphrase = args.next();
+    if args.next().is_some() {
+        return Err("unexpected extra argument".into());
+    }
+    if network_name.is_some() != passphrase.is_some() {
+        return Err("network name and passphrase must be supplied together".into());
+    }
+    let ifac = match (network_name.as_deref(), passphrase.as_deref()) {
+        (Some(name), Some(phrase)) => Some(Ifac::new(Some(name), Some(phrase), 8)?),
+        _ => None,
+    };
 
-    let radio_config = DirectPhySerialConfig {
+    let client_radio_config = DirectPhySerialConfig {
+        dtr: client_dtr,
+        online_timeout: Duration::from_secs(10),
+        transmit_timeout: Duration::from_secs(10),
+        ..DirectPhySerialConfig::default()
+    };
+    let server_radio_config = DirectPhySerialConfig {
         online_timeout: Duration::from_secs(10),
         transmit_timeout: Duration::from_secs(10),
         ..DirectPhySerialConfig::default()
@@ -73,13 +113,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         &client_port,
         profile(bandwidth_hz),
         AirtimeBudget::new(60_000, 60_000),
-        radio_config.clone(),
+        client_radio_config,
     )?;
     let mut server_radio = DirectPhySerialLink::open(
         &server_port,
         profile(bandwidth_hz),
         AirtimeBudget::new(60_000, 60_000),
-        radio_config,
+        server_radio_config,
     )?;
     tokio::time::timeout(Duration::from_secs(15), client_radio.wait_online()).await??;
     tokio::time::timeout(Duration::from_secs(15), server_radio.wait_online()).await??;
@@ -89,11 +129,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let server_id = PrivateIdentity::from_secret_bytes(&[0x22; 64]);
     let client = Endpoint::new(client_id);
     let server = Arc::new(Endpoint::new(server_id.clone()));
-    client.set_link_mtu(255);
-    server.set_link_mtu(255);
+    let logical_mtu = 255 - ifac.as_ref().map_or(0, Ifac::size);
+    client.set_link_mtu(logical_mtu as u32);
+    server.set_link_mtu(logical_mtu as u32);
 
-    let client_driver = tokio::spawn(drive(client.attach_interface(), client_radio));
-    let server_driver = tokio::spawn(drive(server.attach_interface(), server_radio));
+    let client_interface = match &ifac {
+        Some(ifac) => client.attach_interface_with_ifac(255, ifac.clone())?,
+        None => client.attach_interface(),
+    };
+    let server_interface = match ifac {
+        Some(ifac) => server.attach_interface_with_ifac(255, ifac)?,
+        None => server.attach_interface(),
+    };
+    let client_driver = tokio::spawn(drive(client_interface, client_radio));
+    let server_driver = tokio::spawn(drive(server_interface, server_radio));
+    println!(
+        "interface: {} with logical MTU {logical_mtu}",
+        if network_name.is_some() {
+            "IFAC authenticated"
+        } else {
+            "open"
+        }
+    );
+    if preflight_secs > 0 {
+        println!("preflight: radios held open for {preflight_secs}s before RF");
+        tokio::time::sleep(Duration::from_secs(preflight_secs)).await;
+    }
 
     let name = DestinationName::new("retinue", ["direct-phy-resource"]);
     let destination = name.destination_hash(server_id.public());
@@ -154,6 +215,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let elapsed = fetch_started.elapsed().as_secs_f64();
     println!("fetch: server to client {resource_len} bytes passed in {elapsed:.1}s");
+    if postflight_secs > 0 {
+        println!("postflight: radios held open for {postflight_secs}s after RF");
+        tokio::time::sleep(Duration::from_secs(postflight_secs)).await;
+    }
 
     client_driver.abort();
     server_driver.abort();

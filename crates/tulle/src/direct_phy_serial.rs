@@ -48,6 +48,15 @@ impl Default for WakeSequence {
 #[derive(Clone, Debug)]
 pub struct DirectPhySerialConfig {
     pub baud_rate: u32,
+    /// Whether to assert DTR while the serial handle is open.
+    ///
+    /// nRF USB CDC requires this. ESP32-S3 native USB does not, and keeping it
+    /// deasserted avoids a control-line transition when the handle closes.
+    pub dtr: bool,
+    /// Whether to assert RTS while the serial handle is open.
+    ///
+    /// This remains false by default because RTS enters reset/boot on ESP32 boards.
+    pub rts: bool,
     pub open_settle: Duration,
     pub online_timeout: Duration,
     pub transmit_timeout: Duration,
@@ -62,6 +71,8 @@ impl Default for DirectPhySerialConfig {
     fn default() -> Self {
         Self {
             baud_rate: 115_200,
+            dtr: true,
+            rts: false,
             open_settle: Duration::from_millis(800),
             online_timeout: Duration::from_secs(3),
             transmit_timeout: Duration::from_secs(5),
@@ -108,6 +119,11 @@ struct TxRequest {
     done: oneshot::Sender<Result<Duration, TransmitError>>,
 }
 
+struct UiSnapshotRequest {
+    command: Vec<u8>,
+    done: oneshot::Sender<Result<(), UiSnapshotError>>,
+}
+
 struct InFlight {
     request: TxRequest,
     frame_len: usize,
@@ -115,9 +131,67 @@ struct InFlight {
     deadline: Instant,
 }
 
+struct UiSnapshotInFlight {
+    done: oneshot::Sender<Result<(), UiSnapshotError>>,
+    deadline: Instant,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum UiSnapshotError {
+    TooLong { actual: usize },
+    Rejected { result: u8 },
+    TimedOut,
+    Stopped,
+}
+
+impl core::fmt::Display for UiSnapshotError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::TooLong { actual } => {
+                write!(f, "UI snapshot exceeds the firmware limit: {actual} bytes")
+            }
+            Self::Rejected { result } => {
+                write!(f, "firmware rejected UI snapshot with result {result}")
+            }
+            Self::TimedOut => f.write_str("UI snapshot acknowledgement timed out"),
+            Self::Stopped => f.write_str("direct-PHY link stopped"),
+        }
+    }
+}
+
+impl core::error::Error for UiSnapshotError {}
+
+/// Cloneable control lane for publishing host projections while a packet
+/// driver owns the radio link.
+///
+/// This handle carries opaque snapshot bytes only. It cannot transmit or
+/// receive radio frames, inspect the display schema, or shut the link down.
+#[derive(Clone)]
+pub struct DirectPhyUiControl {
+    ui_snapshot: mpsc::Sender<UiSnapshotRequest>,
+}
+
+impl DirectPhyUiControl {
+    pub async fn publish(&self, snapshot: &[u8]) -> Result<(), UiSnapshotError> {
+        let command = direct_phy::encode_ui_snapshot(snapshot).map_err(|error| match error {
+            direct_phy::EncodeError::UiSnapshotTooLong { actual } => {
+                UiSnapshotError::TooLong { actual }
+            }
+            direct_phy::EncodeError::TooLong { actual } => UiSnapshotError::TooLong { actual },
+        })?;
+        let (done, result) = oneshot::channel();
+        self.ui_snapshot
+            .send(UiSnapshotRequest { command, done })
+            .await
+            .map_err(|_| UiSnapshotError::Stopped)?;
+        result.await.unwrap_or(Err(UiSnapshotError::Stopped))
+    }
+}
+
 /// A running serial connection to Tulle direct-PHY firmware.
 pub struct DirectPhySerialLink {
     tx: mpsc::Sender<TxRequest>,
+    ui_snapshot: mpsc::Sender<UiSnapshotRequest>,
     rx: mpsc::Receiver<Received>,
     status: watch::Receiver<PumpStatus>,
     shutdown: Option<oneshot::Sender<()>>,
@@ -138,8 +212,8 @@ impl DirectPhySerialLink {
             )));
         }
         let port = serial2_tokio::SerialPort::open(path, config.baud_rate)?;
-        port.set_dtr(true)?;
-        port.set_rts(false)?;
+        port.set_dtr(config.dtr)?;
+        port.set_rts(config.rts)?;
         let params = LoRaParams::try_from(profile).map_err(|message| {
             PumpError::Io(io::Error::new(io::ErrorKind::InvalidInput, message))
         })?;
@@ -157,6 +231,7 @@ impl DirectPhySerialLink {
         T: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
         let (tx, tx_rx) = mpsc::channel(config.tx_queue);
+        let (ui_snapshot, ui_snapshot_rx) = mpsc::channel(1);
         let (rx_tx, rx) = mpsc::channel(config.rx_queue);
         let (status_tx, status) = watch::channel(PumpStatus::Settling);
         let (shutdown, shutdown_rx) = oneshot::channel();
@@ -169,6 +244,7 @@ impl DirectPhySerialLink {
                 budget,
                 config,
                 tx_rx,
+                ui_snapshot_rx,
                 rx_tx,
                 status_tx,
                 shutdown_rx,
@@ -187,6 +263,7 @@ impl DirectPhySerialLink {
 
         Self {
             tx,
+            ui_snapshot,
             rx,
             status,
             shutdown: Some(shutdown),
@@ -223,6 +300,22 @@ impl DirectPhySerialLink {
             .await
             .map_err(|_| TransmitError::Stopped)?;
         result.await.unwrap_or(Err(TransmitError::Stopped))
+    }
+
+    /// Obtain the UI-only control lane before moving this link into a packet
+    /// driver.
+    pub fn ui_control(&self) -> DirectPhyUiControl {
+        DirectPhyUiControl {
+            ui_snapshot: self.ui_snapshot.clone(),
+        }
+    }
+
+    /// Publish an opaque, versioned host projection to the on-device UI.
+    ///
+    /// Tulle owns framing and acknowledgement only. The payload schema remains
+    /// `radio-face`'s responsibility at the host and firmware edges.
+    pub async fn publish_ui_snapshot(&self, snapshot: &[u8]) -> Result<(), UiSnapshotError> {
+        self.ui_control().publish(snapshot).await
     }
 
     pub async fn recv(&mut self) -> Option<Received> {
@@ -263,6 +356,7 @@ async fn run_pump<T>(
     mut budget: AirtimeBudget,
     config: DirectPhySerialConfig,
     mut tx_rx: mpsc::Receiver<TxRequest>,
+    mut ui_snapshot_rx: mpsc::Receiver<UiSnapshotRequest>,
     rx_tx: mpsc::Sender<Received>,
     status_tx: watch::Sender<PumpStatus>,
     mut shutdown: oneshot::Receiver<()>,
@@ -341,6 +435,7 @@ where
                                 "direct-PHY firmware rejected the radio profile with result {result}"
                             )));
                         }
+                        Event::UiSnapshot { .. } => {}
                         Event::Received(frame) => {
                             if rx_tx.send(frame).await.is_err() {
                                 return Ok(());
@@ -362,10 +457,27 @@ where
     let mut in_flight: Option<InFlight> = None;
     let mut retry_at: Option<Instant> = None;
     let mut tx_closed = false;
+    let mut ui_snapshot_pending: Option<UiSnapshotRequest> = None;
+    let mut ui_snapshot_in_flight: Option<UiSnapshotInFlight> = None;
+    let mut ui_snapshot_closed = false;
+    let mut resync_before_command = false;
     let mut last_diagnostic = None;
 
     loop {
-        if pending.is_none() && in_flight.is_none() && !tx_closed {
+        if ui_snapshot_pending.is_none() && ui_snapshot_in_flight.is_none() && !ui_snapshot_closed {
+            match ui_snapshot_rx.try_recv() {
+                Ok(request) => ui_snapshot_pending = Some(request),
+                Err(mpsc::error::TryRecvError::Disconnected) => ui_snapshot_closed = true,
+                Err(mpsc::error::TryRecvError::Empty) => {}
+            }
+        }
+
+        if pending.is_none()
+            && in_flight.is_none()
+            && ui_snapshot_pending.is_none()
+            && ui_snapshot_in_flight.is_none()
+            && !tx_closed
+        {
             match tx_rx.try_recv() {
                 Ok(request) => pending = Some(request),
                 Err(mpsc::error::TryRecvError::Disconnected) => tx_closed = true,
@@ -373,7 +485,28 @@ where
             }
         }
 
-        if let Some(request) = pending.take() {
+        if pending.is_none()
+            && in_flight.is_none()
+            && ui_snapshot_in_flight.is_none()
+            && let Some(request) = ui_snapshot_pending.take()
+        {
+            if resync_before_command {
+                if config.wake.is_none() {
+                    io.write_all(&[crate::WAKE_BYTE]).await?;
+                    io.flush().await?;
+                }
+                resync_before_command = false;
+            }
+            write_command(&mut io, config.wake.as_ref(), &request.command).await?;
+            ui_snapshot_in_flight = Some(UiSnapshotInFlight {
+                done: request.done,
+                deadline: Instant::now() + config.transmit_timeout,
+            });
+        }
+
+        if ui_snapshot_in_flight.is_none()
+            && let Some(request) = pending.take()
+        {
             if request.frame.len() > MAX_FRAME_LEN {
                 let _ = request
                     .done
@@ -386,6 +519,13 @@ where
             if budget.may_transmit(now_ms, airtime_ms) {
                 let command = direct_phy::encode_transmit(&request.frame)
                     .expect("frame length checked above");
+                if resync_before_command {
+                    if config.wake.is_none() {
+                        io.write_all(&[crate::WAKE_BYTE]).await?;
+                        io.flush().await?;
+                    }
+                    resync_before_command = false;
+                }
                 write_command(&mut io, config.wake.as_ref(), &command).await?;
                 budget.record(now_ms, airtime_ms);
                 let airtime = params.time_on_air(request.frame.len());
@@ -405,23 +545,42 @@ where
             }
         }
 
-        if tx_closed && pending.is_none() && in_flight.is_none() {
+        if tx_closed
+            && ui_snapshot_closed
+            && pending.is_none()
+            && in_flight.is_none()
+            && ui_snapshot_pending.is_none()
+            && ui_snapshot_in_flight.is_none()
+        {
             return Ok(());
         }
 
-        let wake_at = match (&in_flight, retry_at) {
+        let mut wake_at = match (&in_flight, retry_at) {
             (Some(sent), Some(retry)) => sent.deadline.min(retry),
             (Some(sent), None) => sent.deadline,
             (None, Some(retry)) => retry,
             (None, None) => Instant::now() + Duration::from_secs(3600),
         };
+        if let Some(snapshot) = &ui_snapshot_in_flight {
+            wake_at = wake_at.min(snapshot.deadline);
+        }
 
         tokio::select! {
             _ = &mut shutdown => return Ok(()),
-            request = tx_rx.recv(), if pending.is_none() && in_flight.is_none() && !tx_closed => {
+            request = tx_rx.recv(), if pending.is_none()
+                && in_flight.is_none()
+                && ui_snapshot_pending.is_none()
+                && ui_snapshot_in_flight.is_none()
+                && !tx_closed => {
                 match request {
                     Some(request) => pending = Some(request),
                     None => tx_closed = true,
+                }
+            }
+            request = ui_snapshot_rx.recv(), if ui_snapshot_pending.is_none() && ui_snapshot_in_flight.is_none() && !ui_snapshot_closed => {
+                match request {
+                    Some(request) => ui_snapshot_pending = Some(request),
+                    None => ui_snapshot_closed = true,
                 }
             }
             read = io.read(&mut read_buf) => {
@@ -461,6 +620,16 @@ where
                             }
                         }
                         Event::Configured { .. } => {}
+                        Event::UiSnapshot { result } => {
+                            if let Some(snapshot) = ui_snapshot_in_flight.take() {
+                                let outcome = if result == selvage::UI_SNAPSHOT_ACCEPTED {
+                                    Ok(())
+                                } else {
+                                    Err(UiSnapshotError::Rejected { result })
+                                };
+                                let _ = snapshot.done.send(outcome);
+                            }
+                        }
                         Event::Diagnostic {
                             irq_status,
                             device_errors,
@@ -481,6 +650,14 @@ where
                 }
                 if retry_at.is_some_and(|retry| retry <= Instant::now()) {
                     retry_at = None;
+                }
+                if ui_snapshot_in_flight
+                    .as_ref()
+                    .is_some_and(|snapshot| snapshot.deadline <= Instant::now())
+                    && let Some(snapshot) = ui_snapshot_in_flight.take()
+                {
+                    let _ = snapshot.done.send(Err(UiSnapshotError::TimedOut));
+                    resync_before_command = true;
                 }
             }
         }
@@ -566,11 +743,36 @@ mod tests {
                 .write_all(&[direct_phy::EVENT_TX, 0, 5, 0])
                 .await
                 .unwrap();
+
+            // UI snapshot, wake-prefixed and still opaque to Tulle.
+            firmware.read_exact(&mut wake).await.unwrap();
+            assert_eq!(wake, [WAKE_BYTE; 4], "UI snapshot must be roused first");
+            let mut snapshot = [0_u8; 8];
+            firmware.read_exact(&mut snapshot).await.unwrap();
+            assert_eq!(
+                &snapshot,
+                &[
+                    direct_phy::CMD_UI_SNAPSHOT,
+                    b'0',
+                    b'1',
+                    b'0',
+                    b'2',
+                    b'0',
+                    b'3',
+                    0
+                ]
+            );
+            firmware
+                .write_all(&[direct_phy::EVENT_UI_SNAPSHOT, 0])
+                .await
+                .unwrap();
             sleep(Duration::from_millis(200)).await;
         });
 
+        let ui = link.ui_control();
         link.wait_online().await.unwrap();
         link.send(b"hello".to_vec()).await.unwrap();
+        ui.publish(&[1, 2, 3]).await.unwrap();
         link.shutdown().await.unwrap();
         firmware_task.await.unwrap();
     }
@@ -609,6 +811,60 @@ mod tests {
         });
 
         link.wait_online().await.unwrap();
+        link.shutdown().await.unwrap();
+        firmware_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn truncated_snapshot_timeout_resynchronizes_following_transmit() {
+        let (host, mut firmware) = tokio::io::duplex(2048);
+        let config = DirectPhySerialConfig {
+            open_settle: Duration::ZERO,
+            transmit_timeout: Duration::from_millis(50),
+            ..Default::default()
+        };
+        let budget = AirtimeBudget::new(60_000, 1000);
+        let mut link = DirectPhySerialLink::spawn_io(host, profile(), params(), budget, config);
+
+        let firmware_task = tokio::spawn(async move {
+            let mut status = [0_u8; 7];
+            firmware.read_exact(&mut status).await.unwrap();
+            firmware
+                .write_all(b"tulle/test phy online\r\n")
+                .await
+                .unwrap();
+            let mut configure = [0_u8; selvage::CONFIG_COMMAND_LEN];
+            firmware.read_exact(&mut configure).await.unwrap();
+            firmware
+                .write_all(&[direct_phy::EVENT_CONFIG, 0])
+                .await
+                .unwrap();
+
+            let mut snapshot = [0_u8; 8];
+            firmware.read_exact(&mut snapshot).await.unwrap();
+            assert_eq!(snapshot[0], direct_phy::CMD_UI_SNAPSHOT);
+            assert_eq!(snapshot[7], WAKE_BYTE);
+            // Simulate an interrupted outer frame by withholding its acknowledgement.
+
+            let mut resync = [0_u8; 1];
+            firmware.read_exact(&mut resync).await.unwrap();
+            assert_eq!(resync, [WAKE_BYTE]);
+            let mut transmit = [0_u8; 8];
+            firmware.read_exact(&mut transmit).await.unwrap();
+            assert_eq!(&transmit, b"\x01\x05\x00hello");
+            firmware
+                .write_all(&[direct_phy::EVENT_TX, 0, 5, 0])
+                .await
+                .unwrap();
+            sleep(Duration::from_millis(100)).await;
+        });
+
+        link.wait_online().await.unwrap();
+        assert_eq!(
+            link.publish_ui_snapshot(&[1, 2, 3]).await,
+            Err(UiSnapshotError::TimedOut)
+        );
+        link.send(b"hello".to_vec()).await.unwrap();
         link.shutdown().await.unwrap();
         firmware_task.await.unwrap();
     }

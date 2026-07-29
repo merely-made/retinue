@@ -34,8 +34,13 @@ display power, the last rendered face, and whether a physical button event has
 been observed:
 
 ```text
-ui=ok; display=on; screen=status; button=0
+ui=ok; display=on; screen=status; button=0; host=none
 ```
+
+The direct-PHY control stream also accepts an optional versioned host
+projection as `03 <lowercase-hex radio-face payload> 00` and acknowledges it
+with `85 <result>`. The snapshot is decoded only at the firmware/UI edge and
+expires relative to receipt time. Tulle treats its payload as opaque bytes.
 
 The optional `ui-bench` build feature adds `fault\n` and `clear\n` commands for
 on-board FAULT-face acceptance. These commands are absent from the default

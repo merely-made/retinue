@@ -68,9 +68,11 @@ pub use propagation::{
     PropagationAnnounce, PropagationBatch, PropagationCosts, PropagationEntry, PropagationError,
     PropagationFetchReceipt, PropagationMessage, PropagationStore, PropagationStoreLimits,
     PropagationSubmitReceipt, ReceivedPropagationBatch, ServedFetch, StoreReceipt,
-    StoreRestoreReceipt, announce_propagation, fetch as fetch_propagation, prepare_propagation,
+    StoreRestoreReceipt, announce_propagation, fetch as fetch_propagation,
+    fetch_with_resource_config as fetch_propagation_with_resource_config, prepare_propagation,
     propagation_destination, propagation_name, receive_submission, register_propagation,
     serve_fetch, submit as submit_propagation,
+    submit_with_resource_config as submit_propagation_with_resource_config,
 };
 pub use stamp::{
     MESSAGE_WORKBLOCK_ROUNDS, PROPAGATION_WORKBLOCK_ROUNDS, STAMP_LEN, WORKBLOCK_BYTES_PER_ROUND,

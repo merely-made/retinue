@@ -18,8 +18,8 @@ use esp_hal::{
     i2c::master::I2c,
 };
 use radio_face::{
-    Action, Button, Controller, InputEvent, InputProfile, LedIntent, LedSignal, LocalStatus, Page,
-    PressClassifier, Screen, Surface, Theme, WakeSource, led_intent, render,
+    Action, Button, Controller, HostSnapshot, InputEvent, InputProfile, LedIntent, LedSignal,
+    LocalStatus, Page, PressClassifier, Screen, Surface, Theme, WakeSource, led_intent, render,
 };
 
 use crate::board::OLED_ADDRESS;
@@ -40,6 +40,7 @@ struct UiUpdate {
 
 static STATUS: Signal<CriticalSectionRawMutex, UiUpdate> = Signal::new();
 static BUTTON: Signal<CriticalSectionRawMutex, InputEvent> = Signal::new();
+static HOST: Signal<CriticalSectionRawMutex, HostSnapshot> = Signal::new();
 static HEALTH: AtomicU32 = AtomicU32::new(0);
 
 const HEALTH_INITIALIZED: u32 = 1 << 0;
@@ -47,11 +48,25 @@ const HEALTH_FRAME_OK: u32 = 1 << 1;
 const HEALTH_DISPLAY_ON: u32 = 1 << 2;
 const HEALTH_BUTTON_SEEN: u32 = 1 << 3;
 const HEALTH_ERROR: u32 = 1 << 4;
+const HEALTH_HOST_PENDING: u32 = 1 << 7;
 const HEALTH_SCREEN_SHIFT: u32 = 8;
 const HEALTH_SCREEN_MASK: u32 = 0x0f << HEALTH_SCREEN_SHIFT;
+const HEALTH_HOST_FRESH: u32 = 1 << 12;
 
 pub fn publish(status: LocalStatus, led: LedSignal) {
     STATUS.signal(UiUpdate { status, led });
+}
+
+pub fn publish_host(snapshot: HostSnapshot) {
+    HEALTH.fetch_and(!HEALTH_HOST_FRESH, Ordering::Relaxed);
+    HEALTH.fetch_or(HEALTH_HOST_PENDING, Ordering::Relaxed);
+    HOST.signal(snapshot);
+}
+
+#[derive(Clone, Copy)]
+struct ActiveHost {
+    snapshot: HostSnapshot,
+    received_at: Instant,
 }
 
 pub struct Diagnostic {
@@ -59,6 +74,7 @@ pub struct Diagnostic {
     pub display: &'static str,
     pub screen: &'static str,
     pub button: u8,
+    pub host: &'static str,
 }
 
 pub fn diagnostic() -> Diagnostic {
@@ -93,6 +109,13 @@ pub fn diagnostic() -> Diagnostic {
             _ => "unknown",
         },
         button: u8::from(health & HEALTH_BUTTON_SEEN != 0),
+        host: if health & HEALTH_HOST_FRESH != 0 {
+            "fresh"
+        } else if health & HEALTH_HOST_PENDING != 0 {
+            "pending"
+        } else {
+            "none"
+        },
     }
 }
 
@@ -152,33 +175,41 @@ pub async fn screen_task(
     let mut frame = FrameBuffer::new();
     let mut controller = Controller::default();
     let mut local = initial;
+    let mut active_host = None;
     let started = Instant::now();
-    render_screen(&mut oled, &mut frame, Screen::Boot, &local).await;
+    render_screen(&mut oled, &mut frame, Screen::Boot, &local, None).await;
     Timer::after(BOOT_HOLD).await;
 
     loop {
-        let event = select(select(STATUS.wait(), BUTTON.wait()), Timer::after(UI_TICK)).await;
+        let event = select(
+            select(select(STATUS.wait(), BUTTON.wait()), HOST.wait()),
+            Timer::after(UI_TICK),
+        )
+        .await;
 
         match event {
-            Either::First(Either::First(update)) => {
+            Either::First(Either::First(Either::First(update))) => {
                 local = update.status;
                 refresh_clock(&mut local, started);
                 local.display_on = controller.display_on();
+                let host = fresh_host(&mut active_host);
 
                 run_led(&mut led, led_intent(&local, update.led)).await;
                 if local.fault.is_some() {
                     set_display(&mut oled, true).await;
-                    render_current(&mut oled, &mut frame, &controller, &local).await;
+                    render_current(&mut oled, &mut frame, &controller, &local, host.as_ref()).await;
                 } else if controller.display_on() {
-                    render_current(&mut oled, &mut frame, &controller, &local).await;
+                    render_current(&mut oled, &mut frame, &controller, &local, host.as_ref()).await;
                 } else {
                     set_display(&mut oled, false).await;
                 }
             }
-            Either::First(Either::Second(input)) => {
+            Either::First(Either::First(Either::Second(input))) => {
                 refresh_clock(&mut local, started);
                 local.last_wake = WakeSource::Button;
-                let action = controller.handle(InputProfile::OneButton, input, &local, None);
+                let host = fresh_host(&mut active_host);
+                let action =
+                    controller.handle(InputProfile::OneButton, input, &local, host.as_ref());
                 local.display_on = controller.display_on();
 
                 match action {
@@ -186,7 +217,14 @@ pub async fn screen_task(
                         set_display(&mut oled, true).await;
                     }
                     Action::DisplayTurnedOff => {
-                        render_screen(&mut oled, &mut frame, Screen::DisplayOff, &local).await;
+                        render_screen(
+                            &mut oled,
+                            &mut frame,
+                            Screen::DisplayOff,
+                            &local,
+                            host.as_ref(),
+                        )
+                        .await;
                         Timer::after(DISPLAY_OFF_DELAY).await;
                         if local.fault.is_none() {
                             set_display(&mut oled, false).await;
@@ -202,18 +240,31 @@ pub async fn screen_task(
                 }
 
                 if controller.display_on() || local.fault.is_some() {
-                    render_current(&mut oled, &mut frame, &controller, &local).await;
+                    render_current(&mut oled, &mut frame, &controller, &local, host.as_ref()).await;
                 }
                 led.set_low();
             }
+            Either::First(Either::Second(snapshot)) => {
+                active_host = Some(ActiveHost {
+                    snapshot,
+                    received_at: Instant::now(),
+                });
+                HEALTH.fetch_and(!HEALTH_HOST_PENDING, Ordering::Relaxed);
+                HEALTH.fetch_or(HEALTH_HOST_FRESH, Ordering::Relaxed);
+                let host = Some(snapshot);
+                if controller.display_on() || local.fault.is_some() {
+                    render_current(&mut oled, &mut frame, &controller, &local, host.as_ref()).await;
+                }
+            }
             Either::Second(()) => {
                 refresh_clock(&mut local, started);
+                let host = fresh_host(&mut active_host);
                 if local.fault.is_some() {
                     set_display(&mut oled, true).await;
-                    render_current(&mut oled, &mut frame, &controller, &local).await;
+                    render_current(&mut oled, &mut frame, &controller, &local, host.as_ref()).await;
                     fault_triple(&mut led).await;
                 } else if controller.display_on() {
-                    render_current(&mut oled, &mut frame, &controller, &local).await;
+                    render_current(&mut oled, &mut frame, &controller, &local, host.as_ref()).await;
                     led.set_low();
                 }
             }
@@ -225,15 +276,31 @@ fn refresh_clock(local: &mut LocalStatus, started: Instant) {
     local.uptime_secs = started.elapsed().as_secs().min(u64::from(u32::MAX)) as u32;
 }
 
+fn fresh_host(active: &mut Option<ActiveHost>) -> Option<HostSnapshot> {
+    if active.as_ref().is_some_and(|host| {
+        !host.snapshot.is_fresh(
+            host.received_at
+                .elapsed()
+                .as_secs()
+                .min(u64::from(u32::MAX)) as u32,
+        )
+    }) {
+        *active = None;
+        HEALTH.fetch_and(!HEALTH_HOST_FRESH, Ordering::Relaxed);
+    }
+    active.as_ref().map(|host| host.snapshot)
+}
+
 async fn render_current<I>(
     oled: &mut Oled<I>,
     frame: &mut FrameBuffer,
     controller: &Controller,
     local: &LocalStatus,
+    host: Option<&HostSnapshot>,
 ) where
     I: embedded_hal_async::i2c::I2c,
 {
-    render_screen(oled, frame, controller.screen(local, None), local).await;
+    render_screen(oled, frame, controller.screen(local, host), local, host).await;
 }
 
 async fn render_screen<I>(
@@ -241,6 +308,7 @@ async fn render_screen<I>(
     frame: &mut FrameBuffer,
     screen: Screen,
     local: &LocalStatus,
+    host: Option<&HostSnapshot>,
 ) where
     I: embedded_hal_async::i2c::I2c,
 {
@@ -267,7 +335,7 @@ async fn render_screen<I>(
         BinaryColor::On,
         BinaryColor::On,
     );
-    let rendered = render(frame, Surface::Oled128x64, theme, screen, local, None).is_ok();
+    let rendered = render(frame, Surface::Oled128x64, theme, screen, local, host).is_ok();
     let flushed = oled.flush(frame).await.is_ok();
     if rendered && flushed {
         HEALTH.fetch_or(HEALTH_FRAME_OK, Ordering::Relaxed);

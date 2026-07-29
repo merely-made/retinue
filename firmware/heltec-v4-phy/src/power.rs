@@ -42,6 +42,10 @@ mod stub {
     pub fn counters() -> (u32, u32) {
         (0, 0)
     }
+
+    pub fn last_sleep_us() -> u32 {
+        0
+    }
 }
 
 #[cfg(feature = "host-uart-low-power")]
@@ -51,10 +55,16 @@ pub use low_power::*;
 mod low_power {
     use core::cell::RefCell;
     use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
+    #[cfg(feature = "rf-sleep-proof")]
+    use core::time::Duration;
 
     use critical_section::Mutex;
     use esp_hal::rtc_cntl::Rtc;
-    use esp_hal::rtc_cntl::sleep::{GpioWakeupSource, Uart0WakeupSource};
+    #[cfg(feature = "rf-sleep-proof")]
+    use esp_hal::rtc_cntl::sleep::TimerWakeupSource;
+    use esp_hal::rtc_cntl::sleep::{
+        GpioWakeupSource, RtcSleepConfig, Uart0WakeupSource, WakeSource,
+    };
 
     /// Rising edges on UART0 RXD needed to wake the chip.
     ///
@@ -71,6 +81,8 @@ mod low_power {
 
     /// Times the idle hook actually entered Light-sleep.
     static SLEEP_ENTRIES: AtomicU32 = AtomicU32::new(0);
+    /// RTC time spent in the most recent task-integrated proof sleep.
+    static LAST_SLEEP_US: AtomicU32 = AtomicU32::new(0);
     /// Times the idle hook ran but the gate was closed.
     static SLEEP_BLOCKED: AtomicU32 = AtomicU32::new(0);
 
@@ -79,6 +91,18 @@ mod low_power {
     /// A critical section rather than a `static mut`: the hook runs from the scheduler and the
     /// setup path writes this once, and the two must not race on a dual-core part.
     static RTC: Mutex<RefCell<Option<Rtc<'static>>>> = Mutex::new(RefCell::new(None));
+
+    /// ESP-HAL 1.1.1 predates esp-rs/esp-hal#5777. Its ESP32-S3 default leaves the
+    /// XTAL-down regulator/bias state incomplete, which resets the chip on Light-sleep.
+    fn sleep_light(rtc: &mut Rtc<'static>, wake_sources: &[&dyn WakeSource]) {
+        let mut config = RtcSleepConfig::default();
+        config.set_rtc_regulator_fpu(true);
+        config.set_bias_sleep_monitor(true);
+        config.set_pd_cur_monitor(true);
+        config.set_bias_sleep_slp(true);
+        config.set_pd_cur_slp(true);
+        rtc.sleep(&config, wake_sources);
+    }
 
     /// Hand the RTC to the idle hook and open the gate for the first time.
     ///
@@ -109,6 +133,38 @@ mod low_power {
             SLEEP_ENTRIES.load(Ordering::Relaxed),
             SLEEP_BLOCKED.load(Ordering::Relaxed),
         )
+    }
+
+    pub fn last_sleep_us() -> u32 {
+        LAST_SLEEP_US.load(Ordering::Relaxed)
+    }
+
+    /// Enter one proof sleep while the radio receive future remains pinned in its task.
+    ///
+    /// The five-second timer is a safety ceiling and a diagnostic: a much shorter elapsed
+    /// interval means GPIO activity woke the CPU before the timer did.
+    #[cfg(feature = "rf-sleep-proof")]
+    pub fn sleep_once(rtc: &mut Rtc<'static>) -> u32 {
+        let gpio = GpioWakeupSource::new();
+        // Deliberately longer than the witness's RF challenge interval. A shorter reported
+        // sleep therefore identifies GPIO wake rather than timer fallback.
+        let timer = TimerWakeupSource::new(Duration::from_secs(5));
+        let started = rtc.current_time_us();
+        // A scheduler interrupt may not context-switch through the ROM's blocking sleep
+        // transition. Hold the current task in place until the clocks and CPU state are restored.
+        critical_section::with(|_| sleep_light(rtc, &[&gpio, &timer]));
+        let elapsed = rtc
+            .current_time_us()
+            .saturating_sub(started)
+            .min(u64::from(u32::MAX)) as u32;
+        if elapsed >= 1_000 {
+            LAST_SLEEP_US.store(elapsed, Ordering::Relaxed);
+            SLEEP_ENTRIES.fetch_add(1, Ordering::Relaxed);
+        } else {
+            // A pending interrupt can reject Light-sleep before clocks are dropped.
+            SLEEP_BLOCKED.fetch_add(1, Ordering::Relaxed);
+        }
+        elapsed
     }
 
     /// Holds the gate closed for as long as it lives.
@@ -146,11 +202,19 @@ mod low_power {
             // Wake on radio activity (DIO1 is a GPIO interrupt) or on the host talking to us.
             let gpio = GpioWakeupSource::new();
             let uart = Uart0WakeupSource::new(UART_WAKE_THRESHOLD);
+            #[cfg(feature = "rf-sleep-proof")]
+            let timer = TimerWakeupSource::new(Duration::from_millis(500));
             let slept = critical_section::with(|cs| {
                 let mut slot = RTC.borrow(cs).borrow_mut();
                 match slot.as_mut() {
                     Some(rtc) => {
-                        rtc.sleep_light(&[&gpio, &uart]);
+                        #[cfg(not(feature = "rf-sleep-proof"))]
+                        sleep_light(rtc, &[&gpio, &uart]);
+                        // Proof-only recovery source. It distinguishes actual Light-sleep plus
+                        // retained radio receive from the stricter claim that DIO1 itself woke
+                        // the CPU. Production remains GPIO + UART only.
+                        #[cfg(feature = "rf-sleep-proof")]
+                        sleep_light(rtc, &[&gpio, &uart, &timer]);
                         true
                     }
                     // Not armed yet: nothing to sleep with.

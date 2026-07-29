@@ -10,6 +10,7 @@ use std::time::Duration;
 use retinue::destination::DestinationName;
 use retinue::endpoint::{
     AcceptedResource, Endpoint, InterfaceId, PayloadMode, PeerAnnounce, ReceivedPayload,
+    ResourceTransferConfig,
 };
 use retinue::hash::{AddressHash, full_hash};
 use retinue::identity::{Identity, PrivateIdentity};
@@ -434,6 +435,17 @@ pub async fn submit(
     node: &PeerAnnounce,
     batch: &PropagationBatch,
 ) -> Result<PropagationSubmitReceipt, PropagationError> {
+    submit_with_resource_config(endpoint, node, batch, ResourceTransferConfig::default()).await
+}
+
+/// Submit a propagation batch with explicit timing and window policy for a
+/// Resource-backed transfer. Small Data batches ignore the Resource policy.
+pub async fn submit_with_resource_config(
+    endpoint: &Endpoint,
+    node: &PeerAnnounce,
+    batch: &PropagationBatch,
+    resource_config: ResourceTransferConfig,
+) -> Result<PropagationSubmitReceipt, PropagationError> {
     if node.destination != propagation_destination(&node.identity) {
         return Err(PropagationError::WrongDestination);
     }
@@ -463,7 +475,12 @@ pub async fn submit(
         .map(PropagationEntry::transient_id)
         .collect();
     let mode = endpoint
-        .send_payload(node.destination, node.identity, &packed_batch)
+        .send_payload_with_config(
+            node.destination,
+            node.identity,
+            &packed_batch,
+            resource_config,
+        )
         .await?;
     Ok(PropagationSubmitReceipt {
         transient_ids,
@@ -904,6 +921,34 @@ pub async fn fetch(
     max_entry_bytes: usize,
     max_message_bytes: usize,
 ) -> Result<PropagationFetchReceipt, PropagationError> {
+    fetch_with_resource_config(
+        endpoint,
+        recipient,
+        node,
+        handled,
+        max_messages,
+        request_time,
+        max_entry_bytes,
+        max_message_bytes,
+        ResourceTransferConfig::default(),
+    )
+    .await
+}
+
+/// Fetch with explicit timing and window policy for request or response
+/// Resources. This is the carrier-policy seam for slow half-duplex links.
+#[allow(clippy::too_many_arguments)]
+pub async fn fetch_with_resource_config(
+    endpoint: &Endpoint,
+    recipient: &PrivateIdentity,
+    node: &PeerAnnounce,
+    handled: &[[u8; 32]],
+    max_messages: usize,
+    request_time: f64,
+    max_entry_bytes: usize,
+    max_message_bytes: usize,
+    resource_config: ResourceTransferConfig,
+) -> Result<PropagationFetchReceipt, PropagationError> {
     if recipient.public() != endpoint.identity() {
         return Err(PropagationError::LocalIdentityMismatch);
     }
@@ -918,6 +963,7 @@ pub async fn fetch(
     let mut session = endpoint
         .open_resource(node.destination, node.identity)
         .await?;
+    session.set_config(resource_config);
     session.identify();
     let offer_request =
         encode_fetch_request(request_time, Value::Array(vec![Value::Nil, Value::Nil]))?;

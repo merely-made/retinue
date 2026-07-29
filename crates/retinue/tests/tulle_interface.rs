@@ -3,8 +3,9 @@ use std::future::Future;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use retinue::Ifac;
 use retinue::destination::DestinationName;
-use retinue::endpoint::Endpoint;
+use retinue::endpoint::{Endpoint, ResourceTransferConfig};
 use retinue::identity::PrivateIdentity;
 use retinue::iface::tulle::drive;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -179,6 +180,61 @@ async fn negotiated_radio_mtu_chunks_a_best_effort_stream() {
         !client_task.is_finished() && !server_task.is_finished(),
         "a 255-byte radio driver must stay live for a negotiated 255-byte link"
     );
+    client_task.abort();
+    server_task.abort();
+}
+
+#[tokio::test]
+async fn negotiated_ifac_radio_mtu_keeps_resource_parts_within_frame() {
+    let client = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x66; 64]));
+    let server_id = PrivateIdentity::from_secret_bytes(&[0x77; 64]);
+    let server = Arc::new(Endpoint::new(server_id.clone()));
+    client.set_link_mtu(247);
+    server.set_link_mtu(247);
+
+    let access = Ifac::new(Some("retinue-test"), Some("ifac-resource"), 8).unwrap();
+    let (client_radio, server_radio) = radio_pair(255);
+    let client_interface = client
+        .attach_interface_with_ifac(255, access.clone())
+        .unwrap();
+    let server_interface = server.attach_interface_with_ifac(255, access).unwrap();
+    let client_task = tokio::spawn(drive(client_interface, client_radio));
+    let server_task = tokio::spawn(drive(server_interface, server_radio));
+
+    let name = DestinationName::new("bench", ["ifac-resource"]);
+    let destination = name.destination_hash(server_id.public());
+    server.register_resource(name, b"247 logical plus 8 IFAC");
+    let announce = tokio::time::timeout(Duration::from_secs(1), client.next_announcement())
+        .await
+        .expect("IFAC announce crossed the capped radio")
+        .expect("client remains live");
+    assert_eq!(announce.destination, destination);
+
+    let expected: Vec<u8> = (0..286_u32).map(|n| (n * 29 + 7) as u8).collect();
+    let expected_server = expected.clone();
+    let transfer = ResourceTransferConfig {
+        timeout: Duration::from_secs(2),
+        retry_interval: Duration::from_millis(20),
+        request_window: 1,
+    };
+    let receiver = tokio::spawn({
+        let server = Arc::clone(&server);
+        async move {
+            let mut accepted = server.accept_resource().await.expect("accept Resource");
+            accepted.session.set_config(transfer);
+            accepted.session.fetch().await.expect("receive Resource")
+        }
+    });
+    client
+        .publish_resource_with_config(destination, *server_id.public(), &expected, transfer)
+        .await
+        .expect("publish Resource");
+    assert_eq!(receiver.await.expect("receiver task"), expected_server);
+    assert!(
+        !client_task.is_finished() && !server_task.is_finished(),
+        "247-byte logical Resource frames plus IFAC must fit the 255-byte carrier"
+    );
+
     client_task.abort();
     server_task.abort();
 }

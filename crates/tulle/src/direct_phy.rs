@@ -4,10 +4,17 @@
 //! interpret Reticulum, MeshCore, or Meshtastic-compatible bytes.
 
 use crate::link::Received;
-use selvage::{CONFIG_COMMAND_LEN, PhyProfile, ProfileError, encode_config_command};
+use selvage::{
+    CONFIG_COMMAND_LEN, MAX_RADIO_FRAME_LEN, MAX_UI_SNAPSHOT_COMMAND_LEN, MAX_UI_SNAPSHOT_LEN,
+    PhyProfile, ProfileError, encode_config_command, encode_ui_snapshot_command,
+};
 
-pub const MAX_FRAME_LEN: usize = 255;
-pub use selvage::{CMD_CONFIG, CMD_TX, EVENT_CONFIG, EVENT_DIAGNOSTIC, EVENT_RX, EVENT_TX};
+pub const MAX_FRAME_LEN: usize = MAX_RADIO_FRAME_LEN;
+pub use selvage::{
+    CMD_CONFIG, CMD_TX, CMD_UI_SNAPSHOT, EVENT_CONFIG, EVENT_DIAGNOSTIC, EVENT_RX, EVENT_TX,
+    EVENT_UI_SNAPSHOT, UI_SNAPSHOT_ACCEPTED, UI_SNAPSHOT_MALFORMED, UI_SNAPSHOT_TOO_LONG,
+    UI_SNAPSHOT_UNSUPPORTED_VERSION,
+};
 
 /// One event emitted by direct-PHY firmware.
 #[derive(Clone, Debug, PartialEq)]
@@ -24,6 +31,9 @@ pub enum Event {
         irq_status: u16,
         device_errors: u16,
         sync_word: [u8; 2],
+    },
+    UiSnapshot {
+        result: u8,
     },
 }
 
@@ -46,9 +56,23 @@ pub fn encode_transmit(frame: &[u8]) -> Result<Vec<u8>, EncodeError> {
     Ok(out)
 }
 
+/// Encode one opaque, versioned `radio-face` snapshot for board firmware.
+pub fn encode_ui_snapshot(snapshot: &[u8]) -> Result<Vec<u8>, EncodeError> {
+    if snapshot.len() > MAX_UI_SNAPSHOT_LEN {
+        return Err(EncodeError::UiSnapshotTooLong {
+            actual: snapshot.len(),
+        });
+    }
+    let mut command = [0_u8; MAX_UI_SNAPSHOT_COMMAND_LEN];
+    let len = encode_ui_snapshot_command(snapshot, &mut command)
+        .expect("length checked against the shared snapshot limit");
+    Ok(command[..len].to_vec())
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EncodeError {
     TooLong { actual: usize },
+    UiSnapshotTooLong { actual: usize },
 }
 
 impl core::fmt::Display for EncodeError {
@@ -58,6 +82,12 @@ impl core::fmt::Display for EncodeError {
                 write!(
                     f,
                     "direct-PHY frame exceeds {MAX_FRAME_LEN} bytes: {actual}"
+                )
+            }
+            Self::UiSnapshotTooLong { actual } => {
+                write!(
+                    f,
+                    "UI snapshot exceeds {MAX_UI_SNAPSHOT_LEN} bytes: {actual}"
                 )
             }
         }
@@ -85,7 +115,10 @@ impl Decoder {
         self.buffer.extend_from_slice(bytes);
         loop {
             let Some(start) = self.buffer.iter().position(|byte| {
-                matches!(*byte, EVENT_RX | EVENT_TX | EVENT_CONFIG | EVENT_DIAGNOSTIC)
+                matches!(
+                    *byte,
+                    EVENT_RX | EVENT_TX | EVENT_CONFIG | EVENT_DIAGNOSTIC | EVENT_UI_SNAPSHOT
+                )
             }) else {
                 self.buffer.clear();
                 return;
@@ -151,6 +184,15 @@ impl Decoder {
                     });
                     self.buffer.drain(..7);
                 }
+                EVENT_UI_SNAPSHOT => {
+                    if self.buffer.len() < 2 {
+                        return;
+                    }
+                    out.push(Event::UiSnapshot {
+                        result: self.buffer[1],
+                    });
+                    self.buffer.drain(..2);
+                }
                 _ => unreachable!("event marker selected above"),
             }
         }
@@ -167,12 +209,27 @@ mod tests {
     }
 
     #[test]
+    fn ui_snapshot_command_is_opaque_and_self_delimiting() {
+        assert_eq!(
+            encode_ui_snapshot(&[1, 0, 2]).unwrap(),
+            [CMD_UI_SNAPSHOT, b'0', b'1', b'0', b'0', b'0', b'2', 0]
+        );
+        assert_eq!(
+            encode_ui_snapshot(&[0; MAX_UI_SNAPSHOT_LEN + 1]),
+            Err(EncodeError::UiSnapshotTooLong {
+                actual: MAX_UI_SNAPSHOT_LEN + 1,
+            })
+        );
+    }
+
+    #[test]
     fn decoder_skips_status_and_reassembles_usb_chunks() {
         let mut wire = b"tulle/heltec-v4 phy online\r\n".to_vec();
         wire.extend_from_slice(&[EVENT_RX, 3, 0, 0xd8, 0xff, 9, 0, 1, 2, 3]);
         wire.extend_from_slice(&[EVENT_TX, 0, 3, 0]);
         wire.extend_from_slice(&[EVENT_CONFIG, 0]);
         wire.extend_from_slice(&[EVENT_DIAGNOSTIC, 1, 2, 3, 4, 0x24, 0xb4]);
+        wire.extend_from_slice(&[EVENT_UI_SNAPSHOT, 0]);
 
         let mut decoder = Decoder::new();
         let mut events = Vec::new();
@@ -197,6 +254,7 @@ mod tests {
                     device_errors: 0x0403,
                     sync_word: [0x24, 0xb4],
                 },
+                Event::UiSnapshot { result: 0 },
             ]
         );
     }

@@ -193,6 +193,10 @@ async fn transit_queue_depth_is_bounded_and_drops_are_counted() {
     }
     tokio::time::sleep(Duration::from_millis(300)).await;
 
+    assert!(
+        hub.outbound_queue_depth() > 0,
+        "the point-in-time host snapshot sees the retained bounded backlog"
+    );
     let counters = hub.queue_counters();
     assert!(
         counters.dropped.transit > 0,
@@ -217,6 +221,11 @@ async fn transit_queue_depth_is_bounded_and_drops_are_counted() {
     assert!(
         delivered <= 12,
         "delivered {delivered}, which exceeds the configured transit depth"
+    );
+    assert_eq!(
+        hub.outbound_queue_depth(),
+        0,
+        "draining the interface clears the host-visible queue depth"
     );
 }
 

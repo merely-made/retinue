@@ -4,9 +4,9 @@ use std::time::Duration;
 use outrider::{
     LxmfPayload, PROPAGATION_METADATA_NAME, PropagationAnnounce, PropagationBatch,
     PropagationCosts, prepare_propagation, receive_submission, register_propagation,
-    submit_propagation,
+    submit_propagation_with_resource_config,
 };
-use retinue::endpoint::{Endpoint, PayloadMode};
+use retinue::endpoint::{Endpoint, PayloadMode, ResourceTransferConfig};
 use retinue::identity::PrivateIdentity;
 use retinue::lossy::{LossModel, connect};
 use rmpv::Value;
@@ -69,7 +69,16 @@ async fn stamped_submission_crosses_the_propagation_boundary() {
     });
     let receipt = tokio::time::timeout(
         Duration::from_secs(5),
-        submit_propagation(&sender, &node_announce, &batch),
+        submit_propagation_with_resource_config(
+            &sender,
+            &node_announce,
+            &batch,
+            ResourceTransferConfig {
+                timeout: Duration::from_secs(2),
+                retry_interval: Duration::from_millis(50),
+                request_window: 1,
+            },
+        ),
     )
     .await
     .unwrap()

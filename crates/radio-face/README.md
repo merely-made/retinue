@@ -8,6 +8,10 @@ It deliberately does not own display pins, radio drivers, Retinue protocol
 objects, or host transport. Board firmware supplies local facts. A host may
 publish a lossy snapshot of facts it owns.
 
+The snapshot wire format is versioned, allocation-free, capped at 160 bytes,
+and valid for at most 300 seconds. Firmware expires it relative to receipt time
+so disconnected host state becomes unavailable rather than persistent truth.
+
 Generate the off-target visual receipts with:
 
 ```text

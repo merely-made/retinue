@@ -48,6 +48,7 @@ pub struct ResourceSender {
     out: Outgoing,
     hash_window: usize,
     started: bool,
+    served_parts: usize,
     done: bool,
     canceled: bool,
 }
@@ -107,6 +108,7 @@ impl ResourceSender {
             out,
             hash_window,
             started: false,
+            served_parts: 0,
             done: false,
             canceled: false,
         }
@@ -146,7 +148,9 @@ impl ResourceSender {
                 self.started = true;
                 let mut out = Vec::new();
                 // Serve every part whose map hash we hold, framed (already encrypted in-token).
-                for part in self.out.serve(&req) {
+                let parts = self.out.serve(&req);
+                self.served_parts += parts.len();
+                for part in parts {
                     out.push(self.link.framed_packet(CTX_RESOURCE, part));
                 }
                 // An exhausted request wants the next slice of the hashmap.
@@ -182,6 +186,11 @@ impl ResourceSender {
     /// Whether a valid receiver request has begun the part exchange.
     pub fn has_started(&self) -> bool {
         self.started
+    }
+
+    /// Number of requested parts matched and emitted so far.
+    pub fn served_parts(&self) -> usize {
+        self.served_parts
     }
 
     /// Whether the receiver explicitly canceled this transfer.
