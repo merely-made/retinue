@@ -403,7 +403,7 @@ async fn main(spawner: Spawner) {
             let mut receive = core::pin::pin!(lora.rx(&rx_params, &mut radio_frame));
             poll_fn(|cx| match receive.as_mut().poll(cx) {
                 Poll::Ready(outcome) => Poll::Ready(outcome),
-                Poll::Pending if wake_input::radio_wake_armed() => {
+                Poll::Pending if wake_input::radio_wake_armed() && !wake_input::radio_is_high() => {
                     let elapsed = power::sleep_once(&mut proof_rtc);
                     if elapsed >= 4_500_000 {
                         // The RTC safety timer has no Embassy future to wake. GPIO and rejected

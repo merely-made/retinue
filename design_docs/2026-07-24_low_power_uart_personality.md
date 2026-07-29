@@ -1,9 +1,11 @@
 # V1 and V2: the low-power UART personality
 
-**Status (2026-07-24): implemented and compile-verified; every power and wake claim is
-UNPROVEN.** V2's done-conditions are all measurements, and no current meter has been on the
-board yet. This records what exists, what is actually established, and exactly what the bench
-has to settle. Nothing here is a receipt.
+**Status (updated 2026-07-29): implemented, compile-verified, and partly
+hardware-proved.** A free functional proof established corrected ESP32-S3
+Light-sleep/resume, retained radio operation across timer wakes, and one
+direct-PHY DIO1 wake with a validated RF reply. Repeated RF-triggered sleep,
+physical UART wake, display restoration, current, and energy remain open. See
+`design_docs/2026-07-29_v4_light_sleep_rf_wake_acceptance.md` for the receipt.
 
 Plan: `mere/design_docs/mere_docs/implementation_strategy/2026-07-24_low_power_managed_network_plan.md`.
 
@@ -55,7 +57,9 @@ host link that survives sleeping.
   transmit without bleeding into the command; the USB configuration emits no prefix; a
   firmware event delivered a byte at a time still reassembles.
 
-That is all. **Compiling is not evidence that the board sleeps, wakes, or draws less current.**
+That was the pre-bench boundary. The 2026-07-29 hardware receipt now proves a
+functional sleep/resume path and one direct RF wake. It still does not prove
+that the board draws less current.
 
 ## What the bench must settle
 

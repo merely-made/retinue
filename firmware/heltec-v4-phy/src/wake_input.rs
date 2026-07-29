@@ -14,7 +14,7 @@ use core::task::Poll;
 
 use embedded_hal::digital::ErrorType;
 use embedded_hal_async::digital::Wait;
-use esp_hal::gpio::Input;
+use esp_hal::gpio::{Input, WakeEvent};
 
 const DIO1_GPIO: usize = 14;
 static RADIO_WAKE_ARMED: AtomicBool = AtomicBool::new(false);
@@ -22,6 +22,11 @@ static RADIO_WAKE_REGISTRATIONS: AtomicU32 = AtomicU32::new(0);
 
 pub fn radio_wake_armed() -> bool {
     RADIO_WAKE_ARMED.load(Ordering::Acquire)
+}
+
+pub fn radio_is_high() -> bool {
+    // SAFETY: read-only access to the bank-0 GPIO input snapshot.
+    unsafe { (*esp32s3::GPIO::ptr()).in_().read().data_next().bits() & (1 << DIO1_GPIO) != 0 }
 }
 
 pub fn radio_wake_registrations() -> u32 {
@@ -57,28 +62,35 @@ impl Wait for V4Input {
         // after that registration may the wake bit be set, because `wait_for_high` otherwise
         // overwrites it. The PAC write changes that one bit and leaves the high-level CPU
         // interrupt intact.
-        let mut wait = core::pin::pin!(self.input.wait_for_high());
-        let mut armed = false;
-        poll_fn(|cx| match wait.as_mut().poll(cx) {
-            Poll::Ready(()) => Poll::Ready(()),
-            Poll::Pending => {
-                if !armed {
-                    // SAFETY: this does not claim ownership of GPIO or modify any field owned
-                    // by another pin. GPIO14 is already exclusively owned by this adapter; the
-                    // volatile PAC operation only adds its Light-sleep wake-enable bit.
-                    unsafe {
-                        (*esp32s3::GPIO::ptr())
-                            .pin(DIO1_GPIO)
-                            .modify(|_, w| w.wakeup_enable().set_bit());
+        {
+            let mut wait = core::pin::pin!(self.input.wait_for_high());
+            let mut armed = false;
+            poll_fn(|cx| match wait.as_mut().poll(cx) {
+                Poll::Ready(()) => Poll::Ready(()),
+                Poll::Pending => {
+                    if !armed {
+                        // SAFETY: this does not claim ownership of GPIO or modify any field owned
+                        // by another pin. GPIO14 is already exclusively owned by this adapter; the
+                        // volatile PAC operation only adds its Light-sleep wake-enable bit.
+                        unsafe {
+                            (*esp32s3::GPIO::ptr())
+                                .pin(DIO1_GPIO)
+                                .modify(|_, w| w.wakeup_enable().set_bit());
+                        }
+                        RADIO_WAKE_REGISTRATIONS.fetch_add(1, Ordering::Relaxed);
+                        RADIO_WAKE_ARMED.store(true, Ordering::Release);
+                        armed = true;
                     }
-                    RADIO_WAKE_REGISTRATIONS.fetch_add(1, Ordering::Relaxed);
-                    RADIO_WAKE_ARMED.store(true, Ordering::Release);
-                    armed = true;
+                    Poll::Pending
                 }
-                Poll::Pending
-            }
-        })
-        .await;
+            })
+            .await;
+        }
+        // The S3's GPIO wake enable is level-sensitive and persists after wake. Tear it down
+        // before the SX1262 IRQ is processed and later re-armed, otherwise a stale high/status
+        // can make the following Light-sleep request return immediately.
+        let _ = self.input.wakeup_enable(false, WakeEvent::HighLevel);
+        self.input.clear_interrupt();
         RADIO_WAKE_ARMED.store(false, Ordering::Release);
         Ok(())
     }

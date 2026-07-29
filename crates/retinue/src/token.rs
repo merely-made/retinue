@@ -37,7 +37,7 @@ use aes::Aes256;
 use aes::cipher::block_padding::Pkcs7;
 use aes::cipher::{BlockModeDecrypt, BlockModeEncrypt, KeyIvInit};
 use hkdf::Hkdf;
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
 use x25519_dalek::PublicKey as XPublicKey;
 
@@ -104,7 +104,7 @@ impl DerivedKeys {
         out.extend_from_slice(ct);
 
         let mut mac =
-            <HmacSha256 as Mac>::new_from_slice(&self.sign).expect("HMAC accepts a 32-byte key");
+            <HmacSha256 as KeyInit>::new_from_slice(&self.sign).expect("HMAC accepts a 32-byte key");
         mac.update(&out);
         out.extend_from_slice(&mac.finalize().into_bytes());
         out
@@ -120,7 +120,7 @@ impl DerivedKeys {
         let (body, tag) = token.split_at(token.len() - MAC_LEN);
 
         let mut mac =
-            <HmacSha256 as Mac>::new_from_slice(&self.sign).expect("HMAC accepts a 32-byte key");
+            <HmacSha256 as KeyInit>::new_from_slice(&self.sign).expect("HMAC accepts a 32-byte key");
         mac.update(body);
         mac.verify_slice(tag).map_err(|_| Error::BadMac)?;
 
