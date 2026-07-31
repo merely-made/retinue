@@ -34,8 +34,6 @@
 //! # }
 //! ```
 
-
-
 #[cfg(feature = "tokio")]
 use std::time::Duration;
 
@@ -227,8 +225,8 @@ mod tests {
 #[cfg(test)]
 mod model_tests {
     // `no_std` crate: Vec comes from alloc, not the std prelude.
-    use alloc::vec::Vec;
     use super::LossModel;
+    use alloc::vec::Vec;
 
     #[test]
     fn drop_model_is_deterministic() {

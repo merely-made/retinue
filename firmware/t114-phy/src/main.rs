@@ -275,17 +275,16 @@ async fn main(spawner: Spawner) {
     // milliseconds, so it belongs here rather than anywhere near live traffic.
     // The bytes stay on the board; gate N3 hands them to a node.
     let mut identity_line = [0_u8; 48];
-    let (_device_identity, identity_line_len) =
-        match store::IdentityStore::new(p.NVMC, p.RNG).load_or_create() {
-            Ok((identity, outcome)) => {
-                (Some(identity), store::describe(outcome, &mut identity_line))
-            }
-            Err(_) => {
-                let message = b"identity=unavailable\r\n";
-                identity_line[..message.len()].copy_from_slice(message);
-                (None, message.len())
-            }
-        };
+    let (_device_identity, identity_line_len) = match store::IdentityStore::new(p.NVMC, p.RNG)
+        .load_or_create()
+    {
+        Ok((identity, outcome)) => (Some(identity), store::describe(outcome, &mut identity_line)),
+        Err(_) => {
+            let message = b"identity=unavailable\r\n";
+            identity_line[..message.len()].copy_from_slice(message);
+            (None, message.len())
+        }
+    };
 
     let mut display_config = SpimConfig::default();
     display_config.frequency = Frequency::M8;

@@ -28,7 +28,6 @@ use alloc::vec;
 #[allow(unused_imports)]
 use alloc::string::ToString;
 
-
 use alloc::vec::Vec;
 
 use crate::hash::AddressHash;

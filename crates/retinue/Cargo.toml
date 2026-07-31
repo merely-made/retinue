@@ -157,6 +157,26 @@ name = "direct_phy_ui_snapshot"
 required-features = ["tulle-radio"]
 
 [[test]]
+name = "endpoint_ingress"
+required-features = ["tokio"]
+
+[[test]]
+name = "endpoint_shutdown"
+required-features = ["tokio"]
+
+[[test]]
+name = "endpoint_transit_policy"
+required-features = ["tokio"]
+
+[[test]]
+name = "endpoint_transit_scheduling"
+required-features = ["tokio"]
+
+[[test]]
+name = "ifac_interface"
+required-features = ["tokio"]
+
+[[test]]
 name = "endpoint_multi"
 required-features = ["tokio"]
 

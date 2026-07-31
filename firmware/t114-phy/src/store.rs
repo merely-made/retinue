@@ -9,9 +9,9 @@
 //! land in the middle of a transfer; boot is the only place this module writes.
 
 use embassy_nrf::Peri;
+use embassy_nrf::mode::Blocking;
 use embassy_nrf::nvmc::{Nvmc, PAGE_SIZE};
 use embassy_nrf::peripherals::{NVMC, RNG};
-use embassy_nrf::mode::Blocking;
 use embassy_nrf::rng::Rng;
 use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
 use radio_hand::store::{self, HEADER_LEN, Slot, SlotError};
@@ -92,7 +92,10 @@ impl<'d> IdentityStore<'d> {
         // A short read cannot fail on a region the linker reserved, but the
         // whole point of this module is to not assume that.
         if self.nvmc.read(STORE_ORIGIN, &mut page_a).is_err()
-            || self.nvmc.read(STORE_ORIGIN + PAGE_SIZE as u32, &mut page_b).is_err()
+            || self
+                .nvmc
+                .read(STORE_ORIGIN + PAGE_SIZE as u32, &mut page_b)
+                .is_err()
         {
             return Err(Error::Verify);
         }
@@ -158,7 +161,9 @@ impl<'d> IdentityStore<'d> {
         // that refuses, because the failure would surface as a lost identity
         // one power cycle later instead of now.
         let mut check = [0_u8; SLOT_READ_LEN];
-        self.nvmc.read(offset, &mut check).map_err(|_| Error::Verify)?;
+        self.nvmc
+            .read(offset, &mut check)
+            .map_err(|_| Error::Verify)?;
         match store::decode(&check) {
             Ok(record) if record.sequence == sequence && record.body == body => Ok(()),
             _ => Err(Error::Verify),

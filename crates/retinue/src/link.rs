@@ -41,9 +41,8 @@
 #[allow(unused_imports)]
 use alloc::string::ToString;
 
-
-use alloc::vec::Vec;
 use alloc::vec;
+use alloc::vec::Vec;
 
 use x25519_dalek::PublicKey as XPublicKey;
 

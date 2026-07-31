@@ -14,10 +14,10 @@
 //! for a host transport reaching many peers. This is the seam a host implements its own
 //! transport trait against; see the crate root.
 
-use alloc::vec::Vec;
-use alloc::vec;
-use alloc::string::ToString;
 use alloc::format;
+use alloc::string::ToString;
+use alloc::vec;
+use alloc::vec::Vec;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io;
@@ -3599,11 +3599,7 @@ fn register_reliable_stream(
             // keep delivering the peer's reply until it, too, ends. Then close the link.
             // `finish_pending` and `pending` must be clear too: the writer closing is not the
             // same as the queue having accepted everything, now that it can refuse.
-            if !writer_open
-                && pending.is_empty()
-                && !finish_pending
-                && peer_done
-                && rc.send_idle()
+            if !writer_open && pending.is_empty() && !finish_pending && peer_done && rc.send_idle()
             {
                 drv.send_on(iface, close_link.close_packet(&next_iv()));
                 break;

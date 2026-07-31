@@ -25,7 +25,6 @@
 #[allow(unused_imports)]
 use alloc::vec;
 
-
 use alloc::vec::Vec;
 
 use crate::hash::full_hash;
@@ -1214,7 +1213,10 @@ mod tests {
 
         let honest = out.advertisement();
         let claimed = honest.parts;
-        assert!(claimed > 1, "the fixture needs more than one part to be a real test");
+        assert!(
+            claimed > 1,
+            "the fixture needs more than one part to be a real test"
+        );
 
         // The honest advertisement is accepted at a limit that covers it, and refused at one
         // that does not. The node returns a typed error rather than allocating.

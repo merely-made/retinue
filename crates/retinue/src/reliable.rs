@@ -300,9 +300,9 @@ impl<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::capacity::small_types::SmallReliableChannel;
     use crate::destination::DestinationName;
     use crate::link::{LinkMode, LinkTrailer, PendingLink, accept};
-    use crate::capacity::small_types::SmallReliableChannel;
     use crate::lossy::LossModel;
 
     /// A client (initiator) and server (responder) reliable channel over one established
@@ -386,7 +386,11 @@ mod tests {
     #[test]
     fn a_proof_sweeps_every_hash_for_its_sequence() {
         let (mut client, mut server) = pair();
-        assert_eq!(client.write(b"one small message"), b"one small message".len(), "the send queue took every byte");
+        assert_eq!(
+            client.write(b"one small message"),
+            b"one small message".len(),
+            "the send queue took every byte"
+        );
         client.finish();
         let mut ivc = 0u64;
         let mut iv = counting_iv(&mut ivc);
@@ -394,7 +398,10 @@ mod tests {
         // The first generation reaches the wire and is dropped on the floor, so its hashes
         // are recorded and no proof will ever name them.
         let dropped = client.poll_transmit(0, &mut iv);
-        assert!(!dropped.is_empty(), "the first generation must reach the wire");
+        assert!(
+            !dropped.is_empty(),
+            "the first generation must reach the wire"
+        );
         assert_eq!(client.sent.len(), dropped.len());
 
         // Now deliver and prove everything until the send side goes idle.
@@ -415,7 +422,11 @@ mod tests {
             0,
             "hashes from the dropped generation outlived their proved sequence"
         );
-        assert_eq!(client.unrecorded(), 0, "nothing overflowed at the desktop size");
+        assert_eq!(
+            client.unrecorded(),
+            0,
+            "nothing overflowed at the desktop size"
+        );
     }
 
     /// A table too small for the window holds its bound, keeps putting packets on the wire,
@@ -429,7 +440,11 @@ mod tests {
     fn a_full_table_holds_its_bound_and_counts_the_overflow() {
         let (mut client, _server) =
             pair_bounded::<2, 64, 256, 256, 65_536>(Some(crate::channel::WINDOW_MAX));
-        assert_eq!(client.write(&[7u8; 4_000]), 4_000, "the send queue took every byte");
+        assert_eq!(
+            client.write(&[7u8; 4_000]),
+            4_000,
+            "the send queue took every byte"
+        );
         client.finish();
         let mut ivc = 0u64;
         let mut iv = counting_iv(&mut ivc);
@@ -490,7 +505,10 @@ mod tests {
             }
         }
 
-        assert_eq!(got, payload, "the small profile must carry the bytes exactly");
+        assert_eq!(
+            got, payload,
+            "the small profile must carry the bytes exactly"
+        );
         assert!(client.send_idle(), "and must drain its queue");
     }
 
@@ -502,7 +520,11 @@ mod tests {
         let payload: Vec<u8> = (0..len as u32)
             .map(|i| (i.wrapping_mul(31).wrapping_add(7)) as u8)
             .collect();
-        assert_eq!(client.write(&payload), payload.len(), "the send queue took every byte");
+        assert_eq!(
+            client.write(&payload),
+            payload.len(),
+            "the send queue took every byte"
+        );
         client.finish();
 
         let mut fwd = LossModel::new(seed)
@@ -587,7 +609,11 @@ mod tests {
         // A proof signed by the wrong identity, or naming a packet we never sent, must not
         // release an outstanding sequence.
         let (mut client, mut server) = pair();
-        assert_eq!(client.write(b"one small message that fits in a single channel packet"), b"one small message that fits in a single channel packet".len(), "the send queue took every byte");
+        assert_eq!(
+            client.write(b"one small message that fits in a single channel packet"),
+            b"one small message that fits in a single channel packet".len(),
+            "the send queue took every byte"
+        );
         let mut ivc = 0u64;
         let mut iv = || {
             ivc += 1;
@@ -636,7 +662,11 @@ mod tests {
             ReliableChannel::new(initiator_link, client_id.clone(), server_pub);
 
         // The server sends a message; the client receives it and proves it back.
-        assert_eq!(server.write(b"a message from the server"), b"a message from the server".len(), "the send queue took every byte");
+        assert_eq!(
+            server.write(b"a message from the server"),
+            b"a message from the server".len(),
+            "the send queue took every byte"
+        );
         let mut ivc = 0u64;
         let mut iv = || {
             ivc += 1;

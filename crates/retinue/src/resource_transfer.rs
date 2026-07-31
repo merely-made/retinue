@@ -30,8 +30,8 @@
 //! take a received packet and return packets to send, and the retransmit helpers re-emit on a
 //! stall. A caller (a link task, or a virtual-clock loss test) pumps them.
 
-use alloc::vec::Vec;
 use alloc::vec;
+use alloc::vec::Vec;
 
 use crate::link::{
     CTX_RESOURCE, CTX_RESOURCE_ADV, CTX_RESOURCE_HMU, CTX_RESOURCE_ICL, CTX_RESOURCE_PRF,

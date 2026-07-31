@@ -29,7 +29,6 @@
 #[allow(unused_imports)]
 use alloc::vec;
 
-
 use alloc::vec::Vec;
 
 /// Delimits frames.

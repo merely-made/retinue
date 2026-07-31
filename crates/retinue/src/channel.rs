@@ -27,7 +27,6 @@
 //! sequence). That is exactly what makes the retransmit and reorder paths testable
 //! against a deterministic loss model on a virtual clock (see `retinue::lossy`).
 
-
 use alloc::vec::Vec;
 
 use alloc::collections::VecDeque;
@@ -154,7 +153,7 @@ struct Outstanding {
 /// A reliable, in-order message channel. See the module docs.
 ///
 /// The three parameters bound its tables. They default to the desktop profile, so writing
-/// the bare type is unchanged; a board writes [`SmallChannel`](crate::capacity::SmallChannel).
+/// the bare type is unchanged; a board writes [`SmallChannel`](crate::capacity::small_types::SmallChannel).
 ///
 /// - `WINDOW` caps in-flight envelopes. It also caps the protocol send window, which is
 ///   clamped to it at construction, so the window can never outrun its own table.
@@ -428,13 +427,7 @@ impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize>
             self.recv_next = self.recv_next.wrapping_add(1);
             // Pull any now-contiguous buffered envelopes into order, stopping if the inbox
             // fills so the rest stay held rather than dropped.
-            while !self.inbox.is_full() {
-                let Some(next) = self.reorder.remove(&self.recv_next) else {
-                    break;
-                };
-                let _ = self.inbox.push_back(next);
-                self.recv_next = self.recv_next.wrapping_add(1);
-            }
+            self.pump();
             true
         } else if (ahead as u32) < SEQ_MODULUS / 2 {
             // A future sequence within the forward half of the space: hold it, unless the
@@ -454,8 +447,30 @@ impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize>
         }
     }
 
+    /// Move contiguous frames from the reorder buffer into the inbox while there is room.
+    ///
+    /// This must run on the *read* path as well as the receive path. A frame buffered out
+    /// of order was proved when it arrived, so the sender will never retransmit it; if the
+    /// inbox fills mid-drain, that frame is stranded in `reorder` with `recv_next` pointing
+    /// at it, and no future arrival carries `recv_next` to re-trigger the drain in
+    /// [`handle`](Self::handle). Only the application making room can free it, so the pump
+    /// runs when the application reads.
+    fn pump(&mut self) {
+        while !self.inbox.is_full() {
+            let Some(next) = self.reorder.remove(&self.recv_next) else {
+                break;
+            };
+            let _ = self.inbox.push_back(next);
+            self.recv_next = self.recv_next.wrapping_add(1);
+        }
+    }
+
     /// The next in-order application payload, if one is ready.
     pub fn recv(&mut self) -> Option<Vec<u8>> {
+        // Pump before popping: if the inbox is empty but proved frames sit in the reorder
+        // buffer (see `pump`), this is the moment they become deliverable. Pumping first
+        // also means this never returns `None` while in-order data is stranded.
+        self.pump();
         self.inbox.pop_front()
     }
 
@@ -565,8 +580,8 @@ pub struct Buffer<
     saw_unsupported: bool,
 }
 
-impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize, const READ_BYTES: usize>
-    Default for Buffer<WINDOW, QUEUE, REORDER, READ_BYTES>
+impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize, const READ_BYTES: usize> Default
+    for Buffer<WINDOW, QUEUE, REORDER, READ_BYTES>
 {
     fn default() -> Self {
         Self::new()
@@ -833,7 +848,11 @@ mod tests {
             .collect();
         let mut tx: Buffer = Buffer::new();
         let mut rx: Buffer = Buffer::new();
-        assert_eq!(tx.write(&payload), payload.len(), "the send queue took every byte");
+        assert_eq!(
+            tx.write(&payload),
+            payload.len(),
+            "the send queue took every byte"
+        );
 
         let mut fwd = LossModel::new(seed)
             .drop_per_mille(drop_per_mille)
@@ -907,7 +926,9 @@ mod tests {
         use alloc::collections::BTreeMap;
         use std::collections::HashSet;
         for m in 0..messages {
-            channel.send(vec![m as u8]).expect("the send queue has room");
+            channel
+                .send(vec![m as u8])
+                .expect("the send queue has room");
         }
         let mut proof_at: BTreeMap<u64, Vec<u16>> = BTreeMap::new();
         let mut scheduled: HashSet<u16> = HashSet::new();
@@ -967,7 +988,8 @@ mod tests {
 
     #[test]
     fn max_window_one_serializes_half_duplex_turns() {
-        let mut channel: Channel = Channel::with_initial_rtt_and_max_window(STREAM_MSGTYPE, 5_000, 1);
+        let mut channel: Channel =
+            Channel::with_initial_rtt_and_max_window(STREAM_MSGTYPE, 5_000, 1);
         channel.send(vec![1]).expect("the send queue has room");
         channel.send(vec![2]).expect("the send queue has room");
 
@@ -993,7 +1015,8 @@ mod tests {
         let mut got = 0u32;
         for now in 0..5_000_000u64 {
             while sent < total && tx.in_flight() < 4 && tx.send_room() > 0 {
-                tx.send(vec![(sent % 251) as u8]).expect("the send queue has room");
+                tx.send(vec![(sent % 251) as u8])
+                    .expect("the send queue has room");
                 sent += 1;
             }
             for e in tx.poll_transmit(now) {
@@ -1048,6 +1071,42 @@ mod tests {
             "climbed into the fast tier (got {})",
             c.window()
         );
+    }
+
+    /// A proved frame must never strand in the reorder buffer (review finding, 2026-07-31).
+    ///
+    /// A frame buffered out of order is proved on arrival, so the sender never retransmits
+    /// it. If the inbox fills while the drain runs, the next contiguous frame stays in
+    /// `reorder` with `recv_next` pointing at it, and no future arrival carries `recv_next`
+    /// to re-trigger the drain in `handle`. Before `recv` pumped, that was a permanent
+    /// stall with the data sitting on the receiver.
+    #[test]
+    fn a_proved_frame_never_strands_when_the_inbox_fills_mid_drain() {
+        let env = |seq: u16| Envelope {
+            msgtype: 0x0001,
+            sequence: seq,
+            payload: vec![seq as u8],
+        };
+        // QUEUE = 2: the inbox holds two frames, so delivering seq 0 with seqs 1 and 2
+        // already buffered fills it mid-drain and leaves seq 2 behind in reorder.
+        let mut rx: Channel<8, 2, 8> = Channel::with_params(0x0001, 4, 2);
+        assert!(rx.handle(env(1)), "future frame is buffered and proved");
+        assert!(
+            rx.handle(env(2)),
+            "second future frame is buffered and proved"
+        );
+        assert!(rx.handle(env(0)), "the gap frame is delivered and proved");
+
+        // The sender got proofs for all three, so nothing will ever be retransmitted.
+        // Reading must still deliver every frame in order.
+        assert_eq!(rx.recv().as_deref(), Some(&[0u8][..]));
+        assert_eq!(rx.recv().as_deref(), Some(&[1u8][..]));
+        assert_eq!(
+            rx.recv().as_deref(),
+            Some(&[2u8][..]),
+            "the frame the full inbox left in reorder must surface once the app makes room"
+        );
+        assert_eq!(rx.recv(), None, "and nothing further is owed");
     }
 
     #[test]
@@ -1258,7 +1317,11 @@ mod tests {
         let mut tx: Buffer = Buffer::with_streams(Channel::new(STREAM_MSGTYPE), MAX_DATA_LEN, 3, 3);
         let mut rx: Buffer = Buffer::with_streams(Channel::new(STREAM_MSGTYPE), MAX_DATA_LEN, 3, 3);
         let payload: Vec<u8> = (0..2000u32).map(|i| (i * 7 + 1) as u8).collect();
-        assert_eq!(tx.write(&payload), payload.len(), "the send queue took every byte");
+        assert_eq!(
+            tx.write(&payload),
+            payload.len(),
+            "the send queue took every byte"
+        );
         assert!(tx.finish(), "the send queue had room for eof");
         let mut got = Vec::new();
         for now in 0..100_000u64 {

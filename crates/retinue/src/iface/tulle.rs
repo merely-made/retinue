@@ -1,7 +1,7 @@
 //! Bridge between an endpoint raw interface and a Tulle packet radio.
 
-use alloc::string::ToString;
 use alloc::format;
+use alloc::string::ToString;
 
 use std::future::Future;
 use std::io;

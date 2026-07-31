@@ -392,6 +392,50 @@ that holds for the receive paths, which are what a peer controls. `Outgoing`'s
 chose to send. `endpoint`'s own tables are the desktop shell and out of N1's
 scope by design.
 
+**N1 review pass, 2026-07-31, before starting N2.** Method: re-read the paths
+the bounding changed with fresh eyes, and run every CI configuration the
+sessions above had skipped. Findings, worst first:
+
+1. **A liveness bug in the bounded inbox, mine, now fixed.** A frame buffered
+   out of order is proved on arrival, so the sender never retransmits it. When
+   the inbox filled mid-drain, the next contiguous frame stranded in `reorder`
+   with `recv_next` pointing at it, and the only path that re-ran the drain was
+   an arrival carrying exactly `recv_next`, which the proof guarantees never
+   comes. The app could empty the inbox and the stream still stalled with the
+   data sitting on the receiver. The unbounded inbox had made "the drain always
+   completes" true by construction, and the bound silently falsified it. Fix:
+   the reorder drain is now a `pump` that also runs on the read path, so the
+   application making room is what frees the stranded frame. Regression test
+   `a_proved_frame_never_strands_when_the_inbox_fills_mid_drain` pins it at
+   `QUEUE = 2`. Lesson for N2 and N3: every place a bound replaces "always
+   completes", ask what used to be driven by the completing loop.
+2. **CI line 35 (`cargo test -p retinue --no-default-features`) was already
+   red before this plan's work** — verified at the plan commit in a scratch
+   worktree. Eight test files predating this plan lacked `required-features`
+   declarations; five import tokio-gated modules unconditionally. The five are
+   now declared; `link_session`, `oracle_fixtures`, and `tcp_framing` are
+   genuinely sans-io and still run without default features.
+3. **The MSRV job had never been run on this work.** Now run on the installed
+   1.88.0: all suites pass, in both feature configurations, so heapless 0.9,
+   the const-generic defaults, and the `no_std` flip hold on the declared
+   floor.
+4. **`cargo fmt --check` failed on `radio-hand`** (committed unformatted at
+   N0) and on the python-edited files. Formatted; check is clean.
+5. **One broken rustdoc link** (`capacity::SmallChannel` for
+   `capacity::small_types::SmallChannel`). Fixed; docs build warning-free.
+6. **Pre-existing, not fixed here:** the exact CI clippy line
+   (`--all-targets --all-features -- -D warnings` at the workspace root) fails
+   in `vendor/embedded-graphics-core` on `doc list item overindented`, a lint
+   newer than the vendor copy. Untouched by this plan's work; the vendored
+   crate keeps its own lint policy and the fix belongs with the vendoring.
+
+Re-reads that found nothing wrong, recorded so they are not re-litigated:
+`pending` in the endpoint driver is bounded by one `WRITE_CHUNK` because the
+read arm gates on `pending.is_empty()`; the `poll_transmit` rollback pops only
+fresh envelopes because retransmits are appended after the fill loop; the
+sweep in `on_proof` keeps duplicate hashes for a sequence until it is proved,
+which is correct because either transmission's proof may return.
+
 Next is N2: move the radio service out of the two firmware `main.rs` files into
 `radio-hand`, which N0 already founded.
 

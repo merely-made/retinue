@@ -70,10 +70,7 @@ pub enum EncodeError {
     /// The body is longer than the length field can describe.
     BodyTooLong,
     /// The destination cannot hold the header, the body, and word padding.
-    SlotTooSmall {
-        needed: usize,
-        available: usize,
-    },
+    SlotTooSmall { needed: usize, available: usize },
 }
 
 /// A record read out of a slot.
@@ -333,10 +330,7 @@ mod tests {
     fn body_longer_than_the_length_field_is_refused() {
         let body = [0u8; 70_000];
         let mut out = [0u8; 70_016];
-        assert_eq!(
-            encode(0, &body, &mut out),
-            Err(EncodeError::BodyTooLong)
-        );
+        assert_eq!(encode(0, &body, &mut out), Err(EncodeError::BodyTooLong));
     }
 
     #[test]

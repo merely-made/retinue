@@ -5,8 +5,8 @@
 //! egress interface signs and masks the logical packet again with its own
 //! credentials.
 
-use alloc::vec::Vec;
 use alloc::vec;
+use alloc::vec::Vec;
 
 use core::fmt;
 

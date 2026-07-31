@@ -33,8 +33,8 @@
 //! crate gets this right on one code path and wrong on another, so it could not be trusted
 //! here.
 
-use alloc::vec::Vec;
 use alloc::vec;
+use alloc::vec::Vec;
 
 use aes::Aes256;
 use aes::cipher::block_padding::Pkcs7;
@@ -106,8 +106,8 @@ impl DerivedKeys {
             .expect("buffer has a full block of headroom");
         out.extend_from_slice(ct);
 
-        let mut mac =
-            <HmacSha256 as KeyInit>::new_from_slice(&self.sign).expect("HMAC accepts a 32-byte key");
+        let mut mac = <HmacSha256 as KeyInit>::new_from_slice(&self.sign)
+            .expect("HMAC accepts a 32-byte key");
         mac.update(&out);
         out.extend_from_slice(&mac.finalize().into_bytes());
         out
@@ -122,8 +122,8 @@ impl DerivedKeys {
         }
         let (body, tag) = token.split_at(token.len() - MAC_LEN);
 
-        let mut mac =
-            <HmacSha256 as KeyInit>::new_from_slice(&self.sign).expect("HMAC accepts a 32-byte key");
+        let mut mac = <HmacSha256 as KeyInit>::new_from_slice(&self.sign)
+            .expect("HMAC accepts a 32-byte key");
         mac.update(body);
         mac.verify_slice(tag).map_err(|_| Error::BadMac)?;
 
