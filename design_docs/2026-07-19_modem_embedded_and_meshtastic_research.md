@@ -264,6 +264,14 @@ the tests derived from them without copying firmware source.
 
 ## Native Retinue personality
 
+> **Superseded in part (2026-07-31).** This section's boundary is still right,
+> and the gates now live in
+> [`2026-07-31_retinue_small_plan.md`](2026-07-31_retinue_small_plan.md).
+> Two corrections: the `std` claim below is scoped to `Endpoint`, since the
+> sans-io core is down to five `std` import sites and is otherwise alloc-only;
+> and the personality order has changed, with `retinue-small` now the trunk
+> ahead of broad Meshtastic parity rather than one lane among three.
+
 The independent radio crate does not by itself put Retinue on the board. Retinue
 still needs an executor-neutral, bounded state machine:
 

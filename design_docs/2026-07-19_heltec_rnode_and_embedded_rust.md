@@ -211,6 +211,30 @@ mesh/retry layer and fragment reassembly.
 
 ## Third system: Retinue on the board
 
+> **Superseded in part (2026-07-31).** No longer the third system. Native
+> Retinue is the trunk, and the gates live in
+> [`2026-07-31_retinue_small_plan.md`](2026-07-31_retinue_small_plan.md).
+> Three corrections, in descending importance:
+>
+> 1. **The package split below is not the shape.** Capacity parameters go on
+>    `channel`, `reliable`, `resource`, and `address_book` **in place**, so the
+>    desktop instantiates large and the board small across one algorithm. A
+>    `core`/`node`/`host` package split is acceptable only if both shells depend
+>    on one set of algorithms; the moment the board carries its own windowing or
+>    reassembly, `Endpoint` stops being an oracle for it. That is the project's
+>    most valuable asset and it is not worth a package boundary.
+> 2. **The `std` paragraph below overstates the core.** It is accurate about
+>    `Endpoint` and wrong about the rest. Non-test, non-feature-gated `std` in
+>    the sans-io core is five import sites; `packet`, `identity`, `announce`,
+>    `token`, `link`, `request`, `ifac`, `hash`, `path`, `destination`, and
+>    `iface::hdlc` are alloc-only already. Alloc exists on the T114, so the port
+>    is not the work. The capacity contract is.
+> 3. **`endpoint-small` is now `retinue-small`**, and it names a firmware
+>    personality rather than a library profile.
+>
+> The boundary sketch, the runtime-choice section, the profile table's scope
+> rulings, and the done conditions all still hold and are carried into the plan.
+
 The wire modules being free of Tokio is helpful but not yet an embedded port.
 `Endpoint` and the interface seam use Tokio tasks, unbounded MPSC channels,
 `Arc<Mutex<_>>`, `std::collections`, sockets, and `std::time`. Channel, routing,
