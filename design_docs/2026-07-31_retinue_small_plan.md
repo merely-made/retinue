@@ -306,12 +306,21 @@ while listening, so the board was known good before anything was flashed.
   rewrites only the application from `0x26000`, this is the stronger claim: the
   identity survives an application update, not merely a reboot.
 
-Open, and honestly not done:
+Task storage, read off the ELF: the largest future is `screen_task` at 6,776
+bytes, then `embassy_main` at 1,968, `usb_task` at 576, and `button_task` at
+136, so all four pools together are 9,456 of the 10,916 bss. The store's buffers
+are stack rather than future, because nothing in the load path awaits.
+
+**Scope call: settings over the wire moves to N2.** N0 is the substrate, meaning
+entropy and persistence, and both are proven. What a stored record *contains*
+beyond the identity belongs with whoever owns config apply, and that is
+`radio-hand` at N2. Persisting a profile before the crate that applies profiles
+exists would put the wire format in the firmware and move it again immediately.
+
+Open:
 
 - **Power loss specifically.** Reset and reflash are proven; pulling the plug is
   not, and it is the literal wording of the done condition.
-- Settings over the wire, so a stored profile changes without a reflash.
-- Maximum task and future size is not yet measured.
 
 Harness note: the direct-PHY harness is `crates/retinue/examples/direct_phy_*`
 behind the `tulle-radio` feature, alongside the `oracle/` drivers. There is no
