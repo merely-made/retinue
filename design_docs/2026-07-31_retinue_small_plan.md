@@ -1,7 +1,7 @@
 # retinue-small plan
 
-**Status:** N0 landed on the desk and is waiting on the T114 for its receipt;
-settings-over-the-wire still open
+**Status:** N0 proven on the T114 across reset and application reflash; the
+power-loss leg and settings-over-the-wire are still open
 **Design authority:**
 [`2026-07-19_modem_embedded_and_meshtastic_research.md`](2026-07-19_modem_embedded_and_meshtastic_research.md)
 (*Native Retinue personality*) supplies the boundary and
@@ -284,13 +284,35 @@ Receipts:
 - Heap high-water is zero by construction: the image has no allocator.
 - Clippy clean at `-D warnings` for `radio-hand` and for the firmware.
 
+**N0 hardware receipt, 2026-07-31, T114 on COM10 against a V4 on COM6.**
+
+Control first: the pre-N0 image answered on COM10 with its banner and no
+`identity=` line, and caught an unrelated 83-byte LongFast frame at -113 dBm
+while listening, so the board was known good before anything was flashed.
+
+- v16 flashed over serial DFU, 75,268 bytes, 4.85s.
+- First boot: `identity=created slot=A`. Blank flash, identity generated from
+  the hardware RNG, written to slot A, and read back, since a failed read-back
+  reports `identity=unavailable` instead.
+- **The SoftDevice risk is retired.** The image links above S140 and never
+  enables it, and direct NVMC access worked, which was the open question and the
+  thing that would have faulted on the first write.
+- RF regression through the existing `direct_phy_bytes` harness: 4,096 bytes
+  byte-exact V4 to T114 in 26.2s, `RETINUE DIRECT-PHY BYTES HEADED PASSED`, and
+  the payload independently confirmed by matching SHA-256. The flash carve did
+  not disturb the radio path.
+- Reset and full application reflash, then: `identity=loaded slot=A seq=0`. Same
+  slot, same sequence, so the record was read rather than reminted. Because DFU
+  rewrites only the application from `0x26000`, this is the stronger claim: the
+  identity survives an application update, not merely a reboot.
+
 Open, and honestly not done:
 
-- **The hardware receipt.** N0's done condition is survival across reboot and
-  power loss, and that needs the board. Nothing here has run on a T114.
-- **The SoftDevice assumption.** The image links above S140 but never enables
-  it, so direct NVMC access should be free. If the bootloader hands over with
-  the SoftDevice live, the first write faults instead. This is the specific
-  thing the first flash tests.
+- **Power loss specifically.** Reset and reflash are proven; pulling the plug is
+  not, and it is the literal wording of the done condition.
 - Settings over the wire, so a stored profile changes without a reflash.
 - Maximum task and future size is not yet measured.
+
+Harness note: the direct-PHY harness is `crates/retinue/examples/direct_phy_*`
+behind the `tulle-radio` feature, alongside the `oracle/` drivers. There is no
+`Code/testing/retinue/`, which is where the family convention would put it.
