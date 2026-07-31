@@ -37,6 +37,14 @@
 //! Derived by solving against two independently captured (request, link id) pairs; only
 //! this formula satisfies both. See `oracle/capture_link.py`.
 
+// Needed by the test build or the tokio shell; the bare no_std lib does not reach it.
+#[allow(unused_imports)]
+use alloc::string::ToString;
+
+
+use alloc::vec::Vec;
+use alloc::vec;
+
 use x25519_dalek::PublicKey as XPublicKey;
 
 use crate::hash::{ADDRESS_HASH_LEN, AddressHash};

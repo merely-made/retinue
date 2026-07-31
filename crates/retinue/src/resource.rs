@@ -21,6 +21,13 @@
 //! q  binary request id for a response Resource, nil otherwise
 //! ```
 
+// Needed by the test build or the tokio shell; the bare no_std lib does not reach it.
+#[allow(unused_imports)]
+use alloc::vec;
+
+
+use alloc::vec::Vec;
+
 use crate::hash::full_hash;
 use crate::{Error, Result};
 
@@ -467,7 +474,7 @@ pub struct Incoming {
     /// each [`Hmu`] arrives.
     order: Vec<[u8; MAPHASH_LEN]>,
     /// Collected parts, keyed by map hash. Never exceeds `order`, which `max_parts` caps.
-    parts: std::collections::HashMap<[u8; MAPHASH_LEN], Vec<u8>>,
+    parts: alloc::collections::BTreeMap<[u8; MAPHASH_LEN], Vec<u8>>,
     /// The most parts this receiver will accept for one segment.
     ///
     /// A runtime cap rather than a const generic, because the count is large and
@@ -507,7 +514,7 @@ impl Incoming {
             compressed: adv.flags & FLAG_COMPRESSED != 0,
             total_parts: adv.parts as usize,
             order,
-            parts: std::collections::HashMap::new(),
+            parts: alloc::collections::BTreeMap::new(),
             max_parts,
         })
     }
@@ -687,7 +694,7 @@ pub struct Outgoing {
     /// All part map hashes, in transfer order.
     map_hashes: Vec<[u8; MAPHASH_LEN]>,
     /// Parts (raw token slices) keyed by map hash.
-    by_hash: std::collections::HashMap<[u8; MAPHASH_LEN], Vec<u8>>,
+    by_hash: alloc::collections::BTreeMap<[u8; MAPHASH_LEN], Vec<u8>>,
     expected_proof: [u8; 32],
 }
 
@@ -714,7 +721,7 @@ impl Outgoing {
         let hash = resource_hash(data, &random_hash);
         let (parts, _hashmap) = split_parts_with_size(token, &random_hash, part_size);
         let mut map_hashes = Vec::with_capacity(parts.len());
-        let mut by_hash = std::collections::HashMap::new();
+        let mut by_hash = alloc::collections::BTreeMap::new();
         for p in parts {
             let m = map_hash(&p, &random_hash);
             map_hashes.push(m);

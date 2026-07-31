@@ -5,6 +5,9 @@
 //! egress interface signs and masks the logical packet again with its own
 //! credentials.
 
+use alloc::vec::Vec;
+use alloc::vec;
+
 use core::fmt;
 
 use ed25519_dalek::{Signer, SigningKey};

@@ -27,7 +27,10 @@
 //! sequence). That is exactly what makes the retransmit and reorder paths testable
 //! against a deterministic loss model on a virtual clock (see `retinue::lossy`).
 
-use std::collections::VecDeque;
+
+use alloc::vec::Vec;
+
+use alloc::collections::VecDeque;
 
 use heapless::Deque;
 use heapless::index_map::FnvIndexMap;
@@ -750,6 +753,12 @@ impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize, const READ_B
 
 #[cfg(test)]
 mod tests {
+    // The crate is `no_std`, so the tests take these from alloc rather than the std prelude.
+    use alloc::format;
+    use alloc::string::String;
+    use alloc::vec;
+    use alloc::vec::Vec;
+
     use super::{
         Buffer, Channel, DEFAULT_RETX_TIMEOUT, Envelope, MAX_DATA_LEN, STREAM_ID_MAX,
         STREAM_MSGTYPE, StreamFrame, WINDOW_INITIAL,
@@ -847,7 +856,7 @@ mod tests {
             }
             // Deliver due envelopes; prove each one back (dup or not).
             let mut still = Vec::new();
-            for (t, e) in std::mem::take(&mut to_rx) {
+            for (t, e) in core::mem::take(&mut to_rx) {
                 if t <= now {
                     let seq = e.sequence;
                     let _ = rx.handle(e);
@@ -895,7 +904,8 @@ mod tests {
     /// `rtt` ticks). Each sequence's proof returns once, `rtt` ticks after its first send;
     /// retransmits issued before then are the waste this measures.
     fn transmissions_over_rtt(mut channel: Channel, rtt: u64, messages: usize) -> usize {
-        use std::collections::{BTreeMap, HashSet};
+        use alloc::collections::BTreeMap;
+        use std::collections::HashSet;
         for m in 0..messages {
             channel.send(vec![m as u8]).expect("the send queue has room");
         }

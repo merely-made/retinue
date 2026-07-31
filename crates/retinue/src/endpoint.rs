@@ -14,6 +14,11 @@
 //! for a host transport reaching many peers. This is the seam a host implements its own
 //! transport trait against; see the crate root.
 
+use alloc::vec::Vec;
+use alloc::vec;
+use alloc::string::ToString;
+use alloc::format;
+
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io;
 use std::net::SocketAddr;

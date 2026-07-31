@@ -21,6 +21,16 @@
 //! and byte strings (`bin8`/`bin16`/`bin32`, and `nil` decoded as empty). Anything else is
 //! a [`Error::BadRequest`].
 
+// Needed by the test build or the tokio shell; the bare no_std lib does not reach it.
+#[allow(unused_imports)]
+use alloc::vec;
+// Needed by the test build or the tokio shell; the bare no_std lib does not reach it.
+#[allow(unused_imports)]
+use alloc::string::ToString;
+
+
+use alloc::vec::Vec;
+
 use crate::hash::AddressHash;
 use crate::{Error, Result};
 

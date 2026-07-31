@@ -8,8 +8,15 @@
 //! own a clock, entropy, or durable storage. Hosts supply all three. Snapshot bytes contain
 //! private keys and must be protected like an identity secret.
 
+// Needed by the test build or the tokio shell; the bare no_std lib does not reach it.
+#[allow(unused_imports)]
+use alloc::format;
+
+
+use alloc::vec::Vec;
+
 use core::fmt;
-use std::time::Duration;
+use core::time::Duration;
 
 use x25519_dalek::{PublicKey as XPublicKey, StaticSecret};
 
@@ -67,7 +74,7 @@ impl fmt::Display for RatchetError {
     }
 }
 
-impl std::error::Error for RatchetError {}
+impl core::error::Error for RatchetError {}
 
 impl From<crate::Error> for RatchetError {
     fn from(value: crate::Error) -> Self {

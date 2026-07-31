@@ -41,6 +41,15 @@
 //! emitted are checked in as fixtures under `tests/fixtures/`. See
 //! `design_docs/2026-07-13_rns_wire_format_reference.md`.
 
+#![no_std]
+
+// The sans-io core is `no_std + alloc`: payloads are heap-allocated, but nothing here needs
+// an operating system. `std` comes back only for the tokio shell and the test harness, which
+// are the parts that genuinely have one.
+extern crate alloc;
+#[cfg(any(feature = "tokio", test))]
+extern crate std;
+
 pub mod address_book;
 pub mod announce;
 pub mod capacity;

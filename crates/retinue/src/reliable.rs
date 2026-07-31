@@ -27,6 +27,8 @@
 //! proof in. That is exactly the shape a virtual-clock loss test drives (see the tests), so
 //! the reliable path is validated on the desk before any radio exists.
 
+use alloc::vec::Vec;
+
 use heapless::index_map::FnvIndexMap;
 
 use crate::capacity::desktop;
@@ -528,7 +530,7 @@ mod tests {
                 }
             }
             let mut still = Vec::new();
-            for (t, pkt) in std::mem::take(&mut to_server) {
+            for (t, pkt) in core::mem::take(&mut to_server) {
                 if t <= now {
                     if let Some(proof) = server.on_data_packet(&pkt)
                         && !bwd.should_drop()

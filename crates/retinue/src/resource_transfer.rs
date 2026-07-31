@@ -30,6 +30,9 @@
 //! take a received packet and return packets to send, and the retransmit helpers re-emit on a
 //! stall. A caller (a link task, or a virtual-clock loss test) pumps them.
 
+use alloc::vec::Vec;
+use alloc::vec;
+
 use crate::link::{
     CTX_RESOURCE, CTX_RESOURCE_ADV, CTX_RESOURCE_HMU, CTX_RESOURCE_ICL, CTX_RESOURCE_PRF,
     CTX_RESOURCE_RCL, CTX_RESOURCE_REQ, Link,
@@ -459,10 +462,10 @@ mod tests {
         let mut to_receiver = vec![sender.advertisement(&ivg())];
         let mut to_sender: Vec<Packet> = Vec::new();
         for _ in 0..100 {
-            for pkt in std::mem::take(&mut to_receiver) {
+            for pkt in core::mem::take(&mut to_receiver) {
                 to_sender.extend(receiver.on_packet(&pkt, &mut ivg));
             }
-            for pkt in std::mem::take(&mut to_sender) {
+            for pkt in core::mem::take(&mut to_sender) {
                 to_receiver.extend(sender.on_packet(&pkt, &mut ivg));
             }
             if sender.is_done() && receiver.is_complete() {
@@ -485,11 +488,11 @@ mod tests {
         let mut to_sender = Vec::new();
 
         for _ in 0..500 {
-            for packet in std::mem::take(&mut to_receiver) {
+            for packet in core::mem::take(&mut to_receiver) {
                 assert!(packet.encoded_len() <= 255);
                 to_sender.extend(receiver.on_packet(&packet, &mut ivg));
             }
-            for packet in std::mem::take(&mut to_sender) {
+            for packet in core::mem::take(&mut to_sender) {
                 assert!(packet.encoded_len() <= 255);
                 let replies = sender.on_packet(&packet, &mut ivg);
                 assert!(replies.len() <= 1, "one-part request window");
@@ -539,7 +542,7 @@ mod tests {
                 }
             }
             let mut still = Vec::new();
-            for (t, pkt) in std::mem::take(&mut to_receiver) {
+            for (t, pkt) in core::mem::take(&mut to_receiver) {
                 if t <= now {
                     for out in receiver.on_packet(&pkt, &mut ivg) {
                         if !bwd.should_drop() {
@@ -552,7 +555,7 @@ mod tests {
             }
             to_receiver = still;
             let mut still = Vec::new();
-            for (t, pkt) in std::mem::take(&mut to_sender) {
+            for (t, pkt) in core::mem::take(&mut to_sender) {
                 if t <= now {
                     for out in sender.on_packet(&pkt, &mut ivg) {
                         if !fwd.should_drop() {

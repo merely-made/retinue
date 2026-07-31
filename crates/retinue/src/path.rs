@@ -22,6 +22,13 @@
 //! `6b9f66014d9853faab220fba47d02761`; answering a path request for its own destination, RNS
 //! emits a 167-byte announce with context byte `0x0b`.
 
+// Needed by the test build or the tokio shell; the bare no_std lib does not reach it.
+#[allow(unused_imports)]
+use alloc::string::ToString;
+
+
+use alloc::vec::Vec;
+
 use crate::destination::DestinationName;
 use crate::hash::AddressHash;
 use crate::packet::{DestinationType, HeaderType, Packet, PacketType, Propagation};

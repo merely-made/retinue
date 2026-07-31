@@ -1,7 +1,7 @@
 # retinue-small plan
 
-**Status:** N0 proven on the T114 across reset and application reflash; the
-power-loss leg and settings-over-the-wire are still open
+**Status:** N0 proven on the T114 across reset and application reflash, power-loss
+leg open; N1 complete, the sans-io core cross-compiles for the board; N2 next
 **Design authority:**
 [`2026-07-19_modem_embedded_and_meshtastic_research.md`](2026-07-19_modem_embedded_and_meshtastic_research.md)
 (*Native Retinue personality*) supplies the boundary and
@@ -355,10 +355,45 @@ that carries 3,000 bytes through `SmallReliableChannel`, proving the board
 profile runs the same code as the desktop. Clippy clean at `-D warnings
 --no-deps`.
 
-Remaining for N1: bound `resource` and `address_book`, then the `no_std + alloc`
-flip. `cargo check --no-default-features --target thumbv7em-none-eabihf` reports
-550 errors today, nearly all cascading from the crate not yet declaring
-`#![no_std]`.
+**N1 COMPLETE, 2026-07-31.** All four done conditions are met.
+
+`resource` and `address_book` took runtime caps rather than fixed tables, and
+the distinction is deliberate: `channel`'s tables are small and fixed, so
+`heapless` suits them, while these two are policy-sized or data-driven and a
+structural bound would commit the desktop's whole worst case as static storage.
+
+The resource cap closed a real hole. `Advertisement.parts` is a wire `u64`
+chosen by the sender and was never validated, so a peer could claim an
+arbitrarily large resource and this node would hold reassembly state for it.
+`Incoming` now refuses past its ceiling with `Error::CapacityExceeded`, and
+`ingest_hmu` stops appending at the same ceiling; bounding `order` bounds
+`parts` too, since a part is only accepted for a hash already listed there.
+`AddressBook` holds `max_peers` destinations and reports `Learned`, `Refreshed`
+or `Refused`; a full book still refreshes what it knows, so a flood of unknown
+destinations cannot displace established peers.
+
+The `no_std + alloc` flip: `#![no_std]` with `extern crate alloc`, and `std`
+back only for the tokio shell and the test harness, which genuinely have an
+operating system. The remaining `HashMap`s became `alloc::collections::BTreeMap`
+rather than taking on `hashbrown` — the keys are `Ord` and the tables are small.
+
+- `cargo check -p retinue --no-default-features --target thumbv7em-none-eabihf`
+  succeeds. The sans-io core cross-compiles for the T114.
+- 162 tests across 15 suites pass, unchanged in behaviour.
+- Capacity is typed and visible everywhere it can be reached: `CapacityExceeded`
+  on an oversized advertisement, `Err` from `Channel::send`, `Ingested::Refused`
+  from the address book, `unrecorded()` on the reliable channel, and short
+  returns from `Buffer::write`.
+- Clippy clean at `-D warnings --no-deps` in **both** configurations.
+
+One honest qualification on "no collection grows without a declared bound":
+that holds for the receive paths, which are what a peer controls. `Outgoing`'s
+`by_hash` and `map_hashes` are sender-side and bounded by the data this node
+chose to send. `endpoint`'s own tables are the desktop shell and out of N1's
+scope by design.
+
+Next is N2: move the radio service out of the two firmware `main.rs` files into
+`radio-hand`, which N0 already founded.
 
 Harness note: the direct-PHY harness is `crates/retinue/examples/direct_phy_*`
 behind the `tulle-radio` feature, alongside the `oracle/` drivers. There is no

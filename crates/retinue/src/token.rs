@@ -33,6 +33,9 @@
 //! crate gets this right on one code path and wrong on another, so it could not be trusted
 //! here.
 
+use alloc::vec::Vec;
+use alloc::vec;
+
 use aes::Aes256;
 use aes::cipher::block_padding::Pkcs7;
 use aes::cipher::{BlockModeDecrypt, BlockModeEncrypt, KeyIvInit};

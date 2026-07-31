@@ -9,7 +9,14 @@
 //! entry only ever comes from an announce whose signature checked out. Cadence and I/O live
 //! in the tokio shell above; this holds no timers and does no network.
 
-use std::collections::HashMap;
+// Needed by the test build or the tokio shell; the bare no_std lib does not reach it.
+#[allow(unused_imports)]
+use alloc::format;
+
+
+use alloc::vec::Vec;
+
+use alloc::collections::BTreeMap;
 
 use crate::announce::{Announce, RATCHET_LEN};
 use crate::hash::{AddressHash, NameHash};
@@ -54,7 +61,7 @@ pub enum Ingested {
 
 /// A store of peers learned from announces, keyed by destination hash.
 pub struct AddressBook {
-    peers: HashMap<AddressHash, Peer>,
+    peers: BTreeMap<AddressHash, Peer>,
     max_peers: usize,
     refused: u64,
 }
@@ -73,7 +80,7 @@ impl AddressBook {
     /// A book that holds at most `max_peers` destinations.
     pub fn with_max_peers(max_peers: usize) -> Self {
         Self {
-            peers: HashMap::new(),
+            peers: BTreeMap::new(),
             max_peers,
             refused: 0,
         }

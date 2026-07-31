@@ -8,6 +8,8 @@
 //! [`TcpInterface::from_stream`] (what a server does with an accepted socket) produce the
 //! same thing.
 
+use alloc::vec::Vec;
+
 use std::collections::VecDeque;
 use std::io;
 use std::net::SocketAddr;

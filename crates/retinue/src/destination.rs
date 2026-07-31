@@ -13,6 +13,13 @@
 //! through its own hash. Verified against RNS 1.3.8: the fixture vector reproduces
 //! `example_utilities.announcesample.fruits` as `2419dca3c93718497b91990373df1503`.
 
+// Needed by the test build or the tokio shell; the bare no_std lib does not reach it.
+#[allow(unused_imports)]
+use alloc::vec::Vec;
+
+
+use alloc::string::String;
+
 use crate::hash::{AddressHash, NameHash};
 use crate::identity::Identity;
 

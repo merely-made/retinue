@@ -25,6 +25,13 @@
 //! This module is sans-io: [`frame`] is a pure function, and [`Deframer`] is a state
 //! machine fed arbitrary byte chunks, because TCP does not respect frame boundaries.
 
+// Needed by the test build or the tokio shell; the bare no_std lib does not reach it.
+#[allow(unused_imports)]
+use alloc::vec;
+
+
+use alloc::vec::Vec;
+
 /// Delimits frames.
 pub const FLAG: u8 = 0x7E;
 

@@ -31,6 +31,8 @@
 //! fixtures in which a single flipped byte (including one in the *header*) must and does
 //! fail validation.
 
+use alloc::vec::Vec;
+
 use crate::destination::destination_hash;
 use crate::hash::{AddressHash, NameHash};
 use crate::identity::{IDENTITY_LEN, Identity, KEY_LEN, PrivateIdentity, SIGNATURE_LEN};

@@ -27,6 +27,16 @@
 //! ratchets enabled has `0x21`, differing only in bit 5. `HEADER_MINSIZE = 19` = 2 + 16 + 1
 //! and `HEADER_MAXSIZE = 35` = 2 + 16 + 16 + 1 corroborate the address-field layout.
 
+// Needed by the test build or the tokio shell; the bare no_std lib does not reach it.
+#[allow(unused_imports)]
+use alloc::vec;
+// Needed by the test build or the tokio shell; the bare no_std lib does not reach it.
+#[allow(unused_imports)]
+use alloc::string::ToString;
+
+
+use alloc::vec::Vec;
+
 use crate::hash::{ADDRESS_HASH_LEN, AddressHash};
 use crate::{Error, Result};
 

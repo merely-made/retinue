@@ -34,6 +34,8 @@
 //! # }
 //! ```
 
+
+
 #[cfg(feature = "tokio")]
 use std::time::Duration;
 
@@ -164,6 +166,7 @@ async fn pump(
 
 #[cfg(all(test, feature = "tokio"))]
 mod tests {
+    // `no_std` crate: the tests take Vec from alloc, not the std prelude.
     use std::time::Duration;
 
     use tokio::time::{Instant, timeout};
@@ -223,6 +226,8 @@ mod tests {
 
 #[cfg(test)]
 mod model_tests {
+    // `no_std` crate: Vec comes from alloc, not the std prelude.
+    use alloc::vec::Vec;
     use super::LossModel;
 
     #[test]
