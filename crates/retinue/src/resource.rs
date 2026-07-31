@@ -307,6 +307,10 @@ impl Advertisement {
 /// `HASHMAP_MAX_LEN` is 74 part-hashes; the rest stream via [`Hmu`].
 pub const HASHMAP_MAX_PARTS: usize = 74;
 
+/// The most parts a receiver accepts for one segment unless told otherwise: roughly 1 MB at
+/// the default part size, which is the single-segment ceiling the format already implies.
+pub const DEFAULT_MAX_PARTS: usize = 4096;
+
 /// A parsed part request (context `RESOURCE_REQ`).
 ///
 /// Normal: `0x00 || resource_hash(32) || wanted(4*N)`. Exhausted (soliciting more hashmap):
@@ -462,16 +466,33 @@ pub struct Incoming {
     /// Map hashes in transfer order. Starts with the advertisement's hashmap and grows as
     /// each [`Hmu`] arrives.
     order: Vec<[u8; MAPHASH_LEN]>,
-    /// Collected parts, keyed by map hash.
+    /// Collected parts, keyed by map hash. Never exceeds `order`, which `max_parts` caps.
     parts: std::collections::HashMap<[u8; MAPHASH_LEN], Vec<u8>>,
+    /// The most parts this receiver will accept for one segment.
+    ///
+    /// A runtime cap rather than a const generic, because the count is large and
+    /// data-dependent: a structural bound would commit the whole worst case as static
+    /// storage for every transfer, where the small tables in `channel` are fixed and tiny.
+    max_parts: usize,
 }
 
 impl Incoming {
     /// Begin receiving from an advertisement. Accepts a partial hashmap (a large resource
     /// whose hashmap streams via [`Hmu`]); the missing hashes arrive later.
     pub fn new(adv: &Advertisement) -> Result<Self> {
+        Self::new_with_max_parts(adv, DEFAULT_MAX_PARTS)
+    }
+
+    /// Begin receiving with an explicit part ceiling. A board sets this far lower than a
+    /// desktop; see `design_docs/2026-07-31_retinue_small_plan.md`.
+    pub fn new_with_max_parts(adv: &Advertisement, max_parts: usize) -> Result<Self> {
         if adv.resource_hash.len() != 32 {
             return Err(Error::BadRequest);
+        }
+        // `parts` is a wire u64 chosen by the peer. Without this a sender advertises an
+        // arbitrarily large resource and this node holds reassembly state for it forever.
+        if adv.parts > max_parts as u64 {
+            return Err(Error::CapacityExceeded);
         }
         let mut hash = [0u8; 32];
         hash.copy_from_slice(&adv.resource_hash);
@@ -487,6 +508,7 @@ impl Incoming {
             total_parts: adv.parts as usize,
             order,
             parts: std::collections::HashMap::new(),
+            max_parts,
         })
     }
 
@@ -541,15 +563,26 @@ impl Incoming {
     }
 
     /// Ingest an HMU's hashes, appending any new ones in order. Returns how many were added.
+    ///
+    /// Stops at `max_parts`. Bounding `order` bounds `parts` too, because a part is only
+    /// accepted for a hash already listed here.
     pub fn ingest_hmu(&mut self, hmu: &Hmu) -> usize {
         let mut added = 0;
         for h in &hmu.hashes {
+            if self.order.len() >= self.max_parts {
+                break;
+            }
             if !self.order.contains(h) {
                 self.order.push(*h);
                 added += 1;
             }
         }
         added
+    }
+
+    /// The part ceiling this receiver was built with.
+    pub fn max_parts(&self) -> usize {
+        self.max_parts
     }
 
     /// Take a received part (a raw token slice). Returns true only when it adds a
@@ -1164,6 +1197,36 @@ mod tests {
 
     /// A >74-part resource round-trips sender -> receiver through the windowed HMU path,
     /// entirely in-process (no RNS): advertise, request windows, solicit + ingest HMUs,
+    /// A peer chooses the advertised part count, and the wire field is a `u64`. Without a
+    /// ceiling this node holds reassembly state for a resource the peer simply made up.
+    #[test]
+    fn an_advertisement_claiming_more_parts_than_the_limit_is_refused() {
+        let data: Vec<u8> = (0..4_000u32).map(|i| i as u8).collect();
+        let rh = [0xAB, 0xCD, 0xEF, 0x01];
+        let out = Outgoing::new(&data, &data, rh, false);
+
+        let honest = out.advertisement();
+        let claimed = honest.parts;
+        assert!(claimed > 1, "the fixture needs more than one part to be a real test");
+
+        // The honest advertisement is accepted at a limit that covers it, and refused at one
+        // that does not. The node returns a typed error rather than allocating.
+        assert!(Incoming::new_with_max_parts(&honest, claimed as usize).is_ok());
+        assert_eq!(
+            Incoming::new_with_max_parts(&honest, (claimed - 1) as usize).err(),
+            Some(Error::CapacityExceeded)
+        );
+
+        // An outright lie is refused by the default ceiling.
+        let mut liar = out.advertisement();
+        liar.parts = u64::MAX;
+        assert_eq!(
+            Incoming::new(&liar).err(),
+            Some(Error::CapacityExceeded),
+            "a peer must not be able to claim an unbounded resource"
+        );
+    }
+
     /// serve, reassemble.
     #[test]
     fn windowed_sender_receiver_round_trip() {

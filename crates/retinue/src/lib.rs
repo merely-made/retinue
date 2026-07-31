@@ -111,6 +111,10 @@ pub enum Error {
     ResourceCorrupt,
     /// The operation needs a feature that is not enabled (e.g. `compression`).
     Unsupported,
+    /// A peer asked for more state than this node's capacity policy allows: an
+    /// advertisement claiming more parts than the receive limit, or a table already at its
+    /// bound. The node stays live and refuses the work.
+    CapacityExceeded,
 }
 
 impl core::fmt::Display for Error {
@@ -132,6 +136,7 @@ impl core::fmt::Display for Error {
             Self::BadRequest => "malformed request or response",
             Self::ResourceCorrupt => "reassembled resource does not match its hash",
             Self::Unsupported => "operation needs a disabled feature",
+            Self::CapacityExceeded => "peer asked for more state than the capacity policy allows",
         };
         f.write_str(s)
     }
