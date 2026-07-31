@@ -27,7 +27,10 @@
 //! sequence). That is exactly what makes the retransmit and reorder paths testable
 //! against a deterministic loss model on a virtual clock (see `retinue::lossy`).
 
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::VecDeque;
+
+use heapless::Deque;
+use heapless::index_map::FnvIndexMap;
 
 /// The sequence space: sequences are 16-bit and wrap at this modulus (RNS
 /// `SEQ_MODULUS`). Comparisons use wrapping distance with a half-modulus split to
@@ -146,7 +149,23 @@ struct Outstanding {
 }
 
 /// A reliable, in-order message channel. See the module docs.
-pub struct Channel {
+///
+/// The three parameters bound its tables. They default to the desktop profile, so writing
+/// the bare type is unchanged; a board writes [`SmallChannel`](crate::capacity::SmallChannel).
+///
+/// - `WINDOW` caps in-flight envelopes. It also caps the protocol send window, which is
+///   clamped to it at construction, so the window can never outrun its own table.
+/// - `QUEUE` bounds the application-facing queues in each direction.
+/// - `REORDER` bounds held-back future sequences, defaulting to [`REORDER_MAX`].
+///
+/// Payloads stay heap-allocated, so an entry costs a `Vec` header rather than
+/// [`MAX_DATA_LEN`] bytes and an idle channel stays cheap. What is bounded here is how many
+/// entries exist, which is what grows without limit on a lossy medium.
+pub struct Channel<
+    const WINDOW: usize = 64,
+    const QUEUE: usize = 256,
+    const REORDER: usize = REORDER_MAX,
+> {
     msgtype: u16,
     window: u32,
     /// Caller-selected ceiling for dynamic growth. A value of one serializes
@@ -162,9 +181,9 @@ pub struct Channel {
 
     // ── send side ──
     /// Application payloads not yet assigned a sequence (waiting for window room).
-    outgoing: VecDeque<Vec<u8>>,
+    outgoing: Deque<Vec<u8>, QUEUE>,
     /// In-flight, unacknowledged, keyed by sequence. Released by [`on_proof`].
-    outstanding: HashMap<u16, Outstanding>,
+    outstanding: FnvIndexMap<u16, Outstanding, WINDOW>,
     /// The next sequence to assign (wraps at `SEQ_MODULUS`).
     send_next: u16,
 
@@ -172,18 +191,25 @@ pub struct Channel {
     /// The next sequence we can deliver in order.
     recv_next: u16,
     /// Received-but-not-yet-deliverable, held until the gap before them fills.
-    reorder: BTreeMap<u16, Vec<u8>>,
+    ///
+    /// Keyed rather than ordered: delivery pulls `recv_next` by exact key, so this never
+    /// iterates in sequence order and does not need an ordered map.
+    reorder: FnvIndexMap<u16, Vec<u8>, REORDER>,
     /// Delivered, in order, ready for the application to read.
-    inbox: VecDeque<Vec<u8>>,
+    inbox: Deque<Vec<u8>, QUEUE>,
 }
 
-impl Default for Channel {
+impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize> Default
+    for Channel<WINDOW, QUEUE, REORDER>
+{
     fn default() -> Self {
         Self::new(STREAM_MSGTYPE)
     }
 }
 
-impl Channel {
+impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize>
+    Channel<WINDOW, QUEUE, REORDER>
+{
     /// A channel for one message type with a **dynamic** window: it starts at
     /// [`WINDOW_INITIAL`] and grows toward the RTT tier's max on sustained proofs,
     /// shrinking on retransmit.
@@ -213,7 +239,9 @@ impl Channel {
         max_window: u32,
     ) -> Self {
         let initial_rtt = initial_rtt.max(1);
-        let max_window = max_window.clamp(1, WINDOW_MAX);
+        // The profile's table caps the protocol window as well as the protocol's own
+        // WINDOW_MAX, so a small board cannot be talked into a window its table cannot hold.
+        let max_window = max_window.clamp(1, WINDOW_MAX.min(WINDOW as u32).max(1));
         let mut channel = Self::with_params(
             msgtype,
             WINDOW_INITIAL.min(max_window),
@@ -228,20 +256,21 @@ impl Channel {
     /// A channel with a **fixed** window and explicit retransmit timeout (for tests and
     /// callers that want a static send rate).
     pub fn with_params(msgtype: u16, window: u32, retx_timeout: u64) -> Self {
+        let window = window.clamp(1, WINDOW_MAX.min(WINDOW as u32).max(1));
         Self {
             msgtype,
-            window: window.max(1),
-            max_window: window.max(1),
+            window,
+            max_window: window,
             retx_timeout,
             dynamic: false,
             consecutive: 0,
             rtt: RTT_MEDIUM,
-            outgoing: VecDeque::new(),
-            outstanding: HashMap::new(),
+            outgoing: Deque::new(),
+            outstanding: FnvIndexMap::new(),
             send_next: 0,
             recv_next: 0,
-            reorder: BTreeMap::new(),
-            inbox: VecDeque::new(),
+            reorder: FnvIndexMap::new(),
+            inbox: Deque::new(),
         }
     }
 
@@ -273,8 +302,15 @@ impl Channel {
 
     /// Queue a payload for reliable, in-order delivery. Assigned a sequence and put on
     /// the wire by [`poll_transmit`](Self::poll_transmit) as the window allows.
-    pub fn send(&mut self, payload: Vec<u8>) {
-        self.outgoing.push_back(payload);
+    /// Returns the payload back when the send queue is full, so a caller that writes faster
+    /// than the link drains is told rather than silently growing the queue forever.
+    pub fn send(&mut self, payload: Vec<u8>) -> Result<(), Vec<u8>> {
+        self.outgoing.push_back(payload)
+    }
+
+    /// Whether [`send`](Self::send) has room. Application-facing backpressure.
+    pub fn send_room(&self) -> usize {
+        QUEUE - self.outgoing.len()
     }
 
     /// The envelopes to transmit at time `now`: newly sendable data within the window,
@@ -284,8 +320,10 @@ impl Channel {
     pub fn poll_transmit(&mut self, now: u64) -> Vec<Envelope> {
         let mut out = Vec::new();
 
-        // Fill the window with fresh data.
-        while (self.outstanding.len() as u32) < self.window {
+        // Fill the window with fresh data. The window is clamped to WINDOW at construction,
+        // so the table has room, but the guard keeps that a local fact rather than an
+        // assumption about a constructor three functions away.
+        while (self.outstanding.len() as u32) < self.window && !self.outstanding.is_full() {
             let Some(payload) = self.outgoing.pop_front() else {
                 break;
             };
@@ -296,13 +334,18 @@ impl Channel {
                 sequence: seq,
                 payload: payload.clone(),
             });
-            self.outstanding.insert(
-                seq,
-                Outstanding {
-                    payload,
-                    last_tx: now,
-                },
-            );
+            let record = Outstanding {
+                payload,
+                last_tx: now,
+            };
+            if let Err((_, unsent)) = self.outstanding.insert(seq, record) {
+                // Unreachable while the guard above holds. Put the payload back and undo the
+                // sequence rather than dropping application data on the floor.
+                self.send_next = self.send_next.wrapping_sub(1);
+                out.pop();
+                let _ = self.outgoing.push_front(unsent.payload);
+                break;
+            }
         }
 
         // Retransmit anything unproven for too long.
@@ -372,21 +415,32 @@ impl Channel {
     pub fn handle(&mut self, envelope: Envelope) -> bool {
         let ahead = envelope.sequence.wrapping_sub(self.recv_next);
         if ahead == 0 {
-            self.inbox.push_back(envelope.payload);
+            // A full inbox means the application is not reading. Withhold the proof for the
+            // same reason a full reorder buffer does: an unproved frame is retransmitted,
+            // where a proved-then-dropped frame is lost. This is the backpressure path.
+            if self.inbox.is_full() {
+                return false;
+            }
+            let _ = self.inbox.push_back(envelope.payload);
             self.recv_next = self.recv_next.wrapping_add(1);
-            // Pull any now-contiguous buffered envelopes into order.
-            while let Some(next) = self.reorder.remove(&self.recv_next) {
-                self.inbox.push_back(next);
+            // Pull any now-contiguous buffered envelopes into order, stopping if the inbox
+            // fills so the rest stay held rather than dropped.
+            while !self.inbox.is_full() {
+                let Some(next) = self.reorder.remove(&self.recv_next) else {
+                    break;
+                };
+                let _ = self.inbox.push_back(next);
                 self.recv_next = self.recv_next.wrapping_add(1);
             }
             true
         } else if (ahead as u32) < SEQ_MODULUS / 2 {
             // A future sequence within the forward half of the space: hold it, unless the
             // reorder buffer is full of other gap-fillers and this is a new one.
-            if self.reorder.len() >= REORDER_MAX && !self.reorder.contains_key(&envelope.sequence) {
+            if self.reorder.is_full() && !self.reorder.contains_key(&envelope.sequence) {
                 return false;
             }
-            self.reorder
+            let _ = self
+                .reorder
                 .entry(envelope.sequence)
                 .or_insert(envelope.payload);
             true
@@ -487,23 +541,38 @@ pub const DEFAULT_CHUNK: usize = MAX_DATA_LEN;
 /// compressed frame received from RNS is left undecoded rather than appended as garbage —
 /// [`had_unsupported_frame`](Self::had_unsupported_frame) surfaces that it happened. Full
 /// interop-receive of RNS-compressed streams needs a bz2 pass, deferred.
-pub struct Buffer {
-    channel: Channel,
+pub struct Buffer<
+    const WINDOW: usize = 64,
+    const QUEUE: usize = 256,
+    const REORDER: usize = REORDER_MAX,
+    const READ_BYTES: usize = 65_536,
+> {
+    channel: Channel<WINDOW, QUEUE, REORDER>,
     max_chunk: usize,
     send_stream_id: u16,
     recv_stream_id: u16,
+    /// Bytes decoded from delivered frames, awaiting the reader.
+    ///
+    /// Heap-backed and bounded at runtime against `READ_BYTES`, rather than a `Deque<u8,
+    /// READ_BYTES>`, which would commit that many bytes of static storage per link even
+    /// while idle. [`fill`](Self::fill) stops draining the channel once this is at its
+    /// bound, so the pressure lands on the bounded inbox and then on withheld proofs.
     read_buf: VecDeque<u8>,
     recv_eof: bool,
     saw_unsupported: bool,
 }
 
-impl Default for Buffer {
+impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize, const READ_BYTES: usize>
+    Default for Buffer<WINDOW, QUEUE, REORDER, READ_BYTES>
+{
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Buffer {
+impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize, const READ_BYTES: usize>
+    Buffer<WINDOW, QUEUE, REORDER, READ_BYTES>
+{
     /// A buffer with the default channel and chunk size, stream id 0 both ways.
     pub fn new() -> Self {
         Self::with_channel(Channel::new(STREAM_MSGTYPE), DEFAULT_CHUNK)
@@ -536,14 +605,14 @@ impl Buffer {
     }
 
     /// A buffer over an explicit channel and chunk size, stream id 0 both ways.
-    pub fn with_channel(channel: Channel, max_chunk: usize) -> Self {
+    pub fn with_channel(channel: Channel<WINDOW, QUEUE, REORDER>, max_chunk: usize) -> Self {
         Self::with_streams(channel, max_chunk, 0, 0)
     }
 
     /// A buffer with explicit send / receive stream ids (each clamped to
     /// [`STREAM_ID_MAX`]) — one channel multiplexing distinct streams.
     pub fn with_streams(
-        channel: Channel,
+        channel: Channel<WINDOW, QUEUE, REORDER>,
         max_chunk: usize,
         send_stream_id: u16,
         recv_stream_id: u16,
@@ -560,26 +629,40 @@ impl Buffer {
     }
 
     /// Queue bytes for reliable, in-order delivery, chunked into [`StreamFrame`]s.
-    pub fn write(&mut self, bytes: &[u8]) {
+    ///
+    /// Returns how many bytes were accepted, which is fewer than `bytes.len()` when the
+    /// send queue fills. A caller writing faster than the link drains is told so, rather
+    /// than growing the queue without limit. Chunking means the split is always on a frame
+    /// boundary, so a partial accept never tears a frame.
+    #[must_use]
+    pub fn write(&mut self, bytes: &[u8]) -> usize {
+        let mut accepted = 0;
         for chunk in bytes.chunks(self.max_chunk) {
-            self.send_frame(chunk.to_vec(), false);
+            if self.send_frame(chunk.to_vec(), false).is_err() {
+                break;
+            }
+            accepted += chunk.len();
         }
+        accepted
     }
 
     /// Mark the send stream finished: queue an empty eof frame. RNS also accepts eof
     /// riding a final data frame; a standalone eof is the simpler equivalent.
-    pub fn finish(&mut self) {
-        self.send_frame(Vec::new(), true);
+    ///
+    /// Returns whether the eof frame was queued; a full send queue refuses it, and the
+    /// caller retries once [`poll_transmit`](Self::poll_transmit) has drained room.
+    pub fn finish(&mut self) -> bool {
+        self.send_frame(Vec::new(), true).is_ok()
     }
 
-    fn send_frame(&mut self, data: Vec<u8>, eof: bool) {
+    fn send_frame(&mut self, data: Vec<u8>, eof: bool) -> Result<(), ()> {
         let frame = StreamFrame {
             stream_id: self.send_stream_id,
             eof,
             compressed: false,
             data,
         };
-        self.channel.send(frame.encode());
+        self.channel.send(frame.encode()).map_err(|_| ())
     }
 
     /// Copy up to `out.len()` delivered bytes into `out`, returning the count read.
@@ -599,7 +682,13 @@ impl Buffer {
     }
 
     fn fill(&mut self) {
-        while let Some(msg) = self.channel.recv() {
+        // Stop draining once the reader is this far behind. The undelivered payloads stay in
+        // the channel's bounded inbox, which then withholds proofs, which stops the peer.
+        // Backpressure reaches the wire instead of piling up here.
+        while self.read_buf.len() < READ_BYTES {
+            let Some(msg) = self.channel.recv() else {
+                break;
+            };
             let Some(frame) = StreamFrame::decode(&msg) else {
                 continue; // malformed frame; the channel already ordered/deduped it
             };
@@ -704,10 +793,10 @@ mod tests {
 
     #[test]
     fn lossless_in_order_delivery() {
-        let mut tx = Channel::new(0xABCD);
-        let mut rx = Channel::new(0xABCD);
+        let mut tx: Channel = Channel::new(0xABCD);
+        let mut rx: Channel = Channel::new(0xABCD);
         for i in 0u8..20 {
-            tx.send(vec![i]);
+            tx.send(vec![i]).expect("the send queue has room");
         }
         let mut got = Vec::new();
         for now in 0..1000 {
@@ -733,9 +822,9 @@ mod tests {
         let payload: Vec<u8> = (0..4000u32)
             .map(|i| (i.wrapping_mul(31).wrapping_add(7)) as u8)
             .collect();
-        let mut tx = Buffer::new();
-        let mut rx = Buffer::new();
-        tx.write(&payload);
+        let mut tx: Buffer = Buffer::new();
+        let mut rx: Buffer = Buffer::new();
+        assert_eq!(tx.write(&payload), payload.len(), "the send queue took every byte");
 
         let mut fwd = LossModel::new(seed)
             .drop_per_mille(drop_per_mille)
@@ -808,7 +897,7 @@ mod tests {
     fn transmissions_over_rtt(mut channel: Channel, rtt: u64, messages: usize) -> usize {
         use std::collections::{BTreeMap, HashSet};
         for m in 0..messages {
-            channel.send(vec![m as u8]);
+            channel.send(vec![m as u8]).expect("the send queue has room");
         }
         let mut proof_at: BTreeMap<u64, Vec<u16>> = BTreeMap::new();
         let mut scheduled: HashSet<u16> = HashSet::new();
@@ -868,9 +957,9 @@ mod tests {
 
     #[test]
     fn max_window_one_serializes_half_duplex_turns() {
-        let mut channel = Channel::with_initial_rtt_and_max_window(STREAM_MSGTYPE, 5_000, 1);
-        channel.send(vec![1]);
-        channel.send(vec![2]);
+        let mut channel: Channel = Channel::with_initial_rtt_and_max_window(STREAM_MSGTYPE, 5_000, 1);
+        channel.send(vec![1]).expect("the send queue has room");
+        channel.send(vec![2]).expect("the send queue has room");
 
         let first = channel.poll_transmit(0);
         assert_eq!(first.len(), 1);
@@ -887,14 +976,14 @@ mod tests {
     fn sequence_wraps_past_the_16bit_modulus() {
         // Push more than 65536 messages so the sequence wraps, and confirm order holds
         // across the wrap. Small window keeps it quick.
-        let mut tx = Channel::with_params(0x0001, 4, 2);
-        let mut rx = Channel::with_params(0x0001, 4, 2);
+        let mut tx: Channel = Channel::with_params(0x0001, 4, 2);
+        let mut rx: Channel = Channel::with_params(0x0001, 4, 2);
         let total = 70_000u32; // > SEQ_MODULUS
         let mut sent = 0u32;
         let mut got = 0u32;
         for now in 0..5_000_000u64 {
-            while sent < total && tx.in_flight() < 4 {
-                tx.send(vec![(sent % 251) as u8]);
+            while sent < total && tx.in_flight() < 4 && tx.send_room() > 0 {
+                tx.send(vec![(sent % 251) as u8]).expect("the send queue has room");
                 sent += 1;
             }
             for e in tx.poll_transmit(now) {
@@ -918,10 +1007,10 @@ mod tests {
         // A dynamic channel starts at WINDOW_INITIAL. Prove a long run of packets
         // cleanly and promptly (one-tick round trip), and the window climbs step by
         // step into the fast RTT tier — the growth half of RNS's dynamic sizing.
-        let mut c = Channel::new(0x0001);
+        let mut c: Channel<64, 4096> = Channel::new(0x0001);
         assert_eq!(c.window(), WINDOW_INITIAL, "starts at the initial window");
         for i in 0..2000u16 {
-            c.send(vec![i as u8]);
+            c.send(vec![i as u8]).expect("the send queue has room");
         }
         let mut now = 0u64;
         let mut proven = 0u32;
@@ -956,9 +1045,9 @@ mod tests {
         // Grow the window with clean proofs, then let fresh packets go unproven past the
         // retransmit timeout: the retransmit backs the window off toward the tier floor
         // — the shrink half of the dynamic sizing.
-        let mut c = Channel::new(0x0001);
+        let mut c: Channel<64, 4096> = Channel::new(0x0001);
         for i in 0..2000u16 {
-            c.send(vec![i as u8]);
+            c.send(vec![i as u8]).expect("the send queue has room");
         }
         let mut now = 0u64;
         let mut proven = 0u32;
@@ -982,7 +1071,7 @@ mod tests {
 
         // New data goes out, and nobody proves it. Past the timeout it retransmits.
         for i in 0..8u16 {
-            c.send(vec![i as u8]);
+            c.send(vec![i as u8]).expect("the send queue has room");
         }
         let fresh = c.poll_transmit(now);
         assert!(!fresh.is_empty(), "fresh data went out");
@@ -1032,7 +1121,7 @@ mod tests {
         // One channel carries two streams (RNS multiplexes above the sequence). A reader
         // bound to stream 5 delivers only stream 5's bytes in order, ignores stream 9,
         // and reports eof from stream 5 — not from stream 9's earlier eof.
-        let mut r5 = Buffer::with_streams(Channel::new(STREAM_MSGTYPE), 8, 0, 5);
+        let mut r5: Buffer = Buffer::with_streams(Channel::new(STREAM_MSGTYPE), 8, 0, 5);
         let feed = |r: &mut Buffer, seq: u16, f: StreamFrame| {
             let _ = r.handle(Envelope {
                 msgtype: STREAM_MSGTYPE,
@@ -1103,7 +1192,7 @@ mod tests {
     fn compressed_frame_is_flagged_not_corrupting() {
         // retinue can't decode a bz2-compressed frame yet. It must drop those bytes and
         // surface it, never splice compressed bytes into the stream as if they were data.
-        let mut r = Buffer::with_streams(Channel::new(STREAM_MSGTYPE), 8, 0, 0);
+        let mut r: Buffer = Buffer::with_streams(Channel::new(STREAM_MSGTYPE), 8, 0, 0);
         let feed = |r: &mut Buffer, seq: u16, f: StreamFrame| {
             let _ = r.handle(Envelope {
                 msgtype: STREAM_MSGTYPE,
@@ -1156,11 +1245,11 @@ mod tests {
     fn buffer_stream_round_trips_with_finish() {
         // The everyday path: write a payload and finish() over the lossless proof model;
         // the reader reconstructs it exactly and sees eof.
-        let mut tx = Buffer::with_streams(Channel::new(STREAM_MSGTYPE), MAX_DATA_LEN, 3, 3);
-        let mut rx = Buffer::with_streams(Channel::new(STREAM_MSGTYPE), MAX_DATA_LEN, 3, 3);
+        let mut tx: Buffer = Buffer::with_streams(Channel::new(STREAM_MSGTYPE), MAX_DATA_LEN, 3, 3);
+        let mut rx: Buffer = Buffer::with_streams(Channel::new(STREAM_MSGTYPE), MAX_DATA_LEN, 3, 3);
         let payload: Vec<u8> = (0..2000u32).map(|i| (i * 7 + 1) as u8).collect();
-        tx.write(&payload);
-        tx.finish();
+        assert_eq!(tx.write(&payload), payload.len(), "the send queue took every byte");
+        assert!(tx.finish(), "the send queue had room for eof");
         let mut got = Vec::new();
         for now in 0..100_000u64 {
             let envs = tx.poll_transmit(now);

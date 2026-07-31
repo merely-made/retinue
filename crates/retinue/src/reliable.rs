@@ -43,9 +43,15 @@ use crate::token::IV_LEN;
 /// [`capacity::desktop::SENT_HASHES`](crate::capacity::desktop::SENT_HASHES), so
 /// writing the bare type gets the desktop profile; a board writes
 /// `ReliableChannel<{ capacity::small::SENT_HASHES }>`.
-pub struct ReliableChannel<const SENT: usize = { desktop::SENT_HASHES }> {
+pub struct ReliableChannel<
+    const SENT: usize = { desktop::SENT_HASHES },
+    const WINDOW: usize = 64,
+    const QUEUE: usize = 256,
+    const REORDER: usize = { crate::channel::REORDER_MAX },
+    const READ_BYTES: usize = 65_536,
+> {
     link: Link,
-    buffer: Buffer,
+    buffer: Buffer<WINDOW, QUEUE, REORDER, READ_BYTES>,
     /// Our identity — signs the proofs of packets we receive.
     prover: PrivateIdentity,
     /// The peer's identity — validates the proofs of packets we sent. `None` until it is
@@ -68,7 +74,14 @@ pub struct ReliableChannel<const SENT: usize = { desktop::SENT_HASHES }> {
     unrecorded: u32,
 }
 
-impl<const SENT: usize> ReliableChannel<SENT> {
+impl<
+    const SENT: usize,
+    const WINDOW: usize,
+    const QUEUE: usize,
+    const REORDER: usize,
+    const READ_BYTES: usize,
+> ReliableChannel<SENT, WINDOW, QUEUE, REORDER, READ_BYTES>
+{
     /// A reliable channel whose peer is already known — an initiator, holding the
     /// destination's identity from its announce. `prover` is our identity.
     pub fn new(link: Link, prover: PrivateIdentity, peer: Identity) -> Self {
@@ -179,13 +192,18 @@ impl<const SENT: usize> ReliableChannel<SENT> {
     }
 
     /// Queue application bytes for reliable, in-order delivery.
-    pub fn write(&mut self, bytes: &[u8]) {
-        self.buffer.write(bytes);
+    ///
+    /// Returns how many were accepted; a short count means the send queue is full and the
+    /// caller should retry the rest after [`poll_transmit`](Self::poll_transmit) drains it.
+    #[must_use]
+    pub fn write(&mut self, bytes: &[u8]) -> usize {
+        self.buffer.write(bytes)
     }
 
-    /// Mark our send stream finished with an end-of-stream frame.
-    pub fn finish(&mut self) {
-        self.buffer.finish();
+    /// Mark our send stream finished with an end-of-stream frame. Returns whether it was
+    /// queued; a full send queue refuses it and the caller retries.
+    pub fn finish(&mut self) -> bool {
+        self.buffer.finish()
     }
 
     /// The channel packets to put on the wire at time `now`: newly sendable envelopes within
@@ -282,6 +300,7 @@ mod tests {
     use super::*;
     use crate::destination::DestinationName;
     use crate::link::{LinkMode, LinkTrailer, PendingLink, accept};
+    use crate::capacity::small_types::SmallReliableChannel;
     use crate::lossy::LossModel;
 
     /// A client (initiator) and server (responder) reliable channel over one established
@@ -294,9 +313,18 @@ mod tests {
     /// table. The window matters: it starts at [`crate::channel::WINDOW_INITIAL`] and only
     /// opens on sustained proofs, so a short transfer finishes before enough packets are
     /// outstanding to fill anything.
-    fn pair_bounded<const N: usize>(
+    fn pair_bounded<
+        const N: usize,
+        const W: usize,
+        const Q: usize,
+        const R: usize,
+        const B: usize,
+    >(
         max_window: Option<u32>,
-    ) -> (ReliableChannel<N>, ReliableChannel<N>) {
+    ) -> (
+        ReliableChannel<N, W, Q, R, B>,
+        ReliableChannel<N, W, Q, R, B>,
+    ) {
         let server_id = PrivateIdentity::from_secret_bytes(&[0x22; 64]);
         let client_id = PrivateIdentity::from_secret_bytes(&[0x11; 64]);
         let trailer = LinkTrailer {
@@ -332,6 +360,12 @@ mod tests {
         }
     }
 
+    /// The same pair at the board profile. Inference picks the parameters off the return
+    /// type, so the small profile is named once, in `capacity`.
+    fn small_pair() -> (SmallReliableChannel, SmallReliableChannel) {
+        pair_bounded(None)
+    }
+
     fn counting_iv(counter: &mut u64) -> impl FnMut() -> [u8; IV_LEN] + '_ {
         move || {
             *counter += 1;
@@ -350,7 +384,7 @@ mod tests {
     #[test]
     fn a_proof_sweeps_every_hash_for_its_sequence() {
         let (mut client, mut server) = pair();
-        client.write(b"one small message");
+        assert_eq!(client.write(b"one small message"), b"one small message".len(), "the send queue took every byte");
         client.finish();
         let mut ivc = 0u64;
         let mut iv = counting_iv(&mut ivc);
@@ -391,8 +425,9 @@ mod tests {
     /// the retransmit timer carries it instead, which costs airtime and not correctness.
     #[test]
     fn a_full_table_holds_its_bound_and_counts_the_overflow() {
-        let (mut client, _server) = pair_bounded::<2>(Some(crate::channel::WINDOW_MAX));
-        client.write(&[7u8; 4_000]);
+        let (mut client, _server) =
+            pair_bounded::<2, 64, 256, 256, 65_536>(Some(crate::channel::WINDOW_MAX));
+        assert_eq!(client.write(&[7u8; 4_000]), 4_000, "the send queue took every byte");
         client.finish();
         let mut ivc = 0u64;
         let mut iv = counting_iv(&mut ivc);
@@ -417,6 +452,46 @@ mod tests {
         );
     }
 
+    /// The board profile carries a stream end to end, running the same code the desktop
+    /// runs at different table sizes.
+    ///
+    /// This is the point of parameterising rather than forking. If a board had its own
+    /// windowing or reassembly, the desktop would stop being an oracle for it and would
+    /// become a second implementation that merely interoperates.
+    #[test]
+    fn the_small_profile_carries_a_stream_end_to_end() {
+        let (mut client, mut server) = small_pair();
+        let payload: Vec<u8> = (0..3_000u32).map(|i| (i.wrapping_mul(17)) as u8).collect();
+
+        let mut offset = 0;
+        let mut ivc = 0u64;
+        let mut iv = counting_iv(&mut ivc);
+        let mut got = Vec::new();
+        let mut finished = false;
+
+        for now in 0..200_000u64 {
+            // The board's queue is shallow, so the writer feeds it as room appears. A short
+            // write here is the expected case, not a failure.
+            if offset < payload.len() {
+                offset += client.write(&payload[offset..]);
+            } else if !finished {
+                finished = client.finish();
+            }
+            for packet in client.poll_transmit(now, &mut iv) {
+                if let Some(proof) = server.on_data_packet(&packet) {
+                    client.on_proof(&proof, now);
+                }
+            }
+            got.extend(server.read());
+            if finished && client.send_idle() && server.recv_finished() {
+                break;
+            }
+        }
+
+        assert_eq!(got, payload, "the small profile must carry the bytes exactly");
+        assert!(client.send_idle(), "and must drain its queue");
+    }
+
     /// Drive `client`'s payload to `server` over a lossy pipe on a virtual clock: channel
     /// packets forward (subject to loss), proofs back (subject to loss), retransmits on the
     /// clock. Asserts exact, in-order reconstruction and that the server saw eof.
@@ -425,7 +500,7 @@ mod tests {
         let payload: Vec<u8> = (0..len as u32)
             .map(|i| (i.wrapping_mul(31).wrapping_add(7)) as u8)
             .collect();
-        client.write(&payload);
+        assert_eq!(client.write(&payload), payload.len(), "the send queue took every byte");
         client.finish();
 
         let mut fwd = LossModel::new(seed)
@@ -510,7 +585,7 @@ mod tests {
         // A proof signed by the wrong identity, or naming a packet we never sent, must not
         // release an outstanding sequence.
         let (mut client, mut server) = pair();
-        client.write(b"one small message that fits in a single channel packet");
+        assert_eq!(client.write(b"one small message that fits in a single channel packet"), b"one small message that fits in a single channel packet".len(), "the send queue took every byte");
         let mut ivc = 0u64;
         let mut iv = || {
             ivc += 1;
@@ -559,7 +634,7 @@ mod tests {
             ReliableChannel::new(initiator_link, client_id.clone(), server_pub);
 
         // The server sends a message; the client receives it and proves it back.
-        server.write(b"a message from the server");
+        assert_eq!(server.write(b"a message from the server"), b"a message from the server".len(), "the send queue took every byte");
         let mut ivc = 0u64;
         let mut iv = || {
             ivc += 1;

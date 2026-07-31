@@ -3469,6 +3469,11 @@ fn register_reliable_stream(
     let close_link = link.clone();
     let initial_rtt_ms = shared.reliable_initial_rtt_ms.load(Ordering::Relaxed);
     let max_window = shared.reliable_max_window.load(Ordering::Relaxed);
+    // App bytes read but not yet accepted by the bounded send queue, and whether the eof
+    // frame still needs queueing. Holding these is what keeps backpressure from silently
+    // becoming data loss.
+    let mut pending: Vec<u8> = Vec::new();
+    let mut finish_pending = false;
     let mut rc: ReliableChannel = match peer {
         Some(p) => ReliableChannel::new_with_initial_rtt_and_max_window(
             link,
@@ -3537,13 +3542,20 @@ fn register_reliable_stream(
                 }
                 // App writes -> the reliable send queue. Disabled once the writer closes, so
                 // we do not spin on end-of-stream.
-                res = read_half.read(&mut buf), if writer_open => {
+                // Only read when the last write was fully accepted; otherwise we would pull
+                // more from the app than the bounded queue can hold.
+                res = read_half.read(&mut buf), if writer_open && pending.is_empty() => {
                     match res {
                         Ok(0) | Err(_) => {
-                            rc.finish(); // queue the eof frame
+                            finish_pending = true; // retried below until the queue takes it
                             writer_open = false;
                         }
-                        Ok(n) => rc.write(&buf[..n]),
+                        Ok(n) => {
+                            let accepted = rc.write(&buf[..n]);
+                            if accepted < n {
+                                pending.extend_from_slice(&buf[accepted..n]);
+                            }
+                        }
                     }
                 }
                 // The retransmit clock, in milliseconds (one tick = RELIABLE_TICK_MS real time).
@@ -3560,6 +3572,16 @@ fn register_reliable_stream(
                 }
             }
 
+            // The send queue is bounded, so an earlier write or eof may have been refused.
+            // Retry before transmitting, so anything accepted now goes out on this pass.
+            if !pending.is_empty() {
+                let accepted = rc.write(&pending);
+                pending.drain(..accepted);
+            }
+            if finish_pending && pending.is_empty() && rc.finish() {
+                finish_pending = false;
+            }
+
             // After any event, put ready channel packets on the wire: new data within the
             // window, plus retransmits past their timeout.
             for pkt in rc.poll_transmit(clock, next_iv) {
@@ -3570,7 +3592,14 @@ fn register_reliable_stream(
             // everything, including our eof frame, sent and proven) AND the peer finished
             // sending (its eof arrived). This preserves half-close: after our write closes we
             // keep delivering the peer's reply until it, too, ends. Then close the link.
-            if !writer_open && peer_done && rc.send_idle() {
+            // `finish_pending` and `pending` must be clear too: the writer closing is not the
+            // same as the queue having accepted everything, now that it can refuse.
+            if !writer_open
+                && pending.is_empty()
+                && !finish_pending
+                && peer_done
+                && rc.send_idle()
+            {
                 drv.send_on(iface, close_link.close_packet(&next_iv()));
                 break;
             }

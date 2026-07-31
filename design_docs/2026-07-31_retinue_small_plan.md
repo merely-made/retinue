@@ -322,6 +322,44 @@ Open:
 - **Power loss specifically.** Reset and reflash are proven; pulling the plug is
   not, and it is the literal wording of the done condition.
 
+**N1, first half, 2026-07-31.** `channel` and `reliable` are bounded; `resource`
+and `address_book` are not, and the crate is still `std`.
+
+The shape, after two corrections. The first: `Channel<C: Capacity>` reading
+associated consts **does not compile on stable**, because feeding `C::WINDOW` to
+a `heapless` collection needs `generic_const_exprs`. The second: I argued for
+associated types on the grounds that a static bound on `reorder` would cost 256
+× 423 bytes, and that argument assumed alloc-free payloads. N1's target is
+`no_std + alloc`, so payloads stay heap-allocated and an entry costs a `Vec`
+header. What needs bounding is entry *count*, which is the thing that grows
+without limit. So: const-generic parameters with desktop defaults, and
+[`capacity::small_types`] aliases so a board writes a name rather than five
+positional arguments.
+
+Bounding found two real defects, which is the argument for doing it at all:
+
+- `reliable`'s `sent` map leaked, recorded above.
+- `endpoint`'s reliable driver dropped application bytes. `write` could not fail
+  before, so the driver ignored its result; with a bounded queue a short write
+  silently discarded the remainder. It now holds refused bytes, stops reading
+  from the app while any are pending, retries the eof frame until the queue
+  takes it, and refuses to call the stream done while either is outstanding.
+
+Backpressure now runs the length of the stack: a full inbox withholds the link
+proof, exactly as a full reorder buffer already did, so the peer stops sending
+rather than the receiver growing. `Buffer::write` returns bytes accepted and
+`finish` returns whether the eof was queued.
+
+Receipts: 98 lib and 61 integration tests pass, including a new end-to-end test
+that carries 3,000 bytes through `SmallReliableChannel`, proving the board
+profile runs the same code as the desktop. Clippy clean at `-D warnings
+--no-deps`.
+
+Remaining for N1: bound `resource` and `address_book`, then the `no_std + alloc`
+flip. `cargo check --no-default-features --target thumbv7em-none-eabihf` reports
+550 errors today, nearly all cascading from the crate not yet declaring
+`#![no_std]`.
+
 Harness note: the direct-PHY harness is `crates/retinue/examples/direct_phy_*`
 behind the `tulle-radio` feature, alongside the `oracle/` drivers. There is no
 `Code/testing/retinue/`, which is where the family convention would put it.
