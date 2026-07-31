@@ -2040,6 +2040,7 @@ dependencies = [
  "cbc",
  "ed25519-dalek",
  "getrandom",
+ "heapless 0.9.3",
  "hex",
  "hkdf 0.13.0",
  "hmac 0.13.0",

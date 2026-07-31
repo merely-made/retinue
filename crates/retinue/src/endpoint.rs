@@ -3469,7 +3469,7 @@ fn register_reliable_stream(
     let close_link = link.clone();
     let initial_rtt_ms = shared.reliable_initial_rtt_ms.load(Ordering::Relaxed);
     let max_window = shared.reliable_max_window.load(Ordering::Relaxed);
-    let mut rc = match peer {
+    let mut rc: ReliableChannel = match peer {
         Some(p) => ReliableChannel::new_with_initial_rtt_and_max_window(
             link,
             shared.identity.clone(),

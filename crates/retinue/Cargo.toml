@@ -33,6 +33,7 @@ ed25519-dalek = "3"
 # OS cryptographic randomness for link ephemerals and AES IVs (endpoint only, so tied to
 # the tokio feature). Already in the tree via dalek; a direct dep makes the source explicit.
 getrandom = { version = "0.2", optional = true }
+heapless = "0.9"
 hkdf = "0.13"
 hmac = "0.13"
 sha2 = "0.11"

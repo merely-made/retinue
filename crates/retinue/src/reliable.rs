@@ -27,8 +27,9 @@
 //! proof in. That is exactly the shape a virtual-clock loss test drives (see the tests), so
 //! the reliable path is validated on the desk before any radio exists.
 
-use std::collections::HashMap;
+use heapless::index_map::FnvIndexMap;
 
+use crate::capacity::desktop;
 use crate::channel::{Buffer, Envelope, MAX_DATA_LEN};
 use crate::hash::AddressHash;
 use crate::identity::{Identity, PrivateIdentity};
@@ -37,7 +38,12 @@ use crate::packet::Packet;
 use crate::token::IV_LEN;
 
 /// A reliable, in-order byte stream over one [`Link`]. See the module docs.
-pub struct ReliableChannel {
+///
+/// `SENT` bounds the hash table below. It defaults to
+/// [`capacity::desktop::SENT_HASHES`](crate::capacity::desktop::SENT_HASHES), so
+/// writing the bare type gets the desktop profile; a board writes
+/// `ReliableChannel<{ capacity::small::SENT_HASHES }>`.
+pub struct ReliableChannel<const SENT: usize = { desktop::SENT_HASHES }> {
     link: Link,
     buffer: Buffer,
     /// Our identity — signs the proofs of packets we receive.
@@ -49,10 +55,20 @@ pub struct ReliableChannel {
     peer: Option<Identity>,
     /// Full hash of each channel packet we put on the wire, to its sequence. An inbound
     /// proof carries the hash; this maps it back to the sequence to release.
-    sent: HashMap<[u8; 32], u16>,
+    ///
+    /// One sequence can hold several entries at once, because a retransmit re-seals under a
+    /// fresh IV and so arrives on the wire as a new hash. They are all released together
+    /// when the sequence is proved.
+    sent: FnvIndexMap<[u8; 32], u16, SENT>,
+    /// Packets whose hash the table was too full to record. Not an error: an unrecorded
+    /// packet is simply not releasable by its proof, so the buffer's retransmit timer fires
+    /// and the packet goes out again under a fresh hash, which the table has room for once
+    /// earlier sequences have been proved. Exposed so the degradation is visible rather than
+    /// silent, per the plan's rule that a full table stays operational and says so.
+    unrecorded: u32,
 }
 
-impl ReliableChannel {
+impl<const SENT: usize> ReliableChannel<SENT> {
     /// A reliable channel whose peer is already known — an initiator, holding the
     /// destination's identity from its announce. `prover` is our identity.
     pub fn new(link: Link, prover: PrivateIdentity, peer: Identity) -> Self {
@@ -140,7 +156,8 @@ impl ReliableChannel {
             },
             prover,
             peer,
-            sent: HashMap::new(),
+            sent: FnvIndexMap::new(),
+            unrecorded: 0,
         }
     }
 
@@ -179,9 +196,12 @@ impl ReliableChannel {
         let mut out = Vec::new();
         for env in self.buffer.poll_transmit(now) {
             let packet = self.link.sealed_packet(CTX_CHANNEL, &env.encode(), &iv());
-            // A retransmit re-seals with a fresh IV, so it is a new hash for the same
-            // sequence; the stale entry is harmless (its packet was dropped, never proved).
-            self.sent.insert(packet.full_hash(), env.sequence);
+            // A retransmit re-seals under a fresh IV, so it reaches the wire as a new hash
+            // for the same sequence. Both entries stay live until the sequence is proved,
+            // because either packet's proof may be the one that returns.
+            if self.sent.insert(packet.full_hash(), env.sequence).is_err() {
+                self.unrecorded = self.unrecorded.saturating_add(1);
+            }
             out.push(packet);
         }
         out
@@ -215,8 +235,20 @@ impl ReliableChannel {
         let Some(sequence) = self.sent.remove(&hash) else {
             return false;
         };
+        // Sweep every other hash for this sequence. A retransmit leaves one entry each, and
+        // only the proved one was just removed; without this the rest would sit in the table
+        // for the life of the link. That is unbounded growth on a lossy medium, and it is
+        // what bounding the table surfaced.
+        self.sent.retain(|_, outstanding| *outstanding != sequence);
         self.buffer.on_proof(sequence, now);
         true
+    }
+
+    /// Packets whose hash did not fit the table, so their proof cannot release them and the
+    /// retransmit timer has to. Zero on a healthy link; a climbing count means `SENT` is
+    /// too small for the window and loss rate, and airtime is being spent on it.
+    pub fn unrecorded(&self) -> u32 {
+        self.unrecorded
     }
 
     /// Take all delivered, in-order application bytes.
@@ -255,6 +287,16 @@ mod tests {
     /// A client (initiator) and server (responder) reliable channel over one established
     /// link, each holding the other's identity for proof validation.
     fn pair() -> (ReliableChannel, ReliableChannel) {
+        pair_bounded(None)
+    }
+
+    /// The same pair at a caller-chosen table size and send window, for exercising a full
+    /// table. The window matters: it starts at [`crate::channel::WINDOW_INITIAL`] and only
+    /// opens on sustained proofs, so a short transfer finishes before enough packets are
+    /// outstanding to fill anything.
+    fn pair_bounded<const N: usize>(
+        max_window: Option<u32>,
+    ) -> (ReliableChannel<N>, ReliableChannel<N>) {
         let server_id = PrivateIdentity::from_secret_bytes(&[0x22; 64]);
         let client_id = PrivateIdentity::from_secret_bytes(&[0x11; 64]);
         let trailer = LinkTrailer {
@@ -266,9 +308,113 @@ mod tests {
         let (responder_link, proof) = accept(&request, &server_id, &[0x99; 64], trailer).unwrap();
         let initiator_link = pending.prove(&proof).unwrap();
 
-        let client = ReliableChannel::new(initiator_link, client_id.clone(), *server_id.public());
-        let server = ReliableChannel::new(responder_link, server_id, *client_id.public());
-        (client, server)
+        match max_window {
+            None => (
+                ReliableChannel::new(initiator_link, client_id.clone(), *server_id.public()),
+                ReliableChannel::new(responder_link, server_id, *client_id.public()),
+            ),
+            Some(window) => (
+                ReliableChannel::new_with_initial_rtt_and_max_window(
+                    initiator_link,
+                    client_id.clone(),
+                    *server_id.public(),
+                    10,
+                    window,
+                ),
+                ReliableChannel::new_with_initial_rtt_and_max_window(
+                    responder_link,
+                    server_id,
+                    *client_id.public(),
+                    10,
+                    window,
+                ),
+            ),
+        }
+    }
+
+    fn counting_iv(counter: &mut u64) -> impl FnMut() -> [u8; IV_LEN] + '_ {
+        move || {
+            *counter += 1;
+            let mut v = [0u8; IV_LEN];
+            v[..8].copy_from_slice(&counter.to_le_bytes());
+            v
+        }
+    }
+
+    /// A proof releases every hash recorded for its sequence, not only the hash it names.
+    ///
+    /// A retransmit re-seals under a fresh IV, so one sequence reaches the wire as several
+    /// hashes. Until this swept them, the generations that were dropped stayed in the table
+    /// for the life of the link: unbounded growth on exactly the lossy medium this module
+    /// exists to survive. Bounding the table is what surfaced it.
+    #[test]
+    fn a_proof_sweeps_every_hash_for_its_sequence() {
+        let (mut client, mut server) = pair();
+        client.write(b"one small message");
+        client.finish();
+        let mut ivc = 0u64;
+        let mut iv = counting_iv(&mut ivc);
+
+        // The first generation reaches the wire and is dropped on the floor, so its hashes
+        // are recorded and no proof will ever name them.
+        let dropped = client.poll_transmit(0, &mut iv);
+        assert!(!dropped.is_empty(), "the first generation must reach the wire");
+        assert_eq!(client.sent.len(), dropped.len());
+
+        // Now deliver and prove everything until the send side goes idle.
+        for now in 1..2_000_000u64 {
+            for packet in client.poll_transmit(now, &mut iv) {
+                if let Some(proof) = server.on_data_packet(&packet) {
+                    client.on_proof(&proof, now);
+                }
+            }
+            if client.send_idle() {
+                break;
+            }
+        }
+
+        assert!(client.send_idle(), "the stream must complete");
+        assert_eq!(
+            client.sent.len(),
+            0,
+            "hashes from the dropped generation outlived their proved sequence"
+        );
+        assert_eq!(client.unrecorded(), 0, "nothing overflowed at the desktop size");
+    }
+
+    /// A table too small for the window holds its bound, keeps putting packets on the wire,
+    /// and counts what it could not record.
+    ///
+    /// Nothing is proved here, so the table fills and stays full. That is the interesting
+    /// state: the plan's rule is that a full table keeps serving and says so, rather than
+    /// stalling or growing. An unrecorded packet is simply not releasable by its proof, so
+    /// the retransmit timer carries it instead, which costs airtime and not correctness.
+    #[test]
+    fn a_full_table_holds_its_bound_and_counts_the_overflow() {
+        let (mut client, _server) = pair_bounded::<2>(Some(crate::channel::WINDOW_MAX));
+        client.write(&[7u8; 4_000]);
+        client.finish();
+        let mut ivc = 0u64;
+        let mut iv = counting_iv(&mut ivc);
+
+        let mut reached_the_wire = 0usize;
+        for now in 0..5_000u64 {
+            reached_the_wire += client.poll_transmit(now, &mut iv).len();
+        }
+
+        assert!(
+            reached_the_wire > 2,
+            "packets must keep reaching the wire past the table size, not stop at it"
+        );
+        assert!(
+            client.sent.len() <= 2,
+            "the table grew past its bound: {}",
+            client.sent.len()
+        );
+        assert!(
+            client.unrecorded() > 0,
+            "the refusals must be counted, not silent"
+        );
     }
 
     /// Drive `client`'s payload to `server` over a lossy pipe on a virtual clock: channel
@@ -408,8 +554,9 @@ mod tests {
 
         // Server accepts without knowing the client; the client already knows the server.
         let server_pub = *server_id.public();
-        let mut server = ReliableChannel::accepting(responder_link, server_id);
-        let mut client = ReliableChannel::new(initiator_link, client_id.clone(), server_pub);
+        let mut server: ReliableChannel = ReliableChannel::accepting(responder_link, server_id);
+        let mut client: ReliableChannel =
+            ReliableChannel::new(initiator_link, client_id.clone(), server_pub);
 
         // The server sends a message; the client receives it and proves it back.
         server.write(b"a message from the server");

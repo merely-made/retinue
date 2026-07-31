@@ -43,6 +43,7 @@
 
 pub mod address_book;
 pub mod announce;
+pub mod capacity;
 pub mod channel;
 pub mod destination;
 #[cfg(feature = "tokio")]
