@@ -1,6 +1,7 @@
 # retinue-small plan
 
-**Status:** N0 not started
+**Status:** N0 landed on the desk and is waiting on the T114 for its receipt;
+settings-over-the-wire still open
 **Design authority:**
 [`2026-07-19_modem_embedded_and_meshtastic_research.md`](2026-07-19_modem_embedded_and_meshtastic_research.md)
 (*Native Retinue personality*) supplies the boundary and
@@ -240,5 +241,56 @@ forwarding continues across host disconnect and reconnect.
 
 ## Progress
 
-Nothing landed. Plan founded 2026-07-31 from a direction call that native
-Retinue is the product and the foreign meshes are branches.
+**Plan founded 2026-07-31** from a direction call that native Retinue is the
+product and the foreign meshes are branches.
+
+**N0, desk half, 2026-07-31.** `radio-hand` was founded here rather than at N2,
+because the A/B record logic is exactly the code that wants desk tests and a
+`no_std` + `no_main` binary cannot run them. N2 now moves the radio service into
+a crate that already exists.
+
+Board fact found while reading the linker script, and recorded because neither
+design authority had it: the T114 runs the Adafruit bootloader over SoftDevice
+S140 v6, so flash below `0x26000` is MBR and SoftDevice, and `0xEC000` upward is
+the bootloader, its settings page, and the MBR parameter page. Writing outside
+`0x26000..0xEC000` destroys DFU. The store therefore takes the top two pages of
+the application region, and `FLASH` shrinks by exactly those two pages so the
+linker can never place code into them.
+
+Landed:
+
+- `radio-hand::store`, the A/B slot record: magic, version, body length,
+  sequence, CRC-32, opaque body. Word-padded so an encoded record is a legal
+  NVMC write length.
+- `memory.x` carve to `FLASH 0x26000..0xEA000` and `STORE 0xEA000..0xEC000`,
+  with `build.rs` parsing both regions out of the one file and failing the build
+  unless `FLASH` ends exactly where `STORE` begins, the store is page-aligned,
+  the store is two pages, and the store stays below the bootloader.
+- T114 glue: `Nvmc` for the pages, `Rng` with bias correction on for key
+  material, load-or-create at boot ahead of every other task because erase
+  stalls the CPU, and read-back verification so failing flash surfaces at the
+  write instead of one power cycle later.
+- A boot line over USB reporting slot and sequence. Key material is never
+  rendered, and slot plus sequence is what actually proves persistence.
+
+Receipts:
+
+- 19 store tests pass, including torn-write recovery, blank-versus-corrupt,
+  single-bit flips in body and header, padding outside the checksum, and slot
+  alternation. The CRC is checked against the published `123456789` vector, so
+  it is IEEE CRC-32 rather than a self-consistent invention.
+- Flash 75,266 of 802,816 bytes (9.38%), against 73,666 before N0.
+- text 74,870, data 368, bss 10,916, so static RAM is 11,284 of 237,568 (4.75%).
+- Heap high-water is zero by construction: the image has no allocator.
+- Clippy clean at `-D warnings` for `radio-hand` and for the firmware.
+
+Open, and honestly not done:
+
+- **The hardware receipt.** N0's done condition is survival across reboot and
+  power loss, and that needs the board. Nothing here has run on a T114.
+- **The SoftDevice assumption.** The image links above S140 but never enables
+  it, so direct NVMC access should be free. If the bootloader hands over with
+  the SoftDevice live, the first write faults instead. This is the specific
+  thing the first flash tests.
+- Settings over the wire, so a stored profile changes without a reflash.
+- Maximum task and future size is not yet measured.

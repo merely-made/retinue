@@ -8,6 +8,7 @@ members = [
     "crates/tucket",
     "crates/outrider",
     "crates/radio-face",
+    "crates/radio-hand",
     "firmware/heltec-v4-phy",
     "firmware/t114-phy",
 ]
@@ -22,6 +23,7 @@ default-members = [
     "crates/tucket",
     "crates/outrider",
     "crates/radio-face",
+    "crates/radio-hand",
 ]
 
 [workspace.package]

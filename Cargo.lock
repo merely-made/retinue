@@ -1987,6 +1987,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "radio-hand"
+version = "0.0.1"
+
+[[package]]
 name = "ral-registers"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2686,10 +2690,12 @@ dependencies = [
  "embedded-hal 1.0.0",
  "embedded-hal-async",
  "embedded-hal-bus",
+ "embedded-storage",
  "lora-modulation",
  "lora-phy",
  "panic-halt",
  "radio-face",
+ "radio-hand",
  "selvage",
  "static_cell",
 ]

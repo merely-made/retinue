@@ -33,6 +33,7 @@ use selvage::{
 use static_cell::StaticCell;
 
 mod board;
+mod store;
 mod ui;
 
 bind_interrupts!(struct Irqs {
@@ -269,6 +270,23 @@ async fn main(spawner: Spawner) {
     nrf_config.hfclk_source = HfclkSource::ExternalXtal;
     let p = embassy_nrf::init(nrf_config);
 
+    // Resolve the device identity before anything else starts. A first boot
+    // erases and writes a flash page, which stalls the CPU for tens of
+    // milliseconds, so it belongs here rather than anywhere near live traffic.
+    // The bytes stay on the board; gate N3 hands them to a node.
+    let mut identity_line = [0_u8; 48];
+    let (_device_identity, identity_line_len) =
+        match store::IdentityStore::new(p.NVMC, p.RNG).load_or_create() {
+            Ok((identity, outcome)) => {
+                (Some(identity), store::describe(outcome, &mut identity_line))
+            }
+            Err(_) => {
+                let message = b"identity=unavailable\r\n";
+                identity_line[..message.len()].copy_from_slice(message);
+                (None, message.len())
+            }
+        };
+
     let mut display_config = SpimConfig::default();
     display_config.frequency = Frequency::M8;
     let display_spi = Spim::new_txonly(p.TWISPI0, Irqs, p.P1_08, p.P1_09, display_config);
@@ -415,7 +433,9 @@ async fn main(spawner: Spawner) {
         class.wait_connection().await;
         local_status.host = radio_face::HostState::Attached;
         ui::publish(local_status, radio_face::LedSignal::Idle);
-        if !write_all(&mut class, online).await {
+        if !write_all(&mut class, online).await
+            || !write_all(&mut class, &identity_line[..identity_line_len]).await
+        {
             local_status.host = radio_face::HostState::Detached;
             ui::publish(local_status, radio_face::LedSignal::Idle);
             continue;
