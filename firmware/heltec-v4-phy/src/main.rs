@@ -32,12 +32,10 @@ use lora_modulation::{Bandwidth, CodingRate, SpreadingFactor};
 use lora_phy::iv::GenericSx126xInterfaceVariant;
 use lora_phy::sx126x::{Config as Sx126xConfig, Sx126x, Sx1262, TcxoCtrlVoltage};
 use lora_phy::{LoRa, RxMode};
-use radio_hand::service;
+use radio_hand::dispatch::{self, ChipDiagnostics, Face, RadioState};
+use radio_hand::link::HostLink;
 use selvage::{
-    CONFIG_COMMAND_LEN, CommandEvent, CommandKind, CommandStream, EVENT_CONFIG, EVENT_DIAGNOSTIC,
-    EVENT_RX, EVENT_TX, EVENT_UI_SNAPSHOT, MAX_COMMAND_LEN, MAX_UI_SNAPSHOT_LEN,
-    MESHTASTIC_SYNC_WORD, UI_SNAPSHOT_MALFORMED, UI_SNAPSHOT_TOO_LONG,
-    UI_SNAPSHOT_UNSUPPORTED_VERSION, WAKE_BYTE, decode_config_command, decode_ui_snapshot_command,
+    CommandStream, EVENT_DIAGNOSTIC, EVENT_RX, MAX_COMMAND_LEN, MESHTASTIC_SYNC_WORD, WAKE_BYTE,
 };
 
 mod board;
@@ -87,6 +85,39 @@ fn sleep_proof_receipt(
     receipt[41..45].copy_from_slice(&u32::from(sleep_enabled).to_le_bytes());
     receipt[45..49].copy_from_slice(&reset_reason.to_le_bytes());
     receipt
+}
+
+/// The board's own SX1262 registers, for `radio-hand`'s dispatch.
+///
+/// Chip-specific, so the shared loop reaches it through [`ChipDiagnostics`]. The V4 had no
+/// diagnostics path before: its transmit could not time out, so nothing ever asked.
+struct Sx126xDiagnostics;
+
+impl<SPI, IV, C, DLY> ChipDiagnostics<Sx126x<SPI, IV, C>, DLY> for Sx126xDiagnostics
+where
+    SPI: embedded_hal_async::spi::SpiDevice<u8>,
+    IV: lora_phy::mod_traits::InterfaceVariant,
+    C: lora_phy::sx126x::Sx126xVariant,
+    DLY: lora_phy::DelayNs,
+{
+    async fn read(&self, lora: &mut LoRa<Sx126x<SPI, IV, C>, DLY>) -> [u8; 7] {
+        match lora.sx126x_diagnostics().await {
+            Ok(d) => {
+                let irq = d.irq_status.to_le_bytes();
+                let errors = d.device_errors.to_le_bytes();
+                [
+                    EVENT_DIAGNOSTIC,
+                    irq[0],
+                    irq[1],
+                    errors[0],
+                    errors[1],
+                    d.sync_word[0],
+                    d.sync_word[1],
+                ]
+            }
+            Err(_) => [EVENT_DIAGNOSTIC, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
+        }
+    }
 }
 
 /// Write to whichever host link this build selected. Generic over the transport so the USB
@@ -150,14 +181,14 @@ async fn main(spawner: Spawner) {
     // The host link. Both personalities implement `embedded_io_async::{Read, Write}`, so
     // everything below is written once and built twice.
     #[cfg(feature = "host-usb")]
-    let (mut usb_rx, mut usb_tx) = UsbSerialJtag::new(peripherals.USB_DEVICE)
+    let (usb_rx, usb_tx) = UsbSerialJtag::new(peripherals.USB_DEVICE)
         .into_async()
         .split();
 
     // UART0 on the exposed header: GPIO44 RX, GPIO43 TX. Unlike USB Serial/JTAG this survives
     // Light-sleep and can wake the chip, which is what the low-power personality needs.
     #[cfg(feature = "host-uart-low-power")]
-    let (mut usb_rx, mut usb_tx) = {
+    let (usb_rx, usb_tx) = {
         let uart = Uart::new(
             peripherals.UART0,
             UartConfig::default().with_baudrate(HOST_UART_BAUD),
@@ -240,7 +271,7 @@ async fn main(spawner: Spawner) {
         }
     };
 
-    let mut modulation = match lora.create_modulation_params(
+    let modulation = match lora.create_modulation_params(
         SpreadingFactor::_11,
         Bandwidth::_250KHz,
         CodingRate::_4_5,
@@ -262,7 +293,7 @@ async fn main(spawner: Spawner) {
             .await
         }
     };
-    let mut tx_params = match lora.create_tx_packet_params(16, false, true, false, &modulation) {
+    let tx_params = match lora.create_tx_packet_params(16, false, true, false, &modulation) {
         Ok(params) => params,
         Err(_) => {
             local_status.radio = radio_face::RadioState::Fault;
@@ -279,8 +310,7 @@ async fn main(spawner: Spawner) {
             .await
         }
     };
-    let mut rx_params = match lora.create_rx_packet_params(16, false, 255, true, false, &modulation)
-    {
+    let rx_params = match lora.create_rx_packet_params(16, false, 255, true, false, &modulation) {
         Ok(params) => params,
         Err(_) => {
             local_status.radio = radio_face::RadioState::Fault;
@@ -303,11 +333,25 @@ async fn main(spawner: Spawner) {
     local_status.radio = radio_face::RadioState::Online;
     local_status.fault = None;
     ui::publish(local_status, radio_face::LedSignal::Idle);
-    let _ = write_all(&mut usb_tx, online).await;
+
+    // Past every path that hands the halves to `serve_status_only`, so they can become the
+    // host link and the radio settings become the state `radio-hand` drives.
+    let mut host = host::SplitHost::new(usb_rx, usb_tx);
+    let mut radio = RadioState {
+        modulation,
+        tx: tx_params,
+        rx: rx_params,
+        tx_power_dbm: i32::from(board::DEFAULT_TX_POWER_DBM),
+        prepare_rx: true,
+    };
+    let face = Face {
+        publish: ui::publish,
+        publish_host: ui::publish_host,
+    };
+
+    let _ = host.write_all(online).await;
     let mut command_stream = CommandStream::new();
     let mut usb_command = [0_u8; MAX_COMMAND_LEN];
-    let mut prepare_rx = true;
-    let mut tx_power_dbm = i32::from(board::DEFAULT_TX_POWER_DBM);
 
     // The proof enters Light-sleep from the radio task itself. This preserves the pending
     // receive future across sleep rather than asking the scheduler's idle hook to do so.
@@ -322,12 +366,12 @@ async fn main(spawner: Spawner) {
     power::arm(esp_hal::rtc_cntl::Rtc::new(peripherals.LPWR));
 
     loop {
-        if prepare_rx {
+        if radio.prepare_rx {
             // Configuring the radio is SPI traffic; sleeping through it would abandon a
             // half-finished transaction.
             let _awake = power::Awake::new();
             if lora
-                .prepare_for_rx(RxMode::Continuous, &modulation, &rx_params)
+                .prepare_for_rx(RxMode::Continuous, &radio.modulation, &radio.rx)
                 .await
                 .is_err()
             {
@@ -337,13 +381,13 @@ async fn main(spawner: Spawner) {
                     message: radio_face::Text::from_truncated("RX SETUP"),
                 });
                 ui::publish(local_status, radio_face::LedSignal::Idle);
-                let _ = write_all(&mut usb_tx, b"radio rx setup failed\r\n").await;
+                let _ = host.write_all(b"radio rx setup failed\r\n").await;
                 continue;
             }
             local_status.radio = radio_face::RadioState::Online;
             local_status.fault = None;
             ui::publish(local_status, radio_face::LedSignal::Idle);
-            prepare_rx = false;
+            radio.prepare_rx = false;
         }
 
         let mut usb_packet = [0_u8; 64];
@@ -353,16 +397,16 @@ async fn main(spawner: Spawner) {
         // nowhere else — but only at a frame boundary, since a wake eats the bytes that
         // triggered it and would truncate a command already in progress.
         #[cfg(not(feature = "rf-sleep-proof"))]
-        let host_read = embedded_io_async::Read::read(&mut usb_rx, &mut usb_packet);
+        let host_read = host.read(&mut usb_packet);
         #[cfg(feature = "rf-sleep-proof")]
-        let host_read = ignore_host(&mut usb_rx, &mut usb_packet);
+        let host_read = core::future::pending::<Result<usize, radio_hand::link::LinkFault>>();
         #[cfg(all(feature = "host-uart-low-power", feature = "rf-sleep-proof"))]
         let radio_receive = async {
             if !proof_sleep_enabled {
-                return lora.rx(&rx_params, &mut radio_frame).await;
+                return lora.rx(&radio.rx, &mut radio_frame).await;
             }
 
-            let mut receive = core::pin::pin!(lora.rx(&rx_params, &mut radio_frame));
+            let mut receive = core::pin::pin!(lora.rx(&radio.rx, &mut radio_frame));
             poll_fn(|cx| match receive.as_mut().poll(cx) {
                 Poll::Ready(outcome) => Poll::Ready(outcome),
                 Poll::Pending if wake_input::radio_wake_armed() && !wake_input::radio_is_high() => {
@@ -385,7 +429,7 @@ async fn main(spawner: Spawner) {
             .await
         };
         #[cfg(not(all(feature = "host-uart-low-power", feature = "rf-sleep-proof")))]
-        let radio_receive = lora.rx(&rx_params, &mut radio_frame);
+        let radio_receive = lora.rx(&radio.rx, &mut radio_frame);
         let waiting = select(host_read, radio_receive);
         let outcome = if command_stream.is_boundary() {
             waiting.await
@@ -428,11 +472,16 @@ async fn main(spawner: Spawner) {
                     // an Embassy timer into the very clock behavior under examination.
                     BlockingDelay::new().delay_millis(250);
                     let sent = lora
-                        .prepare_for_tx(&modulation, &mut tx_params, tx_power_dbm, &receipt)
+                        .prepare_for_tx(
+                            &radio.modulation,
+                            &mut radio.tx,
+                            radio.tx_power_dbm,
+                            &receipt,
+                        )
                         .await
                         .is_ok()
                         && lora.tx().await.is_ok();
-                    prepare_rx = true;
+                    radio.prepare_rx = true;
                     if sent {
                         local_status.tx_frames = local_status.tx_frames.saturating_add(1);
                         local_status.last_tx = radio_face::TxResult::Sent {
@@ -456,7 +505,7 @@ async fn main(spawner: Spawner) {
                 event[3..5].copy_from_slice(&packet_status.rssi.to_le_bytes());
                 event[5..7].copy_from_slice(&packet_status.snr.to_le_bytes());
                 event[7..7 + length].copy_from_slice(&radio_frame[..length]);
-                let _ = write_all(&mut usb_tx, &event[..7 + length]).await;
+                let _ = host.write_all(&event[..7 + length]).await;
             }
             Either::Second(Err(_)) => {
                 local_status.radio = radio_face::RadioState::Fault;
@@ -465,8 +514,8 @@ async fn main(spawner: Spawner) {
                     message: radio_face::Text::from_truncated("RADIO RX"),
                 });
                 ui::publish(local_status, radio_face::LedSignal::Idle);
-                let _ = write_all(&mut usb_tx, b"radio rx failed\r\n").await;
-                prepare_rx = true;
+                let _ = host.write_all(b"radio rx failed\r\n").await;
+                radio.prepare_rx = true;
             }
             Either::First(Err(_)) => {}
             Either::First(Ok(0)) => {}
@@ -490,11 +539,11 @@ async fn main(spawner: Spawner) {
                 }
                 let at_boundary = command_stream.is_boundary();
                 if at_boundary && (packet == b"status\n" || packet == b"status\r\n") {
-                    let _ = write_all(&mut usb_tx, online).await;
+                    let _ = host.write_all(online).await;
                     continue;
                 }
                 if at_boundary && (packet == b"sync\n" || packet == b"sync\r\n") {
-                    let _ = write_all(&mut usb_tx, b"2b 24b4\r\n").await;
+                    let _ = host.write_all(b"2b 24b4\r\n").await;
                     continue;
                 }
                 if at_boundary && (packet == b"ui\n" || packet == b"ui\r\n") {
@@ -509,7 +558,7 @@ async fn main(spawner: Spawner) {
                         diagnostic.button,
                         diagnostic.host,
                     );
-                    let _ = write_all(&mut usb_tx, reply.as_str().as_bytes()).await;
+                    let _ = host.write_all(reply.as_str().as_bytes()).await;
                     continue;
                 }
                 #[cfg(feature = "ui-bench")]
@@ -520,7 +569,7 @@ async fn main(spawner: Spawner) {
                         message: radio_face::Text::from_truncated("BENCH FAULT"),
                     });
                     ui::publish(local_status, radio_face::LedSignal::Idle);
-                    let _ = write_all(&mut usb_tx, b"ui bench fault set\r\n").await;
+                    let _ = host.write_all(b"ui bench fault set\r\n").await;
                     continue;
                 }
                 #[cfg(feature = "ui-bench")]
@@ -528,7 +577,7 @@ async fn main(spawner: Spawner) {
                     local_status.radio = radio_face::RadioState::Online;
                     local_status.fault = None;
                     ui::publish(local_status, radio_face::LedSignal::Idle);
-                    let _ = write_all(&mut usb_tx, b"ui bench fault cleared\r\n").await;
+                    let _ = host.write_all(b"ui bench fault cleared\r\n").await;
                     continue;
                 }
                 // Sleep diagnostics, for the power receipt: how many times the idle hook
@@ -541,129 +590,28 @@ async fn main(spawner: Spawner) {
                     report[0] = EVENT_DIAGNOSTIC;
                     report[1..5].copy_from_slice(&entries.to_le_bytes());
                     report[5..9].copy_from_slice(&blocked.to_le_bytes());
-                    let _ = write_all(&mut usb_tx, &report).await;
+                    let _ = host.write_all(&report).await;
                     continue;
                 }
 
-                for &byte in packet {
-                    match command_stream.push(byte, &mut usb_command) {
-                        CommandEvent::Pending => {}
-                        CommandEvent::Unknown { .. } => {
-                            let _ = write_all(&mut usb_tx, &[EVENT_TX, 3, 0, 0]).await;
-                        }
-                        CommandEvent::TooLong {
-                            kind: CommandKind::UiSnapshot,
-                            ..
-                        } => {
-                            let _ =
-                                write_all(&mut usb_tx, &[EVENT_UI_SNAPSHOT, UI_SNAPSHOT_TOO_LONG])
-                                    .await;
-                        }
-                        CommandEvent::TooLong {
-                            kind: CommandKind::Transmit,
-                            declared,
-                        } => {
-                            let length = (declared as u16).to_le_bytes();
-                            let _ =
-                                write_all(&mut usb_tx, &[EVENT_TX, 4, length[0], length[1]]).await;
-                        }
-                        CommandEvent::TooLong {
-                            kind: CommandKind::Configure,
-                            ..
-                        } => unreachable!("configure commands have a fixed length"),
-                        CommandEvent::Complete {
-                            kind: CommandKind::UiSnapshot,
-                            len,
-                        } => {
-                            let mut snapshot_bytes = [0_u8; MAX_UI_SNAPSHOT_LEN];
-                            let result = match decode_ui_snapshot_command(
-                                &usb_command[..len],
-                                &mut snapshot_bytes,
-                            ) {
-                                Ok(snapshot_len) => match radio_face::decode_snapshot(
-                                    &snapshot_bytes[..snapshot_len],
-                                ) {
-                                    Ok(snapshot) => {
-                                        ui::publish_host(snapshot);
-                                        selvage::UI_SNAPSHOT_ACCEPTED
-                                    }
-                                    Err(radio_face::WireError::UnsupportedVersion(_)) => {
-                                        UI_SNAPSHOT_UNSUPPORTED_VERSION
-                                    }
-                                    Err(radio_face::WireError::TooLong) => UI_SNAPSHOT_TOO_LONG,
-                                    Err(_) => UI_SNAPSHOT_MALFORMED,
-                                },
-                                Err(selvage::UiSnapshotWireError::TooLong) => UI_SNAPSHOT_TOO_LONG,
-                                Err(_) => UI_SNAPSHOT_MALFORMED,
-                            };
-                            let _ = write_all(&mut usb_tx, &[EVENT_UI_SNAPSHOT, result]).await;
-                        }
-                        CommandEvent::Complete {
-                            kind: CommandKind::Configure,
-                            len,
-                        } => {
-                            debug_assert_eq!(len, CONFIG_COMMAND_LEN);
-                            let result =
-                                match decode_config_command(&usb_command[..CONFIG_COMMAND_LEN]) {
-                                    Ok(profile) => {
-                                        match service::apply_profile(&mut lora, &profile).await {
-                                            Ok(applied) => {
-                                                modulation = applied.modulation;
-                                                tx_params = applied.tx;
-                                                rx_params = applied.rx;
-                                                tx_power_dbm = applied.tx_power_dbm;
-                                                board::apply_profile(&mut local_status, profile);
-                                                prepare_rx = true;
-                                                service::ACCEPTED
-                                            }
-                                            Err(code) => code,
-                                        }
-                                    }
-                                    Err(_) => service::MALFORMED,
-                                };
-                            let _ = write_all(&mut usb_tx, &[EVENT_CONFIG, result]).await;
-                        }
-                        CommandEvent::Complete {
-                            kind: CommandKind::Transmit,
-                            len,
-                        } => {
-                            let frame_len = len - 3;
-                            let sent_len = frame_len as u16;
-                            let result = if lora
-                                .prepare_for_tx(
-                                    &modulation,
-                                    &mut tx_params,
-                                    tx_power_dbm,
-                                    &usb_command[3..len],
-                                )
-                                .await
-                                .is_ok()
-                                && lora.tx().await.is_ok()
-                            {
-                                0
-                            } else {
-                                1
-                            };
-                            prepare_rx = true;
-                            let length_bytes = sent_len.to_le_bytes();
-                            let _ = write_all(
-                                &mut usb_tx,
-                                &[EVENT_TX, result, length_bytes[0], length_bytes[1]],
-                            )
-                            .await;
-                            if result == 0 {
-                                local_status.tx_frames = local_status.tx_frames.saturating_add(1);
-                                local_status.last_tx = radio_face::TxResult::Sent {
-                                    frame_len: sent_len,
-                                };
-                            } else {
-                                local_status.last_tx =
-                                    radio_face::TxResult::Failed { code: result };
-                            }
-                            ui::publish(local_status, radio_face::LedSignal::Activity);
-                        }
-                    }
-                }
+                let outcome = dispatch::on_host_bytes(
+                    &mut host,
+                    &mut lora,
+                    &mut command_stream,
+                    &mut usb_command,
+                    &mut radio,
+                    &mut local_status,
+                    &face,
+                    &Sx126xDiagnostics,
+                    packet,
+                )
+                .await;
+                // This board's transports never report `Detached`: USB Serial/JTAG buffers
+                // into a peripheral that does not fail a write when the host leaves, and a
+                // bare UART has nothing on the other end to notice. So the session never
+                // ends, which is this board's existing behaviour, now falling out of the
+                // shared loop rather than being written into it.
+                debug_assert_eq!(outcome.flow, dispatch::Flow::Continue);
             }
         }
     }

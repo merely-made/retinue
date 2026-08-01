@@ -51,7 +51,12 @@ impl<R: Read, W: Write> HostLink for SplitHost<R, W> {
     }
 
     async fn write_all(&mut self, bytes: &[u8]) -> Result<(), LinkFault> {
+        // The flush is load-bearing, not hygiene. USB Serial/JTAG holds written bytes in the
+        // peripheral until flushed, so an unflushed reply simply never reaches the host: the
+        // board looks alive and answers nothing. Dropping it while building this seam cost a
+        // hardware round trip to find.
         let _ = self.tx.write_all(bytes).await;
+        let _ = self.tx.flush().await;
         Ok(())
     }
 }

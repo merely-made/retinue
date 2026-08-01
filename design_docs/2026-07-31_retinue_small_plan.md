@@ -1,7 +1,7 @@
 # retinue-small plan
 
-**Status:** N0 proven on the T114 (power-loss leg open); N1 complete; N2 seam
-built and receipted on the T114, V4 loop wiring open; channels-in-one-image
+**Status:** N0 proven on the T114 (power-loss leg open); N1 complete; N2 complete,
+both images dispatch through radio-hand and are receipted; channels-in-one-image
 ruled (structural decision 4), executive built when the second channel exists
 **Design authority:**
 [`2026-07-19_modem_embedded_and_meshtastic_research.md`](2026-07-19_modem_embedded_and_meshtastic_research.md)
@@ -627,6 +627,60 @@ from armillary's kernel-and-actors shape, and the fault residue to a
 liveness-fed watchdog with a crash record in retained RAM and a crash-loop
 fallback to the modem channel. MPU isolation (Hubris, Tock) rejected with
 reasons. The research doc's board order carries the superseded-images note.
+
+**N2 COMPLETE, 2026-08-01: the V4 rides the seam too.**
+
+Both images now dispatch through `radio-hand`. V4 `main.rs` is 757 -> 618
+lines; T114 is 801 -> 586. Its `SplitHost` covers both personalities because
+both split into `embedded_io_async` halves, and `ignore_host` turned out to
+ignore its arguments entirely (it only pends), so the sleep-proof read path
+needed no link at all.
+
+**Two deliberate behaviour changes on the V4**, both corrections:
+
+- Writes now end a session on `Detached`. Its transports never report it, so
+  in practice nothing changes; the shared loop simply expresses it.
+- **Transmit gained a deadline.** The V4 had none: it awaited `lora.tx()`
+  indefinitely, so a wedged radio hung the loop forever. It now shares the
+  T114's three-second deadline, and with it the `ChipDiagnostics` path the V4
+  never had, since nothing could previously time out to ask.
+
+**Left alone deliberately:** the V4's RX arm. `sleep_proof_receipt` reads
+`local_status.rx_frames`, so the status update must precede the sleep-proof
+block, whereas `on_radio_frame` writes the event before updating status. Using
+it would have silently changed a receipt's contents under a feature this bench
+cannot exercise. Fifteen lines of duplication is the right price.
+
+**The bug the hardware caught, which compilation could not.** The V4's original
+`write_all` helper did write *and flush*; `SplitHost` dropped the flush. USB
+Serial/JTAG holds written bytes in the peripheral until flushed, so the board
+booted, answered its banner, and then silently never delivered a config
+acknowledgement: 4 of 4 runs failed with a transport fault. One line, and only
+a real host could find it.
+
+**Counted receipt, two boards, same session, same channel.** The T114 (v19) was
+the fixed peer, and because a second V4 exists, the wired board and an
+untouched control ran side by side:
+
+| board | firmware | passed |
+|---|---|---|
+| COM7 | wired through `radio-hand` | **8 of 8** |
+| COM6 | untouched control | **8 of 8** |
+
+All outputs byte-exact. No detectable difference. Note the channel was quieter
+than the morning's blocks (5 of 8, 7 of 8, 8 of 10), which is precisely why a
+receipt compares a control taken in the same session rather than against a
+number from hours earlier.
+
+**An operational trap worth never rediscovering.** Mid-block the *untouched*
+control began failing 4 of 4 while the wired board passed. Taken at face value
+that reads as "the change improved things", which is unsupportable. The cause
+was the bench probe: asserting DTR **and** RTS together is the ESP32-S3's
+download-mode entry sequence, so the probe had dropped COM6 into the ROM
+bootloader, where it answers nothing and looks dead. Recovery is
+`espflash reset --port COMn`. The probe now asserts DTR only, which the T114's
+`wait_connection` still needs and which leaves a V4 alone. Also: `espflash
+flash --no-stub` fails at `FlashEnd` on this setup; the default stub works.
 
 ## Non-goals
 
