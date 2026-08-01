@@ -346,6 +346,15 @@ result is reported honestly (the applied power, not the requested one).
 Retrofitting this after settings persist means changing the stored format and
 the wire, which is why it is ruled before either exists.
 
+**Shape decided 2026-08-01 (Mark):** do what Meshtastic and the others do.
+`radio-hand` carries a built-in table of compliant region profiles under plain
+names (US 915, EU 868, and so on), each supplying frequency bounds, power cap,
+duty cycle, and dwell. The user picks one at first setup; the choice persists
+as the board fact; every host profile is validated against it. Until a region
+is chosen the board does not transmit and the face says why, which is the
+current Meshtastic posture and honest by our own no-placebo rule. The table is
+data, so adding a region is an entry, not a code path.
+
 ### 2. Channel citizenship also lives in radio-hand
 
 Neither image does channel-activity detection before TX; transmit is blind,
@@ -371,6 +380,26 @@ by scattering runtime writes; it stages changes in RAM and commits them in a
 declared radio-quiet window. Designing that window in from the start is cheap;
 retrofitting it out of scattered write sites after BLE lands is the intractable
 version.
+
+**On the starvation question (Mark, 2026-08-01): the window is taken, not
+awaited.** The firmware does not wait for the band to go quiet, which on a busy
+mesh it never would. It makes quiet: defers its own TX, accepts that RX is
+blanked for the erase and write, and commits. So there is no unbounded-wait
+failure mode, and the residual risks are small and bounded:
+
+- A clipped frame. At LongFast SF11 a frame is roughly 700 ms of airtime, so a
+  tens-of-ms blank can clip one. That is indistinguishable from ordinary RF
+  loss, which the reliability layer exists to survive. Cost: one retransmit.
+- Starvation by policy, not physics: "commit when convenient" left vague lets a
+  busy relay defer forever. So staged settings carry a deadline and commit
+  within a bounded time of staging, taking the one-frame risk.
+- Power cut before commit: staged settings are lost and the board boots on the
+  old profile. Stale but valid, never corrupt, which the A/B store already
+  guarantees.
+
+When BLE lands the window additionally coordinates with the stack's radio
+timing, which is a scheduling constraint on the same bounded window, not a new
+mechanism.
 
 ### 4. The 255/500 MTU fork is named, and the trunk takes 255
 
