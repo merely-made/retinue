@@ -23,7 +23,7 @@ use lora_phy::mod_traits::InterfaceVariant;
 use lora_phy::sx126x::{Config as Sx126xConfig, Sx126x, Sx1262, TcxoCtrlVoltage};
 use lora_phy::{LoRa, RxMode};
 use panic_halt as _;
-use radio_hand::phy::{bandwidth, coding_rate, spreading_factor};
+use radio_hand::service;
 use selvage::{
     CONFIG_COMMAND_LEN, CommandEvent, CommandKind, CommandStream, EVENT_CONFIG, EVENT_DIAGNOSTIC,
     EVENT_RX, EVENT_TX, EVENT_UI_SNAPSHOT, MAX_COMMAND_LEN, MAX_UI_SNAPSHOT_LEN,
@@ -617,77 +617,28 @@ async fn main(spawner: Spawner) {
                                     match decode_config_command(&usb_command[..CONFIG_COMMAND_LEN])
                                     {
                                         Ok(profile) => {
-                                            let radio_params =
-                                                spreading_factor(profile.spreading_factor)
-                                                    .zip(bandwidth(profile.bandwidth_hz))
-                                                    .zip(coding_rate(
-                                                        profile.coding_rate_denominator,
-                                                    ));
-                                            match radio_params {
-                                                Some(((sf, bw), cr)) => {
-                                                    match lora.create_modulation_params(
-                                                        sf,
-                                                        bw,
-                                                        cr,
-                                                        profile.frequency_hz,
-                                                    ) {
-                                                        Ok(new_modulation) => {
-                                                            let new_tx = lora
-                                                                .create_tx_packet_params(
-                                                                    profile.preamble_symbols,
-                                                                    !profile.explicit_header,
-                                                                    profile.crc,
-                                                                    profile.invert_iq,
-                                                                    &new_modulation,
-                                                                );
-                                                            let new_rx = lora
-                                                                .create_rx_packet_params(
-                                                                    profile.preamble_symbols,
-                                                                    !profile.explicit_header,
-                                                                    255,
-                                                                    profile.crc,
-                                                                    profile.invert_iq,
-                                                                    &new_modulation,
-                                                                );
-                                                            match (new_tx, new_rx) {
-                                                                (Ok(new_tx), Ok(new_rx)) => {
-                                                                    if lora
-                                                                        .set_sync_word(
-                                                                            profile.sync_word,
-                                                                        )
-                                                                        .await
-                                                                        .is_ok()
-                                                                    {
-                                                                        modulation = new_modulation;
-                                                                        tx_params = new_tx;
-                                                                        rx_params = new_rx;
-                                                                        tx_power_dbm = i32::from(
-                                                                            profile.tx_power_dbm,
-                                                                        );
-                                                                        board::apply_profile(
-                                                                            &mut local_status,
-                                                                            profile,
-                                                                        );
-                                                                        ui::publish(
-                                                                        local_status,
-                                                                        radio_face::LedSignal::Idle,
-                                                                    );
-                                                                        prepare_rx = true;
-                                                                        0
-                                                                    } else {
-                                                                        3
-                                                                    }
-                                                                }
-                                                                _ => 2,
-                                                            }
-                                                        }
-                                                        Err(_) => 2,
-                                                    }
+                                            match service::apply_profile(&mut lora, &profile).await
+                                            {
+                                                Ok(applied) => {
+                                                    modulation = applied.modulation;
+                                                    tx_params = applied.tx;
+                                                    rx_params = applied.rx;
+                                                    tx_power_dbm = applied.tx_power_dbm;
+                                                    board::apply_profile(
+                                                        &mut local_status,
+                                                        profile,
+                                                    );
+                                                    ui::publish(
+                                                        local_status,
+                                                        radio_face::LedSignal::Idle,
+                                                    );
+                                                    prepare_rx = true;
+                                                    service::ACCEPTED
                                                 }
-                                                None => 2,
+                                                Err(code) => code,
                                             }
                                         }
-                                        Err(_) => 1,
+                                        Err(_) => service::MALFORMED,
                                     };
                                 if !write_all(&mut class, &[EVENT_CONFIG, result]).await {
                                     break 'connected;

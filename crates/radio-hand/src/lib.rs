@@ -18,4 +18,5 @@
 //! the decisions over them are portable.
 
 pub mod phy;
+pub mod service;
 pub mod store;

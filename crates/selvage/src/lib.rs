@@ -36,6 +36,21 @@ pub const MAX_UI_SNAPSHOT_COMMAND_LEN: usize = MAX_UI_SNAPSHOT_COMMAND_BODY_LEN 
 /// Largest command body retained by the stream parser.
 pub const MAX_COMMAND_LEN: usize = MAX_UI_SNAPSHOT_COMMAND_BODY_LEN;
 
+/// Results of a [`CMD_CONFIG`] command, carried by [`EVENT_CONFIG`].
+///
+/// These were bare numbers written twice in the firmware images before N2 named them.
+/// They sit here beside the snapshot results because both are wire values a host reads.
+/// The profile was applied and the radio is on the new channel.
+pub const CONFIG_ACCEPTED: u8 = 0;
+/// The command did not decode: wrong length, or a field the codec rejected.
+pub const CONFIG_MALFORMED: u8 = 1;
+/// The profile decoded but names a setting this radio has no value for, or the driver
+/// refused the resulting modulation or packet parameters. The old profile still stands.
+pub const CONFIG_UNSUPPORTED: u8 = 2;
+/// Parameters were accepted but the radio would not take the sync word, so the channel
+/// is left in whatever state the driver reached. The host should reconfigure.
+pub const CONFIG_RADIO_FAULT: u8 = 3;
+
 pub const UI_SNAPSHOT_ACCEPTED: u8 = 0;
 pub const UI_SNAPSHOT_MALFORMED: u8 = 1;
 pub const UI_SNAPSHOT_UNSUPPORTED_VERSION: u8 = 2;

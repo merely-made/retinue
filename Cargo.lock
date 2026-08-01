@@ -1991,6 +1991,8 @@ name = "radio-hand"
 version = "0.0.1"
 dependencies = [
  "lora-modulation",
+ "lora-phy",
+ "selvage",
 ]
 
 [[package]]

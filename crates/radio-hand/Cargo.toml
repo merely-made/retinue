@@ -8,3 +8,5 @@ publish = false
 
 [dependencies]
 lora-modulation = "0.1.5"
+lora-phy = { path = "../../vendor/lora-phy" }
+selvage = { path = "../selvage" }

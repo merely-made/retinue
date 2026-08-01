@@ -436,6 +436,56 @@ fresh envelopes because retransmits are appended after the fill loop; the
 sweep in `on_proof` keeps duplicate hashes for a sequence until it is proved,
 which is correct because either transmission's proof may return.
 
+**N2 first half, 2026-07-31, and a finding that outranks it.**
+
+Landed in `radio-hand`: `phy` (the wire-value-to-`lora-modulation` mapping, which
+was duplicated byte for byte) and `service::apply_profile` (the sixty lines of
+nesting each image spelled out to apply a host profile, generic over
+`RadioKind` so neither board's SPI arrangement reaches it). `selvage` now names
+the config result codes `CONFIG_ACCEPTED/MALFORMED/UNSUPPORTED/RADIO_FAULT`,
+matching the `UI_SNAPSHOT_*` precedent it already set; they had been bare
+numbers written twice. `main.rs` is 801 -> 709 lines on the T114 and 757 -> 669
+on the V4.
+
+The `phy` extraction produced an image **byte-identical** to the flashed,
+RF-proven v16 (sha256 `b99102ae...`), so that step needed no hardware at all.
+The `service` extraction grew the image 384 bytes, so it did.
+
+**THE RF RECEIPTS IN THIS PROJECT HAVE BEEN SINGLE-RUN, AND THE PATH IS FLAKY.**
+The v17 RF regression failed. Rather than accept or dismiss that, it was run as
+an A/B against v16, the image N0 proved:
+
+| image | result |
+|---|---|
+| v17 (refactored) | 5 of 8 passed |
+| v16 (the N0-proven control) | 8 of 10 passed |
+
+The control's first block was 4 of 4, which looked like a clean regression
+signal; extending it to ten runs showed that block was luck. At these sample
+sizes the two rates are statistically indistinguishable (Fisher exact on
+[8,2] vs [5,3] gives p ~ 0.6), so there is **no evidence the extraction changed
+RF behaviour**, and clear evidence that **a single passing run is not a
+receipt**.
+
+This applies backwards. The 2026-07-23 direct-PHY acceptance and N0's own RF
+check were each a single run on a shared ISM band; the N0 control capture even
+recorded an unrelated LongFast frame at -113 dBm, so ambient traffic on
+906.875 MHz is documented. Neither receipt is wrong, but both are weaker than
+they read.
+
+**Consequence for N4 and N5:** their done conditions say the board "exchanges
+reliable data" and "recovers after induced loss". Those must be written as a
+pass count out of a stated number of runs, not as a single pass, or they will
+certify a path that fails a third of the time. The gate receipts above should
+be read with the same caution.
+
+Still open in N2: the command dispatch itself (identical in both images apart
+from the host transport) needs a `HostLink` seam before it can move. One real
+behavioural difference to settle first: the T114 checks every `write_all` result
+and breaks the connection loop on failure, while the V4 discards it. Unifying
+them changes one board's behaviour, so it is a decision rather than a
+refactor.
+
 Next is N2: move the radio service out of the two firmware `main.rs` files into
 `radio-hand`, which N0 already founded.
 
