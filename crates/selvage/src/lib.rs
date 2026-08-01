@@ -36,6 +36,22 @@ pub const MAX_UI_SNAPSHOT_COMMAND_LEN: usize = MAX_UI_SNAPSHOT_COMMAND_BODY_LEN 
 /// Largest command body retained by the stream parser.
 pub const MAX_COMMAND_LEN: usize = MAX_UI_SNAPSHOT_COMMAND_BODY_LEN;
 
+/// Results of a [`CMD_TX`] command, carried by [`EVENT_TX`].
+///
+/// Bare numbers in both firmware images until N2 named them, and reachable by a host,
+/// so they belong beside the other wire results rather than in a board.
+/// The frame reached the air.
+pub const TX_ACCEPTED: u8 = 0;
+/// The radio refused the frame, either preparing to transmit or transmitting.
+pub const TX_RADIO_FAULT: u8 = 1;
+/// The command marker is not one this firmware knows.
+pub const TX_UNKNOWN_COMMAND: u8 = 3;
+/// The declared frame is longer than [`MAX_RADIO_FRAME_LEN`].
+pub const TX_TOO_LONG: u8 = 4;
+/// Transmission was still unfinished when the firmware's deadline passed. The radio is
+/// left in an unknown state, so a board that can read chip diagnostics should emit them.
+pub const TX_TIMEOUT: u8 = 5;
+
 /// Results of a [`CMD_CONFIG`] command, carried by [`EVENT_CONFIG`].
 ///
 /// These were bare numbers written twice in the firmware images before N2 named them.

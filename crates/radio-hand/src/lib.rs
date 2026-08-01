@@ -17,6 +17,9 @@
 //! through `embassy-nrf` and the V4 through `esp-hal`; only the byte formats and
 //! the decisions over them are portable.
 
+pub mod board_status;
+pub mod dispatch;
+pub mod link;
 pub mod phy;
 pub mod service;
 pub mod store;

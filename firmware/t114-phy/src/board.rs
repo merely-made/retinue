@@ -13,7 +13,7 @@
 //! is confirmed.
 
 use radio_face::{HostState, LocalStatus, PowerSource, RadioProfile, RadioState, SleepState, Text};
-use selvage::{MESHTASTIC_SYNC_WORD, PhyProfile};
+use selvage::MESHTASTIC_SYNC_WORD;
 
 pub const DEFAULT_FREQUENCY_HZ: u32 = 906_875_000;
 pub const DEFAULT_BANDWIDTH_HZ: u32 = 250_000;
@@ -41,16 +41,4 @@ pub fn initial_status() -> LocalStatus {
         },
         ..Default::default()
     }
-}
-
-pub fn apply_profile(status: &mut LocalStatus, profile: PhyProfile) {
-    status.profile = RadioProfile {
-        frequency_hz: Some(profile.frequency_hz),
-        bandwidth_hz: Some(profile.bandwidth_hz),
-        spreading_factor: Some(profile.spreading_factor),
-        coding_rate_denominator: Some(profile.coding_rate_denominator),
-        tx_power_dbm: Some(profile.tx_power_dbm),
-        sync_word: Some(profile.sync_word),
-        name: Text::from_truncated("HOST"),
-    };
 }

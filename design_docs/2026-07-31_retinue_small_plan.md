@@ -432,6 +432,47 @@ and the `build.rs` assertions move with it; one A/B record with a versioned
 body should carry identity plus settings atomically rather than multiplying
 pages.
 
+**N2 second half, 2026-08-01: the HostLink seam is built, T114 side.**
+
+`radio-hand` gains `link` (the trait), `dispatch` (the shared command loop),
+and `board_status` (a third function both images carried identically). The
+T114's `host.rs` implements `HostLink` over CDC, chunking to 64 bytes inside
+the impl, which is what keeps MTU out of the trait. `main.rs` is **801 -> 586
+lines**, under the 600 ceiling for the first time.
+
+One design change fell out of building it, and it was a real wire bug avoided.
+Dispatch writes the `EVENT_TX` reply itself, so a chip diagnostic emitted by
+the *caller* afterwards would arrive after the reply. The host takes the most
+recent diagnostic when a transmit fails and attaches it to that failure
+(`last_diagnostic.take()` in `tulle`), so the reordering would have stripped
+`irq=/errors=/sync=` from every TX-timeout error and misattributed it to the
+next one. Hence `ChipDiagnostics`, a trait the board implements that takes
+dispatch's own `lora` borrow, so the diagnostic still precedes its reply.
+
+**Counted RF receipt, per the receipt rule, same hardware and same day:**
+
+| image | passed |
+|---|---|
+| v16, the pre-N2 control | 8 of 10 |
+| v17, `apply_profile` | 5 of 8 |
+| **v18, the HostLink seam** | **7 of 8** |
+
+All seven v18 outputs byte-exact against the input, zero mismatches, and every
+run at 24.2s. v18 sits at the top of the observed band, so no regression is
+detectable. Note this is exactly the receipt that a single run would have
+gotten wrong in either direction: v17's first run failed and v18's fifth did.
+
+The text probes were exercised on the flashed image too: `radio` returns
+`84 00 00 00 00 24 B4` through the new `ChipDiagnostics` path with the sync
+word reading `24B4`, and the identity survived a fifth reflash.
+
+Still open in N2: the V4's two `HostLink` impls. Deliberately not done in the
+same session, because the V4 is the RF test peer — reflashing it would have
+destroyed the known-good control the A/B above depends on. Its transports split
+into `embedded_io_async` rx/tx halves, so one generic impl covers both
+personalities, with `attached()` returning immediately and writes never
+reporting `Detached` on the UART side.
+
 ## Non-goals
 
 - Porting `Endpoint`. It stays the desktop shell.
