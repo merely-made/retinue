@@ -1,7 +1,8 @@
 # retinue-small plan
 
-**Status:** N0 proven on the T114 across reset and application reflash, power-loss
-leg open; N1 complete, the sans-io core cross-compiles for the board; N2 next
+**Status:** N0 proven on the T114 (power-loss leg open); N1 complete; N2 seam
+built and receipted on the T114, V4 loop wiring open; channels-in-one-image
+ruled (structural decision 4), executive built when the second channel exists
 **Design authority:**
 [`2026-07-19_modem_embedded_and_meshtastic_research.md`](2026-07-19_modem_embedded_and_meshtastic_research.md)
 (*Native Retinue personality*) supplies the boundary and
@@ -96,7 +97,7 @@ Also absent: an embedded Retinue node, and any firmware dependency on the
 `tulle` crate. Neither image links `tulle` today; `t114-phy` pulls `selvage`,
 `radio-face`, embassy, and `lora-phy`.
 
-## Two structural decisions
+## Structural decisions
 
 ### 1. Bound in the shared core, not in a fork
 
@@ -219,6 +220,132 @@ a dead pipe after the host leaves.
 **Build order:** the trait plus the T114 impl first (moving dispatch changes
 the image, so the byte-identity shortcut is gone and the RF check runs as a
 counted block per the receipt rule below), then the V4's two impls.
+
+### 4. One image, channels, and the executive (ruled 2026-08-01)
+
+Mark's framing, from game consoles: since shipped images are GPLv3 anyway,
+ship one image whose personalities are runtime-selectable channels, rather
+than one image per personality swapped over DFU.
+
+Adopted, as an evolution rather than a pivot, because the hardware already
+enforces the channel model: one SX1262, one PHY configuration, one sync word
+(`0x2B` Meshtastic, `0x12` MeshCore and direct-PHY, Reticulum's own framing),
+so the board is physically a citizen of exactly one mesh at a time. Reflashing
+never enforced one-protocol-at-a-time; the chip did. The selector surfaces a
+constraint that exists instead of adding one. The closest shipping precedent is
+the Flipper Zero, one image with an executive and protocol apps, and
+field-switching without a host computer is a real differentiator: Meshtastic
+and MeshCore users reflash to move between them today and resent it before we
+existed. One SKU under the stock-hardware user-flash posture.
+
+**The ruling:**
+
+- Personalities become **channels** behind a common trait in `radio-hand`:
+  start, serve, stop. The executive owns what the pressure points already put
+  below every personality (radio, `HostLink`, the store, the face, the region
+  table) and exactly one channel is active.
+- The active channel is a persisted field in the settings record. **Switching
+  is by reboot** in v1: persist the choice, reset. That is most of the UX for
+  a fraction of the complexity, the flash write lands at the reboot boundary
+  where writes are already legal, and channel-teardown correctness is
+  sidestepped entirely. Hot-switching is a later question if it ever matters.
+- This supersedes the research doc's board order item 1, "separate RNode,
+  Retinue-small, and Meshtastic-minimum images" on the T114: separate
+  **channels** in one image, selected at boot. Each channel's *done conditions*
+  in the research doc are unchanged.
+- **Trunk guard:** the executive ships with one channel (today's modem
+  personality), gains the node channel across N3 to N6, and foreign-mesh
+  channels join only after passing their own gates. The selector is built when
+  the second channel exists, not before. A channel selector must not re-center
+  the product on multi-protocol parity; the trunk doctrine stands.
+- **Licensing edge, stated precisely:** GPLv3 applies at the final image link,
+  and MPL-2.0 crates compose into it cleanly. The relaxation is only at that
+  boundary. Nothing GPL enters the workspace crates, `sennet` stays clean-room
+  MPL for independence and crate reusability, and `deny.toml` keeps
+  hard-lining GPL dependencies.
+- **Costs owned:** every shipped channel is flash-resident always (measure each
+  channel's delta as it lands; the region is 800 KB and today's whole image is
+  80 KB, so the budget is real but not tight). The receipt matrix multiplies:
+  a release re-receipts every shipped channel as a counted block, and
+  feature-gated single-channel builds remain possible for debugging. RAM is
+  not multiplied: only the active channel instantiates its tables, which the
+  N1 bounded-alloc design already makes constructible on demand.
+
+What this is **not** is a hypervisor. There is no isolation or scheduling of
+untrusting guests, and the word overpromises exactly the thing the next
+section examines honestly.
+
+#### The one panic domain, examined
+
+A combined image means a bug in any channel can halt the whole board. Baseline
+truth first: the panic domain is already one, today, with one personality.
+Both images link `panic-halt`, so channels multiply exposure to a failure mode
+that exists; they do not create it.
+
+The armillary intuition, checked against armillary's actual shape. Its
+discipline is a kernel that owns all canonical state, actors that talk to it
+only by message, and a boundary the type system enforces (the kernel context
+is `!Send` by construction, so moving authority onto an actor thread is a
+compile error). That discipline transfers here nearly verbatim. What does not
+transfer is armillary's *fault* boundary, because on the host it comes from OS
+threads: a panicking actor dies alone and the kernel restarts it. The board
+has no threads to die alone. `no_std` firmware is `panic = abort`, and
+`catch_unwind` does not exist to want.
+
+So the answer is the hybrid, three boundaries from three different mechanisms:
+
+1. **The memory boundary is the type system.** Channel crates are safe Rust
+   under `#![forbid(unsafe_code)]`, the `radio-face` precedent. A channel
+   cannot scribble another channel's state, the executive's, or the store's.
+   This is the protection an MPU would sell, delivered by the compiler at no
+   runtime cost.
+2. **The authority boundary is the executive, armillary-shaped.** The
+   executive owns the radio, the flash, the region table, and the face;
+   channels are clients over mailboxes (embassy channels, mechanically). This
+   is the same seam pressure points 1 and 2 already demanded, since the power
+   clamp, duty and dwell gating, and CAD want to live below every channel in
+   exactly one place. A berserk channel can request nonsense; it cannot bypass
+   the clamp, touch the store, or hold the radio.
+3. **The fault residue goes to supervised reboot.** `embassy-nrf` has the
+   watchdog (`wdt`, verified present for the nRF52840). The executive feeds it
+   only on channel liveness, so hangs reboot the board as well as panics.
+   Attribution without violating the quiet-window rule: the panic handler
+   writes a crash record to noinit RAM (the `panic-persist` pattern) or to
+   `GPREGRET`, the same retention register the bootloader entry already uses,
+   and the *next boot* reads it and stores it through the A/B record, which is
+   a boot-time write and therefore legal. On top of that, a crash-loop policy:
+   repeated crashes in a channel within a bounded number of boots fall back to
+   the modem channel, or to a status-only face showing the crash record. The
+   bootloader itself is the one hardware-isolated component already in the
+   system; DFU survives any application crash, which is why the fallback
+   always exists.
+
+Why reboot-as-recovery is honest in this domain, rather than a concession:
+mesh protocols are engineered for lossy membership, and a node blip is normal
+weather on every mesh in question (stock Meshtastic nodes reboot on panic
+routinely). The losses that would actually matter are the identity and
+settings, which are flash-persisted and proven across six reflashes, and crash
+loops, which the fallback policy bounds. Warm state (a NodeDB, routing tables)
+is lost on reboot; whether a channel persists any of it is a later,
+channel-level decision that must obey the quiet-window rule.
+
+Rejected, with reasons rather than by reflex:
+
+- **MPU process isolation, the Hubris and Tock shape.** Real, proven on
+  Cortex-M, and the wrong trade here: it requires separate stacks, privilege
+  levels, and a syscall boundary, which means abandoning the embassy async
+  stack and the vendored `lora-phy`, and it buys protection against wild
+  writes, the failure class safe Rust already excludes. It becomes the right
+  trade only if a channel must ever run untrusted code, which is ruled out:
+  third-party code is the host-side participant gate's problem, never
+  firmware's.
+- **Catch-and-restart in place.** Needs unwinding; embedded is abort.
+  Unavailable, and no amount of architecture makes it available.
+- **Panic-free-by-construction as the sole strategy.** Right discipline, wrong
+  guarantee. Adopt it where it can be receipted: the executive and store paths
+  lean on fallible APIs (already the N1 pattern) and clippy restriction lints,
+  and a panic-never-style link assertion is worth attempting there. But the
+  vendored driver stack is not panic-free, so the watchdog stays regardless.
 
 ## Gates
 
@@ -490,6 +617,16 @@ destroyed the known-good control the A/B above depends on. Its transports split
 into `embedded_io_async` rx/tx halves, so one generic impl covers both
 personalities, with `attached()` returning immediately and writes never
 reporting `Detached` on the UART side.
+
+**Channels ruled, and the panic domain examined, 2026-08-01.** Structural
+decision 4, from Mark's console framing: one GPLv3 image, personalities as
+boot-selected channels, switch-by-reboot, executive built when the second
+channel exists. The panic-domain treatment is the hybrid Mark's intuition
+pointed at: the memory boundary from the type system, the authority boundary
+from armillary's kernel-and-actors shape, and the fault residue to a
+liveness-fed watchdog with a crash record in retained RAM and a crash-loop
+fallback to the modem channel. MPU isolation (Hubris, Tock) rejected with
+reasons. The research doc's board order carries the superseded-images note.
 
 ## Non-goals
 
