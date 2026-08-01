@@ -17,4 +17,5 @@
 //! through `embassy-nrf` and the V4 through `esp-hal`; only the byte formats and
 //! the decisions over them are portable.
 
+pub mod phy;
 pub mod store;

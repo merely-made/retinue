@@ -23,6 +23,7 @@ use lora_phy::mod_traits::InterfaceVariant;
 use lora_phy::sx126x::{Config as Sx126xConfig, Sx126x, Sx1262, TcxoCtrlVoltage};
 use lora_phy::{LoRa, RxMode};
 use panic_halt as _;
+use radio_hand::phy::{bandwidth, coding_rate, spreading_factor};
 use selvage::{
     CONFIG_COMMAND_LEN, CommandEvent, CommandKind, CommandStream, EVENT_CONFIG, EVENT_DIAGNOSTIC,
     EVENT_RX, EVENT_TX, EVENT_UI_SNAPSHOT, MAX_COMMAND_LEN, MAX_UI_SNAPSHOT_LEN,
@@ -159,46 +160,6 @@ impl InterfaceVariant for T114Interface<'_> {
     async fn disable_rf_switch(&mut self) -> Result<(), RadioError> {
         Ok(())
     }
-}
-
-fn spreading_factor(value: u8) -> Option<SpreadingFactor> {
-    Some(match value {
-        5 => SpreadingFactor::_5,
-        6 => SpreadingFactor::_6,
-        7 => SpreadingFactor::_7,
-        8 => SpreadingFactor::_8,
-        9 => SpreadingFactor::_9,
-        10 => SpreadingFactor::_10,
-        11 => SpreadingFactor::_11,
-        12 => SpreadingFactor::_12,
-        _ => return None,
-    })
-}
-
-fn bandwidth(value: u32) -> Option<Bandwidth> {
-    Some(match value {
-        7_810 => Bandwidth::_7KHz,
-        10_420 => Bandwidth::_10KHz,
-        15_630 => Bandwidth::_15KHz,
-        20_830 => Bandwidth::_20KHz,
-        31_250 => Bandwidth::_31KHz,
-        41_670 => Bandwidth::_41KHz,
-        62_500 => Bandwidth::_62KHz,
-        125_000 => Bandwidth::_125KHz,
-        250_000 => Bandwidth::_250KHz,
-        500_000 => Bandwidth::_500KHz,
-        _ => return None,
-    })
-}
-
-fn coding_rate(value: u8) -> Option<CodingRate> {
-    Some(match value {
-        5 => CodingRate::_4_5,
-        6 => CodingRate::_4_6,
-        7 => CodingRate::_4_7,
-        8 => CodingRate::_4_8,
-        _ => return None,
-    })
 }
 
 fn diagnostic_event(irq_status: u16, device_errors: u16, sync_word: [u8; 2]) -> [u8; 7] {

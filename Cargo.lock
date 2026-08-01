@@ -1989,6 +1989,9 @@ dependencies = [
 [[package]]
 name = "radio-hand"
 version = "0.0.1"
+dependencies = [
+ "lora-modulation",
+]
 
 [[package]]
 name = "ral-registers"
@@ -2672,6 +2675,7 @@ dependencies = [
  "lora-modulation",
  "lora-phy",
  "radio-face",
+ "radio-hand",
  "selvage",
 ]
 
