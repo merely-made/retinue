@@ -135,11 +135,104 @@ rule the tree already follows: published crates take family names from the
 textile and procession registers (`selvage`, `tulle`, `sennet`, `outrider`),
 unpublished firmware-support crates take plain descriptive ones.
 
+### 3. The HostLink seam (ruled 2026-08-01)
+
+The command dispatch is identical in both images apart from the host transport,
+so moving it needs a transport seam. The seam is designed against the hardware
+ecosystem this family could expand to, not against the two boards on the desk.
+
+The transport landscape the seam must survive:
+
+| transport | boards | can it tell the peer left? |
+|---|---|---|
+| USB CDC native | T114, V4, RAK4631, T-Echo, RP2040+SX1262 | yes (enumeration, DTR) |
+| UART, bridge chip or bare header | V4 low-power personality, older T-Beam/T3 | no; writes fire into the void |
+| BLE, NUS-style byte pipe | every nRF52840 board, ESP32 family | yes (connect/disconnect, MTU) |
+| TCP over WiFi | ESP32 family | yes (sessions, possibly several) |
+
+The width axis that matters more than boards is personalities: the RNode KISS
+session and the Meshtastic client API are different byte protocols riding these
+same transports. The seam therefore carries no `selvage` vocabulary at all, so
+the compatibility branches can ride it later without rebuilding it.
+
+**The trait, in `radio-hand`: a byte pipe plus a session, nothing else.**
+Illustrative only, not implementation-ready:
+
+```rust
+pub enum LinkFault {
+    /// The peer is gone and the session is over.
+    Detached,
+}
+
+pub trait HostLink {
+    /// Wait until a peer is attached. A transport with no attachment
+    /// concept returns immediately.
+    async fn attached(&mut self);
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, LinkFault>;
+    async fn write_all(&mut self, bytes: &[u8]) -> Result<(), LinkFault>;
+}
+```
+
+The shape is `embedded-io-async` (already in the tree; the V4 already bounds
+its `write_all` on it) plus the one thing embedded-io does not carry, session
+lifecycle. What is excluded is as load-bearing as what is included:
+
+- No MTU. Chunking into 64-byte USB packets or BLE ATT payloads happens inside
+  each impl.
+- No wake. `CommandStream` already consumes `WAKE_BYTE` in its
+  `discard_until_boundary` state; wake is a parser concern, proven in `selvage`.
+- No command types. The seam is personality-agnostic.
+- No capability negotiation until BLE actually lands and demands it.
+
+**Layering.** Dispatch lives in `radio-hand`, generic over `HostLink` plus
+`RadioKind`: it owns `CommandStream`, the select over host bytes and radio RX,
+`service::apply_profile`, event emission, and `LocalStatus` mutation, with
+board actions (publish-to-screen, enter-bootloader) as narrow hooks. Transport
+impls and executor glue stay in each firmware binary, per the heltec doc's
+standing ruling: share `embedded-hal`/`embedded-io` traits at the driver edge,
+keep executor glue per binary, and never build a common Embassy abstraction
+across Espressif and Nordic. `radio-hand` links neither HAL.
+
+**What this dissolves.** The T114-breaks/V4-discards write divergence was two
+transports speaking, not a style choice. On USB a failed write means the host
+detached, so the impl reports `Detached` and the shared loop ends the session.
+On a bridge-chip UART a write cannot meaningfully fail, so its impl never
+reports `Detached` and the same loop never ends a session. Both existing
+behaviours fall out of one shared dispatch. The one real behaviour change is
+the V4's USB personality, which today discards write results and will gain
+break-on-detach; that is a correction, since today it pumps radio events into
+a dead pipe after the host leaves.
+
+**Known edges, named rather than hidden:**
+
+- STM32WL (Wio-E5, RAK3172) is the one radio family out of reach: its radio is
+  on-die and the vendored lora-phy has no `RadioKind` for it. The seam does not
+  block it; the radio layer does.
+- Multi-client (N3 and later, when USB and BLE serve the on-board node at
+  once): one `HostLink` is one session. Dispatch owns no statics and takes its
+  state by `&mut`, so instantiating it per link against shared node state later
+  is cheap. That is the entire concession to that future.
+- The V4 selects its personality at compile time (`host-usb` default,
+  `host-uart-low-power`), so one binary speaks one transport and the seam stays
+  static generics with no dyn dispatch.
+
+**Build order:** the trait plus the T114 impl first (moving dispatch changes
+the image, so the byte-identity shortcut is gone and the RF check runs as a
+counted block per the receipt rule below), then the V4's two impls.
+
 ## Gates
 
 Each gate carries linker receipts: flash, static RAM, heap high-water mark, and
 maximum task/future size. The T114 is chosen precisely because 256 KB forces
 honest limits, so a gate that lands without those numbers has not landed.
+
+**Receipt rule (added 2026-08-01, from the N2 A/B finding):** an RF receipt is
+a pass count out of a stated number of runs, never a single pass. The direct-PHY
+path measurably fails a fraction of single runs on the shared ISM band (v16,
+the N0-proven image, passed 8 of 10), so one passing run certifies nothing and
+one failing run condemns nothing. When a change could have altered RF
+behaviour, the receipt is an A/B against a control image on the same hardware
+in the same session.
 
 ### N0 — Board substrate
 
@@ -179,12 +272,14 @@ serving; no collection in the core grows without a declared bound.
 
 ### N2 — radio-hand
 
-Extract the shared radio service from both `main.rs` files into `radio-hand`.
-Both images rebuild on it, with `board.rs` as the only board-specific seam.
+Extract the shared radio service from both `main.rs` files into `radio-hand`,
+with command dispatch moving through the `HostLink` seam (structural decision
+3). Both images rebuild on it, with `board.rs` as the only board-specific seam.
 
-**Done:** both images build on `radio-hand`; the direct-PHY RF receipts of
-[2026-07-23](2026-07-23_direct_phy_resource_acceptance.md) still pass
-byte-exact; the two `main.rs` files shrink to board wiring plus shell.
+**Done:** both images build on `radio-hand`; the direct-PHY exchange of
+[2026-07-23](2026-07-23_direct_phy_resource_acceptance.md) passes byte-exact as
+a counted block against a control image per the receipt rule; the two `main.rs`
+files shrink to board wiring plus shell.
 
 ### N3 — The node shell
 
@@ -206,16 +301,18 @@ Announce over direct PHY. Establish one link with desktop Retinue through the
 V4.
 
 **Done:** the board announces and the desktop observes it; a link completes in
-both directions over real RF.
+both directions over real RF, as a counted block per the receipt rule (e.g.
+at least 8 of 10 link setups complete, with every failure logged).
 
 ### N5 — Reliable data and survival
 
 Exchange reliable data both ways. Survive loss, reordering, and reboot. Re-prove
 the N1 capacity errors under live traffic.
 
-**Done:** byte-exact payload both directions over RF; recovery after induced
-loss and after a mid-transfer reboot; a full table under live traffic rejects
-with a typed error and the node stays operational. Bounded outcomes for the
+**Done:** byte-exact payload both directions over RF as a counted block per
+the receipt rule; recovery after induced loss and after a mid-transfer reboot;
+a full table under live traffic rejects with a typed error and the node stays
+operational. Bounded outcomes for the
 heltec doc's adversarial set: fuzzed frames, a full route table, a full queue,
 entropy failure, flash corruption, and resource cancellation. The T114 receipt
 adds idle, receive, and transmit current.
@@ -228,6 +325,83 @@ this makes the other four genuine rather than projected.
 
 **Done:** the four panels read local node state with the host disconnected; RF
 forwarding continues across host disconnect and reconnect.
+
+## Pressure points ruled ahead (2026-08-01)
+
+Things this session's work surfaced that get harder the longer they wait.
+Ruled now so the build does not improvise them; none are built yet.
+
+### 1. The regulatory floor lives in radio-hand, below every personality
+
+Nothing clamps `tx_power_dbm` today: the profile's `i8` is widened and handed
+to the driver, verified 2026-08-01. That is tolerable while a host drives the
+radio; it is not once the board is autonomous and a persisted profile survives
+reboot with no host in the loop. The FCC posture (stock hardware plus
+user-flash) makes firmware the only enforcement point that exists.
+
+Ruling: region is a persisted board fact, not a host suggestion, and
+`radio-hand`'s apply and TX paths clamp power and gate airtime against it.
+A profile may ask for less than the regional cap, never more, and the clamp
+result is reported honestly (the applied power, not the requested one).
+Retrofitting this after settings persist means changing the stored format and
+the wire, which is why it is ruled before either exists.
+
+### 2. Channel citizenship also lives in radio-hand
+
+Neither image does channel-activity detection before TX; transmit is blind,
+verified 2026-08-01. Fine for two boards on a desk, wrong for a shared band,
+and duty-cycle and dwell rules are region-coupled (point 1). CAD or
+listen-before-talk, the airtime budget, and dwell limits belong in
+`radio-hand`'s TX path so that every personality (direct-PHY, RNode,
+Meshtastic, and the native node) inherits them, rather than each reimplementing
+citizenship. The collision-mitigation ideas doc (2026-07-24) is the design
+feedstock.
+
+### 3. Flash writes are boot-only until a quiet-window write path exists
+
+N0 proved direct NVMC access works **with the SoftDevice dormant**. Enabling
+any BLE stack on the nRF52 changes the flash rules: radio timing constrains
+when flash may stall, and an S140-based stack takes over flash access
+entirely. Independently of BLE, a page erase stalls the CPU for tens of
+milliseconds, which blanks RX even today.
+
+The current invariant, kept deliberately: the store writes only at boot, before
+the radio starts. Settings persistence (the open N0 item) must not break this
+by scattering runtime writes; it stages changes in RAM and commits them in a
+declared radio-quiet window. Designing that window in from the start is cheap;
+retrofitting it out of scattered write sites after BLE lands is the intractable
+version.
+
+### 4. The 255/500 MTU fork is named, and the trunk takes 255
+
+The SX126x carries 255-byte frames; Reticulum's standard interface MTU is 500.
+The trunk (retinue-to-retinue over direct PHY) negotiates link MTU 255, which
+the core already supports, and every gate in this plan runs on that. Carrying
+500-byte packets for stock-RNS peers over RF requires the long-packet
+fragmentation lane, and that belongs to the RNode personality where the
+research doc already scoped it. It is never bolted onto direct-PHY ad hoc:
+on-air formats ossify the moment anything third-party deploys against them.
+
+### 5. What a new board costs, so expansion stays a known quantity
+
+The T114 and V4 establish the shape. Adding a board is:
+
+- `board.rs` (~55 lines of pins and board facts), plus revision hedges where
+  sources disagree (the T114 listens on both candidate button pins; that
+  pattern is the precedent, not a wart);
+- a `HostLink` impl over whatever the board's host transport is;
+- a persistence backend for `radio-hand::store`'s record format, which is
+  deliberately format-only: NVMC here, a partition on ESP32, XIP-flash rules on
+  RP2040. The format is portable, the backend never is;
+- a flash/DFU path and its receipts, counted per the receipt rule.
+
+What disqualifies a board today: no `RadioKind` in the vendored lora-phy
+(sx126x and sx127x exist; STM32WL's on-die radio does not), or a persistent
+store the platform cannot offer atomically. On the T114 specifically, the two
+carved pages are the entire persistent budget until `memory.x` is re-carved,
+and the `build.rs` assertions move with it; one A/B record with a versioned
+body should carry identity plus settings atomically rather than multiplying
+pages.
 
 ## Non-goals
 
@@ -485,6 +659,17 @@ behavioural difference to settle first: the T114 checks every `write_all` result
 and breaks the connection loop on failure, while the V4 discards it. Unifying
 them changes one board's behaviour, so it is a decision rather than a
 refactor.
+
+**HostLink seam ruled, 2026-08-01.** The design is structural decision 3 above,
+made against the wider hardware ecosystem (RAK4631, T-Echo, T-Beam, RP2040
+boards) and against the compatibility personalities that will ride the same
+transports. The write-divergence question dissolved rather than being decided:
+`Detached` is a transport fact, USB impls report it and UART impls cannot, so
+both boards' behaviours fall out of one shared loop. The one deliberate change
+is the V4 USB personality gaining break-on-detach, which is a correction. The
+receipt rule was also added to the gates preamble, and N2, N4, and N5's done
+conditions now demand counted blocks instead of single passes. Next session
+builds: trait plus T114 impl, counted A/B, then the V4's two impls.
 
 Next is N2: move the radio service out of the two firmware `main.rs` files into
 `radio-hand`, which N0 already founded.
