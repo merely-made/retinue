@@ -6,9 +6,17 @@ rust-version.workspace = true
 license = "MPL-2.0"
 publish = false
 
+# `radio` is opt-IN, not default. The modules that drive a radio pull in `lora-phy`,
+# whose ungated `defmt` dependency needs a global logger that only a firmware binary
+# provides, so a host test binary cannot link them. Leaving it off by default means
+# plain `cargo test -p radio-hand` works and keeps `store` and `phy` testable on the
+# desk; the two firmware images ask for the feature explicitly.
+[features]
+radio = ["dep:lora-phy", "dep:embassy-time"]
+
 [dependencies]
 lora-modulation = "0.1.5"
-lora-phy = { path = "../../vendor/lora-phy" }
+lora-phy = { path = "../../vendor/lora-phy", optional = true }
+embassy-time = { version = "0.5.1", optional = true }
 radio-face = { path = "../radio-face" }
 selvage = { path = "../selvage" }
-embassy-time = "0.5.1"

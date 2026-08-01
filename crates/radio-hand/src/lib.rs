@@ -18,8 +18,10 @@
 //! the decisions over them are portable.
 
 pub mod board_status;
+#[cfg(feature = "radio")]
 pub mod dispatch;
 pub mod link;
 pub mod phy;
+#[cfg(feature = "radio")]
 pub mod service;
 pub mod store;

@@ -40,5 +40,5 @@ esp32s3 = "0.35.2"
 lora-modulation = "0.1.5"
 lora-phy = { path = "../../vendor/lora-phy" }
 radio-face = { path = "../../crates/radio-face" }
-radio-hand = { path = "../../crates/radio-hand" }
+radio-hand = { path = "../../crates/radio-hand", features = ["radio"] }
 selvage = { path = "../../crates/selvage" }

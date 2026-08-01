@@ -466,6 +466,24 @@ The text probes were exercised on the flashed image too: `radio` returns
 `84 00 00 00 00 24 B4` through the new `ChipDiagnostics` path with the sync
 word reading `24B4`, and the identity survived a fifth reflash.
 
+**Two misses caught after the first receipt, both worth recording.**
+
+First, `radio-hand`'s host tests had been failing to link since `lora-phy` was
+added at 85b24fd. The vendored fork depends on `defmt` ungated, and `defmt`
+needs a global logger only a firmware binary provides, so the test binary could
+not link. It went unnoticed because after adding the dependency only target
+checks were run, never `cargo test -p radio-hand`. Fix: `radio` is an opt-IN
+feature gating `service` and `dispatch`, so the failing configuration is the one
+a caller has to ask for and plain `cargo test` keeps `store` and `phy` on the
+desk. The two images enable it explicitly. 23 tests restored.
+
+Second, that manifest change altered the image (79,746 -> 79,714 bytes), which
+invalidated the v18 receipt: it no longer described the committed source. So the
+block was re-run against v19, the image the tree actually builds. **v19: 7 of 8,
+all outputs byte-exact**, matching v18 and the top of the control band. The
+lesson generalises: a counted receipt is attached to a *binary*, so any change
+after it — even one that looks manifest-only — retires it.
+
 Still open in N2: the V4's two `HostLink` impls. Deliberately not done in the
 same session, because the V4 is the RF test peer — reflashing it would have
 destroyed the known-good control the A/B above depends on. Its transports split

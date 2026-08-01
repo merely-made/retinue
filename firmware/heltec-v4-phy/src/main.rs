@@ -41,6 +41,7 @@ use selvage::{
 };
 
 mod board;
+mod host;
 mod power;
 mod ui;
 mod wake_input;
