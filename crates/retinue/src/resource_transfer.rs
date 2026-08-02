@@ -210,6 +210,12 @@ pub struct ResourceReceiver {
     data: Option<Vec<u8>>,
     canceled: bool,
     request_window: usize,
+    /// The most parts this receiver will accept for one segment.
+    ///
+    /// A sender chooses the advertised part count, so without this a peer decides how much
+    /// memory this node spends on reassembly. The desktop default covers a single-segment
+    /// resource; a board sets it far lower.
+    max_parts: usize,
     outstanding: usize,
     response_request_id: Option<[u8; 16]>,
 }
@@ -222,15 +228,30 @@ impl ResourceReceiver {
 
     /// A receiver that asks for at most `request_window` parts per turn.
     pub fn with_request_window(link: Link, request_window: usize) -> Self {
+        Self::with_limits(link, request_window, crate::resource::DEFAULT_MAX_PARTS)
+    }
+
+    /// A receiver with an explicit ceiling on both the request window and the size of a
+    /// resource it will accept at all.
+    ///
+    /// `max_parts` is the one a board must set: it is the point where a peer's advertised
+    /// size stops being this node's problem. See the plan's N1 notes on the resource cap.
+    pub fn with_limits(link: Link, request_window: usize, max_parts: usize) -> Self {
         Self {
             link,
             inc: None,
             data: None,
             canceled: false,
             request_window: request_window.clamp(1, crate::resource::HASHMAP_MAX_PARTS),
+            max_parts: max_parts.max(1),
             outstanding: 0,
             response_request_id: None,
         }
+    }
+
+    /// The part ceiling this receiver enforces.
+    pub fn max_parts(&self) -> usize {
+        self.max_parts
     }
 
     /// Handle one inbound packet from the sender, returning packets to send. On the
@@ -261,7 +282,10 @@ impl ResourceReceiver {
                 } else {
                     None
                 };
-                let incoming = match Incoming::new(&adv) {
+                // An advertisement past this receiver's ceiling is refused outright: the
+                // sender chose that number, so honouring it would let a peer decide how
+                // much memory this node spends.
+                let incoming = match Incoming::new_with_max_parts(&adv, self.max_parts) {
                     Ok(inc) => inc,
                     Err(_) => return vec![],
                 };

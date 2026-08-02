@@ -1,7 +1,7 @@
 # retinue-small plan
 
 **Status:** N0 proven on the T114 (power-loss leg open); N1 complete; N2 complete;
-N3 in progress, `Node` announces and links; channels-in-one-image
+N3 protocol half complete (announce, links, resources); channels-in-one-image
 ruled (structural decision 4), executive built when the second channel exists
 **Design authority:**
 [`2026-07-19_modem_embedded_and_meshtastic_research.md`](2026-07-19_modem_embedded_and_meshtastic_research.md)
@@ -744,6 +744,36 @@ the sans-io core still cross-compiles for the board.
 
 Remaining for N3: resource windows in `Node`, then the executive and the node
 channel on the T114.
+
+**N3 resources, 2026-08-01: the protocol half of N3 is complete.** `Node` now
+publishes and receives resources, one transfer per link at a time because a
+board cannot hold two, with `MAX_RESOURCE_PARTS = 32` (roughly 13 KB of
+reassembly) against the desktop's 4096.
+
+**A gap N1 left, found by trying to use it.** N1 capped `Incoming`, but
+`ResourceReceiver` called `Incoming::new` with the desktop default and exposed
+no way to lower it, so a board could not actually defend itself: a peer could
+advertise a 1.7 MB resource and the board would try. `ResourceReceiver` now
+takes `with_limits(link, request_window, max_parts)`. Capping a type is not the
+same as making the cap reachable, and only wiring it up revealed the difference.
+
+**A bug the test caught immediately.** A refused advertisement left an empty
+receiver holding a table slot. With a handful of slots that is the difference
+between refusing one oversized offer and refusing every peer afterwards. A
+receiver created for a packet that then says nothing is now dropped, since
+saying nothing is exactly how the refusal is expressed.
+
+Also handled: closing a link discards the transfer riding on it, because
+reassembly state without a link is memory held for a peer that is gone.
+
+Nineteen node tests, 182 in the crate. The resource test drives a 3,000-byte
+multi-part transfer through a desk pump rather than one part, so the request
+window, the hashmap and reassembly are all exercised; loss is the medium's
+business and is measured on hardware at the gates.
+
+**N3's remaining work is entirely firmware:** the executive, the node channel,
+and the fixture-corpus replay on the T114. The protocol is done and verified at
+the desk.
 
 ## Non-goals
 

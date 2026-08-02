@@ -33,6 +33,7 @@ use crate::hash::{AddressHash, NameHash};
 use crate::identity::PrivateIdentity;
 use crate::link::{self, Inbound, Link, LinkMode, LinkTrailer, PendingLink};
 use crate::packet::{Packet, PacketType};
+use crate::resource_transfer::{ResourceReceiver, ResourceSender};
 
 /// Which interface a packet arrived on or should leave by.
 ///
@@ -63,6 +64,8 @@ pub enum Action {
         link_id: AddressHash,
         payload: Vec<u8>,
     },
+    /// A resource arrived whole, reassembled and verified against its advertised hash.
+    Resource { link_id: AddressHash, data: Vec<u8> },
 }
 
 /// What one `ingest` or `poll` produced.
@@ -131,6 +134,32 @@ pub const DEFAULT_ANNOUNCE_INTERVAL: u64 = 600_000;
 /// belongs to the RNode personality; see the plan's pressure point 4.
 pub const LINK_MTU: u32 = 255;
 
+/// The most parts this node will accept for one inbound resource.
+///
+/// A sender chooses the advertised part count, so this is where a peer's ambition stops
+/// being the board's problem. Thirty-two parts is roughly 13 KB of reassembly at the
+/// default part size, which a 256 KB board can hold while a desktop's 4096-part ceiling
+/// (about 1.7 MB) it plainly cannot.
+pub const MAX_RESOURCE_PARTS: usize = 32;
+
+/// Parts requested per turn. Small, because a half-duplex radio should not be asked for a
+/// burst it cannot answer before the next request arrives.
+pub const RESOURCE_REQUEST_WINDOW: usize = 4;
+
+/// Whether a link-packet context belongs to a resource transfer.
+fn is_resource_context(context: u8) -> bool {
+    matches!(
+        context,
+        link::CTX_RESOURCE
+            | link::CTX_RESOURCE_ADV
+            | link::CTX_RESOURCE_REQ
+            | link::CTX_RESOURCE_HMU
+            | link::CTX_RESOURCE_PRF
+            | link::CTX_RESOURCE_ICL
+            | link::CTX_RESOURCE_RCL
+    )
+}
+
 /// An executor-neutral Reticulum node.
 ///
 /// `PEERS` bounds the address book. `ACTIONS` bounds what one call can ask of the shell.
@@ -156,6 +185,10 @@ pub struct Node<const PEERS: usize = 32, const ACTIONS: usize = 8, const LINKS: 
     links: BoundedVec<(Link, Packet), LINKS>,
     /// Links we opened, awaiting the peer's proof.
     pending: BoundedVec<PendingLink, LINKS>,
+    /// Inbound resource transfers, at most one per link.
+    receivers: BoundedVec<(AddressHash, ResourceReceiver), LINKS>,
+    /// Outbound resource transfers, at most one per link.
+    senders: BoundedVec<(AddressHash, ResourceSender), LINKS>,
     /// Link requests refused because the table was full. Visible rather than silent.
     refused_links: u16,
 }
@@ -172,6 +205,8 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
             announce_interval: DEFAULT_ANNOUNCE_INTERVAL,
             links: BoundedVec::new(),
             pending: BoundedVec::new(),
+            receivers: BoundedVec::new(),
+            senders: BoundedVec::new(),
             refused_links: 0,
         }
     }
@@ -213,6 +248,42 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
     /// for the traffic this node sees, and peers are being turned away.
     pub fn refused_links(&self) -> u16 {
         self.refused_links
+    }
+
+    /// Publish a resource on an established link.
+    ///
+    /// `random_hash` and `iv` are caller-supplied, per the same no-RNG discipline as
+    /// everything else here. Returns `None` if the link is unknown or a transfer is already
+    /// running on it: one at a time, because a board cannot hold two.
+    pub fn publish(
+        &mut self,
+        link_id: AddressHash,
+        interface: InterfaceId,
+        data: &[u8],
+        random_hash: [u8; crate::resource::RANDOM_HASH_LEN],
+        iv: &[u8; crate::token::IV_LEN],
+    ) -> Option<Actions<ACTIONS>> {
+        if self.senders.iter().any(|(id, _)| *id == link_id) || self.senders.is_full() {
+            return None;
+        }
+        let (link, _) = self.links.iter().find(|(l, _)| l.id() == link_id)?;
+
+        let sender = ResourceSender::publish(link.clone(), data, random_hash, iv);
+        let advertisement = sender.advertisement(iv);
+        let _ = self.senders.push((link_id, sender));
+
+        let mut actions = Actions::new();
+        actions.push(Action::Send {
+            interface,
+            packet: advertisement,
+        });
+        Some(actions)
+    }
+
+    /// Whether a resource is being received or sent on this link.
+    pub fn transfer_active(&self, link_id: AddressHash) -> bool {
+        self.receivers.iter().any(|(id, _)| *id == link_id)
+            || self.senders.iter().any(|(id, _)| *id == link_id)
     }
 
     /// Open a link to a destination this node has heard announce.
@@ -299,7 +370,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
             }
             PacketType::LinkRequest => self.on_link_request(interface, packet, &mut actions),
             PacketType::Proof => self.on_proof(packet, &mut actions),
-            PacketType::Data => self.on_link_data(packet, &mut actions),
+            PacketType::Data => self.on_link_data(interface, packet, &mut actions),
         }
 
         actions
@@ -380,30 +451,136 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
     }
 
     /// Traffic on an established link.
-    fn on_link_data(&mut self, packet: &Packet, actions: &mut Actions<ACTIONS>) {
-        let Some(index) = self
-            .links
-            .iter()
-            .position(|(link, _)| link.id() == packet.destination)
-        else {
+    fn on_link_data(
+        &mut self,
+        interface: InterfaceId,
+        packet: &Packet,
+        actions: &mut Actions<ACTIONS>,
+    ) {
+        let link_id = packet.destination;
+        let Some(index) = self.links.iter().position(|(link, _)| link.id() == link_id) else {
             return;
         };
 
+        // Resource contexts are a transfer's business, not the link's.
+        if is_resource_context(packet.context) {
+            self.on_resource(interface, link_id, index, packet, actions);
+            return;
+        }
+
         match self.links[index].0.receive(packet) {
-            Some(Inbound::Data(payload)) => actions.push(Action::Data {
-                link_id: packet.destination,
-                payload,
-            }),
+            Some(Inbound::Data(payload)) => actions.push(Action::Data { link_id, payload }),
             Some(Inbound::Close) => {
-                let link_id = self.links[index].0.id();
-                self.links.swap_remove(index);
-                actions.push(Action::LinkDown { link_id });
+                self.drop_link(index, actions);
             }
-            // Keepalives, RTT, requests, responses and anything unrecognised are not this
-            // gate's work. They are dropped rather than mishandled, and the boundary is
-            // pinned by a test so the next gate's work shows up as a change.
+            // Keepalives, RTT, requests and responses are not this gate's work. They are
+            // dropped rather than mishandled, and the boundary is pinned by a test so the
+            // next gate's work shows up as a change.
             _ => {}
         }
+    }
+
+    /// A packet belonging to a resource transfer on this link.
+    fn on_resource(
+        &mut self,
+        interface: InterfaceId,
+        link_id: AddressHash,
+        link_index: usize,
+        packet: &Packet,
+        actions: &mut Actions<ACTIONS>,
+    ) {
+        // The IV feeds the transfer's own sealing. It is derived from the packet rather
+        // than random for the same reason the responder seed is: this layer holds no RNG,
+        // and a transfer answers packets it did not ask for.
+        let mut counter = 0_u32;
+        let seed = self.identity.to_secret_bytes();
+        let mut iv = || {
+            counter = counter.wrapping_add(1);
+            let mut input = Vec::with_capacity(48);
+            input.extend_from_slice(b"retinue/node/resource-iv");
+            input.extend_from_slice(&seed);
+            input.extend_from_slice(link_id.as_slice());
+            input.extend_from_slice(&counter.to_le_bytes());
+            let digest = crate::hash::full_hash(&input);
+            let mut out = [0_u8; crate::token::IV_LEN];
+            out.copy_from_slice(&digest[..crate::token::IV_LEN]);
+            out
+        };
+
+        // An outbound transfer's replies come back on the same link, so try the sender
+        // first: only one direction can own a given context on a given link at a time.
+        if let Some(pos) = self.senders.iter().position(|(id, _)| *id == link_id) {
+            let replies = self.senders[pos].1.on_packet(packet, &mut iv);
+            let finished = self.senders[pos].1.is_done() || self.senders[pos].1.is_canceled();
+            for reply in replies {
+                actions.push(Action::Send {
+                    interface,
+                    packet: reply,
+                });
+            }
+            if finished {
+                self.senders.swap_remove(pos);
+            }
+            return;
+        }
+
+        let existing = self.receivers.iter().position(|(id, _)| *id == link_id);
+        let is_new = existing.is_none();
+        let pos = match existing {
+            Some(pos) => pos,
+            None => {
+                if self.receivers.is_full() {
+                    return;
+                }
+                let link = self.links[link_index].0.clone();
+                let receiver = ResourceReceiver::with_limits(
+                    link,
+                    RESOURCE_REQUEST_WINDOW,
+                    MAX_RESOURCE_PARTS,
+                );
+                let _ = self.receivers.push((link_id, receiver));
+                self.receivers.len() - 1
+            }
+        };
+
+        let replies = self.receivers[pos].1.on_packet(packet, &mut iv);
+
+        // A receiver created for this packet that then said nothing did not accept the
+        // transfer: an advertisement past the part ceiling is refused this way. Keeping it
+        // would hold a slot, and on a board with a handful of slots that is the difference
+        // between refusing one oversized offer and refusing every peer afterwards.
+        if is_new && replies.is_empty() && self.receivers[pos].1.data().is_none() {
+            self.receivers.swap_remove(pos);
+            return;
+        }
+
+        for reply in replies {
+            actions.push(Action::Send {
+                interface,
+                packet: reply,
+            });
+        }
+
+        if let Some(data) = self.receivers[pos].1.data() {
+            actions.push(Action::Resource {
+                link_id,
+                data: data.to_vec(),
+            });
+            self.receivers.swap_remove(pos);
+        } else if self.receivers[pos].1.is_canceled() {
+            self.receivers.swap_remove(pos);
+        }
+    }
+
+    /// Drop a link and everything riding on it.
+    fn drop_link(&mut self, index: usize, actions: &mut Actions<ACTIONS>) {
+        let link_id = self.links[index].0.id();
+        self.links.swap_remove(index);
+        // A transfer without its link is state nobody can finish, so it goes too. Leaving
+        // it would hold reassembly memory for a peer that is no longer there.
+        self.receivers.retain(|(id, _)| *id != link_id);
+        self.senders.retain(|(id, _)| *id != link_id);
+        actions.push(Action::LinkDown { link_id });
     }
 
     /// A responder ephemeral seed, derived from our identity and the link id.
@@ -474,6 +651,8 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec;
+
     use super::*;
     use crate::destination::DestinationName;
     use crate::identity::PrivateIdentity;
@@ -830,5 +1009,149 @@ mod tests {
             .unwrap();
         assert!(a.ingest(IFACE, &keepalive, 0).is_empty());
         assert!(a.has_link(id), "and the link survives being spoken to");
+    }
+
+    /// Drive every packet between two nodes until neither has anything more to say.
+    ///
+    /// This is the desk stand-in for a radio: it carries whatever each side wants sent to
+    /// the other, in order, with no loss. What it proves is that the two halves of a
+    /// transfer agree; loss and retransmission are the medium's business and are measured
+    /// on real hardware at the gates.
+    fn pump(
+        a: &mut Node<32, 8, 4>,
+        b: &mut Node<32, 8, 4>,
+        first: Actions<8>,
+    ) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
+        let mut to_b: Vec<Packet> = first
+            .iter()
+            .filter_map(|x| match x {
+                Action::Send { packet, .. } => Some(packet.clone()),
+                _ => None,
+            })
+            .collect();
+        let mut to_a: Vec<Packet> = Vec::new();
+        let (mut got_a, mut got_b) = (Vec::new(), Vec::new());
+
+        for _ in 0..64 {
+            if to_a.is_empty() && to_b.is_empty() {
+                break;
+            }
+            let (mut next_a, mut next_b) = (Vec::new(), Vec::new());
+
+            for packet in to_b.drain(..) {
+                for action in b.ingest(IFACE, &packet, 0) {
+                    match action {
+                        Action::Send { packet, .. } => next_a.push(packet),
+                        Action::Resource { data, .. } => got_b.push(data),
+                        _ => {}
+                    }
+                }
+            }
+            for packet in to_a.drain(..) {
+                for action in a.ingest(IFACE, &packet, 0) {
+                    match action {
+                        Action::Send { packet, .. } => next_b.push(packet),
+                        Action::Resource { data, .. } => got_a.push(data),
+                        _ => {}
+                    }
+                }
+            }
+            to_a = next_a;
+            to_b = next_b;
+        }
+        (got_a, got_b)
+    }
+
+    /// A resource crosses a link whole, reassembled and hash-verified.
+    ///
+    /// Multi-part on purpose: one part would not exercise the request window, the hashmap,
+    /// or reassembly, which is where the interesting failures live.
+    #[test]
+    fn a_resource_crosses_a_link_whole() {
+        let (mut a, mut b, id) = linked();
+        let payload: Vec<u8> = (0..3_000u32).map(|i| (i.wrapping_mul(31)) as u8).collect();
+
+        let started = a
+            .publish(id, IFACE, &payload, [0xAB; 4], &[5; crate::token::IV_LEN])
+            .expect("a holds the link, so it can publish");
+        assert!(a.transfer_active(id), "the transfer is running");
+
+        let (_, got_b) = pump(&mut a, &mut b, started);
+
+        assert_eq!(got_b.len(), 1, "b received exactly one resource");
+        assert_eq!(got_b[0], payload, "byte for byte");
+        assert!(!b.transfer_active(id), "and b cleared its receiver");
+    }
+
+    /// An advertisement past the node's part ceiling is refused, and nothing is held.
+    ///
+    /// The sender picks the advertised size, so this is the point where a peer's ambition
+    /// stops being the board's problem. Without it a peer could name a resource far larger
+    /// than the board's memory and the board would try.
+    #[test]
+    fn an_oversized_resource_is_refused_without_holding_state() {
+        let (mut a, mut b, id) = linked();
+
+        // Comfortably past MAX_RESOURCE_PARTS at the default part size.
+        let huge: Vec<u8> = (0..80_000u32).map(|i| i as u8).collect();
+        let started = a
+            .publish(id, IFACE, &huge, [0xCD; 4], &[6; crate::token::IV_LEN])
+            .expect("a will happily offer it");
+
+        let advertisement = sent(&started).expect("an advertisement goes out");
+        let answer = b.ingest(IFACE, &advertisement, 0);
+
+        assert!(answer.is_empty(), "b says nothing rather than starting");
+        assert!(!b.transfer_active(id), "and holds no reassembly state");
+        assert!(b.has_link(id), "while the link itself is untouched");
+    }
+
+    /// Losing the link discards the transfer riding on it.
+    ///
+    /// Reassembly state without a link is memory held for a peer that is gone, which on a
+    /// board is exactly the leak worth preventing.
+    #[test]
+    fn closing_a_link_discards_its_transfer() {
+        let (mut a, mut b, id) = linked();
+        let payload: Vec<u8> = (0..3_000u32).map(|i| i as u8).collect();
+
+        // Start a transfer and deliver only the advertisement, so b is mid-receive.
+        let started = a
+            .publish(id, IFACE, &payload, [0xAB; 4], &[5; crate::token::IV_LEN])
+            .unwrap();
+        let advertisement = sent(&started).unwrap();
+        b.ingest(IFACE, &advertisement, 0);
+        assert!(b.transfer_active(id), "b is mid-transfer");
+
+        // a closes the link.
+        let close = a
+            .links
+            .iter()
+            .find(|(l, _)| l.id() == id)
+            .map(|(l, _)| l.close_packet(&[9; crate::token::IV_LEN]))
+            .unwrap();
+        let actions = b.ingest(IFACE, &close, 0);
+
+        assert!(actions.iter().any(|x| matches!(x, Action::LinkDown { .. })));
+        assert!(!b.transfer_active(id), "the transfer went with the link");
+        assert_eq!(b.link_count(), 0);
+    }
+
+    /// One transfer per link at a time: a board cannot hold two.
+    #[test]
+    fn a_second_publish_on_a_busy_link_is_refused() {
+        let (mut a, _b, id) = linked();
+        let payload = vec![1_u8; 1_000];
+
+        assert!(
+            a.publish(id, IFACE, &payload, [1; 4], &[1; crate::token::IV_LEN])
+                .is_some(),
+            "the first publish starts"
+        );
+        assert!(
+            a.publish(id, IFACE, &payload, [2; 4], &[2; crate::token::IV_LEN])
+                .is_none(),
+            "the second is refused while the first runs"
+        );
     }
 }
