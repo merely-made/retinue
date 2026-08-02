@@ -1,7 +1,7 @@
 # retinue-small plan
 
 **Status:** N0 proven on the T114 (power-loss leg open); N1 complete; N2 complete;
-N3 begun, `retinue::node` announces and cross-compiles; channels-in-one-image
+N3 in progress, `Node` announces and links; channels-in-one-image
 ruled (structural decision 4), executive built when the second channel exists
 **Design authority:**
 [`2026-07-19_modem_embedded_and_meshtastic_research.md`](2026-07-19_modem_embedded_and_meshtastic_research.md)
@@ -712,6 +712,38 @@ hardware.
 Remaining for N3: link handling and resource windows in `Node`, then the
 executive and the node channel on the T114, then the fixture-corpus replay that
 the gate's done condition names.
+
+**N3 links, 2026-08-01.** `Node` now establishes links in both directions,
+carries encrypted data on them, and tears them down. `open_link` on a peer the
+address book knows, `accept` for a request addressed to this node, proof
+completion for a link this node opened, `Inbound::Data` out as an action, and
+`Inbound::Close` dropping the link. Bounded by `LINKS`, refusals counted in
+`refused_links()`. Offered MTU is 255 per pressure point 4: the trunk is
+retinue-to-retinue over direct PHY, and stock RNS's 500 belongs to the RNode
+personality's long-packet lane.
+
+Two decisions inside it worth recording.
+
+**A retransmitted request is answered with the same proof.** The established
+link keeps the proof that made it, so a peer that did not hear the first answer
+gets that exact answer again. Accepting twice would hand the two sides
+different keys for what the initiator believes is one link, failing later and
+confusingly. On a medium measured at a 20 to 40 percent single-run failure
+rate, this is the common case rather than an edge one, and it is pinned by a
+byte-for-byte test.
+
+**The responder's ephemeral seed is derived, not random.** An initiator is
+handed a seed by its shell, one per attempt. A responder answers packets it did
+not ask for, so entropy would have to be threaded through every `ingest`.
+Instead the seed is `full_hash(tag || our secret || link id)` for each half:
+unpredictable without the node's private key, different per request, and
+reproducible, which is exactly what makes the same-proof property above work.
+
+Fifteen node tests, 178 in the crate, clippy clean in both configurations, and
+the sans-io core still cross-compiles for the board.
+
+Remaining for N3: resource windows in `Node`, then the executive and the node
+channel on the T114.
 
 ## Non-goals
 
