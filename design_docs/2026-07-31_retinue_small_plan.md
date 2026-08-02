@@ -805,6 +805,49 @@ hardware to mean anything.
 Remaining for N3: the channel trait and the executive, the node channel, and
 the fixture-corpus replay on the T114.
 
+**N3: the board carries a Retinue node, 2026-08-01.** The T114 links `retinue`
+and builds a `Node` from its persisted identity at boot, reporting
+`node=599997c8 heap=0/49152`: a real destination hash derived from the key the
+board has held across eight flashes.
+
+**The allocator arrived exactly where the plan said it would.** Linking
+`retinue` failed with "no global memory allocator found", because N1 chose
+`no_std + alloc` and this is the gate where a board pays for it. N0's receipt of
+a zero heap high-water by construction ends here, which is why the heltec doc's
+done condition asks for a heap figure at all. What replaces "no heap" as the
+guarantee: a fixed 48 KB array that cannot take memory from anything else,
+every table above it already bounded by N1 so live allocations have a ceiling,
+and `used()` making the figure a measurement rather than an assertion. LLFF
+over TLSF because this workload is a few short-lived buffers, not a churn of
+many sizes.
+
+**The protocol's cost, measured rather than estimated.** A first attempt put
+the node behind `#[allow(dead_code)]` and reported +128 bytes, which was the
+linker discarding `retinue` entirely: the probe measured nothing. Instantiating
+it for real:
+
+| | flash | static RAM |
+|---|---|---|
+| v20, no protocol | 79,618 (9.9%) | 11,356 |
+| v21, protocol linked | **156,994 (19.6%)** | **66,908 (28%)** |
+
+`retinue` costs about 77 KB of flash; 48 KB of the RAM growth is the heap
+array. Both comfortable, and it settles structural decision 4's flash-residency
+question with a number: several channels fit.
+
+**Counted RF receipt, v21 against the COM6 control peer: 7 of 8, all outputs
+byte-exact.** In the established band (v16 8 of 10, v19 7 of 8, wired V4 8 of
+8), so nearly doubling the image did not disturb the modem path.
+
+Two bench notes. Nineteen `cargo` and `rustc` processes accumulated across
+repeated `cargo run` invocations and stalled both a counted block and a test
+run; build the example once and run the binary directly instead. And the
+scratchpad was cleared mid-session, taking the probe and the RF inputs, so both
+were rebuilt with the probe keeping its DTR-only fix.
+
+Remaining for N3: the channel trait and executive, so the node is *driven*
+rather than merely resident, and the fixture-corpus replay.
+
 ## Non-goals
 
 - Porting `Endpoint`. It stays the desktop shell.

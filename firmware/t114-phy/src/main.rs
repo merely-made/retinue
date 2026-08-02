@@ -31,6 +31,7 @@ use selvage::{
 use static_cell::StaticCell;
 
 mod board;
+mod heap;
 mod host;
 mod store;
 mod ui;
@@ -181,6 +182,35 @@ where
     }
 }
 
+/// A boot line naming the node and what it costs, so the heap figure is a receipt rather
+/// than an assertion. The destination is public by construction; no key material is shown.
+fn describe_node(node: Option<&retinue::node::Node<32, 8, 4>>, out: &mut [u8; 64]) -> usize {
+    let mut text = radio_face::Text::<64>::empty();
+    match node {
+        Some(node) => {
+            let dest = node.destination();
+            let bytes = dest.as_slice();
+            let _ = write!(
+                &mut text,
+                "node={:02x}{:02x}{:02x}{:02x} heap={}/{}\r\n",
+                bytes[0],
+                bytes[1],
+                bytes[2],
+                bytes[3],
+                heap::used(),
+                heap::HEAP_SIZE,
+            );
+        }
+        None => {
+            let _ = write!(&mut text, "node=unavailable\r\n");
+        }
+    }
+    let source = text.as_str().as_bytes();
+    let len = source.len().min(out.len());
+    out[..len].copy_from_slice(&source[..len]);
+    len
+}
+
 fn diagnostic_event(irq_status: u16, device_errors: u16, sync_word: [u8; 2]) -> [u8; 7] {
     let irq = irq_status.to_le_bytes();
     let errors = device_errors.to_le_bytes();
@@ -246,6 +276,10 @@ async fn usb_task(mut device: UsbDevice<'static, UsbDriver>) {
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
+    // First statement: everything after this may allocate.
+    // SAFETY: called once, before any allocation.
+    unsafe { heap::init() };
+
     let mut nrf_config = embassy_nrf::config::Config::default();
     nrf_config.hfclk_source = HfclkSource::ExternalXtal;
     let p = embassy_nrf::init(nrf_config);
@@ -255,7 +289,7 @@ async fn main(spawner: Spawner) {
     // milliseconds, so it belongs here rather than anywhere near live traffic.
     // The identity stays on the board; the channel says what to boot into.
     let mut identity_line = [0_u8; 48];
-    let (_settings, identity_line_len) = match store::SettingsStore::new(p.NVMC, p.RNG)
+    let (settings, identity_line_len) = match store::SettingsStore::new(p.NVMC, p.RNG)
         .load_or_create()
     {
         Ok((settings, outcome)) => (Some(settings), store::describe(outcome, &mut identity_line)),
@@ -265,6 +299,18 @@ async fn main(spawner: Spawner) {
             (None, message.len())
         }
     };
+
+    // The node this board answers as, built from the persisted identity. Built here so the
+    // protocol is genuinely linked and its cost is a measurement rather than an estimate.
+    // The channel that drives it is the next step; for now it exists and reports itself.
+    let node = settings.map(|settings| {
+        retinue::node::Node::<32, 8, 4>::new(
+            retinue::identity::PrivateIdentity::from_secret_bytes(&settings.identity),
+            retinue::destination::DestinationName::new("retinue", ["node"]).name_hash(),
+        )
+    });
+    let mut node_line = [0_u8; 64];
+    let node_line_len = describe_node(node.as_ref(), &mut node_line);
 
     let mut display_config = SpimConfig::default();
     display_config.frequency = Frequency::M8;
@@ -432,6 +478,7 @@ async fn main(spawner: Spawner) {
                 .write_all(&identity_line[..identity_line_len])
                 .await
                 .is_err()
+            || host.write_all(&node_line[..node_line_len]).await.is_err()
         {
             local_status.host = radio_face::HostState::Detached;
             ui::publish(local_status, radio_face::LedSignal::Idle);
