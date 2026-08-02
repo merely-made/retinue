@@ -14,6 +14,7 @@ use embassy_nrf::nvmc::{Nvmc, PAGE_SIZE};
 use embassy_nrf::peripherals::{NVMC, RNG};
 use embassy_nrf::rng::Rng;
 use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
+use radio_hand::settings::{self, Settings};
 use radio_hand::store::{self, HEADER_LEN, Slot, SlotError};
 
 include!(concat!(env!("OUT_DIR"), "/store_region.rs"));
@@ -26,23 +27,20 @@ const _: () = assert!(
     "the store spans exactly the A and B pages"
 );
 
-/// Bytes of a device identity: an ed25519 signing key followed by an x25519
-/// encryption key, the shape `retinue`'s `PrivateIdentity::from_secret_bytes`
-/// consumes.
-///
-/// The board treats these as opaque key material until gate N3 gives it a node
-/// to hand them to. They never leave the board.
-pub const IDENTITY_LEN: usize = 64;
+/// Bytes of a device identity, re-exported so callers do not reach past this
+/// module for it.
+pub const IDENTITY_LEN: usize = settings::IDENTITY_LEN;
 
-/// Bytes read out of each slot. Only the header and one identity are needed, so
-/// the boot path never buffers a whole 4 KiB page. Growing the body means
-/// growing this.
-const SLOT_READ_LEN: usize = HEADER_LEN + IDENTITY_LEN;
+/// Bytes read out of each slot: the header and the largest body this build
+/// writes, plus room for a longer body a later firmware might have left. Reading
+/// past what we understand is how a downgrade keeps someone else's fields
+/// instead of truncating them into nonsense.
+const SLOT_READ_LEN: usize = HEADER_LEN + settings::ENCODED_LEN + 32;
 
 /// What the boot path found in flash.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
-    /// A stored identity was read back. The expected result of every boot after
+    /// Stored settings were read back. The expected result of every boot after
     /// the first.
     Loaded { slot: Slot, sequence: u32 },
     /// Both slots were erased, so this board had no identity yet and one was
@@ -66,12 +64,12 @@ pub enum Error {
 }
 
 /// The two flash pages, and the peripherals that reach them.
-pub struct IdentityStore<'d> {
+pub struct SettingsStore<'d> {
     nvmc: Nvmc<'d>,
     rng: Rng<'d, Blocking>,
 }
 
-impl<'d> IdentityStore<'d> {
+impl<'d> SettingsStore<'d> {
     pub fn new(nvmc: Peri<'d, NVMC>, rng: Peri<'d, RNG>) -> Self {
         let rng = Rng::new_blocking(rng);
         // The nRF52840 RNG is a physical noise source whose raw output is
@@ -84,9 +82,9 @@ impl<'d> IdentityStore<'d> {
         }
     }
 
-    /// Read the device identity, generating and persisting one if flash holds
-    /// nothing this build can read.
-    pub fn load_or_create(&mut self) -> Result<([u8; IDENTITY_LEN], Outcome), Error> {
+    /// Read the board's settings, generating and persisting an identity if flash
+    /// holds nothing this build can read.
+    pub fn load_or_create(&mut self) -> Result<(Settings, Outcome), Error> {
         let mut page_a = [0_u8; SLOT_READ_LEN];
         let mut page_b = [0_u8; SLOT_READ_LEN];
         // A short read cannot fail on a region the linker reserved, but the
@@ -102,12 +100,10 @@ impl<'d> IdentityStore<'d> {
 
         let selection = store::select(&page_a, &page_b);
         if let Some((slot, record)) = selection.active
-            && record.body.len() == IDENTITY_LEN
+            && let Ok(settings) = Settings::decode(record.body)
         {
-            let mut identity = [0_u8; IDENTITY_LEN];
-            identity.copy_from_slice(record.body);
             return Ok((
-                identity,
+                settings,
                 Outcome::Loaded {
                     slot,
                     sequence: record.sequence,
@@ -122,18 +118,19 @@ impl<'d> IdentityStore<'d> {
             (Err(SlotError::Blank), Err(SlotError::Blank)) => None,
             (Err(other), _) => Some(other),
             (_, Err(other)) => Some(other),
-            // Both decoded but the body was the wrong length: a record this
-            // build does not understand, which is a length fault.
+            // Both decoded but the body did not: a record this build cannot
+            // read, which is a length fault as far as the slot is concerned.
             _ => Some(SlotError::BadLength),
         };
 
         let mut identity = [0_u8; IDENTITY_LEN];
         self.rng.blocking_fill_bytes(&mut identity);
+        let settings = Settings::new(identity);
         let slot = selection.next;
-        self.persist(slot, selection.next_sequence, &identity)?;
+        self.persist(slot, selection.next_sequence, &settings)?;
 
         Ok((
-            identity,
+            settings,
             match reason {
                 None => Outcome::Created { slot },
                 Some(reason) => Outcome::Replaced { slot, reason },
@@ -141,14 +138,44 @@ impl<'d> IdentityStore<'d> {
         ))
     }
 
+    /// Write new settings, keeping the identity that is already stored.
+    ///
+    /// Erase stalls the CPU for tens of milliseconds, blanking receive, so this
+    /// belongs in a declared radio-quiet window and never beside live traffic.
+    /// See the plan's pressure point 3.
+    #[allow(dead_code)] // The executive's channel selection is its first caller.
+    pub fn save(&mut self, settings: &Settings) -> Result<Outcome, Error> {
+        let mut page_a = [0_u8; SLOT_READ_LEN];
+        let mut page_b = [0_u8; SLOT_READ_LEN];
+        if self.nvmc.read(STORE_ORIGIN, &mut page_a).is_err()
+            || self
+                .nvmc
+                .read(STORE_ORIGIN + PAGE_SIZE as u32, &mut page_b)
+                .is_err()
+        {
+            return Err(Error::Verify);
+        }
+        let selection = store::select(&page_a, &page_b);
+        let slot = selection.next;
+        self.persist(slot, selection.next_sequence, settings)?;
+        Ok(Outcome::Loaded {
+            slot,
+            sequence: selection.next_sequence,
+        })
+    }
+
     /// Erase one slot, write the record, and read it back.
-    fn persist(&mut self, slot: Slot, sequence: u32, body: &[u8]) -> Result<(), Error> {
+    fn persist(&mut self, slot: Slot, sequence: u32, settings: &Settings) -> Result<(), Error> {
         let offset = self.offset(slot);
 
-        let mut encoded = [0_u8; store::encoded_len(IDENTITY_LEN)];
-        // The body length is fixed by IDENTITY_LEN and the buffer is sized from
+        let mut body = [0_u8; settings::ENCODED_LEN];
+        let body_len = settings.encode(&mut body);
+
+        let mut encoded = [0_u8; store::encoded_len(settings::ENCODED_LEN)];
+        // The body length is fixed by ENCODED_LEN and the buffer is sized from
         // it, so neither encode error is reachable here.
-        let written = store::encode(sequence, body, &mut encoded).map_err(|_| Error::Write)?;
+        let written =
+            store::encode(sequence, &body[..body_len], &mut encoded).map_err(|_| Error::Write)?;
 
         self.nvmc
             .erase(offset, offset + PAGE_SIZE as u32)
@@ -165,7 +192,7 @@ impl<'d> IdentityStore<'d> {
             .read(offset, &mut check)
             .map_err(|_| Error::Verify)?;
         match store::decode(&check) {
-            Ok(record) if record.sequence == sequence && record.body == body => Ok(()),
+            Ok(record) if record.sequence == sequence && record.body == &body[..body_len] => Ok(()),
             _ => Err(Error::Verify),
         }
     }

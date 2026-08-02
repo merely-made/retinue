@@ -775,6 +775,36 @@ business and is measured on hardware at the gates.
 and the fixture-corpus replay on the T114. The protocol is done and verified at
 the desk.
 
+**N3 firmware, first step, 2026-08-01: the store carries settings, and the
+board keeps the identity it already had.**
+
+`radio_hand::settings::Settings` is the record body: an identity plus the
+channel to boot into. `IdentityStore` became `SettingsStore`, with a `save` for
+the executive's eventual channel selection.
+
+**The body grows; it is not versioned.** Bumping the record header's version
+would be the obvious way to add a field and is the wrong way here: a board
+flashed with the new firmware would find its record at the old version, refuse
+it, and mint a fresh identity. The device would silently become a different
+device, losing the address every peer knows it by. So a 64-byte body is an
+identity and nothing else, which is exactly what the first firmware wrote, and
+it decodes as that identity with default settings. Fields append after it. An
+unknown channel byte falls back to the default rather than failing the record,
+because losing an identity over an unreadable preference is a far worse trade.
+
+**Receipt, on the board that has carried the same identity for seven flashes.**
+Before v20: `identity=loaded slot=A seq=0`. After: `identity=loaded slot=A
+seq=0`, byte-identical. Same slot, same sequence, so the legacy record was read
+rather than replaced. Had the version been bumped instead, this would have read
+`created slot=B seq=1` and the identity would be gone. The unit test for the
+legacy body is real, but this is the property actually mattering and it needed
+hardware to mean anything.
+
+220 tests across the three crates, both images build, clippy and fmt clean.
+
+Remaining for N3: the channel trait and the executive, the node channel, and
+the fixture-corpus replay on the T114.
+
 ## Non-goals
 
 - Porting `Endpoint`. It stays the desktop shell.

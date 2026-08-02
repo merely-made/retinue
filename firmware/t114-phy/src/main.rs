@@ -250,15 +250,15 @@ async fn main(spawner: Spawner) {
     nrf_config.hfclk_source = HfclkSource::ExternalXtal;
     let p = embassy_nrf::init(nrf_config);
 
-    // Resolve the device identity before anything else starts. A first boot
+    // Resolve the board's settings before anything else starts. A first boot
     // erases and writes a flash page, which stalls the CPU for tens of
     // milliseconds, so it belongs here rather than anywhere near live traffic.
-    // The bytes stay on the board; gate N3 hands them to a node.
+    // The identity stays on the board; the channel says what to boot into.
     let mut identity_line = [0_u8; 48];
-    let (_device_identity, identity_line_len) = match store::IdentityStore::new(p.NVMC, p.RNG)
+    let (_settings, identity_line_len) = match store::SettingsStore::new(p.NVMC, p.RNG)
         .load_or_create()
     {
-        Ok((identity, outcome)) => (Some(identity), store::describe(outcome, &mut identity_line)),
+        Ok((settings, outcome)) => (Some(settings), store::describe(outcome, &mut identity_line)),
         Err(_) => {
             let message = b"identity=unavailable\r\n";
             identity_line[..message.len()].copy_from_slice(message);

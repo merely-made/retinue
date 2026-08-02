@@ -24,4 +24,5 @@ pub mod link;
 pub mod phy;
 #[cfg(feature = "radio")]
 pub mod service;
+pub mod settings;
 pub mod store;
