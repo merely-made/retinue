@@ -1,7 +1,7 @@
 # retinue-small plan
 
-**Status:** N0 proven on the T114 (power-loss leg open); N1 complete; N2 complete,
-both images dispatch through radio-hand and are receipted; channels-in-one-image
+**Status:** N0 proven on the T114 (power-loss leg open); N1 complete; N2 complete;
+N3 begun, `retinue::node` announces and cross-compiles; channels-in-one-image
 ruled (structural decision 4), executive built when the second channel exists
 **Design authority:**
 [`2026-07-19_modem_embedded_and_meshtastic_research.md`](2026-07-19_modem_embedded_and_meshtastic_research.md)
@@ -681,6 +681,37 @@ bootloader, where it answers nothing and looks dead. Recovery is
 `espflash reset --port COMn`. The probe now asserts DTR only, which the T114's
 `wait_connection` still needs and which leaves a V4 alone. Also: `espflash
 flash --no-stub` fails at `FlashEnd` on this setup; the default stub works.
+
+**N3 first increment, 2026-08-01: `retinue::node` exists and announces.**
+
+`Node::ingest(interface, packet, now) -> Actions` and
+`Node::poll(now, interface, rand_hash) -> Actions`, sans-io and bounded.
+Nothing in it reads a clock, allocates without a bound, or performs I/O: time
+arrives as an argument, entropy arrives as caller-supplied bytes (the discipline
+`announce::build` already followed so fixtures reproduce byte for byte), and
+everything the node wants leaves as an `Action` for a shell to carry out.
+`Actions<N>` is bounded and reports `overflowed()` rather than dropping
+silently. It cross-compiles for `thumbv7em-none-eabihf`.
+
+This gate's slice is announce in both directions, which is also N4's first
+half. The oracle is the fixture corpus: **all six RNS-generated invalid
+announces are refused** and leave no trace in the address book, which is the
+property that matters most on a board, since accepting one would let a peer
+populate its tables with unverified identity. Eight node tests, 171 in the
+crate.
+
+**A sequencing consequence worth stating.** N3 is where structural decision 4
+stops being theoretical: putting a node on the T114 creates the *second*
+channel, which is precisely the condition under which the executive was ruled
+to be built. So the remaining N3 work is not only "add links and resources to
+`Node`" but also "found the executive and make the modem a channel beside the
+node". The desk-side protocol work and the firmware-side channel work are
+separable, and the protocol work comes first because it is verifiable without
+hardware.
+
+Remaining for N3: link handling and resource windows in `Node`, then the
+executive and the node channel on the T114, then the fixture-corpus replay that
+the gate's done condition names.
 
 ## Non-goals
 

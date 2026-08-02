@@ -63,6 +63,7 @@ pub mod ifac;
 pub mod iface;
 pub mod link;
 pub mod lossy;
+pub mod node;
 pub mod packet;
 pub mod path;
 pub mod ratchet;
