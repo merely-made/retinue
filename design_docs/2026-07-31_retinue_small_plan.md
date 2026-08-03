@@ -1,9 +1,10 @@
 # retinue-small plan
 
 **Status:** N0 proven on the T114 (power-loss leg open); N1, N2, N3, N4
-complete; N5 first leg done — byte-exact data both directions over RF (8 of 8
-counted) with loss recovery in poll. N5 remainder: mid-transfer reboot,
-capacity errors under live traffic, the adversarial set, and current figures.
+complete; N5 complete except current figures (meter needed): byte-exact data
+both directions over RF (8 of 8), loss recovery in poll, mid-transfer reboot
+survival, and the adversarial set all receipted on hardware. N6 next: panels
+from board-local state.
 **Design authority:**
 [`2026-07-19_modem_embedded_and_meshtastic_research.md`](2026-07-19_modem_embedded_and_meshtastic_research.md)
 (*Native Retinue personality*) supplies the boundary and
@@ -1105,6 +1106,51 @@ the node stays operational); the heltec doc's adversarial set (fuzzed frames,
 full route table, full queue, entropy failure, flash corruption, resource
 cancellation); and the idle/receive/transmit current figures, which need a
 meter on the bench.
+
+**N5 survival and adversarial set, 2026-08-03: receipted on hardware, current
+figures excepted.** Refusals are now typed, counted outcomes on the node —
+`refused_peers`, `refused_offers` joining `refused_links`, all in the `node`
+probe — because a bound that rejects silently cannot be told from a bound that
+was never hit. `node_stress` carries the legs over real RF, and every leg ends
+in the same verification, a full byte-exact exchange, since "stays operational"
+is a claim until traffic passes after the abuse.
+
+- **Mid-transfer reboot:** the board killed mid-publish with 8 parts served;
+  the desktop fails typed ("timed out after serving 8 requested part(s)"), the
+  next boot exchanges byte-exact, and the identity rides through the kill.
+- **Fuzz:** 30 hostile frames received in one boot — 3 structurally
+  undecodable and counted, the rest parsed and dropped by validation, which is
+  the correct split — and the exchange passes.
+- **Flood under live traffic:** 40 valid announces transmitted from the second
+  modem while an exchange ran on the first. The exchange completed byte-exact
+  through the collisions, 118 s against the clean 56 s, the loss recovery
+  visibly load-bearing. This is the three-radio method graduated from
+  diagnosis to receipt.
+- **Flood in quiet air:** `rx=40 peers=32 refusedpeers=8`. The cap, exact,
+  with every refusal counted.
+- **Links:** six opens against four slots — four up and held to the end, two
+  refused, every refused request counted (`refusedlinks=4`: two attempts and
+  their retries).
+- **Bigoffer:** a 20 KiB offer against the 32-part ceiling, refused on every
+  re-advertisement (`refusedoffers=4`) without ever holding a receiver slot,
+  and a byte-exact exchange on the same boot after.
+
+**The board caught the harness lying.** The first flood generator varied
+byte 0 of the x25519 secret; clamping (`k[0] &= 248`) collapses that into five
+distinct keys, so forty "identities" were five peers refreshing — and the
+board's `peers=5`, deterministic across two runs, was correct while the
+harness was wrong. Desk reproduction confirmed it in seconds
+(`learned=40 peers=5 refused=0`). The generator varies byte 1 now, and a desk
+test pins forty genuinely distinct identities filling the book to 32 with 8
+counted refusals. Lesson recorded: identity-generation in test harnesses must
+respect key clamping, and a deterministic "wrong" number from hardware
+deserves belief before the harness does.
+
+Entropy failure and the action-queue bound stay desk-proven (the `unseeded`
+counter and `Actions::overflowed`); the T114's RNG is a hardware peripheral
+that cannot honestly be made to fail from software. Flash corruption was
+proven on hardware at N0. **Still open for N5: the idle/receive/transmit
+current figures, which need a meter on the bench — Mark's leg.**
 
 ## Non-goals
 
