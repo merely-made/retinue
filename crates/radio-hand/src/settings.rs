@@ -63,6 +63,8 @@ pub struct Settings {
     pub identity: [u8; IDENTITY_LEN],
     /// The channel to boot into.
     pub channel: Channel,
+    /// The regulatory region this board operates under. `Unset` means no transmit.
+    pub region: crate::region::Region,
 }
 
 /// Why a stored body could not be read.
@@ -78,6 +80,7 @@ impl Settings {
         Self {
             identity,
             channel: Channel::default(),
+            region: crate::region::Region::default(),
         }
     }
 
@@ -100,16 +103,30 @@ impl Settings {
             .and_then(Channel::from_byte)
             .unwrap_or_default();
 
-        Ok(Self { identity, channel })
+        // The region byte was reserved-as-zero before regions existed, and Region::Unset
+        // is zero, so every record written before this field upgrades into "no region" —
+        // never into someone else's rules. An unknown byte falls back the same way.
+        let region = body
+            .get(IDENTITY_LEN + 1)
+            .copied()
+            .and_then(crate::region::Region::from_byte)
+            .unwrap_or_default();
+
+        Ok(Self {
+            identity,
+            channel,
+            region,
+        })
     }
 
     /// Write settings into a record body, returning the bytes used.
     pub fn encode(&self, out: &mut [u8; ENCODED_LEN]) -> usize {
         out[..IDENTITY_LEN].copy_from_slice(&self.identity);
         out[IDENTITY_LEN] = self.channel.as_byte();
+        out[IDENTITY_LEN + 1] = self.region.as_byte();
         // Reserved, written as zero so a later field has a defined starting value rather
         // than whatever the erase left.
-        out[IDENTITY_LEN + 1..].fill(0);
+        out[IDENTITY_LEN + 2..].fill(0);
         ENCODED_LEN
     }
 }
@@ -131,6 +148,7 @@ mod tests {
         let settings = Settings {
             identity: identity(),
             channel: Channel::Node,
+            region: crate::region::Region::Us915,
         };
         let mut body = [0_u8; ENCODED_LEN];
         let len = settings.encode(&mut body);
@@ -146,6 +164,11 @@ mod tests {
         let read = Settings::decode(&legacy).expect("the original record must still read");
         assert_eq!(read.identity, legacy, "the identity survives verbatim");
         assert_eq!(read.channel, Channel::Modem, "and defaults to the modem");
+        assert_eq!(
+            read.region,
+            crate::region::Region::Unset,
+            "and to no region: an old record never inherits someone's rules"
+        );
     }
 
     /// A channel byte this build does not know falls back rather than failing the record.
@@ -158,6 +181,7 @@ mod tests {
         let read = Settings::decode(&body).expect("an odd preference is not a bad record");
         assert_eq!(read.identity, identity(), "the identity is what matters");
         assert_eq!(read.channel, Channel::Modem, "and the board still boots");
+        assert_eq!(read.region, crate::region::Region::Unset);
     }
 
     /// Trailing bytes a later firmware appended are ignored, not misread.
@@ -189,6 +213,7 @@ mod tests {
             let settings = Settings {
                 identity: identity(),
                 channel,
+                region: crate::region::Region::Unset,
             };
             let mut body = [0_u8; ENCODED_LEN];
             let len = settings.encode(&mut body);

@@ -13,9 +13,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
     let port = args.next().unwrap_or_else(|| "COM6".into());
     let listen_secs: u64 = args.next().map(|v| v.parse()).transpose()?.unwrap_or(20);
+    // Optional overrides, so this doubles as the regulatory-floor bench tool: an
+    // out-of-region frequency must make the config fail, an over-cap power must clamp
+    // and still come online.
+    let frequency_hz: u32 = args
+        .next()
+        .map(|v| v.parse())
+        .transpose()?
+        .unwrap_or(906_875_000);
+    let tx_power_dbm: i8 = args.next().map(|v| v.parse()).transpose()?.unwrap_or(17);
 
     let profile = PhyProfile {
-        frequency_hz: 906_875_000,
+        frequency_hz,
         bandwidth_hz: 250_000,
         spreading_factor: 11,
         coding_rate_denominator: 5,
@@ -24,7 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         explicit_header: true,
         crc: true,
         invert_iq: false,
-        tx_power_dbm: 17,
+        tx_power_dbm,
     };
 
     let mut radio = DirectPhySerialLink::open(

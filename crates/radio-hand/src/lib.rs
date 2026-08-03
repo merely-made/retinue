@@ -25,6 +25,7 @@ pub mod dispatch;
 pub mod executive;
 pub mod link;
 pub mod phy;
+pub mod region;
 #[cfg(feature = "replay")]
 pub mod replay;
 #[cfg(feature = "radio")]

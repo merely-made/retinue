@@ -15,17 +15,25 @@
 //! What this deliberately is not: a scheduler, an isolation boundary, or anything that
 //! deserves the word hypervisor. Channels are trusted safe Rust in the same address space.
 
-use embassy_time::{Duration, Ticker, with_timeout};
+use embassy_time::{Duration, Instant, Ticker, with_timeout};
 use lora_phy::mod_params::{ModulationParams, PacketParams};
 use lora_phy::mod_traits::RadioKind;
 use lora_phy::{DelayNs, LoRa, RxMode};
 use radio_face::{HostSnapshot, LedSignal, LocalStatus};
 use selvage::PhyProfile;
 
+use crate::region::Region;
 use crate::service;
 
 /// How long a transmission may run before the firmware gives up on it.
 const TX_DEADLINE: Duration = Duration::from_secs(3);
+
+/// The SX1262's conducted-power ceiling in dBm. Applied on top of every regional cap: the
+/// power actually used is the minimum of request, region, and this.
+const HARDWARE_MAX_DBM: i8 = 22;
+
+/// The duty-cycle accounting window, one hour, matching how the EU limits are stated.
+const DUTY_WINDOW_MS: u64 = 3_600_000;
 
 /// The radio settings a profile owns, held here so a rejected profile cannot half-apply:
 /// [`crate::service::apply_profile`] builds a replacement and only a complete one is swapped
@@ -147,6 +155,11 @@ pub struct AirDiag {
     pub tx_ok: u16,
     /// Transmissions refused or timed out.
     pub tx_err: u16,
+    /// Transmissions refused because no region is configured. The regulatory floor
+    /// working, not a fault.
+    pub tx_no_region: u16,
+    /// Transmissions refused because the region's duty budget was spent.
+    pub tx_over_duty: u16,
     /// Times the unattended wait woke for its heartbeat.
     pub wait_beats: u16,
     /// Times the unattended wait woke for a received frame.
@@ -166,6 +179,11 @@ pub struct Executive<'r, RK: RadioKind, DLY: DelayNs> {
     status: &'r mut LocalStatus,
     face: &'r Face,
     store: &'r mut dyn BoardStore,
+    region: Region,
+    /// Transmit milliseconds spent in the current duty window.
+    duty_spent_ms: u64,
+    /// When the current duty window opened.
+    duty_window_start: Option<Instant>,
     diag: AirDiag,
 }
 
@@ -176,6 +194,7 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
         status: &'r mut LocalStatus,
         face: &'r Face,
         store: &'r mut dyn BoardStore,
+        region: Region,
     ) -> Self {
         Self {
             lora,
@@ -183,8 +202,21 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
             status,
             face,
             store,
+            region,
+            duty_spent_ms: 0,
+            duty_window_start: None,
             diag: AirDiag::default(),
         }
+    }
+
+    /// The region this executive enforces.
+    pub fn region(&self) -> Region {
+        self.region
+    }
+
+    /// Duty milliseconds spent in the current window, for probes.
+    pub fn duty_spent_ms(&self) -> u64 {
+        self.duty_spent_ms
     }
 
     /// The executive's own account of the radio. See [`AirDiag`].
@@ -289,10 +321,36 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
 
     /// Put one frame on the air, returning its `EVENT_TX` result code.
     ///
-    /// Every transmission in the firmware passes through here. When the regulatory clamp and
-    /// channel-citizenship gating land, this is the line they go above, and no channel gets
-    /// to skip them by construction.
+    /// Every transmission in the firmware passes through here, which is what makes the
+    /// regulatory floor unskippable by construction: no region, no transmit; a spent duty
+    /// budget refuses the frame rather than sending it over the limit. Channel-citizenship
+    /// gating (CAD) goes above the same line when it lands.
     pub async fn transmit(&mut self, frame: &[u8]) -> u8 {
+        // The regulatory floor. `Unset` has no profile, so "no region, no transmit" falls
+        // out of the type rather than out of a flag.
+        let Some(profile) = self.region.profile() else {
+            self.diag.tx_no_region = self.diag.tx_no_region.saturating_add(1);
+            return selvage::TX_NO_REGION;
+        };
+
+        // The duty ledger: a fixed window matching how the limits are stated. Zero permille
+        // means the region imposes none.
+        if profile.duty_permille > 0 {
+            let now = Instant::now();
+            match self.duty_window_start {
+                Some(start) if now.duration_since(start).as_millis() < DUTY_WINDOW_MS => {}
+                _ => {
+                    self.duty_window_start = Some(now);
+                    self.duty_spent_ms = 0;
+                }
+            }
+            let budget_ms = DUTY_WINDOW_MS / 1_000 * u64::from(profile.duty_permille);
+            if self.duty_spent_ms >= budget_ms {
+                self.diag.tx_over_duty = self.diag.tx_over_duty.saturating_add(1);
+                return selvage::TX_OVER_DUTY;
+            }
+        }
+
         let prepared = self
             .lora
             .prepare_for_tx(
@@ -307,11 +365,17 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
         if !prepared {
             return selvage::TX_RADIO_FAULT;
         }
+        let tx_started = Instant::now();
         let code = match with_timeout(TX_DEADLINE, self.lora.tx()).await {
             Ok(Ok(())) => selvage::TX_ACCEPTED,
             Ok(Err(_)) => selvage::TX_RADIO_FAULT,
             Err(_) => selvage::TX_TIMEOUT,
         };
+        // Measured airtime, charged to the duty ledger. Measured rather than predicted:
+        // what the ledger owes is what the antenna actually did.
+        self.duty_spent_ms = self
+            .duty_spent_ms
+            .saturating_add(tx_started.elapsed().as_millis());
         if code == selvage::TX_ACCEPTED {
             self.diag.tx_ok = self.diag.tx_ok.saturating_add(1);
         } else {
@@ -322,17 +386,28 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
 
     /// Apply a host profile, committing it only if every step passed.
     ///
-    /// Returns the `EVENT_CONFIG` result code. The face is updated on success because the
-    /// profile is what the status surface reports.
+    /// Returns the `EVENT_CONFIG` result code. The regulatory floor rules first: frequency
+    /// outside the region's band rejects the profile whole, and power clamps to the minimum
+    /// of request, region, and hardware — with the *clamped* value applied, stored, and
+    /// reported on the face, never the requested one.
     pub async fn apply_profile(&mut self, profile: &PhyProfile) -> u8 {
-        match service::apply_profile(self.lora, profile).await {
+        let Some(region) = self.region.profile() else {
+            return selvage::CONFIG_OUT_OF_REGION;
+        };
+        if !region.allows_frequency(profile.frequency_hz) {
+            return selvage::CONFIG_OUT_OF_REGION;
+        }
+        let mut clamped = *profile;
+        clamped.tx_power_dbm = region.clamp_power(profile.tx_power_dbm, HARDWARE_MAX_DBM);
+
+        match service::apply_profile(self.lora, &clamped).await {
             Ok(applied) => {
                 self.radio.modulation = applied.modulation;
                 self.radio.tx = applied.tx;
                 self.radio.rx = applied.rx;
                 self.radio.tx_power_dbm = applied.tx_power_dbm;
                 self.radio.prepare_rx = true;
-                crate::board_status::apply_profile(self.status, *profile);
+                crate::board_status::apply_profile(self.status, clamped);
                 self.publish(LedSignal::Idle);
                 service::ACCEPTED
             }

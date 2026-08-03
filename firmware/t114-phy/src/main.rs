@@ -24,6 +24,7 @@ use radio_hand::channel::node::NodeChannel;
 use radio_hand::channel::{Channel, ChannelInfo, Event, Personality};
 use radio_hand::executive::{Executive, Face, Heartbeat, RadioState};
 use radio_hand::link::{Flow, HostLink};
+use radio_hand::region::Region;
 use radio_hand::settings::{Channel as BootChannel, Settings};
 use selvage::{MESHTASTIC_SYNC_WORD, sx126x_sync_word};
 use static_cell::StaticCell;
@@ -45,7 +46,6 @@ bind_interrupts!(struct Irqs {
 
 type UsbDriver = Driver<'static, HardwareVbusDetect>;
 
-const FREQUENCY_HZ: u32 = 906_875_000;
 const TX_POWER_DBM: i32 = 17;
 const MAX_RADIO_FRAME: usize = 255;
 const USB_PACKET: usize = 64;
@@ -98,6 +98,29 @@ fn channel_probe(packet: &[u8]) -> Option<ChannelProbe> {
         b"channel node" => Some(ChannelProbe::Set(BootChannel::Node)),
         _ => None,
     }
+}
+
+/// What a `region` line asked for.
+enum RegionProbe {
+    /// `region` — say which compliance profile the board operates under.
+    Report,
+    /// `region us915` and friends — persist a choice and reboot into it.
+    Set(Region),
+}
+
+/// Read a host line as a region probe. Names match the table case-insensitively, so the
+/// probe vocabulary grows when the table does, not when this function does.
+fn region_probe(packet: &[u8]) -> Option<RegionProbe> {
+    let line = packet
+        .strip_suffix(b"\r\n")
+        .or_else(|| packet.strip_suffix(b"\n"))?;
+    if line == b"region" {
+        return Some(RegionProbe::Report);
+    }
+    let name = line.strip_prefix(b"region ")?;
+    Region::choices()
+        .find(|region| region.name().as_bytes().eq_ignore_ascii_case(name))
+        .map(RegionProbe::Set)
 }
 
 fn publish_fault(status: &mut radio_face::LocalStatus, code: u8, message: &'static str) {
@@ -261,11 +284,20 @@ async fn main(spawner: Spawner) {
         }
     };
 
+    // The boot carrier comes from the persisted region: each region entry names the
+    // trunk's default frequency inside its band. A board with no region still tunes (to the
+    // US default) so RECEIVING works — receiving is unregulated — but the executive refuses
+    // every transmit until a region is chosen.
+    let region = settings.map(|s| s.region).unwrap_or_default();
+    let boot_frequency = region
+        .profile()
+        .map(|p| p.default_frequency_hz)
+        .unwrap_or(906_875_000);
     let modulation = match lora.create_modulation_params(
         SpreadingFactor::_11,
         Bandwidth::_250KHz,
         CodingRate::_4_5,
-        FREQUENCY_HZ,
+        boot_frequency,
     ) {
         Ok(params) => params,
         Err(_) => {
@@ -297,7 +329,16 @@ async fn main(spawner: Spawner) {
         }
     };
 
-    let online = b"tulle/t114 phy online; sx1262 online; spi=software; irq=poll; sync=2b reg=24b4; longfast=906875000\r\n";
+    // The banner names the region and carrier honestly instead of hardcoding a US channel.
+    let mut online_line = radio_face::Text::<128>::empty();
+    let _ = write!(
+        &mut online_line,
+        "tulle/t114 phy online; sx1262 online; spi=software; irq=poll; sync=2b reg=24b4; \
+         region={} freq={}\r\n",
+        region.name(),
+        boot_frequency,
+    );
+    let online = online_line.as_str().as_bytes();
     publish_online(&mut local_status);
 
     // Past every path that hands `class` to `serve_status_only`, so the CDC endpoint can
@@ -317,7 +358,14 @@ async fn main(spawner: Spawner) {
     // Held for the rest of `main`, which is what makes the boundary real on this board:
     // nothing below can reach `lora`, the flash, or the RNG again, because the executive
     // has all three.
-    let mut exec = Executive::new(&mut lora, &mut radio, &mut local_status, &face, &mut store);
+    let mut exec = Executive::new(
+        &mut lora,
+        &mut radio,
+        &mut local_status,
+        &face,
+        &mut store,
+        region,
+    );
 
     // The personality this board answers as, chosen from the persisted settings and fixed
     // for the life of the boot: switching is by reboot, per structural decision 4, so
@@ -433,17 +481,21 @@ async fn main(spawner: Spawner) {
                     // hear", which no other surface can.
                     if at_boundary && (packet == b"air\n" || packet == b"air\r\n") {
                         let d = exec.diag();
-                        let mut reply = radio_face::Text::<128>::empty();
+                        let mut reply = radio_face::Text::<176>::empty();
                         let _ = write!(
                             &mut reply,
-                            "air armed={} armfail={} rxok={} rxerr={} txok={} txerr={} \
-                             beats={} frames={}\r\n",
+                            "air region={} duty={}ms armed={} armfail={} rxok={} rxerr={} \
+                             txok={} txerr={} noregion={} overduty={} beats={} frames={}\r\n",
+                            exec.region().name(),
+                            exec.duty_spent_ms(),
                             d.rx_armed,
                             d.rx_arm_failed,
                             d.rx_ok,
                             d.rx_err,
                             d.tx_ok,
                             d.tx_err,
+                            d.tx_no_region,
+                            d.tx_over_duty,
                             d.wait_beats,
                             d.wait_frames,
                         );
@@ -467,6 +519,47 @@ async fn main(spawner: Spawner) {
                         );
                         if host.write_all(reply.as_str().as_bytes()).await.is_err() {
                             break;
+                        }
+                        continue;
+                    }
+                    // Region selection: the same persist-and-reboot shape as the channel,
+                    // because the boot carrier and the clamp both derive from it.
+                    if at_boundary && let Some(probe) = region_probe(packet) {
+                        let mut reboot = false;
+                        let mut reply = radio_face::Text::<64>::empty();
+                        match (settings, probe) {
+                            (None, _) => {
+                                let _ = write!(&mut reply, "region unavailable: no identity\r\n");
+                            }
+                            (Some(current), RegionProbe::Report) => {
+                                let _ = write!(&mut reply, "region={}\r\n", current.region.name());
+                            }
+                            (Some(current), RegionProbe::Set(wanted)) => {
+                                let next = Settings {
+                                    region: wanted,
+                                    ..current
+                                };
+                                match exec.save_settings(&next) {
+                                    Ok(()) => {
+                                        reboot = true;
+                                        let _ = write!(
+                                            &mut reply,
+                                            "region={}; rebooting\r\n",
+                                            wanted.name()
+                                        );
+                                    }
+                                    Err(_) => {
+                                        let _ = write!(&mut reply, "region write failed\r\n");
+                                    }
+                                }
+                            }
+                        }
+                        if host.write_all(reply.as_str().as_bytes()).await.is_err() {
+                            break;
+                        }
+                        if reboot {
+                            Timer::after_millis(250).await;
+                            cortex_m::peripheral::SCB::sys_reset();
                         }
                         continue;
                     }

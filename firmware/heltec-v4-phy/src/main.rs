@@ -35,6 +35,7 @@ use lora_phy::{LoRa, RxMode};
 use radio_hand::dispatch;
 use radio_hand::executive::{ChipDiagnostics, Executive, Face, NoStore, RadioState};
 use radio_hand::link::HostLink;
+use radio_hand::region::Region;
 use selvage::{
     CommandStream, EVENT_DIAGNOSTIC, EVENT_RX, MAX_COMMAND_LEN, MESHTASTIC_SYNC_WORD, WAKE_BYTE,
 };
@@ -604,12 +605,17 @@ async fn main(spawner: Spawner) {
                 // own hand on the radio, and adopts the seam only where the shared command
                 // loop needs it. The T114 holds one for the whole of `main` and gets the full
                 // boundary; this board follows when the sleep work is settled.
+                // INTERIM: this board has no store, so its region is a build fact rather
+                // than a persisted one — US915, matching the bench it lives on. The honest
+                // fix is a settings partition (pressure point 5's per-board backend); until
+                // then, shipping this image outside the US is wrong by construction.
                 let mut exec = Executive::new(
                     &mut lora,
                     &mut radio,
                     &mut local_status,
                     &face,
                     &mut no_store,
+                    Region::Us915,
                 );
                 let outcome = dispatch::on_host_bytes(
                     &mut host,

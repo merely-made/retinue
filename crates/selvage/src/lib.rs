@@ -51,6 +51,13 @@ pub const TX_TOO_LONG: u8 = 4;
 /// Transmission was still unfinished when the firmware's deadline passed. The radio is
 /// left in an unknown state, so a board that can read chip diagnostics should emit them.
 pub const TX_TIMEOUT: u8 = 5;
+/// The board has no region configured, so it does not transmit. The regulatory
+/// floor's refusal, distinct from a fault: the radio is fine, the board is
+/// waiting to be told where it is.
+pub const TX_NO_REGION: u8 = 6;
+/// The region's duty-cycle budget is exhausted; the frame was refused rather
+/// than sent over the limit. Transmitting resumes as the window drains.
+pub const TX_OVER_DUTY: u8 = 7;
 
 /// Results of a [`CMD_CONFIG`] command, carried by [`EVENT_CONFIG`].
 ///
@@ -66,6 +73,11 @@ pub const CONFIG_UNSUPPORTED: u8 = 2;
 /// Parameters were accepted but the radio would not take the sync word, so the channel
 /// is left in whatever state the driver reached. The host should reconfigure.
 pub const CONFIG_RADIO_FAULT: u8 = 3;
+/// The profile's frequency falls outside the board's configured region, or no
+/// region is configured. The profile is rejected whole; power, by contrast, is
+/// clamped rather than rejected, and the applied value is what the status
+/// reports.
+pub const CONFIG_OUT_OF_REGION: u8 = 4;
 
 pub const UI_SNAPSHOT_ACCEPTED: u8 = 0;
 pub const UI_SNAPSHOT_MALFORMED: u8 = 1;
