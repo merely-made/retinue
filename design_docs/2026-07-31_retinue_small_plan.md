@@ -1420,6 +1420,37 @@ recorded rather than guessed at:
 Citizenship stays built, receipted under jam, reachable with `cad on`, and
 defaulted off until one of those lands.
 
+**The V4 gains a settings backend, 2026-08-03.** Pressure point 5 predicted the
+shape and the prediction held: the record format, the A/B decision, the
+settings body and the boot-line vocabulary ported unchanged, and only the
+board's own `store.rs` is new. The INTERIM build-time region is gone; the V4
+now persists identity and region like the T114, and gains the `region` probe
+with the same vocabulary and the same persist-and-reset contract.
+
+**One thing there would have shipped silently wrong.** `esp_hal::rng::Rng` is
+true random on the ESP32-S3 only while the RF subsystem runs or an ADC feeds
+the sampler, and this firmware runs neither — its radio is an external SX1262,
+Wi-Fi and Bluetooth are off. The obvious wiring would have minted the board's
+**identity key** from a pseudo-random sequence: a predictable private key that
+nothing downstream could detect. The store holds a `TrngSource` over ADC1 for
+its whole life instead, and `Trng::try_new` fails loudly if that source is ever
+absent — `Error::NoEntropy` rather than a weak key. The T114's bias-corrected
+physical noise source set the standard; a second board joins on those terms or
+refuses.
+
+**Receipts:** first boot `identity=created slot=A`; two resets both
+`identity=loaded slot=A seq=0`; `region=unset` → `region=US915; rebooting` →
+`region=US915` at `slot=B seq=1`. The regulatory floor proved itself on the
+second board on the way: with the build-time `Us915` replaced by the persisted
+`Unset`, the V4 rejected the harness profile with wire result 4 until a region
+was chosen. Counted block with both boards on persisted settings: **6 of 6**.
+
+**Open, noted rather than chased:** the T114's `status` probe returns nothing
+while every other probe answers, and the banner it should echo is plainly
+non-empty since the board prints it on attach. A defect somewhere in the
+crash/region probe work. It does not affect the harness, which reads the banner
+on attach rather than by probe.
+
 ## Non-goals
 
 - Porting `Endpoint`. It stays the desktop shell.
