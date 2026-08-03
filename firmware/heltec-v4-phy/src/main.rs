@@ -33,9 +33,10 @@ use lora_phy::iv::GenericSx126xInterfaceVariant;
 use lora_phy::sx126x::{Config as Sx126xConfig, Sx126x, Sx1262, TcxoCtrlVoltage};
 use lora_phy::{LoRa, RxMode};
 use radio_hand::dispatch;
-use radio_hand::executive::{ChipDiagnostics, Executive, Face, NoStore, RadioState};
+use radio_hand::executive::{ChipDiagnostics, Executive, Face, RadioState};
 use radio_hand::link::HostLink;
 use radio_hand::region::Region;
+use radio_hand::settings::Settings;
 use selvage::{
     CommandStream, EVENT_DIAGNOSTIC, EVENT_RX, MAX_COMMAND_LEN, MESHTASTIC_SYNC_WORD, WAKE_BYTE,
 };
@@ -43,6 +44,7 @@ use selvage::{
 mod board;
 mod host;
 mod power;
+mod store;
 mod ui;
 mod wake_input;
 
@@ -122,6 +124,23 @@ where
     }
 }
 
+/// Read a host line as a region probe: `region` reports, `region us915` and friends set.
+///
+/// The T114's vocabulary exactly, because a bench should not have to remember which board it
+/// is talking to. Names come from the table, so adding a region grows the probe with it.
+fn region_probe(packet: &[u8]) -> Option<Option<Region>> {
+    let line = packet
+        .strip_suffix(b"\r\n")
+        .or_else(|| packet.strip_suffix(b"\n"))?;
+    if line == b"region" {
+        return Some(None);
+    }
+    let name = line.strip_prefix(b"region ")?;
+    Region::choices()
+        .find(|region| region.name().as_bytes().eq_ignore_ascii_case(name))
+        .map(Some)
+}
+
 /// Write to whichever host link this build selected. Generic over the transport so the USB
 /// and UART personalities share one protocol implementation rather than drifting apart.
 async fn write_all<W: embedded_io_async::Write>(tx: &mut W, bytes: &[u8]) -> bool {
@@ -166,6 +185,22 @@ async fn main(spawner: Spawner) {
     let proof_reset_reason = esp_hal::system::reset_reason()
         .map(|reason| reason as u32)
         .unwrap_or_default();
+
+    // Settings before anything else, and before the radio: a first boot erases and writes
+    // a flash sector, so it belongs here rather than anywhere near live traffic. The store
+    // holds the ADC entropy source for the life of the board — see `store.rs` for why the
+    // obvious `Rng` would have minted a predictable identity key.
+    let mut store = store::SettingsStore::new(peripherals.FLASH, peripherals.RNG, peripherals.ADC1);
+    let mut identity_line = [0_u8; 48];
+    let (settings, identity_line_len) = match store.load_or_create() {
+        Ok((settings, outcome)) => (Some(settings), store::describe(outcome, &mut identity_line)),
+        Err(_) => {
+            let message = b"identity=unavailable\r\n";
+            identity_line[..message.len()].copy_from_slice(message);
+            (None, message.len())
+        }
+    };
+    let region = settings.map(|s| s.region).unwrap_or_default();
 
     let sw_int = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     let timg0 = TimerGroup::new(peripherals.TIMG0);
@@ -352,11 +387,9 @@ async fn main(spawner: Spawner) {
     };
 
     let _ = host.write_all(online).await;
+    let _ = host.write_all(&identity_line[..identity_line_len]).await;
     let mut command_stream = CommandStream::new();
     let mut usb_command = [0_u8; MAX_COMMAND_LEN];
-    // No persistence and no entropy on this board yet: gate N0 gave the T114 a store and
-    // left this one without. It refuses rather than inventing either.
-    let mut no_store = NoStore;
 
     // The proof enters Light-sleep from the radio task itself. This preserves the pending
     // receive future across sleep rather than asking the scheduler's idle hook to do so.
@@ -545,6 +578,7 @@ async fn main(spawner: Spawner) {
                 let at_boundary = command_stream.is_boundary();
                 if at_boundary && (packet == b"status\n" || packet == b"status\r\n") {
                     let _ = host.write_all(online).await;
+                    let _ = host.write_all(&identity_line[..identity_line_len]).await;
                     continue;
                 }
                 if at_boundary && (packet == b"sync\n" || packet == b"sync\r\n") {
@@ -585,6 +619,47 @@ async fn main(spawner: Spawner) {
                     let _ = host.write_all(b"ui bench fault cleared\r\n").await;
                     continue;
                 }
+                // Region selection: persist and reset, the same contract the T114 keeps.
+                // The reply is a courtesy; the reboot is the contract, so a host that
+                // vanishes mid-reply still leaves the board on the settings it committed.
+                if at_boundary && let Some(probe) = region_probe(packet) {
+                    let mut reboot = false;
+                    let mut reply = radio_face::Text::<64>::empty();
+                    match (settings, probe) {
+                        (None, _) => {
+                            let _ = write!(&mut reply, "region unavailable: no identity\r\n");
+                        }
+                        (Some(current), None) => {
+                            let _ = write!(&mut reply, "region={}\r\n", current.region.name());
+                        }
+                        (Some(current), Some(wanted)) => {
+                            let next = Settings {
+                                region: wanted,
+                                ..current
+                            };
+                            match store.save(&next) {
+                                Ok(_) => {
+                                    reboot = true;
+                                    let _ = write!(
+                                        &mut reply,
+                                        "region={}; rebooting\r\n",
+                                        wanted.name()
+                                    );
+                                }
+                                Err(_) => {
+                                    let _ = write!(&mut reply, "region write failed\r\n");
+                                }
+                            }
+                        }
+                    }
+                    let _ = host.write_all(reply.as_str().as_bytes()).await;
+                    if reboot {
+                        embassy_time::Timer::after_millis(250).await;
+                        esp_hal::system::software_reset();
+                    }
+                    continue;
+                }
+
                 // Sleep diagnostics, for the power receipt: how many times the idle hook
                 // actually slept, and how many times it wanted to but the gate was closed.
                 // A build that never sleeps answers with zeros rather than nothing, so the
@@ -605,17 +680,13 @@ async fn main(spawner: Spawner) {
                 // own hand on the radio, and adopts the seam only where the shared command
                 // loop needs it. The T114 holds one for the whole of `main` and gets the full
                 // boundary; this board follows when the sleep work is settled.
-                // INTERIM: this board has no store, so its region is a build fact rather
-                // than a persisted one — US915, matching the bench it lives on. The honest
-                // fix is a settings partition (pressure point 5's per-board backend); until
-                // then, shipping this image outside the US is wrong by construction.
                 let mut exec = Executive::new(
                     &mut lora,
                     &mut radio,
                     &mut local_status,
                     &face,
-                    &mut no_store,
-                    Region::Us915,
+                    &mut store,
+                    region,
                 );
                 let outcome = dispatch::on_host_bytes(
                     &mut host,
