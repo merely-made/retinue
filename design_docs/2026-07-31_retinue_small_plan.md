@@ -6,10 +6,12 @@ unplug leg open); N1–N4 complete; N5 complete except the current figures
 state, RF forwarding survives host attach and detach. `retinue-small` runs:
 the board persists its identity, announces, links, exchanges byte-exact data
 with loss recovery, survives abuse and mid-transfer reboots, and shows its own
-state on its own face. What remains beyond the gates: pressure point 1
-(regulatory floor) and the supervised reboot (watchdog, crash residue,
-crash-loop refuge) are BUILT; still open are channel citizenship (CAD/LBT),
-quiet-window writes, and the foreign-mesh channels behind their own gates.
+state on its own face. What remains beyond the gates: pressure points 1
+(regulatory floor), 2 (channel citizenship), and the supervised reboot are
+BUILT; still open are quiet-window writes — which may already be discharged,
+since every settings write today persists and immediately reboots, leaving the
+staged-commit machinery without a caller until BLE or a runtime-persisted
+NodeDB creates one — and the foreign-mesh channels behind their own gates.
 **Design authority:**
 [`2026-07-19_modem_embedded_and_meshtastic_research.md`](2026-07-19_modem_embedded_and_meshtastic_research.md)
 (*Native Retinue personality*) supplies the boundary and
@@ -1270,6 +1272,61 @@ next boot" is deliberately deferred: the RAM residue covers loop detection and
 post-mortem across soft resets, which is the load-bearing part; flash
 persistence of the last message across power loss can ride a later settings
 change.
+
+**Pressure point 2 BUILT, 2026-08-03: channel citizenship.** Listen before talk
+in the executive, beside the regulatory floor, because every transmission
+already crossed that one line. The collision-mitigation notes' own verdict
+chose this: the PHY stack they describe needs silicon these boards do not
+have, and the MAC answer is the one that works on stock certified radios.
+
+**The design turns entirely on what happens when the courtesy budget runs out,
+and hardware settled it.** Deferring indefinitely *starves* against a peer that
+transmits blind. The desktop's modem retransmits on its own timer, keeps the
+channel occupied, the polite board never gets a turn, so the peer never gets
+its answer and retransmits again — a livelock in which politeness is the
+losing strategy. Measured: the byte-exact modem exchange that had run 7-of-8
+for weeks fell to **4 of 8**, and the counters convicted the right thing —
+`cadgiveup=0` said nothing was dropped, so every frame merely arrived too late.
+Passing runs took 22-25 s against a 90 s timeout, so the failures were stalls,
+not slowness.
+
+So courtesy is bounded: defer while it is cheap, then take the turn, counted
+as `cadover`. A collision costs one retransmit; starvation costs a node that
+never speaks. Where a region **mandates** carrier sense the refusal is correct
+instead, so `RegionProfile` gains `listen_required` — true for JP920 under
+ARIB STD-T108, false for the FCC part 15.247 entries — and `TX_CHANNEL_BUSY`
+is what those regions return.
+
+**A second defect the same jam exposed.** `Node::poll` stamps its announce when
+it *decides* to send one, so a frame the shell could not carry cost a whole
+interval of invisibility: a ten-second jam making the board unfindable for ten
+minutes. `Node::retry_announce` lets a shell report the failure, and the node
+channel schedules re-attempts on an exponential backoff to 32 beats. A fixed
+retry budget was tried first and was wrong in an instructive way — it spent
+itself while the channel was still busy and gave up exactly when the air
+cleared, which is the worst possible moment.
+
+**Receipts on v35:**
+
+- Counted modem block: **8 of 8**, the best the series has recorded, with
+  `cadbusy=82` across 200 transmits proving deference is real and `cadover=0`
+  proving the budget was never exhausted in ordinary traffic.
+- Under `node_jam` (a new bench instrument that holds the channel busy):
+  `cadbusy=8 cadover=1 txok=1 unsent=0` — deferred through the budget, took its
+  turn, lost nothing. The same jam against the defer-forever build gave
+  `cadgiveup=1 txok=0 unsent=1`.
+- Quiet air: `cadclear=1` on the boot announce.
+- `cad on|off` toggles it at runtime and is never persisted, so every boot is a
+  good citizen and a bench asks for the comparison each time.
+
+**Costs and limits, owned.** CAD is 8 symbols at the current profile, about
+66 ms at SF11/250 kHz, before every frame. Deferral adds a randomised 20-180 ms
+per busy attempt. `cad_fault` fails *open* — a radio that cannot perform the
+check transmits anyway — because failing closed would turn one bad register
+write into a silent board, the exact class that cost a whole session at N4; a
+region that mandates LBT would need that inverted. Dwell-time limits are not
+implemented: no region entry in the table currently imposes one, and adding
+them is a table field plus a check in the same place, not a new mechanism.
 
 ## Non-goals
 
