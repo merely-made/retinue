@@ -1,10 +1,14 @@
 # retinue-small plan
 
-**Status:** N0 proven on the T114 (power-loss leg open); N1, N2, N3, N4
-complete; N5 complete except current figures (meter needed): byte-exact data
-both directions over RF (8 of 8), loss recovery in poll, mid-transfer reboot
-survival, and the adversarial set all receipted on hardware. N6 next: panels
-from board-local state.
+**Status:** every gate closed on the software side. N0 proven (power-loss
+unplug leg open); N1–N4 complete; N5 complete except the current figures
+(meter needed — Mark's leg); N6 complete — panels drive from board-local
+state, RF forwarding survives host attach and detach. `retinue-small` runs:
+the board persists its identity, announces, links, exchanges byte-exact data
+with loss recovery, survives abuse and mid-transfer reboots, and shows its own
+state on its own face. What remains beyond the gates: the pressure points
+(regulatory clamp, channel citizenship, quiet-window writes, watchdog), and
+the foreign-mesh channels behind their own gates.
 **Design authority:**
 [`2026-07-19_modem_embedded_and_meshtastic_research.md`](2026-07-19_modem_embedded_and_meshtastic_research.md)
 (*Native Retinue personality*) supplies the boundary and
@@ -1151,6 +1155,40 @@ counter and `Actions::overflowed`); the T114's RNG is a hardware peripheral
 that cannot honestly be made to fail from software. Flash corruption was
 proven on hardware at N0. **Still open for N5: the idle/receive/transmit
 current figures, which need a meter on the bench — Mark's leg.**
+
+**N6 COMPLETE, 2026-08-03: the panels drive from board-local state.** The
+Identity, Links, Peers, and Traffic pages render from the node's own state —
+the same `HostSnapshot` shape a host used to project, now genuine:
+`Personality::Retinue`, the board's real destination as fingerprint and
+address tail, live link counts, the three most recently heard peers, and a
+local event line. Published on every beat, so 5 s cadence against 15 s
+validity keeps the panels fresh with no host attached — that cadence *is* the
+done condition's mechanism.
+
+Two small pieces made the panels genuine rather than merely local. The channel
+keeps the one thing the address book deliberately does not, a clock — a small
+recency table stamped from `Action::Learned` — so the Peers panel shows real
+ages. And a `face` probe prints the exact snapshot the screen renders, so
+panel content is assertable over the wire while the TFT paints the same
+struct.
+
+**Receipts, on the committed image:**
+
+- **Panels with the host detached:** a 40-announce flood into an unattended
+  board, then attach and read: `face name=retinue.node peers=[a016f4d9
+  age=18s 1db3de06 age=20s e328a0f8 age=21s] overflow=29`, with `ui` showing
+  `host=fresh` from publishes that happened while nothing was attached. The
+  ages are genuine — the flood ended about 18 s before the probe.
+- **RF forwarding across disconnect and reconnect:** a host attached
+  mid-exchange, read the live face (`links=1 event=echo 1024b`, the echo just
+  queued), detached, and the exchange completed byte-exact in the normal
+  55.8 s. The attach/detach cost the transfer nothing.
+
+The `ui` diagnostic's `host=fresh` label now reports a locally-fed face; the
+field name is a hangover from the projection era and can rename when the
+surface is next touched. The physical-screen leg — eyeballing the four pages
+on the TFT through the button cycle — is Mark's, in the standing
+v12-acceptance style.
 
 ## Non-goals
 
