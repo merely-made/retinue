@@ -2,8 +2,8 @@
 
 **Status:** N0 proven on the T114 (power-loss leg open); N1 complete; N2 complete;
 N3 protocol half complete (announce, links, resources); channels-in-one-image
-ruled (structural decision 4), executive and channel trait built and carrying the
-modem personality on hardware
+ruled and built (structural decision 4) — executive, channel trait, modem and
+node channels, boot selection, all on hardware; fixture-corpus replay open
 **Design authority:**
 [`2026-07-19_modem_embedded_and_meshtastic_research.md`](2026-07-19_modem_embedded_and_meshtastic_research.md)
 (*Native Retinue personality*) supplies the boundary and
@@ -908,6 +908,67 @@ the crate is allocation-free, which stopped being true when the node arrived.
 
 Remaining for N3: the node channel behind the trait, boot selection from
 `Settings::channel`, and the fixture-corpus replay.
+
+**N3: the node channel and the selector, 2026-08-02.** The board boots into a
+personality chosen from its persisted settings, and the node channel drives
+`Node` over the radio: ingest on every received frame, poll on its own clock,
+`Action::Send` out through the executive's one transmit path. `channel`,
+`channel modem`, and `channel node` select and reboot.
+
+**`BoardStore` joins the executive**, because the ruling puts the flash and the
+entropy there beside the radio. One trait rather than two, since the T114's
+`SettingsStore` holds both the NVMC pages and the hardware RNG and a pair would
+need two mutable borrows of one object. `random` is fallible on purpose: a board
+without a source refuses rather than announcing itself with zeros, which is also
+what makes the heltec doc's entropy-failure case representable at all. The V4
+gets `NoStore` and says plainly that it has neither.
+
+**A defect only hardware found, and the best thing this session produced.** The
+heartbeat was created inside the host-session loop, so the node's clock ran only
+while a cable was plugged in. A fresh unattended boot reported `tx=0`; the
+earlier `tx=1` was an artifact of the probe reading the counter being itself the
+host that started the clock. A node does not stop being a node because nobody is
+watching. `ChannelInfo::without_host` now says which personalities must keep
+running unattended — false for the modem, which genuinely has nothing to decide
+without a host and would only burn power receiving — and `await_host` serves the
+radio and the clock while waiting for one. It is board-agnostic, so it belongs
+in `radio-hand` rather than in a firmware, which also took it out of a `main.rs`
+that had drifted over the ceiling again.
+
+Worth stating because it generalises: **a receipt taken while the bench is
+attached cannot see a bug about not being attached.** Every earlier RF receipt
+in this series ran with a host driving both boards, which is exactly the
+condition under which this defect is invisible.
+
+**Measured, v24:** flash **209,652** (26.2%), static RAM **74,204** (31%).
+Against v22's 155,906, the node channel costs about 54 KB — much of it the
+protocol paths that only became reachable once something actually called
+`ingest` and `poll`, since a merely-resident `Node` let the linker discard them.
+Two channels at 26% of flash keeps decision 4's residency answer comfortable.
+
+**Receipts.**
+
+- Counted RF block, v24 modem channel against the COM6 control peer: **8 of 8**,
+  all outputs byte-exact.
+- The node channel announces within one beat of an unattended boot: `tx=1
+  unsent=0 unseeded=0`, so the entropy path, the announce build, and the
+  transmit all ran with nothing attached.
+- Channel switching persisted across five reboots, the A/B slot alternating
+  `A seq=0 → B seq=1 → … → A seq=6` with `node=599997c8` unchanged throughout.
+  This is the first hardware exercise of `SettingsStore::save`; every prior
+  receipt only ever read.
+
+Two bench notes. The first `channel set` reply arrived truncated at thirteen
+bytes, because a CDC write returning means the packet was queued rather than
+sent; the reset now waits 250 ms, and the `bootloader` probe's 20 ms was
+evidently always on the edge. And a raw serial peek at the V4 while the T114
+announced showed only a stale `EVENT_TX` from the previous harness run — the
+harness leaves both boards on SF8/sync 0x12 while a rebooted board returns to
+SF11/sync 0x2b, so the two were not on the same air. Hearing an announce is N4's
+receipt and wants a real listener, not a serial peek.
+
+Remaining for N3: the fixture-corpus replay, so board and desktop are shown to
+produce identical Actions.
 
 ## Non-goals
 
