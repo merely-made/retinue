@@ -70,6 +70,10 @@ pub struct NodeChannel<const PEERS: usize = 32, const ACTIONS: usize = 8, const 
     /// Frames that arrived but did not decode as a packet. Ordinary weather on a shared
     /// band, where any Meshtastic or MeshCore traffic on the same sync word lands here.
     undecoded: u16,
+    /// Resources echoed back on their link by the loopback service.
+    echoes: u16,
+    /// Echoes refused because the link was gone or a transfer still held it.
+    echo_refused: u16,
 }
 
 impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
@@ -84,6 +88,8 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
             unsent: 0,
             unseeded: 0,
             undecoded: 0,
+            echoes: 0,
+            echo_refused: 0,
         }
     }
 
@@ -100,8 +106,10 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
     /// Carry out what the node decided.
     ///
     /// Sends go on the air through the executive, so they pass whatever the executive
-    /// enforces. Everything else is a report: the node has already recorded it, and a shell
-    /// that has no face for it yet may simply let it by.
+    /// enforces. A completed inbound resource is echoed back on its link — the loopback
+    /// service, this node's first and so far only application. Everything else is a report:
+    /// the node has already recorded it, and a shell that has no face for it yet may simply
+    /// let it by.
     async fn perform<L, RK, DLY>(
         &mut self,
         exec: &mut Executive<'_, RK, DLY>,
@@ -114,24 +122,69 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
         DLY: DelayNs,
     {
         let _ = link;
+        // The echo's advertisement, decided while walking the actions and sent after them,
+        // so a transfer's own proof always leaves before the reply that answers it.
+        let mut echo: Option<Actions<ACTIONS>> = None;
         for action in actions {
-            if let Action::Send { packet, .. } = action {
-                let bytes = packet.encode();
-                if bytes.len() > selvage::MAX_RADIO_FRAME_LEN
-                    || exec.transmit(&bytes).await != selvage::TX_ACCEPTED
-                {
-                    self.unsent = self.unsent.saturating_add(1);
-                    continue;
+            match action {
+                Action::Send { packet, .. } => {
+                    self.transmit(exec, packet).await;
                 }
-                let status = exec.status_mut();
-                status.tx_frames = status.tx_frames.saturating_add(1);
-                status.last_tx = radio_face::TxResult::Sent {
-                    frame_len: bytes.len() as u16,
-                };
-                exec.publish(radio_face::LedSignal::Activity);
+                // The loopback service: what arrives whole goes back whole, on the same
+                // link. This is what N5's byte-exact both-directions receipt drives, and
+                // until the panels land it is the one way a peer can make the board speak.
+                Action::Resource { link_id, data } => {
+                    let mut random_hash = [0_u8; retinue::resource::RANDOM_HASH_LEN];
+                    let mut iv = [0_u8; retinue::token::IV_LEN];
+                    if exec.random(&mut random_hash).is_err() || exec.random(&mut iv).is_err() {
+                        self.unseeded = self.unseeded.saturating_add(1);
+                        continue;
+                    }
+                    match self
+                        .node
+                        .publish(link_id, RADIO, &data, random_hash, &iv, Self::now())
+                    {
+                        Some(actions) => {
+                            self.echoes = self.echoes.saturating_add(1);
+                            echo = Some(actions);
+                        }
+                        // The link vanished or a transfer is still running on it. Counted,
+                        // not retried: the peer that wants the echo will ask again.
+                        None => self.echo_refused = self.echo_refused.saturating_add(1),
+                    }
+                }
+                _ => {}
+            }
+        }
+        if let Some(actions) = echo {
+            for action in actions {
+                if let Action::Send { packet, .. } = action {
+                    self.transmit(exec, packet).await;
+                }
             }
         }
         Flow::Continue
+    }
+
+    /// Put one packet on the air, keeping the face and the counters honest.
+    async fn transmit<RK, DLY>(&mut self, exec: &mut Executive<'_, RK, DLY>, packet: Packet)
+    where
+        RK: RadioKind,
+        DLY: DelayNs,
+    {
+        let bytes = packet.encode();
+        if bytes.len() > selvage::MAX_RADIO_FRAME_LEN
+            || exec.transmit(&bytes).await != selvage::TX_ACCEPTED
+        {
+            self.unsent = self.unsent.saturating_add(1);
+            return;
+        }
+        let status = exec.status_mut();
+        status.tx_frames = status.tx_frames.saturating_add(1);
+        status.last_tx = radio_face::TxResult::Sent {
+            frame_len: bytes.len() as u16,
+        };
+        exec.publish(radio_face::LedSignal::Activity);
     }
 }
 
@@ -152,11 +205,11 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
     {
         if line == b"node" {
             let status = exec.status();
-            let mut out = radio_face::Text::<160>::empty();
+            let mut out = radio_face::Text::<192>::empty();
             let _ = write!(
                 &mut out,
-                "node tx={} rx={} peers={} links={} refused={} \
-                 unsent={} unseeded={} undecoded={}\r\n",
+                "node tx={} rx={} peers={} links={} refused={} unsent={} \
+                 unseeded={} undecoded={} echoes={} echorefused={}\r\n",
                 status.tx_frames,
                 status.rx_frames,
                 self.node.peers().len(),
@@ -165,6 +218,8 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
                 self.unsent,
                 self.unseeded,
                 self.undecoded,
+                self.echoes,
+                self.echo_refused,
             );
             return Flow::from(link.write_all(out.as_str().as_bytes()).await);
         }

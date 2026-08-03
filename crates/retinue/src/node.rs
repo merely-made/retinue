@@ -146,6 +146,37 @@ pub const MAX_RESOURCE_PARTS: usize = 32;
 /// burst it cannot answer before the next request arrives.
 pub const RESOURCE_REQUEST_WINDOW: usize = 4;
 
+/// How long a transfer may sit silent before [`Node::poll`] redrives it, in the caller's
+/// tick unit (milliseconds on the boards).
+///
+/// This is the loss-recovery clock: a receiver re-requests what it is missing, a sender
+/// re-advertises an offer nobody answered. Without it, one lost frame is a dead transfer —
+/// which is exactly how N5's first hardware run failed. It must clear a request-plus-part
+/// round trip at the slowest profile (about 3 s at SF11/250 kHz); deriving it from the
+/// profile's airtime is the same recorded follow-up as the desktop's retry floors.
+pub const RESOURCE_RETRY_INTERVAL: u64 = 12_000;
+
+/// One derived resource IV: `full_hash(tag || identity secret || link id || counter)`.
+///
+/// Deterministic on purpose — this layer holds no RNG — and unique by the counter, which
+/// the node owns and never resets.
+fn derived_iv(
+    seed: &[u8; 64],
+    link_id: AddressHash,
+    counter: &mut u32,
+) -> [u8; crate::token::IV_LEN] {
+    *counter = counter.wrapping_add(1);
+    let mut input = Vec::with_capacity(48);
+    input.extend_from_slice(b"retinue/node/resource-iv");
+    input.extend_from_slice(seed);
+    input.extend_from_slice(link_id.as_slice());
+    input.extend_from_slice(&counter.to_le_bytes());
+    let digest = crate::hash::full_hash(&input);
+    let mut out = [0_u8; crate::token::IV_LEN];
+    out.copy_from_slice(&digest[..crate::token::IV_LEN]);
+    out
+}
+
 /// Whether a link-packet context belongs to a resource transfer.
 fn is_resource_context(context: u8) -> bool {
     matches!(
@@ -186,9 +217,13 @@ pub struct Node<const PEERS: usize = 32, const ACTIONS: usize = 8, const LINKS: 
     /// Links we opened, awaiting the peer's proof.
     pending: BoundedVec<PendingLink, LINKS>,
     /// Inbound resource transfers, at most one per link.
-    receivers: BoundedVec<(AddressHash, ResourceReceiver), LINKS>,
+    receivers: BoundedVec<(AddressHash, ResourceReceiver, u64), LINKS>,
     /// Outbound resource transfers, at most one per link.
-    senders: BoundedVec<(AddressHash, ResourceSender), LINKS>,
+    senders: BoundedVec<(AddressHash, ResourceSender, u64), LINKS>,
+    /// Counter feeding derived resource IVs. Node state rather than a per-call local so the
+    /// sequence never restarts: an IV must not repeat under a link key, and a counter that
+    /// reset on every ingest repeated the whole sequence on every ingest.
+    iv_counter: u32,
     /// Link requests refused because the table was full. Visible rather than silent.
     refused_links: u16,
 }
@@ -207,6 +242,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
             pending: BoundedVec::new(),
             receivers: BoundedVec::new(),
             senders: BoundedVec::new(),
+            iv_counter: 0,
             refused_links: 0,
         }
     }
@@ -262,15 +298,16 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
         data: &[u8],
         random_hash: [u8; crate::resource::RANDOM_HASH_LEN],
         iv: &[u8; crate::token::IV_LEN],
+        now: u64,
     ) -> Option<Actions<ACTIONS>> {
-        if self.senders.iter().any(|(id, _)| *id == link_id) || self.senders.is_full() {
+        if self.senders.iter().any(|(id, _, _)| *id == link_id) || self.senders.is_full() {
             return None;
         }
         let (link, _) = self.links.iter().find(|(l, _)| l.id() == link_id)?;
 
         let sender = ResourceSender::publish(link.clone(), data, random_hash, iv);
         let advertisement = sender.advertisement(iv);
-        let _ = self.senders.push((link_id, sender));
+        let _ = self.senders.push((link_id, sender, now));
 
         let mut actions = Actions::new();
         actions.push(Action::Send {
@@ -282,8 +319,8 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
 
     /// Whether a resource is being received or sent on this link.
     pub fn transfer_active(&self, link_id: AddressHash) -> bool {
-        self.receivers.iter().any(|(id, _)| *id == link_id)
-            || self.senders.iter().any(|(id, _)| *id == link_id)
+        self.receivers.iter().any(|(id, _, _)| *id == link_id)
+            || self.senders.iter().any(|(id, _, _)| *id == link_id)
     }
 
     /// Open a link to a destination this node has heard announce.
@@ -353,7 +390,6 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
         now: u64,
     ) -> Actions<ACTIONS> {
         let mut actions = Actions::new();
-        let _ = now;
 
         match packet.packet_type {
             PacketType::Announce => {
@@ -370,7 +406,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
             }
             PacketType::LinkRequest => self.on_link_request(interface, packet, &mut actions),
             PacketType::Proof => self.on_proof(packet, &mut actions),
-            PacketType::Data => self.on_link_data(interface, packet, &mut actions),
+            PacketType::Data => self.on_link_data(interface, packet, now, &mut actions),
         }
 
         actions
@@ -455,6 +491,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
         &mut self,
         interface: InterfaceId,
         packet: &Packet,
+        now: u64,
         actions: &mut Actions<ACTIONS>,
     ) {
         let link_id = packet.destination;
@@ -464,7 +501,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
 
         // Resource contexts are a transfer's business, not the link's.
         if is_resource_context(packet.context) {
-            self.on_resource(interface, link_id, index, packet, actions);
+            self.on_resource(interface, link_id, index, packet, now, actions);
             return;
         }
 
@@ -487,30 +524,24 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
         link_id: AddressHash,
         link_index: usize,
         packet: &Packet,
+        now: u64,
         actions: &mut Actions<ACTIONS>,
     ) {
-        // The IV feeds the transfer's own sealing. It is derived from the packet rather
-        // than random for the same reason the responder seed is: this layer holds no RNG,
-        // and a transfer answers packets it did not ask for.
-        let mut counter = 0_u32;
+        // The IV feeds the transfer's own sealing. Derived rather than random for the same
+        // reason the responder seed is: this layer holds no RNG, and a transfer answers
+        // packets it did not ask for. The counter is node state, never reset, because an IV
+        // must not repeat under a link key and a counter local to this call would replay
+        // the whole sequence on the next call.
         let seed = self.identity.to_secret_bytes();
-        let mut iv = || {
-            counter = counter.wrapping_add(1);
-            let mut input = Vec::with_capacity(48);
-            input.extend_from_slice(b"retinue/node/resource-iv");
-            input.extend_from_slice(&seed);
-            input.extend_from_slice(link_id.as_slice());
-            input.extend_from_slice(&counter.to_le_bytes());
-            let digest = crate::hash::full_hash(&input);
-            let mut out = [0_u8; crate::token::IV_LEN];
-            out.copy_from_slice(&digest[..crate::token::IV_LEN]);
-            out
-        };
+        let mut counter = self.iv_counter;
+        let mut iv = || derived_iv(&seed, link_id, &mut counter);
 
         // An outbound transfer's replies come back on the same link, so try the sender
         // first: only one direction can own a given context on a given link at a time.
-        if let Some(pos) = self.senders.iter().position(|(id, _)| *id == link_id) {
+        if let Some(pos) = self.senders.iter().position(|(id, _, _)| *id == link_id) {
             let replies = self.senders[pos].1.on_packet(packet, &mut iv);
+            self.iv_counter = counter;
+            self.senders[pos].2 = now;
             let finished = self.senders[pos].1.is_done() || self.senders[pos].1.is_canceled();
             for reply in replies {
                 actions.push(Action::Send {
@@ -524,7 +555,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
             return;
         }
 
-        let existing = self.receivers.iter().position(|(id, _)| *id == link_id);
+        let existing = self.receivers.iter().position(|(id, _, _)| *id == link_id);
         let is_new = existing.is_none();
         let pos = match existing {
             Some(pos) => pos,
@@ -538,12 +569,14 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
                     RESOURCE_REQUEST_WINDOW,
                     MAX_RESOURCE_PARTS,
                 );
-                let _ = self.receivers.push((link_id, receiver));
+                let _ = self.receivers.push((link_id, receiver, now));
                 self.receivers.len() - 1
             }
         };
 
         let replies = self.receivers[pos].1.on_packet(packet, &mut iv);
+        self.iv_counter = counter;
+        self.receivers[pos].2 = now;
 
         // A receiver created for this packet that then said nothing did not accept the
         // transfer: an advertisement past the part ceiling is refused this way. Keeping it
@@ -578,8 +611,8 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
         self.links.swap_remove(index);
         // A transfer without its link is state nobody can finish, so it goes too. Leaving
         // it would hold reassembly memory for a peer that is no longer there.
-        self.receivers.retain(|(id, _)| *id != link_id);
-        self.senders.retain(|(id, _)| *id != link_id);
+        self.receivers.retain(|(id, _, _)| *id != link_id);
+        self.senders.retain(|(id, _, _)| *id != link_id);
         actions.push(Action::LinkDown { link_id });
     }
 
@@ -629,6 +662,42 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
                 packet: self.announce(rand_hash, None),
             });
         }
+
+        // Loss recovery. A transfer that has heard nothing for a retry interval is
+        // redriven: a receiver re-requests exactly what it is missing, a sender re-offers
+        // an advertisement nobody answered. This is the mechanism behind N5's survive-loss
+        // condition; without it, one lost frame was a dead transfer.
+        let seed = self.identity.to_secret_bytes();
+        let mut counter = self.iv_counter;
+        for index in 0..self.receivers.len() {
+            if now.saturating_sub(self.receivers[index].2) < RESOURCE_RETRY_INTERVAL {
+                continue;
+            }
+            let link_id = self.receivers[index].0;
+            let mut iv = || derived_iv(&seed, link_id, &mut counter);
+            let replies = self.receivers[index].1.retransmit(&mut iv);
+            self.receivers[index].2 = now;
+            for reply in replies {
+                actions.push(Action::Send {
+                    interface,
+                    packet: reply,
+                });
+            }
+        }
+        for index in 0..self.senders.len() {
+            if now.saturating_sub(self.senders[index].2) < RESOURCE_RETRY_INTERVAL {
+                continue;
+            }
+            let link_id = self.senders[index].0;
+            let mut iv = || derived_iv(&seed, link_id, &mut counter);
+            let advertisement = self.senders[index].1.advertisement(&iv());
+            self.senders[index].2 = now;
+            actions.push(Action::Send {
+                interface,
+                packet: advertisement,
+            });
+        }
+        self.iv_counter = counter;
 
         actions
     }
@@ -1072,7 +1141,14 @@ mod tests {
         let payload: Vec<u8> = (0..3_000u32).map(|i| (i.wrapping_mul(31)) as u8).collect();
 
         let started = a
-            .publish(id, IFACE, &payload, [0xAB; 4], &[5; crate::token::IV_LEN])
+            .publish(
+                id,
+                IFACE,
+                &payload,
+                [0xAB; 4],
+                &[5; crate::token::IV_LEN],
+                0,
+            )
             .expect("a holds the link, so it can publish");
         assert!(a.transfer_active(id), "the transfer is running");
 
@@ -1095,7 +1171,7 @@ mod tests {
         // Comfortably past MAX_RESOURCE_PARTS at the default part size.
         let huge: Vec<u8> = (0..80_000u32).map(|i| i as u8).collect();
         let started = a
-            .publish(id, IFACE, &huge, [0xCD; 4], &[6; crate::token::IV_LEN])
+            .publish(id, IFACE, &huge, [0xCD; 4], &[6; crate::token::IV_LEN], 0)
             .expect("a will happily offer it");
 
         let advertisement = sent(&started).expect("an advertisement goes out");
@@ -1104,6 +1180,175 @@ mod tests {
         assert!(answer.is_empty(), "b says nothing rather than starting");
         assert!(!b.transfer_active(id), "and holds no reassembly state");
         assert!(b.has_link(id), "while the link itself is untouched");
+    }
+
+    /// One lost part no longer kills a transfer: the receiver's poll re-requests exactly
+    /// what is missing, and the sender serves it. This is the mechanism N5's first hardware
+    /// run proved was absent, when one dropped frame at SF11 stalled a five-part transfer
+    /// forever on a clean link.
+    #[test]
+    fn a_lost_part_is_re_requested_on_poll() {
+        let (mut a, mut b, id) = linked();
+        // Drain the boot announce, so later polls answer only for the transfer.
+        let _ = b.poll(0, IFACE, &[0; RAND_HASH_LEN]);
+        let payload: Vec<u8> = (0..1_024u32).map(|i| (i.wrapping_mul(7)) as u8).collect();
+
+        let started = a
+            .publish(
+                id,
+                IFACE,
+                &payload,
+                [0xEE; 4],
+                &[7; crate::token::IV_LEN],
+                0,
+            )
+            .unwrap();
+
+        // Deliver the advertisement, take b's request, serve it — but LOSE one part.
+        let advertisement = sent(&started).unwrap();
+        let request = sent(&b.ingest(IFACE, &advertisement, 0)).unwrap();
+        let parts: Vec<Packet> = a
+            .ingest(IFACE, &request, 0)
+            .into_iter()
+            .filter_map(|x| match x {
+                Action::Send { packet, .. } => Some(packet),
+                _ => None,
+            })
+            .collect();
+        assert!(parts.len() >= 2, "the window carries several parts");
+        let mut arrived = Vec::new();
+        for (index, part) in parts.iter().enumerate() {
+            if index == 1 {
+                continue; // the air ate it
+            }
+            arrived.extend(b.ingest(IFACE, part, 0));
+        }
+        assert!(
+            !arrived.iter().any(|x| matches!(x, Action::Send { .. })),
+            "with a part outstanding, b waits rather than re-requesting early"
+        );
+        assert!(b.transfer_active(id), "the transfer is stalled, not dead");
+
+        // Before the retry interval: silence. At it: the re-request, unprompted.
+        assert!(
+            b.poll(RESOURCE_RETRY_INTERVAL - 1, IFACE, &[0; RAND_HASH_LEN])
+                .is_empty(),
+            "no retry before its time"
+        );
+        let retry = sent(&b.poll(RESOURCE_RETRY_INTERVAL, IFACE, &[0; RAND_HASH_LEN]))
+            .expect("the poll re-requests the missing part");
+
+        // The sender answers with the missing part, and the transfer completes.
+        let served: Vec<Packet> = a
+            .ingest(IFACE, &retry, 0)
+            .into_iter()
+            .filter_map(|x| match x {
+                Action::Send { packet, .. } => Some(packet),
+                _ => None,
+            })
+            .collect();
+        let mut done = Vec::new();
+        for part in &served {
+            done.extend(b.ingest(IFACE, part, 0));
+        }
+        // Drain the remaining request/serve rounds if any, then check the payload landed.
+        let mut to_a: Vec<Packet> = done
+            .iter()
+            .filter_map(|x| match x {
+                Action::Send { packet, .. } => Some(packet.clone()),
+                _ => None,
+            })
+            .collect();
+        let mut received: Vec<Vec<u8>> = done
+            .iter()
+            .filter_map(|x| match x {
+                Action::Resource { data, .. } => Some(data.clone()),
+                _ => None,
+            })
+            .collect();
+        for _ in 0..16 {
+            if to_a.is_empty() {
+                break;
+            }
+            let mut to_b = Vec::new();
+            for packet in to_a.drain(..) {
+                for action in a.ingest(IFACE, &packet, 0) {
+                    if let Action::Send { packet, .. } = action {
+                        to_b.push(packet);
+                    }
+                }
+            }
+            for packet in to_b {
+                for action in b.ingest(IFACE, &packet, 0) {
+                    match action {
+                        Action::Send { packet, .. } => to_a.push(packet),
+                        Action::Resource { data, .. } => received.push(data),
+                        _ => {}
+                    }
+                }
+            }
+        }
+        assert_eq!(received, vec![payload], "byte for byte, after the loss");
+        assert!(
+            !b.transfer_active(id),
+            "and the receiver slot is free again"
+        );
+    }
+
+    /// A lost advertisement is re-offered by the sender's poll, so a fetch whose first
+    /// offer the air ate still begins.
+    #[test]
+    fn a_lost_advertisement_is_re_offered_on_poll() {
+        let (mut a, mut b, id) = linked();
+        // Drain the boot announce, so the retry poll answers only for the transfer.
+        let _ = a.poll(0, IFACE, &[0; RAND_HASH_LEN]);
+        let payload: Vec<u8> = (0..600u32).map(|i| i as u8).collect();
+
+        // The advertisement from publish is LOST: b never hears it.
+        let _ = a
+            .publish(
+                id,
+                IFACE,
+                &payload,
+                [0xEF; 4],
+                &[8; crate::token::IV_LEN],
+                0,
+            )
+            .unwrap();
+        assert!(a.transfer_active(id));
+
+        let again = sent(&a.poll(RESOURCE_RETRY_INTERVAL, IFACE, &[0; RAND_HASH_LEN]))
+            .expect("the poll re-advertises the unanswered offer");
+        let request = sent(&b.ingest(IFACE, &again, 0));
+        assert!(request.is_some(), "and the re-offer starts the transfer");
+    }
+
+    /// Two sealed packets never share an IV, even across separate ingest calls. The
+    /// counter is node state; a fresh counter per call would replay the sequence.
+    #[test]
+    fn derived_ivs_never_repeat_across_calls() {
+        let (mut a, mut b, id) = linked();
+        let payload: Vec<u8> = (0..600u32).map(|i| i as u8).collect();
+
+        let started = a
+            .publish(
+                id,
+                IFACE,
+                &payload,
+                [0xAA; 4],
+                &[9; crate::token::IV_LEN],
+                0,
+            )
+            .unwrap();
+        let advertisement = sent(&started).unwrap();
+        let first = sent(&b.ingest(IFACE, &advertisement, 0)).expect("first request");
+        // The same advertisement again: the receiver rebuilds the same logical request. If
+        // IVs repeated, the sealed bytes would be identical.
+        let second = sent(&b.ingest(IFACE, &advertisement, 0)).expect("second request");
+        assert_ne!(
+            first.payload, second.payload,
+            "the same request sealed twice must differ, or the IV repeated"
+        );
     }
 
     /// Losing the link discards the transfer riding on it.
@@ -1117,7 +1362,14 @@ mod tests {
 
         // Start a transfer and deliver only the advertisement, so b is mid-receive.
         let started = a
-            .publish(id, IFACE, &payload, [0xAB; 4], &[5; crate::token::IV_LEN])
+            .publish(
+                id,
+                IFACE,
+                &payload,
+                [0xAB; 4],
+                &[5; crate::token::IV_LEN],
+                0,
+            )
             .unwrap();
         let advertisement = sent(&started).unwrap();
         b.ingest(IFACE, &advertisement, 0);
@@ -1144,12 +1396,12 @@ mod tests {
         let payload = vec![1_u8; 1_000];
 
         assert!(
-            a.publish(id, IFACE, &payload, [1; 4], &[1; crate::token::IV_LEN])
+            a.publish(id, IFACE, &payload, [1; 4], &[1; crate::token::IV_LEN], 0)
                 .is_some(),
             "the first publish starts"
         );
         assert!(
-            a.publish(id, IFACE, &payload, [2; 4], &[2; crate::token::IV_LEN])
+            a.publish(id, IFACE, &payload, [2; 4], &[2; crate::token::IV_LEN], 0)
                 .is_none(),
             "the second is refused while the first runs"
         );
