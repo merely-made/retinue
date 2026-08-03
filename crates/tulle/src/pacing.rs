@@ -47,7 +47,9 @@ fn frame_cost(params: &LoRaParams, payload_len: usize, listen_first: bool) -> Du
     // Eight symbols of carrier sense, the value lora-phy programs into the SX126x, plus one
     // typical backoff. Not the worst case: a floor that assumed every frame exhausts the
     // whole courtesy budget would be pessimistic enough to slow the common case badly.
-    let symbol = params.time_on_air(0).div_f64(f64::from(params.preamble_syms) + 4.25);
+    let symbol = params
+        .time_on_air(0)
+        .div_f64(f64::from(params.preamble_syms) + 4.25);
     air + symbol * 8 + Duration::from_millis(60)
 }
 

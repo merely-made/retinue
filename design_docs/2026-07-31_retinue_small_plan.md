@@ -11,8 +11,10 @@ state on its own face. What remains beyond the gates: pressure points 1
 BUILT; pressure point 3
 (quiet-window writes) is DISCHARGED by verification rather than machinery, with
 the one gap it exposed closed. Channel citizenship ships built but defaulted
-off, on measurement. Still open: the airtime-derived retry floors that gate
-turning it on, and the foreign-mesh channels behind their own gates.
+off, on measurement. The airtime-derived retry floors are BUILT
+(`tulle::pacing`) and validated, but did not turn out to be what gates
+citizenship. Still open: cheaper carrier sense or skipping it inside an owned
+turn, and the foreign-mesh channels behind their own gates.
 **Design authority:**
 [`2026-07-19_modem_embedded_and_meshtastic_research.md`](2026-07-19_modem_embedded_and_meshtastic_research.md)
 (*Native Retinue personality*) supplies the boundary and
@@ -1377,6 +1379,46 @@ write into a silent board, the exact class that cost a whole session at N4; a
 region that mandates LBT would need that inverted. Dwell-time limits are not
 implemented: no region entry in the table currently imposes one, and adding
 them is a table field plus a check in the same place, not a new mechanism.
+
+**Retry floors derived, 2026-08-03: `tulle::pacing`.** Three defects traced to
+one root — a retry interval picked as a constant, tuned for links far faster
+than LoRa. N4's link setup fired its retry into the proof it was waiting for;
+N5's resource retry did the same a layer up; each was fixed by hand-picking a
+bigger number, which worked without saying why. The module computes them from
+the profile's own time on air, so a slower spreading factor moves the floors
+with it. Floors, not schedules: a caller may wait longer, never less.
+
+**Validated on the case that defeated the constant.** `node_link` with the
+derived 3.0 s setup retry: **4 of 4**, and *faster* than the hand-picked 12 s —
+5.2 to 9.8 s per pass against a uniform 10.3 s, because the retry now fits the
+round trip instead of dwarfing it. The 2 s default it replaces failed every
+run at N4. The counted modem block with derived resource pacing held at 7 of 8.
+
+**It does not rescue channel citizenship, and that is the finding.** This work
+was recorded as the follow-up that would let listen-before-talk default on. It
+does not: with derived pacing and listen on, the modem block failed 6 of 6
+before I stopped it — *worse* than the hand-picked pacing's 3 of 8, because a
+shorter floor tightens the interaction rather than relieving it. The counters
+say what is happening: `cadclear=770 cadbusy=258`, `cadover=0`,
+`cadgiveup=0`, and `txok=1453` against `rxok=507` — the board transmitting
+three times what it hears, answering retries that its own latency provoked.
+Nothing is dropped; everything is late.
+
+So the hypothesis that timing was the root cause is dead, and the honest
+statement is narrower than before: **eight symbols of carrier sense before
+every frame is too expensive for a half-duplex request/response exchange at
+SF11, independent of retry derivation.** Two levers remain untried and are
+recorded rather than guessed at:
+
+- **Fewer CAD symbols.** `lora-phy` hardcodes `CADSymbols::_8`, Semtech's
+  conservative recommendation, so trying two or four is a vendor patch.
+- **Skip the check inside a turn the board already owns.** In a request/response
+  protocol the reply is expected, the peer is listening, and carrier sense is
+  answering a question nobody asked. This is the standard technique and the
+  more likely fix.
+
+Citizenship stays built, receipted under jam, reachable with `cad on`, and
+defaulted off until one of those lands.
 
 ## Non-goals
 
