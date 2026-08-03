@@ -18,7 +18,6 @@ use embedded_hal_bus::spi::ExclusiveDevice;
 use lora_modulation::{Bandwidth, CodingRate, SpreadingFactor};
 use lora_phy::LoRa;
 use lora_phy::sx126x::{Config as Sx126xConfig, Sx126x, Sx1262, TcxoCtrlVoltage};
-use panic_halt as _;
 use radio_hand::channel::modem::ModemChannel;
 use radio_hand::channel::node::NodeChannel;
 use radio_hand::channel::{Channel, ChannelInfo, Event, Personality};
@@ -32,6 +31,7 @@ use static_cell::StaticCell;
 use crate::radio::{Sx126xDiagnostics, T114Interface, T114Spi};
 
 mod board;
+mod crash;
 mod heap;
 mod host;
 mod radio;
@@ -149,9 +149,31 @@ async fn main(spawner: Spawner) {
     // SAFETY: called once, before any allocation.
     unsafe { heap::init() };
 
+    // The crash residue, before anything else can crash: reset reason, consecutive-crash
+    // count, and whether this boot should distrust the persisted channel.
+    let boot_crash = crash::on_boot();
+
     let mut nrf_config = embassy_nrf::config::Config::default();
     nrf_config.hfclk_source = HfclkSource::ExternalXtal;
     let p = embassy_nrf::init(nrf_config);
+
+    // The watchdog, armed as early as possible: 8 s of silence from the executor resets
+    // the chip. Petting is a task, so what it proves is that the executor still breathes —
+    // panics and hard faults reboot themselves through the crash handler without it.
+    let watchdog_config = {
+        let mut config = embassy_nrf::wdt::Config::default();
+        config.timeout_ticks = 8 * 32768;
+        config
+    };
+    if let Ok((_wdt, [handle])) =
+        embassy_nrf::wdt::Watchdog::try_new::<_, 1>(p.WDT, watchdog_config)
+        && let Ok(task) = crash::watchdog_task(handle)
+    {
+        spawner.spawn(task);
+    }
+    if let Ok(task) = crash::clean_run_task() {
+        spawner.spawn(task);
+    }
 
     // Resolve the board's settings before anything else starts. A first boot
     // erases and writes a flash page, which stalls the CPU for tens of
@@ -329,14 +351,22 @@ async fn main(spawner: Spawner) {
         }
     };
 
-    // The banner names the region and carrier honestly instead of hardcoding a US channel.
-    let mut online_line = radio_face::Text::<128>::empty();
+    // The banner names the region, the carrier, the reset reason, and any crash residue —
+    // the facts a bench or a user needs before trusting the boot.
+    let mut online_line = radio_face::Text::<192>::empty();
     let _ = write!(
         &mut online_line,
         "tulle/t114 phy online; sx1262 online; spi=software; irq=poll; sync=2b reg=24b4; \
-         region={} freq={}\r\n",
+         region={} freq={} reset={} crash={}{}\r\n",
         region.name(),
         boot_frequency,
+        boot_crash.reset,
+        boot_crash.count,
+        if boot_crash.fallback {
+            " FALLBACK=modem"
+        } else {
+            ""
+        },
     );
     let online = online_line.as_str().as_bytes();
     publish_online(&mut local_status);
@@ -375,8 +405,11 @@ async fn main(spawner: Spawner) {
     // for. That is the recovery posture rather than a fallback of convenience: the modem
     // needs nothing but a radio and a host, so it is the one personality that cannot be
     // denied by a bad store.
-    let mut channel = match (settings.map(|s| s.channel), node) {
-        (Some(BootChannel::Node), Some(node)) => Personality::Node(NodeChannel::new(node)),
+    // A crash loop distrusts the persisted personality: three consecutive crash boots and
+    // the board takes the channel that needs nothing, and says so on the banner. The count
+    // clears after a clean minute, so the fallback is a refuge, not a trap.
+    let mut channel = match (settings.map(|s| s.channel), node, boot_crash.fallback) {
+        (Some(BootChannel::Node), Some(node), false) => Personality::Node(NodeChannel::new(node)),
         _ => Personality::Modem(ModemChannel::new(Sx126xDiagnostics)),
     };
 
@@ -521,6 +554,46 @@ async fn main(spawner: Spawner) {
                             break;
                         }
                         continue;
+                    }
+                    // The crash residue: what the last bad boot left behind. `crash clear`
+                    // forgets it; the count also decays after a clean minute on its own.
+                    if at_boundary && (packet == b"crash\n" || packet == b"crash\r\n") {
+                        let (count, msg) = crash::residue();
+                        let mut reply = radio_face::Text::<160>::empty();
+                        let _ = write!(
+                            &mut reply,
+                            "crash count={} msg={}\r\n",
+                            count,
+                            core::str::from_utf8(msg).unwrap_or("?"),
+                        );
+                        if host.write_all(reply.as_str().as_bytes()).await.is_err() {
+                            break;
+                        }
+                        continue;
+                    }
+                    if at_boundary && (packet == b"crash clear\n" || packet == b"crash clear\r\n") {
+                        crash::clear_all();
+                        if host.write_all(b"crash cleared\r\n").await.is_err() {
+                            break;
+                        }
+                        continue;
+                    }
+                    // Bench hooks for the supervised-reboot receipts. Deliberate and
+                    // undisguised: `crashtest` proves the panic path (residue, reboot,
+                    // fallback after three), `hangtest` proves the watchdog. A host that
+                    // can reach these can already reboot the board via `bootloader`.
+                    if at_boundary && (packet == b"crashtest\n" || packet == b"crashtest\r\n") {
+                        let _ = host.write_all(b"panicking now\r\n").await;
+                        Timer::after_millis(100).await;
+                        panic!("deliberate crashtest");
+                    }
+                    if at_boundary && (packet == b"hangtest\n" || packet == b"hangtest\r\n") {
+                        let _ = host.write_all(b"hanging now\r\n").await;
+                        Timer::after_millis(100).await;
+                        // A busy loop that never yields: the executor starves, the petting
+                        // stops, and the watchdog does its one job.
+                        #[allow(clippy::empty_loop)]
+                        loop {}
                     }
                     // Region selection: the same persist-and-reboot shape as the channel,
                     // because the boot carrier and the clamp both derive from it.

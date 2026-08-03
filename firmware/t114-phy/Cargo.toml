@@ -25,7 +25,6 @@ embedded-hal-async = "1.0.0"
 embedded-storage = "0.3.1"
 lora-modulation = "0.1.5"
 lora-phy = { path = "../../vendor/lora-phy" }
-panic-halt = "1.0.0"
 radio-face = { path = "../../crates/radio-face" }
 retinue = { path = "../../crates/retinue", default-features = false }
 radio-hand = { path = "../../crates/radio-hand", features = ["node"] }
