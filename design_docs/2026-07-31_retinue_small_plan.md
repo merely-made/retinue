@@ -7,9 +7,9 @@ state, RF forwarding survives host attach and detach. `retinue-small` runs:
 the board persists its identity, announces, links, exchanges byte-exact data
 with loss recovery, survives abuse and mid-transfer reboots, and shows its own
 state on its own face. What remains beyond the gates: pressure point 1
-(regulatory floor) is BUILT; still open are channel citizenship (CAD/LBT),
-quiet-window writes, the watchdog with crash-loop fallback, and the
-foreign-mesh channels behind their own gates.
+(regulatory floor) and the supervised reboot (watchdog, crash residue,
+crash-loop refuge) are BUILT; still open are channel citizenship (CAD/LBT),
+quiet-window writes, and the foreign-mesh channels behind their own gates.
 **Design authority:**
 [`2026-07-19_modem_embedded_and_meshtastic_research.md`](2026-07-19_modem_embedded_and_meshtastic_research.md)
 (*Native Retinue personality*) supplies the boundary and
@@ -1228,6 +1228,48 @@ before shipping into a region** — the review being cheap is exactly why the
 table is data. One design note for the future setup surface: `Region::choices`
 already yields the pickable list, so first-boot region selection is a UI over
 an existing iterator, not new firmware capability.
+
+**The supervised reboot BUILT, 2026-08-03: crash residue, watchdog, and the
+crash-loop refuge.** Structural decision 4's third boundary. Before this the
+T114 linked `panic-halt` — any panic was a dead board until reflashed, the one
+behavior a field device must never have. Now:
+
+- **A panic writes its message to noinit RAM and reboots**; a hard fault does
+  the same with the faulting address. The record survives the reset because
+  cortex-m-rt leaves `.uninit` alone.
+- **A hang is caught by the hardware watchdog** (8 s, petted by a task, so
+  what it proves is that the executor still breathes). The next boot reads
+  RESETREAS, counts it as a crash, and names it `msg=WATCHDOG` — a hang loop
+  trips the same policy as a panic loop.
+- **Three consecutive crash boots distrust the persisted personality**: the
+  board boots the modem — the channel that needs nothing — and the banner says
+  `FALLBACK=modem`. The persisted settings are never touched by falling back,
+  and the count decays after a clean minute, so the refuge is not a trap.
+- The banner names the reset reason on every boot; `crash` reports the
+  residue, `crash clear` forgets it; `crashtest` and `hangtest` are the
+  undisguised bench hooks (a host that can reach them can already reboot the
+  board via `bootloader`).
+
+`panic-halt` is removed from the T114 — not discretionary: the design installs
+its own `#[panic_handler]` and the linker permits exactly one.
+
+**Receipts, all live on v33:** `crashtest` reboots the board itself with
+`reset=soft crash=1` and the residue carrying the exact panic file and line;
+three crashes produce `crash=3 FALLBACK=modem` with the node banner line
+absent while `channel` still reports node; `hangtest` starves the executor and
+the board returns inside the timeout with `reset=watchdog`; `crash clear` plus
+`channel node` exits the refuge; one crash plus seventy seconds decays the
+count to zero with the message retained; and a byte-exact exchange passes
+under the armed watchdog.
+
+**Honest limit, recorded:** a stuck `await` that still yields keeps the
+executor breathing and the watchdog fed — that class needs per-turn deadlines,
+future work. The V4 keeps `esp-backtrace` semantics and gains none of this
+yet. The ruling's "store the crash record through the A/B flash record at the
+next boot" is deliberately deferred: the RAM residue covers loop detection and
+post-mortem across soft resets, which is the load-bearing part; flash
+persistence of the last message across power loss can ride a later settings
+change.
 
 ## Non-goals
 
