@@ -6,9 +6,10 @@ unplug leg open); N1–N4 complete; N5 complete except the current figures
 state, RF forwarding survives host attach and detach. `retinue-small` runs:
 the board persists its identity, announces, links, exchanges byte-exact data
 with loss recovery, survives abuse and mid-transfer reboots, and shows its own
-state on its own face. What remains beyond the gates: the pressure points
-(regulatory clamp, channel citizenship, quiet-window writes, watchdog), and
-the foreign-mesh channels behind their own gates.
+state on its own face. What remains beyond the gates: pressure point 1
+(regulatory floor) is BUILT; still open are channel citizenship (CAD/LBT),
+quiet-window writes, the watchdog with crash-loop fallback, and the
+foreign-mesh channels behind their own gates.
 **Design authority:**
 [`2026-07-19_modem_embedded_and_meshtastic_research.md`](2026-07-19_modem_embedded_and_meshtastic_research.md)
 (*Native Retinue personality*) supplies the boundary and
@@ -1189,6 +1190,44 @@ field name is a hangover from the projection era and can rename when the
 surface is next touched. The physical-screen leg — eyeballing the four pages
 on the TFT through the button cycle — is Mark's, in the standing
 v12-acceptance style.
+
+**Pressure point 1 BUILT, 2026-08-03: the regulatory floor, in Mark's shape.**
+`radio-hand::region` is the compliance table as data — US915, EU868, EU433,
+ANZ915, JP920, each with frequency bounds, power cap, duty limit, and the
+trunk's default carrier. `Region::Unset` is zero *because* the settings byte
+it decodes from was reserved-as-zero: every record written before regions
+existed upgrades into "no region, no transmit", never into someone else's
+rules. The migration was proven live: the board's own record came up
+`region=unset` after the flash and the board went silent.
+
+**Enforcement sits at the one line every transmission already crosses.** The
+executive's `transmit` refuses with no region (`TX_NO_REGION`, counted) and
+refuses over a spent duty budget (`TX_OVER_DUTY`); the ledger charges
+*measured* airtime — the boot announce cost `duty=1524ms`, which is the
+167-byte SF11 frame's real time on air. `apply_profile` rejects out-of-band
+frequencies whole (`CONFIG_OUT_OF_REGION`) and clamps power to
+min(request, region, hardware +22), applying and reporting the clamped value.
+A region-less board still tunes — receiving is unregulated — and the banner
+says `region=unset` rather than pretending.
+
+**Receipts on v32:** the upgraded board attempted one announce, was refused
+(`noregion=1`), and put nothing on the air across a sniffed window; after
+`region us915` (persisted, surviving a further DFU reflash), the boot announce
+went out and a byte-exact exchange passed; an EU carrier on the US board was
+rejected with wire result 4 end to end through tulle; a 30 dBm request came
+online clamped; the counted modem block held at 7 of 8.
+
+**Edges owned honestly:** the V4 has no store, so its region is a build fact
+(US915, matching the bench) marked INTERIM — shipping that image outside the
+US is wrong by construction until the board gains a settings backend. The
+duty-refusal path (`TX_OVER_DUTY`) is enforced in code but has no hardware
+receipt: exercising it means an EU region on US air, which the floor itself
+forbids; it receipts when an EU bench exists. Table values follow the
+Meshtastic table shape and **must be verified against current national rules
+before shipping into a region** — the review being cheap is exactly why the
+table is data. One design note for the future setup surface: `Region::choices`
+already yields the pickable list, so first-boot region selection is a UI over
+an existing iterator, not new firmware capability.
 
 ## Non-goals
 
