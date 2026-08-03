@@ -7,10 +7,11 @@
 //! > A berserk channel can request nonsense; it cannot bypass the clamp, touch the store, or
 //! > hold the radio.
 //!
-//! So `lora` is private and stays private. A channel transmits by asking, which is the one
-//! place a regulatory clamp can later stand (pressure point 1) and the one place channel
-//! citizenship can gate the air (pressure point 2). Neither exists yet; the seam they need
-//! does, and it costs nothing to have put it here first.
+//! So `lora` is private and stays private. A channel transmits by asking, and because every
+//! transmission crosses one line, both things that must sit below every personality now do:
+//! the regulatory floor (pressure point 1 — region gate, power clamp, duty ledger) and
+//! channel citizenship (pressure point 2 — listen before talk). Neither is skippable by
+//! construction, which is the whole reason the seam was cut here before either existed.
 //!
 //! What this deliberately is not: a scheduler, an isolation boundary, or anything that
 //! deserves the word hypervisor. Channels are trusted safe Rust in the same address space.
@@ -34,6 +35,26 @@ const HARDWARE_MAX_DBM: i8 = 22;
 
 /// The duty-cycle accounting window, one hour, matching how the EU limits are stated.
 const DUTY_WINDOW_MS: u64 = 3_600_000;
+
+/// How many times a frame defers to a busy channel before taking its turn anyway.
+///
+/// Bounded, and what happens at the bound is the whole design. Deferring *indefinitely*
+/// starves against a peer that transmits blind: its retransmissions keep the channel
+/// occupied, the polite board never gets a turn, so the peer never gets its answer and
+/// retransmits again. That livelock was measured on hardware — a byte-exact exchange that
+/// had run at 7 of 8 for weeks fell to 4 of 8, with `cadgiveup=0` proving nothing was
+/// dropped and everything was merely too late.
+///
+/// So courtesy is bounded: defer while it is cheap, then transmit. A collision is one
+/// retransmit; starvation is a node that never speaks. Where a region *mandates* carrier
+/// sense the refusal is the correct outcome instead, which is what
+/// [`crate::region::RegionProfile::listen_required`] selects.
+const CAD_ATTEMPTS: u8 = 8;
+
+/// Backoff floor between listen attempts, in milliseconds. The randomised part is added on
+/// top and widens with each attempt, so two boards that collide once do not collide
+/// identically again.
+const CAD_BACKOFF_FLOOR_MS: u64 = 20;
 
 /// The radio settings a profile owns, held here so a rejected profile cannot half-apply:
 /// [`crate::service::apply_profile`] builds a replacement and only a complete one is swapped
@@ -160,6 +181,19 @@ pub struct AirDiag {
     pub tx_no_region: u16,
     /// Transmissions refused because the region's duty budget was spent.
     pub tx_over_duty: u16,
+    /// Listen-before-talk checks that found the channel clear on the first look.
+    pub cad_clear: u16,
+    /// Listen-before-talk checks that found activity and backed off.
+    pub cad_busy: u16,
+    /// Transmissions refused because the channel stayed busy where a region mandates
+    /// carrier sense.
+    pub tx_channel_busy: u16,
+    /// Transmissions that took their turn after deferring for the whole courtesy budget.
+    /// Nonzero means the band is contended, not that anything is wrong.
+    pub cad_override: u16,
+    /// Times the radio could not perform a listen check at all. Counted rather than fatal:
+    /// see `listen_before_talk` for why this fails open.
+    pub cad_fault: u16,
     /// Times the unattended wait woke for its heartbeat.
     pub wait_beats: u16,
     /// Times the unattended wait woke for a received frame.
@@ -180,6 +214,9 @@ pub struct Executive<'r, RK: RadioKind, DLY: DelayNs> {
     face: &'r Face,
     store: &'r mut dyn BoardStore,
     region: Region,
+    /// Whether listen-before-talk gates transmission. On by default; a bench turns it off
+    /// to A/B its cost, which is also the honest way to show it is doing something.
+    listen_first: bool,
     /// Transmit milliseconds spent in the current duty window.
     duty_spent_ms: u64,
     /// When the current duty window opened.
@@ -203,6 +240,7 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
             face,
             store,
             region,
+            listen_first: true,
             duty_spent_ms: 0,
             duty_window_start: None,
             diag: AirDiag::default(),
@@ -217,6 +255,17 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
     /// Duty milliseconds spent in the current window, for probes.
     pub fn duty_spent_ms(&self) -> u64 {
         self.duty_spent_ms
+    }
+
+    /// Whether listen-before-talk is gating transmission.
+    pub fn listen_first(&self) -> bool {
+        self.listen_first
+    }
+
+    /// Turn listen-before-talk on or off. Runtime only, never persisted: every boot is a
+    /// good citizen, and a bench that wants the comparison asks for it each time.
+    pub fn set_listen_first(&mut self, on: bool) {
+        self.listen_first = on;
     }
 
     /// The executive's own account of the radio. See [`AirDiag`].
@@ -351,6 +400,22 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
             }
         }
 
+        // Channel citizenship. Pressure point 2: the band is shared, and a blind transmit
+        // steps on whoever is already talking. This is the MAC answer the collision-
+        // mitigation notes concluded was the reachable one on stock certified radios.
+        if self.listen_first && !self.listen_before_talk().await {
+            if profile.listen_required {
+                self.diag.tx_channel_busy = self.diag.tx_channel_busy.saturating_add(1);
+                // The radio is left in standby by the listen check, so ask for receive
+                // back: a refused transmit must never be a deaf board.
+                self.radio.prepare_rx = true;
+                return selvage::TX_CHANNEL_BUSY;
+            }
+            // Courtesy spent; take the turn. See CAD_ATTEMPTS for why deferring forever is
+            // the worse failure.
+            self.diag.cad_override = self.diag.cad_override.saturating_add(1);
+        }
+
         let prepared = self
             .lora
             .prepare_for_tx(
@@ -382,6 +447,60 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
             self.diag.tx_err = self.diag.tx_err.saturating_add(1);
         }
         code
+    }
+
+    /// Listen for activity, backing off until the channel is clear or the budget is spent.
+    ///
+    /// Returns whether it is our turn to talk.
+    ///
+    /// **Fails open.** A radio that cannot perform the check at all transmits anyway, with
+    /// `cad_fault` counted. Failing closed would turn one broken register write into a
+    /// silent board — the exact class of failure that cost this project a whole session
+    /// at N4 — and listen-before-talk here is citizenship, not a regulatory requirement in
+    /// the regions this table ships. Where a region does mandate LBT, that belongs in the
+    /// region entry, and this must fail closed for it.
+    async fn listen_before_talk(&mut self) -> bool {
+        for attempt in 0..CAD_ATTEMPTS {
+            if self
+                .lora
+                .prepare_for_cad(&self.radio.modulation)
+                .await
+                .is_err()
+            {
+                self.diag.cad_fault = self.diag.cad_fault.saturating_add(1);
+                return true;
+            }
+            match self.lora.cad(&self.radio.modulation).await {
+                Ok(false) => {
+                    self.diag.cad_clear = self.diag.cad_clear.saturating_add(1);
+                    return true;
+                }
+                Ok(true) => {
+                    self.diag.cad_busy = self.diag.cad_busy.saturating_add(1);
+                }
+                Err(_) => {
+                    self.diag.cad_fault = self.diag.cad_fault.saturating_add(1);
+                    return true;
+                }
+            }
+            embassy_time::Timer::after_millis(self.backoff_ms(attempt)).await;
+        }
+        false
+    }
+
+    /// A randomised backoff that widens with each attempt.
+    ///
+    /// Random so two boards colliding once do not collide identically again; widening so a
+    /// genuinely busy band is not hammered. Entropy failure falls back to the floor rather
+    /// than refusing, because a deterministic backoff is merely worse, not wrong.
+    fn backoff_ms(&mut self, attempt: u8) -> u64 {
+        let mut byte = [0_u8; 1];
+        let jitter = match self.store.random(&mut byte) {
+            Ok(()) => u64::from(byte[0]),
+            Err(_) => 0,
+        };
+        let width = CAD_BACKOFF_FLOOR_MS << u32::from(attempt.min(3));
+        CAD_BACKOFF_FLOOR_MS + (jitter * width / 256)
     }
 
     /// Apply a host profile, committing it only if every step passed.

@@ -60,15 +60,33 @@ where
     // actually arrived, and which arm the unattended wait woke on. This is
     // the probe that distinguishes "silently dead path" from "nothing to
     // hear", which no other surface can.
+    // Listen-before-talk, on or off. Runtime only, so every boot is a good citizen; the
+    // bench asks for the comparison each time it wants one.
+    if at_boundary && (packet == b"cad on\n" || packet == b"cad on\r\n") {
+        exec.set_listen_first(true);
+        if host.write_all(b"listen=on\r\n").await.is_err() {
+            return Outcome::HostGone;
+        }
+        return Outcome::Served;
+    }
+    if at_boundary && (packet == b"cad off\n" || packet == b"cad off\r\n") {
+        exec.set_listen_first(false);
+        if host.write_all(b"listen=off\r\n").await.is_err() {
+            return Outcome::HostGone;
+        }
+        return Outcome::Served;
+    }
     if at_boundary && (packet == b"air\n" || packet == b"air\r\n") {
         let d = exec.diag();
-        let mut reply = radio_face::Text::<176>::empty();
+        let mut reply = radio_face::Text::<256>::empty();
         let _ = write!(
             &mut reply,
-            "air region={} duty={}ms armed={} armfail={} rxok={} rxerr={} \
-             txok={} txerr={} noregion={} overduty={} beats={} frames={}\r\n",
+            "air region={} duty={}ms listen={} armed={} armfail={} rxok={} rxerr={} \
+             txok={} txerr={} noregion={} overduty={} cadclear={} cadbusy={} \
+             cadgiveup={} cadover={} cadfault={} beats={} frames={}\r\n",
             exec.region().name(),
             exec.duty_spent_ms(),
+            if exec.listen_first() { "on" } else { "off" },
             d.rx_armed,
             d.rx_arm_failed,
             d.rx_ok,
@@ -77,6 +95,11 @@ where
             d.tx_err,
             d.tx_no_region,
             d.tx_over_duty,
+            d.cad_clear,
+            d.cad_busy,
+            d.tx_channel_busy,
+            d.cad_override,
+            d.cad_fault,
             d.wait_beats,
             d.wait_frames,
         );

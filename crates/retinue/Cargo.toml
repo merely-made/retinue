@@ -215,3 +215,7 @@ required-features = ["tulle-radio"]
 [[example]]
 name = "node_stress"
 required-features = ["tulle-radio"]
+
+[[example]]
+name = "node_jam"
+required-features = ["tulle-radio"]

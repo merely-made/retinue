@@ -58,6 +58,10 @@ pub const TX_NO_REGION: u8 = 6;
 /// The region's duty-cycle budget is exhausted; the frame was refused rather
 /// than sent over the limit. Transmitting resumes as the window drains.
 pub const TX_OVER_DUTY: u8 = 7;
+/// The channel stayed busy for the whole listen-before-talk budget, so the frame
+/// was not sent. Citizenship rather than fault: somebody else was talking, and
+/// the reliability layer above exists to retry.
+pub const TX_CHANNEL_BUSY: u8 = 8;
 
 /// Results of a [`CMD_CONFIG`] command, carried by [`EVENT_CONFIG`].
 ///

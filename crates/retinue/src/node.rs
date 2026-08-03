@@ -725,6 +725,18 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
         actions
     }
 
+    /// Forget that we announced, so the next [`Node::poll`] announces again.
+    ///
+    /// `poll` stamps the announce when it *decides* to send one, because it cannot know
+    /// whether the shell got it onto the air. When the shell could not — a busy channel, a
+    /// radio fault — the stamp would otherwise swallow the failure and the node would go
+    /// quiet for a whole interval believing it had spoken. A shell that knows its send
+    /// failed calls this; the shell is also responsible for bounding how often, since a
+    /// permanently unusable radio must not turn into an announce loop.
+    pub fn retry_announce(&mut self) {
+        self.last_announce = None;
+    }
+
     /// Build this node's announce packet.
     pub fn announce(
         &self,
@@ -1203,6 +1215,33 @@ mod tests {
         assert!(answer.is_empty(), "b says nothing rather than starting");
         assert!(!b.transfer_active(id), "and holds no reassembly state");
         assert!(b.has_link(id), "while the link itself is untouched");
+    }
+
+    /// A shell that could not send the announce can say so, and the next poll announces
+    /// again instead of waiting out the whole interval.
+    ///
+    /// Found on hardware: a jammed channel made listen-before-talk refuse the announce,
+    /// and the board then believed it had announced — invisible for ten minutes after a
+    /// ten-second jam.
+    #[test]
+    fn a_failed_announce_can_be_retried_before_the_interval() {
+        let (mut a, _b) = pair();
+
+        assert!(
+            sent(&a.poll(0, IFACE, &[1; RAND_HASH_LEN])).is_some(),
+            "the first poll announces"
+        );
+        assert!(
+            a.poll(1_000, IFACE, &[2; RAND_HASH_LEN]).is_empty(),
+            "and the next is not due for a whole interval"
+        );
+
+        // The shell reports that the frame never reached the air.
+        a.retry_announce();
+        assert!(
+            sent(&a.poll(1_001, IFACE, &[3; RAND_HASH_LEN])).is_some(),
+            "so the node announces again rather than waiting out the interval"
+        );
     }
 
     /// One lost part no longer kills a transfer: the receiver's poll re-requests exactly

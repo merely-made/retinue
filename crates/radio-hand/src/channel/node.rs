@@ -51,6 +51,18 @@ const BEAT: Duration = Duration::from_secs(5);
 /// outcome for a facility whose entire job is proving two implementations agree.
 const MAX_LINE: usize = 2 * selvage::MAX_RADIO_FRAME_LEN + 40;
 
+/// The longest wait, in beats, between re-attempts of an announce the radio would not
+/// carry. At a five-second beat this is about two and a half minutes.
+///
+/// The node stamps its announce when it *decides* to send one, so a frame the shell could
+/// not put on the air would otherwise cost a whole announce interval of invisibility — a
+/// ten-second jam making the board unfindable for ten minutes, which is what the hardware
+/// showed. The retry backs off rather than counting down to zero: a fixed budget is spent
+/// while the channel is still busy and gives up exactly when the air clears, which is the
+/// wrong moment. Backing off instead keeps trying forever, at a cost that decays to a CAD
+/// check every couple of minutes — cheap enough for a board whose radio is truly dead.
+const ANNOUNCE_RETRY_MAX_BEATS: u8 = 32;
+
 /// The board as a Retinue node.
 pub struct NodeChannel<const PEERS: usize = 32, const ACTIONS: usize = 8, const LINKS: usize = 4> {
     pub(super) node: Node<PEERS, ACTIONS, LINKS>,
@@ -82,6 +94,11 @@ pub struct NodeChannel<const PEERS: usize = 32, const ACTIONS: usize = 8, const 
     pub(super) heard: heapless::Vec<(AddressHash, u64), 8>,
     /// The face's event line: the last thing worth telling a passer-by.
     pub(super) last_event: Option<UiEvent>,
+    /// Beats remaining before the next announce re-attempt; zero when none is pending.
+    announce_retry_in: u8,
+    /// The current wait between re-attempts, doubling on each failure up to
+    /// [`ANNOUNCE_RETRY_MAX_BEATS`].
+    announce_retry_wait: u8,
 }
 
 impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
@@ -100,6 +117,8 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
             echo_refused: 0,
             heard: heapless::Vec::new(),
             last_event: None,
+            announce_retry_in: 0,
+            announce_retry_wait: 0,
         }
     }
 
@@ -475,8 +494,34 @@ where
                     self.unseeded = self.unseeded.saturating_add(1);
                     return Flow::Continue;
                 }
+                // A pending re-attempt comes due before the poll that would carry it.
+                if self.announce_retry_in > 0 {
+                    self.announce_retry_in -= 1;
+                    if self.announce_retry_in == 0 {
+                        self.node.retry_announce();
+                    }
+                }
+
                 let actions = self.node.poll(Self::now(), RADIO, &rand_hash);
-                self.perform(exec, link, actions).await
+                let unsent_before = self.unsent;
+                let flow = self.perform(exec, link, actions).await;
+
+                // Something the node's own timers asked for did not reach the air. Resource
+                // retransmits carry their own stamps and will come round again; the
+                // announce is the one whose stamp would otherwise swallow the failure, so
+                // it is the one scheduled to try again.
+                if self.unsent != unsent_before {
+                    self.announce_retry_wait = self
+                        .announce_retry_wait
+                        .max(1)
+                        .saturating_mul(2)
+                        .min(ANNOUNCE_RETRY_MAX_BEATS);
+                    self.announce_retry_in = self.announce_retry_wait;
+                } else if self.announce_retry_in == 0 {
+                    // Nothing failed and nothing is waiting: the backoff has done its work.
+                    self.announce_retry_wait = 0;
+                }
+                flow
             }
             // A host is an observer of this channel: it may ask what the node has seen and
             // done (`node`, `face`), and it may drive a replay. The panels need none of

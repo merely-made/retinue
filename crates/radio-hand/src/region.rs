@@ -50,6 +50,13 @@ pub struct RegionProfile {
     pub max_power_dbm: i8,
     /// Transmit duty limit in permille per hour. Zero means the region imposes none.
     pub duty_permille: u16,
+    /// Whether listen-before-talk is a *requirement* here rather than good manners.
+    ///
+    /// The distinction decides what happens when the channel stays busy: where deference
+    /// is mandatory the frame is refused, and where it is courtesy the board takes its turn
+    /// after a bounded wait. Japan's ARIB STD-T108 mandates carrier sense; the FCC part
+    /// 15.247 digital-modulation rules the US entry follows do not.
+    pub listen_required: bool,
     /// The trunk's default carrier here, used for the boot profile. Our choice within the
     /// band, not a regulatory value.
     pub default_frequency_hz: u32,
@@ -65,6 +72,7 @@ const TABLE: &[(Region, RegionProfile)] = &[
             freq_max_hz: 928_000_000,
             max_power_dbm: 30,
             duty_permille: 0,
+            listen_required: false,
             default_frequency_hz: 906_875_000,
         },
     ),
@@ -76,6 +84,7 @@ const TABLE: &[(Region, RegionProfile)] = &[
             freq_max_hz: 869_650_000,
             max_power_dbm: 27,
             duty_permille: 100,
+            listen_required: false,
             default_frequency_hz: 869_525_000,
         },
     ),
@@ -87,6 +96,7 @@ const TABLE: &[(Region, RegionProfile)] = &[
             freq_max_hz: 434_790_000,
             max_power_dbm: 12,
             duty_permille: 100,
+            listen_required: false,
             default_frequency_hz: 433_875_000,
         },
     ),
@@ -98,6 +108,7 @@ const TABLE: &[(Region, RegionProfile)] = &[
             freq_max_hz: 928_000_000,
             max_power_dbm: 30,
             duty_permille: 0,
+            listen_required: false,
             default_frequency_hz: 916_875_000,
         },
     ),
@@ -109,6 +120,7 @@ const TABLE: &[(Region, RegionProfile)] = &[
             freq_max_hz: 923_400_000,
             max_power_dbm: 13,
             duty_permille: 100,
+            listen_required: true,
             default_frequency_hz: 921_875_000,
         },
     ),
