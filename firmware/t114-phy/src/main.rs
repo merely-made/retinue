@@ -1,10 +1,10 @@
 #![no_std]
 #![no_main]
 
-use core::{convert::Infallible, fmt::Write as _};
+use core::fmt::Write as _;
 
 use embassy_executor::Spawner;
-use embassy_futures::select::{Either, select};
+use embassy_futures::select::{Either3, select3};
 use embassy_nrf::config::HfclkSource;
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 use embassy_nrf::spim::{Config as SpimConfig, Frequency, Spim};
@@ -14,25 +14,24 @@ use embassy_nrf::{bind_interrupts, peripherals, usb};
 use embassy_time::{Delay, Duration, Timer, with_timeout};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::{Builder, Config, UsbDevice};
-use embedded_hal::spi::ErrorType;
-use embedded_hal_async::spi::SpiBus;
 use embedded_hal_bus::spi::ExclusiveDevice;
 use lora_modulation::{Bandwidth, CodingRate, SpreadingFactor};
-use lora_phy::mod_params::RadioError;
-use lora_phy::mod_traits::InterfaceVariant;
+use lora_phy::LoRa;
 use lora_phy::sx126x::{Config as Sx126xConfig, Sx126x, Sx1262, TcxoCtrlVoltage};
-use lora_phy::{LoRa, RxMode};
 use panic_halt as _;
-use radio_hand::dispatch::{self, ChipDiagnostics, Face, Flow, RadioState};
-use radio_hand::link::HostLink;
-use selvage::{
-    CommandStream, EVENT_DIAGNOSTIC, MAX_COMMAND_LEN, MESHTASTIC_SYNC_WORD, sx126x_sync_word,
-};
+use radio_hand::channel::modem::ModemChannel;
+use radio_hand::channel::{Channel, ChannelInfo, Event};
+use radio_hand::executive::{Executive, Face, Heartbeat, RadioState};
+use radio_hand::link::{Flow, HostLink};
+use selvage::{MESHTASTIC_SYNC_WORD, sx126x_sync_word};
 use static_cell::StaticCell;
+
+use crate::radio::{Sx126xDiagnostics, T114Interface, T114Spi};
 
 mod board;
 mod heap;
 mod host;
+mod radio;
 mod store;
 mod ui;
 
@@ -48,139 +47,6 @@ const FREQUENCY_HZ: u32 = 906_875_000;
 const TX_POWER_DBM: i32 = 17;
 const MAX_RADIO_FRAME: usize = 255;
 const USB_PACKET: usize = 64;
-
-struct T114Spi<'d> {
-    sck: Output<'d>,
-    mosi: Output<'d>,
-    miso: Input<'d>,
-}
-
-impl T114Spi<'_> {
-    fn transfer_byte(&mut self, output: u8) -> u8 {
-        let mut input = 0u8;
-        for bit in (0..8).rev() {
-            if output & (1 << bit) == 0 {
-                self.mosi.set_low();
-            } else {
-                self.mosi.set_high();
-            }
-            cortex_m::asm::delay(64);
-            self.sck.set_high();
-            input = (input << 1) | u8::from(self.miso.is_high());
-            cortex_m::asm::delay(64);
-            self.sck.set_low();
-        }
-        input
-    }
-}
-
-impl ErrorType for T114Spi<'_> {
-    type Error = Infallible;
-}
-
-impl SpiBus<u8> for T114Spi<'_> {
-    async fn read(&mut self, words: &mut [u8]) -> Result<(), Self::Error> {
-        for word in words {
-            *word = self.transfer_byte(0);
-        }
-        Ok(())
-    }
-
-    async fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
-        for &word in words {
-            let _ = self.transfer_byte(word);
-        }
-        Ok(())
-    }
-
-    async fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Self::Error> {
-        for index in 0..read.len().max(write.len()) {
-            let input = self.transfer_byte(write.get(index).copied().unwrap_or(0));
-            if let Some(word) = read.get_mut(index) {
-                *word = input;
-            }
-        }
-        Ok(())
-    }
-
-    async fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), Self::Error> {
-        for word in words {
-            *word = self.transfer_byte(*word);
-        }
-        Ok(())
-    }
-
-    async fn flush(&mut self) -> Result<(), Self::Error> {
-        Ok(())
-    }
-}
-
-struct T114Interface<'d> {
-    reset: Output<'d>,
-    dio1: Input<'d>,
-    busy: Input<'d>,
-}
-
-impl InterfaceVariant for T114Interface<'_> {
-    async fn reset(&mut self, delay: &mut impl lora_phy::DelayNs) -> Result<(), RadioError> {
-        delay.delay_ms(10).await;
-        self.reset.set_low();
-        delay.delay_ms(20).await;
-        self.reset.set_high();
-        delay.delay_ms(10).await;
-        Ok(())
-    }
-
-    async fn wait_on_busy(&mut self) -> Result<(), RadioError> {
-        while self.busy.is_high() {
-            Timer::after_micros(50).await;
-        }
-        Ok(())
-    }
-
-    async fn await_irq(&mut self) -> Result<(), RadioError> {
-        // SX1262 holds DIO1 high until its IRQ flags are cleared. Polling the
-        // level avoids depending on GPIO sense wakeups across the T114's
-        // SoftDevice bootloader boundary and cannot miss the latched event.
-        while self.dio1.is_low() {
-            Timer::after_millis(1).await;
-        }
-        Ok(())
-    }
-
-    async fn enable_rf_switch_rx(&mut self) -> Result<(), RadioError> {
-        Ok(())
-    }
-
-    async fn enable_rf_switch_tx(&mut self) -> Result<(), RadioError> {
-        Ok(())
-    }
-
-    async fn disable_rf_switch(&mut self) -> Result<(), RadioError> {
-        Ok(())
-    }
-}
-
-/// The board's own SX1262 registers.
-///
-/// Chip-specific — `sx126x_diagnostics` is on the SX126x kind, not on `LoRa` — so
-/// `radio-hand` reaches it through [`ChipDiagnostics`] rather than calling it directly.
-struct Sx126xDiagnostics;
-
-impl<SPI, IV, C, DLY> ChipDiagnostics<Sx126x<SPI, IV, C>, DLY> for Sx126xDiagnostics
-where
-    SPI: embedded_hal_async::spi::SpiDevice<u8>,
-    IV: InterfaceVariant,
-    C: lora_phy::sx126x::Sx126xVariant,
-    DLY: lora_phy::DelayNs,
-{
-    async fn read(&self, lora: &mut LoRa<Sx126x<SPI, IV, C>, DLY>) -> [u8; 7] {
-        match lora.sx126x_diagnostics().await {
-            Ok(d) => diagnostic_event(d.irq_status, d.device_errors, d.sync_word),
-            Err(_) => [EVENT_DIAGNOSTIC, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
-        }
-    }
-}
 
 /// A boot line naming the node and what it costs, so the heap figure is a receipt rather
 /// than an assertion. The destination is public by construction; no key material is shown.
@@ -209,20 +75,6 @@ fn describe_node(node: Option<&retinue::node::Node<32, 8, 4>>, out: &mut [u8; 64
     let len = source.len().min(out.len());
     out[..len].copy_from_slice(&source[..len]);
     len
-}
-
-fn diagnostic_event(irq_status: u16, device_errors: u16, sync_word: [u8; 2]) -> [u8; 7] {
-    let irq = irq_status.to_le_bytes();
-    let errors = device_errors.to_le_bytes();
-    [
-        EVENT_DIAGNOSTIC,
-        irq[0],
-        irq[1],
-        errors[0],
-        errors[1],
-        sync_word[0],
-        sync_word[1],
-    ]
 }
 
 fn publish_fault(status: &mut radio_face::LocalStatus, code: u8, message: &'static str) {
@@ -455,7 +307,7 @@ async fn main(spawner: Spawner) {
     publish_online(&mut local_status);
 
     // Past every path that hands `class` to `serve_status_only`, so the CDC endpoint can
-    // become the host link and the radio settings become the state `radio-hand` drives.
+    // become the host link and the radio can pass to the executive that owns it.
     let mut host = host::UsbHost::new(class);
     let mut radio = RadioState {
         modulation,
@@ -468,80 +320,91 @@ async fn main(spawner: Spawner) {
         publish: ui::publish,
         publish_host: ui::publish_host,
     };
+    // Held for the rest of `main`, which is what makes the boundary real on this board:
+    // nothing below can reach `lora` again, because the executive has it.
+    let mut exec = Executive::new(&mut lora, &mut radio, &mut local_status, &face);
+
+    // The personality this board answers as. Fixed for the life of the boot: switching is by
+    // reboot, per structural decision 4, so nothing below ever has to hand the radio over.
+    let mut channel = ModemChannel::new(Sx126xDiagnostics);
 
     loop {
         host.attached().await;
-        local_status.host = radio_face::HostState::Attached;
-        ui::publish(local_status, radio_face::LedSignal::Idle);
+        exec.status_mut().host = radio_face::HostState::Attached;
+        exec.publish(radio_face::LedSignal::Idle);
         if host.write_all(online).await.is_err()
             || host
                 .write_all(&identity_line[..identity_line_len])
                 .await
                 .is_err()
             || host.write_all(&node_line[..node_line_len]).await.is_err()
+            || channel.start(&mut exec, &mut host).await == Flow::Detach
         {
-            local_status.host = radio_face::HostState::Detached;
-            ui::publish(local_status, radio_face::LedSignal::Idle);
+            exec.status_mut().host = radio_face::HostState::Detached;
+            exec.publish(radio_face::LedSignal::Idle);
             continue;
         }
-        let mut command_stream = CommandStream::new();
-        let mut usb_command = [0_u8; MAX_COMMAND_LEN];
-        radio.prepare_rx = true;
+        let mut heartbeat = Heartbeat::new(channel.heartbeat());
 
         loop {
-            if radio.prepare_rx {
-                if lora
-                    .prepare_for_rx(RxMode::Continuous, &radio.modulation, &radio.rx)
-                    .await
-                    .is_err()
-                {
-                    publish_fault(&mut local_status, 5, "RX SETUP");
+            match exec.ensure_rx().await {
+                Ok(true) => publish_online(exec.status_mut()),
+                Ok(false) => {}
+                Err(_) => {
+                    publish_fault(exec.status_mut(), 5, "RX SETUP");
                     if host.write_all(b"radio rx setup failed\r\n").await.is_err() {
                         break;
                     }
                     continue;
                 }
-                publish_online(&mut local_status);
-                radio.prepare_rx = false;
             }
 
             let mut usb_packet = [0_u8; USB_PACKET];
             let mut radio_frame = [0_u8; MAX_RADIO_FRAME];
-            match select(
+            // Bound rather than matched in place, so the borrows the three futures hold end
+            // here and an arm is free to take the executive again.
+            let woken = select3(
                 host.read(&mut usb_packet),
-                lora.rx(&radio.rx, &mut radio_frame),
+                exec.receive(&mut radio_frame),
+                heartbeat.next(),
             )
-            .await
-            {
-                Either::Second(Ok((length, packet_status))) => {
-                    let length = usize::from(length);
-                    let flow = dispatch::on_radio_frame(
-                        &mut host,
-                        &mut local_status,
-                        &face,
-                        &radio_frame[..length],
-                        packet_status.rssi,
-                        packet_status.snr,
-                    )
-                    .await;
+            .await;
+            match woken {
+                Either3::Second(Ok(received)) => {
+                    let flow = channel
+                        .serve(
+                            &mut exec,
+                            &mut host,
+                            Event::RadioFrame {
+                                frame: &radio_frame[..received.len],
+                                rssi: received.rssi,
+                                snr: received.snr,
+                            },
+                        )
+                        .await;
                     if flow == Flow::Detach {
                         break;
                     }
                 }
-                Either::Second(Err(_)) => {
-                    publish_fault(&mut local_status, 6, "RADIO RX");
+                Either3::Second(Err(_)) => {
+                    publish_fault(exec.status_mut(), 6, "RADIO RX");
                     if host.write_all(b"radio rx failed\r\n").await.is_err() {
                         break;
                     }
-                    radio.prepare_rx = true;
                 }
-                Either::First(Err(_)) => break,
-                Either::First(Ok(length)) => {
-                    local_status.host = radio_face::HostState::Attached;
-                    local_status.last_wake = radio_face::WakeSource::Host;
-                    ui::publish(local_status, radio_face::LedSignal::Idle);
+                Either3::Third(()) => {
+                    if channel.serve(&mut exec, &mut host, Event::Beat).await == Flow::Detach {
+                        break;
+                    }
+                }
+                Either3::First(Err(_)) => break,
+                Either3::First(Ok(length)) => {
+                    let status = exec.status_mut();
+                    status.host = radio_face::HostState::Attached;
+                    status.last_wake = radio_face::WakeSource::Host;
+                    exec.publish(radio_face::LedSignal::Idle);
                     let packet = &usb_packet[..length];
-                    let at_boundary = command_stream.is_boundary();
+                    let at_boundary = channel.at_boundary();
                     if at_boundary && (packet == b"bootloader\n" || packet == b"bootloader\r\n") {
                         let _ = host.write_all(b"entering serial bootloader\r\n").await;
                         Timer::after_millis(20).await;
@@ -569,7 +432,7 @@ async fn main(spawner: Spawner) {
                         continue;
                     }
                     if at_boundary && (packet == b"radio\n" || packet == b"radio\r\n") {
-                        let reply = Sx126xDiagnostics.read(&mut lora).await;
+                        let reply = exec.diagnostics(&Sx126xDiagnostics).await;
                         if host.write_all(&reply).await.is_err() {
                             break;
                         }
@@ -594,40 +457,32 @@ async fn main(spawner: Spawner) {
                     }
                     #[cfg(feature = "ui-bench")]
                     if at_boundary && (packet == b"fault\n" || packet == b"fault\r\n") {
-                        publish_fault(&mut local_status, 0xfe, "BENCH FAULT");
-                        if !write_all(&mut class, b"ui bench fault set\r\n").await {
+                        publish_fault(exec.status_mut(), 0xfe, "BENCH FAULT");
+                        if host.write_all(b"ui bench fault set\r\n").await.is_err() {
                             break;
                         }
                         continue;
                     }
                     #[cfg(feature = "ui-bench")]
                     if at_boundary && (packet == b"clear\n" || packet == b"clear\r\n") {
-                        publish_online(&mut local_status);
-                        if !write_all(&mut class, b"ui bench fault cleared\r\n").await {
+                        publish_online(exec.status_mut());
+                        if host.write_all(b"ui bench fault cleared\r\n").await.is_err() {
                             break;
                         }
                         continue;
                     }
 
-                    let outcome = dispatch::on_host_bytes(
-                        &mut host,
-                        &mut lora,
-                        &mut command_stream,
-                        &mut usb_command,
-                        &mut radio,
-                        &mut local_status,
-                        &face,
-                        &Sx126xDiagnostics,
-                        packet,
-                    )
-                    .await;
-                    if outcome.flow == Flow::Detach {
+                    let flow = channel
+                        .serve(&mut exec, &mut host, Event::HostBytes(packet))
+                        .await;
+                    if flow == Flow::Detach {
                         break;
                     }
                 }
             }
         }
-        local_status.host = radio_face::HostState::Detached;
-        ui::publish(local_status, radio_face::LedSignal::Idle);
+        channel.stop(&mut exec, &mut host).await;
+        exec.status_mut().host = radio_face::HostState::Detached;
+        exec.publish(radio_face::LedSignal::Idle);
     }
 }

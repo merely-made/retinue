@@ -30,6 +30,29 @@ pub enum LinkFault {
     Detached,
 }
 
+/// Whether the host session survives.
+///
+/// Lives beside [`LinkFault`] rather than with the command loop because every layer above
+/// the transport reports in it: the shared dispatch, each channel's `serve`, and the
+/// firmware's own text probes all answer the same question.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Flow {
+    /// Keep serving this peer.
+    Continue,
+    /// The peer is gone; abandon the session and wait for the next.
+    Detach,
+}
+
+impl Flow {
+    /// Read a link operation's result as a verdict on the session.
+    pub fn from(result: Result<(), LinkFault>) -> Self {
+        match result {
+            Ok(()) => Flow::Continue,
+            Err(LinkFault::Detached) => Flow::Detach,
+        }
+    }
+}
+
 /// A host transport carrying the direct-PHY byte protocol.
 /// Auto traits are deliberately unbounded: these futures are polled by a
 /// single-threaded embassy executor on the board, never sent across threads, so a

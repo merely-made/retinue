@@ -32,7 +32,8 @@ use lora_modulation::{Bandwidth, CodingRate, SpreadingFactor};
 use lora_phy::iv::GenericSx126xInterfaceVariant;
 use lora_phy::sx126x::{Config as Sx126xConfig, Sx126x, Sx1262, TcxoCtrlVoltage};
 use lora_phy::{LoRa, RxMode};
-use radio_hand::dispatch::{self, ChipDiagnostics, Face, RadioState};
+use radio_hand::dispatch;
+use radio_hand::executive::{ChipDiagnostics, Executive, Face, RadioState};
 use radio_hand::link::HostLink;
 use selvage::{
     CommandStream, EVENT_DIAGNOSTIC, EVENT_RX, MAX_COMMAND_LEN, MESHTASTIC_SYNC_WORD, WAKE_BYTE,
@@ -594,14 +595,18 @@ async fn main(spawner: Spawner) {
                     continue;
                 }
 
+                // An executive per call rather than one for the whole loop. This board's
+                // receive path is still bespoke — the low-power proof polls `lora.rx()` by
+                // hand so it can enter Light-sleep from inside the future — so it keeps its
+                // own hand on the radio, and adopts the seam only where the shared command
+                // loop needs it. The T114 holds one for the whole of `main` and gets the full
+                // boundary; this board follows when the sleep work is settled.
+                let mut exec = Executive::new(&mut lora, &mut radio, &mut local_status, &face);
                 let outcome = dispatch::on_host_bytes(
                     &mut host,
-                    &mut lora,
+                    &mut exec,
                     &mut command_stream,
                     &mut usb_command,
-                    &mut radio,
-                    &mut local_status,
-                    &face,
                     &Sx126xDiagnostics,
                     packet,
                 )
@@ -611,7 +616,7 @@ async fn main(spawner: Spawner) {
                 // bare UART has nothing on the other end to notice. So the session never
                 // ends, which is this board's existing behaviour, now falling out of the
                 // shared loop rather than being written into it.
-                debug_assert_eq!(outcome.flow, dispatch::Flow::Continue);
+                debug_assert_eq!(outcome.flow, radio_hand::link::Flow::Continue);
             }
         }
     }

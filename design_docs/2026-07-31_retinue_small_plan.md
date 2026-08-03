@@ -2,7 +2,8 @@
 
 **Status:** N0 proven on the T114 (power-loss leg open); N1 complete; N2 complete;
 N3 protocol half complete (announce, links, resources); channels-in-one-image
-ruled (structural decision 4), executive built when the second channel exists
+ruled (structural decision 4), executive and channel trait built and carrying the
+modem personality on hardware
 **Design authority:**
 [`2026-07-19_modem_embedded_and_meshtastic_research.md`](2026-07-19_modem_embedded_and_meshtastic_research.md)
 (*Native Retinue personality*) supplies the boundary and
@@ -847,6 +848,66 @@ were rebuilt with the probe keeping its DTR-only fix.
 
 Remaining for N3: the channel trait and executive, so the node is *driven*
 rather than merely resident, and the fixture-corpus replay.
+
+**N3: the executive and the channel trait, 2026-08-02.** Structural decision 4's
+two pieces exist, and the modem personality is the first channel behind them.
+
+**`Executive` is the authority boundary, not a tidying.** It owns `lora`
+privately, so a channel transmits by asking. That is the whole point: the
+regulatory clamp (pressure point 1) and channel citizenship (pressure point 2)
+both have to sit below every personality in exactly one place, and now there is
+exactly one place for them to sit. Nothing clamps yet; the seam they need is
+built, and it cost nothing to put it in first.
+
+It is a **borrowed view** rather than an owner, which turned out to matter
+immediately. The T114 holds one for the whole of `main` and gets the full
+boundary — its own `lora` is unreachable for as long as the executive lives. The
+V4 cannot: its low-power proof polls `lora.rx()` by hand so it can enter
+Light-sleep from inside the future, so it keeps its own hand on the radio and
+constructs an executive per dispatch call. A view lets one board adopt the seam
+completely and the other incrementally, instead of forcing a choice between
+converting the sleep work now and not building the seam at all.
+
+**`serve` takes an event rather than owning a loop, and the deviation is
+deliberate.** The ruling names start, serve, stop, and the obvious reading gives
+`serve` the whole loop. That contradicts the same decision's other half, which
+keeps "the executor, the select between host and radio, and the text probes" in
+the firmware binary — the T114's `GPREGRET` bootloader entry and its display
+diagnostic are board facts, and a loop-owning channel would have to absorb them
+or every future channel would. So the firmware keeps the select and hands over
+what its probes did not claim. One consequence worth naming: probes are only
+safe at a frame boundary, and only the channel knows where its parser is, so
+`ChannelInfo::at_boundary` exists to let the firmware ask.
+
+**The heartbeat is absent by default, and that is a real decision.** A channel
+with no timer gets `core::future::pending()` rather than a fast tick with an
+empty body, so the modem's select waits on exactly the two things it waited on
+before this existed. It also avoids a hazard: at SF11/250 kHz a 255-byte frame
+is seconds long, and a periodic wake that cancelled the receive future could
+have made reception impossible. (It would in fact have been safe — the SX1262
+keeps receiving in the background and holds DIO1 high until its flags are
+cleared, which is why cancellation is survivable at all — but a battery board
+should not pay for a wake it ignores.)
+
+**Measured, against v21:** flash 156,994 → **155,906** (19.5%), static RAM
+66,908 → **66,956** (28%). The refactor gave back about a kilobyte, because one
+shared transmit path replaced the inlined copies.
+
+**Counted RF receipt, v22 against the COM6 control peer: 8 of 8, all outputs
+byte-exact.** The best result in the series (v16 8 of 10, v19 7 of 8, v21 7 of
+8, wired V4 8 of 8). All four text probes answer, and the SX1262 diagnostic is
+clean. Tenth flash; `node=599997c8 identity=loaded slot=A seq=0` unchanged.
+
+**Two process notes.** `main.rs` went *up* to 636 lines under the refactor, over
+the 600 ceiling, so the board's SX1262 wiring moved to `radio.rs` and main came
+down to 488. That code movement rebuilt the image, which invalidated the receipt
+just taken — same byte count, but a receipt attaches to a binary, not to a size
+— so it was reflashed and re-run. Both counted blocks passed 8 of 8; the one
+above is the committed image. And `radio-hand`'s doc comment no longer claims
+the crate is allocation-free, which stopped being true when the node arrived.
+
+Remaining for N3: the node channel behind the trait, boot selection from
+`Settings::channel`, and the fixture-corpus replay.
 
 ## Non-goals
 
