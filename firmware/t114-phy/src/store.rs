@@ -4,9 +4,26 @@
 //! the two flash pages the records live in and the nRF52840 peripherals that
 //! reach them, because those are board facts rather than portable ones.
 //!
-//! The store is written once, on the first boot that finds nothing valid. Flash
-//! erase stalls the CPU for tens of milliseconds per page, so a write must never
-//! land in the middle of a transfer; boot is the only place this module writes.
+//! # When this writes, and why that is the whole of pressure point 3
+//!
+//! A page erase stalls the CPU for tens of milliseconds, which blanks receive. The plan's
+//! third pressure point rules that writes must therefore not scatter through runtime, and
+//! that anything needing them stages in RAM and commits in a declared quiet window.
+//!
+//! That machinery has no caller, because there are exactly two write paths and both are
+//! quiet by construction:
+//!
+//! 1. **[`SettingsStore::load_or_create`]**, on a boot that finds nothing valid. Before the
+//!    radio is configured, so nothing is listening to blank.
+//! 2. **[`SettingsStore::save`]**, from the `region` and `channel` probes — each of which
+//!    *resets the board* immediately afterwards, unconditionally, even if the host vanished
+//!    before the reply landed. The erase is followed by a reboot, so the window it blanks is
+//!    one the board was about to leave anyway.
+//!
+//! The invariant to keep, stated for whoever adds the third path: **a write is either before
+//! the radio starts, or immediately before a reset.** A caller that wants neither — a
+//! runtime-persisted peer table, a crash record written where it happened — is the one that
+//! must build the staged-commit window, and it should re-read pressure point 3 first.
 
 use embassy_nrf::Peri;
 use embassy_nrf::mode::Blocking;
@@ -141,9 +158,9 @@ impl<'d> SettingsStore<'d> {
 
     /// Write new settings, keeping the identity that is already stored.
     ///
-    /// Erase stalls the CPU for tens of milliseconds, blanking receive, so this
-    /// belongs in a declared radio-quiet window and never beside live traffic.
-    /// See the plan's pressure point 3.
+    /// Erase stalls the CPU for tens of milliseconds, blanking receive. Every caller must
+    /// therefore reset the board immediately afterwards — see this module's header for the
+    /// invariant and why it discharges the plan's pressure point 3.
     pub fn save(&mut self, settings: &Settings) -> Result<Outcome, Error> {
         let mut page_a = [0_u8; SLOT_READ_LEN];
         let mut page_b = [0_u8; SLOT_READ_LEN];

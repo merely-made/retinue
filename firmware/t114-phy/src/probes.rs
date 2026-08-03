@@ -194,12 +194,17 @@ where
                 }
             }
         }
-        if host.write_all(reply.as_str().as_bytes()).await.is_err() {
-            return Outcome::HostGone;
-        }
+        // The reply is a courtesy; the reboot is the contract. By this point the settings
+        // are already committed to flash, so the board must come back on them — a host that
+        // vanished mid-reply must not leave it running on state it no longer has, with a
+        // page erase already spent outside any quiet window.
+        let reported = host.write_all(reply.as_str().as_bytes()).await;
         if reboot {
             Timer::after_millis(250).await;
             cortex_m::peripheral::SCB::sys_reset();
+        }
+        if reported.is_err() {
+            return Outcome::HostGone;
         }
         return Outcome::Served;
     }
@@ -228,9 +233,9 @@ where
                 }
             }
         };
-        if host.write_all(reply).await.is_err() {
-            return Outcome::HostGone;
-        }
+        // Same contract as the region probe: committed settings mean the reboot happens
+        // whether or not the host is still there to be told.
+        let reported = host.write_all(reply).await;
         if reboot {
             // Long enough for the reply to leave the USB endpoint. The
             // bootloader probe's 20 ms is not: it truncated this line at
@@ -238,6 +243,9 @@ where
             // packet was queued.
             Timer::after_millis(250).await;
             cortex_m::peripheral::SCB::sys_reset();
+        }
+        if reported.is_err() {
+            return Outcome::HostGone;
         }
         return Outcome::Served;
     }

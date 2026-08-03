@@ -115,8 +115,10 @@ pub trait BoardStore {
 
     /// Persist new settings, keeping the identity already stored.
     ///
-    /// Erase stalls the CPU for tens of milliseconds and blanks receive, so this belongs in a
-    /// declared radio-quiet window and never beside live traffic. See pressure point 3.
+    /// Erase stalls the CPU for tens of milliseconds and blanks receive, so a caller either
+    /// runs before the radio starts or resets the board immediately after. Pressure point 3
+    /// holds by that contract rather than by a staged-commit window; a caller that can do
+    /// neither has to build one.
     fn save(&mut self, settings: &crate::settings::Settings) -> Result<(), StoreFault>;
 }
 
@@ -214,8 +216,19 @@ pub struct Executive<'r, RK: RadioKind, DLY: DelayNs> {
     face: &'r Face,
     store: &'r mut dyn BoardStore,
     region: Region,
-    /// Whether listen-before-talk gates transmission. On by default; a bench turns it off
-    /// to A/B its cost, which is also the honest way to show it is doing something.
+    /// Whether listen-before-talk gates transmission.
+    ///
+    /// **Off by default, on measurement.** The mechanism works — a jammed board defers and
+    /// then takes its turn, receipted — but on this bench it costs the flagship exchange
+    /// real reliability: same image, same session, `listen=on` passed 3 of 8 byte-exact
+    /// runs and `listen=off` passed 8 of 8. The cost is latency, not loss (`cadgiveup=0`,
+    /// `cadover=0` throughout): ~66 ms of carrier sense before every frame, plus backoffs,
+    /// which desyncs a request/response loop whose retry intervals were tuned without it.
+    ///
+    /// That is the same defect N4 found in link setup — retry floors must derive from the
+    /// profile's airtime rather than from constants picked for fast links — and it is the
+    /// recorded follow-up this waits on. Turning citizenship on before then would trade a
+    /// measured, load-bearing receipt for a politeness nobody has asked for yet.
     listen_first: bool,
     /// Transmit milliseconds spent in the current duty window.
     duty_spent_ms: u64,
@@ -240,7 +253,7 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
             face,
             store,
             region,
-            listen_first: true,
+            listen_first: false,
             duty_spent_ms: 0,
             duty_window_start: None,
             diag: AirDiag::default(),
