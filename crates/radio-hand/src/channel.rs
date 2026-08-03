@@ -31,6 +31,8 @@ use lora_phy::mod_traits::RadioKind;
 use crate::executive::{Executive, Heartbeat};
 use crate::link::{Flow, HostLink};
 
+#[cfg(feature = "node")]
+pub mod face;
 pub mod modem;
 #[cfg(feature = "node")]
 pub mod node;

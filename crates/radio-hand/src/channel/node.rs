@@ -21,7 +21,9 @@ use core::fmt::Write as _;
 use embassy_time::{Duration, Instant};
 use lora_phy::DelayNs;
 use lora_phy::mod_traits::RadioKind;
+use radio_face::{EventKind, Text, UiEvent};
 use retinue::announce::RAND_HASH_LEN;
+use retinue::hash::AddressHash;
 use retinue::node::{Action, Actions, InterfaceId, Node};
 use retinue::packet::Packet;
 
@@ -51,7 +53,7 @@ const MAX_LINE: usize = 2 * selvage::MAX_RADIO_FRAME_LEN + 40;
 
 /// The board as a Retinue node.
 pub struct NodeChannel<const PEERS: usize = 32, const ACTIONS: usize = 8, const LINKS: usize = 4> {
-    node: Node<PEERS, ACTIONS, LINKS>,
+    pub(super) node: Node<PEERS, ACTIONS, LINKS>,
     /// Host bytes accumulated since the last newline. Host reads arrive in 64-byte chunks
     /// and a replay line is several hundred bytes, so a line spans many of them.
     line: heapless::Vec<u8, MAX_LINE>,
@@ -64,7 +66,7 @@ pub struct NodeChannel<const PEERS: usize = 32, const ACTIONS: usize = 8, const 
     /// Frames the node asked for that never reached the air. Counted rather than queued: a
     /// retransmit is the protocol's decision, not the shell's, and a shell that silently
     /// buffers would be lying to it about what happened.
-    unsent: u16,
+    pub(super) unsent: u16,
     /// Announces skipped because the board could not produce entropy.
     unseeded: u16,
     /// Frames that arrived but did not decode as a packet. Ordinary weather on a shared
@@ -74,6 +76,12 @@ pub struct NodeChannel<const PEERS: usize = 32, const ACTIONS: usize = 8, const 
     echoes: u16,
     /// Echoes refused because the link was gone or a transfer still held it.
     echo_refused: u16,
+    /// When each recently-heard peer last announced, most recent last. The address book
+    /// holds identity and keys; this holds the one thing it deliberately does not, a clock,
+    /// so the Peers panel can show genuine ages instead of a projected guess.
+    pub(super) heard: heapless::Vec<(AddressHash, u64), 8>,
+    /// The face's event line: the last thing worth telling a passer-by.
+    pub(super) last_event: Option<UiEvent>,
 }
 
 impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
@@ -90,6 +98,8 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
             undecoded: 0,
             echoes: 0,
             echo_refused: 0,
+            heard: heapless::Vec::new(),
+            last_event: None,
         }
     }
 
@@ -140,12 +150,15 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
                         self.unseeded = self.unseeded.saturating_add(1);
                         continue;
                     }
+                    let mut label = Text::<24>::empty();
+                    let _ = write!(&mut label, "echo {}b", data.len());
                     match self
                         .node
                         .publish(link_id, RADIO, &data, random_hash, &iv, Self::now())
                     {
                         Some(actions) => {
                             self.echoes = self.echoes.saturating_add(1);
+                            self.note_event(EventKind::Delivered, label.as_str());
                             echo = Some(actions);
                         }
                         // The link vanished or a transfer is still running on it. Counted,
@@ -153,7 +166,18 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
                         None => self.echo_refused = self.echo_refused.saturating_add(1),
                     }
                 }
-                _ => {}
+                // The face's living panels: peers stamp the recency table, links write the
+                // event line. All of it is this node's own state; nothing is projected.
+                Action::Learned { destination } => {
+                    self.note_heard(destination, Self::now());
+                }
+                Action::LinkUp { .. } => {
+                    self.note_event(EventKind::Info, "link up");
+                }
+                Action::LinkDown { .. } => {
+                    self.note_event(EventKind::Info, "link down");
+                }
+                Action::Data { .. } => {}
             }
         }
         if let Some(actions) = echo {
@@ -223,6 +247,43 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
                 self.undecoded,
                 self.echoes,
                 self.echo_refused,
+            );
+            return Flow::from(link.write_all(out.as_str().as_bytes()).await);
+        }
+
+        // The panels, as text: exactly the snapshot the screen renders, so a bench can
+        // assert panel content over the wire while the TFT paints the same struct.
+        if line == b"face" {
+            let snapshot = self.face_snapshot(Self::now());
+            let mut out = radio_face::Text::<224>::empty();
+            let _ = write!(
+                &mut out,
+                "face name={} links={} peers=[",
+                snapshot
+                    .node
+                    .as_ref()
+                    .map(|n| n.name.as_str())
+                    .unwrap_or("-"),
+                snapshot.link_count,
+            );
+            for (index, peer) in snapshot.peers.iter().flatten().enumerate() {
+                let _ = write!(
+                    &mut out,
+                    "{}{} age={}s",
+                    if index > 0 { " " } else { "" },
+                    peer.name,
+                    peer.age_secs,
+                );
+            }
+            let _ = write!(
+                &mut out,
+                "] overflow={} event={}\r\n",
+                snapshot.peer_overflow,
+                snapshot
+                    .event
+                    .as_ref()
+                    .map(|e| e.text.as_str())
+                    .unwrap_or("-"),
             );
             return Flow::from(link.write_all(out.as_str().as_bytes()).await);
         }
@@ -360,6 +421,8 @@ where
     /// answered without having to ask.
     async fn start(&mut self, exec: &mut Executive<'_, RK, DLY>, link: &mut L) -> Flow {
         exec.request_rx();
+        // The panels are live from the first moment of a session rather than a beat later.
+        exec.publish_host(self.face_snapshot(Self::now()));
         let mut line = [0_u8; 32];
         let text = b"channel=node dest=";
         line[..text.len()].copy_from_slice(text);
@@ -400,6 +463,11 @@ where
                 self.perform(exec, link, actions).await
             }
             Event::Beat => {
+                // The face first: every beat republishes the four panels from local state,
+                // which is what keeps them alive and fresh with no host attached. The
+                // snapshot's 15 s validity spans three beats of slack.
+                exec.publish_host(self.face_snapshot(Self::now()));
+
                 let mut rand_hash = [0_u8; RAND_HASH_LEN];
                 if exec.random(&mut rand_hash).is_err() {
                     // No entropy, so no announce. The node's timer is untouched, so the next
@@ -410,9 +478,9 @@ where
                 let actions = self.node.poll(Self::now(), RADIO, &rand_hash);
                 self.perform(exec, link, actions).await
             }
-            // The host protocol for this channel is gate N6, where the panels drive from
-            // board-local state. Until then a host is an observer: it may ask what this node
-            // has seen and done, and it may drive a replay.
+            // A host is an observer of this channel: it may ask what the node has seen and
+            // done (`node`, `face`), and it may drive a replay. The panels need none of
+            // this — they publish from local state on the beat.
             Event::HostBytes(bytes) => {
                 for &byte in bytes {
                     if byte != b'\n' {
