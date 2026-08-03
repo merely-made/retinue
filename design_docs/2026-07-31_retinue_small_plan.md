@@ -1,9 +1,10 @@
 # retinue-small plan
 
-**Status:** N0 proven on the T114 (power-loss leg open); N1 complete; N2 complete;
-N3 protocol half complete (announce, links, resources); channels-in-one-image
-ruled and built (structural decision 4) — executive, channel trait, modem and
-node channels, boot selection, all on hardware; fixture-corpus replay open
+**Status:** N0 proven on the T114 (power-loss leg open); N1, N2, N3 complete.
+Channels-in-one-image ruled and built (structural decision 4): executive,
+channel trait, modem and node channels, boot selection, all on hardware, with
+board and desk agreeing byte for byte on the fixture corpus. N4 next: announce
+and link over real RF.
 **Design authority:**
 [`2026-07-19_modem_embedded_and_meshtastic_research.md`](2026-07-19_modem_embedded_and_meshtastic_research.md)
 (*Native Retinue personality*) supplies the boundary and
@@ -967,8 +968,45 @@ harness leaves both boards on SF8/sync 0x12 while a rebooted board returns to
 SF11/sync 0x2b, so the two were not on the same air. Hearing an announce is N4's
 receipt and wants a real listener, not a serial peek.
 
-Remaining for N3: the fixture-corpus replay, so board and desktop are shown to
-produce identical Actions.
+**N3 COMPLETE, 2026-08-02: board and desk produce identical Actions.** The gate's
+done condition asked for exactly this, and it is now a measurement.
+
+**The machinery.** `radio_hand::replay` is one byte form for a set of Actions
+and one fixed identity both sides build a node from. It sits behind its own
+feature rather than under `node`, because nothing in it touches a radio and
+keeping it clear of `lora-phy`'s ungated `defmt` is what lets a host test link
+it — so half the comparison lives in CI and half is a hardware receipt, which is
+the same split every RF claim here already uses.
+
+**What makes the comparison mean anything is that every input is pinned.** The
+identity is a test key rather than the board's own, so both sides are the same
+node. The clock is passed in rather than read, so neither depends on when it
+ran. And `poll`'s entropy is caller-supplied — a decision the protocol layer
+made at N3's start for exactly this reason, which pays here. What remains is the
+protocol's own decisions, which is the only thing being compared.
+
+**The receipt: 13 of 13, byte for byte.** Twelve oracle-captured fixtures
+through `ingest` — four valid announces that must learn the same destination,
+six invalid ones that must produce nothing, and two link fixtures addressed
+elsewhere — plus a first `poll`, whose 231-byte signed announce the board built
+byte-identically to the desktop's. That last one is the strongest of the set: it
+exercises key derivation, signing, and packet framing, not just parsing.
+
+**Heap, measured rather than asserted.** A `heap` probe reports live allocation
+on demand, which is what the heltec doc's high-water condition actually needs
+now that something allocates. **6,304 of 49,152 bytes (12.8%)** with a replay
+node live, and **zero** in ordinary node operation — N1's bounded tables are all
+inline, so nothing persists on the heap until a replay node or a payload-carrying
+action exists.
+
+**A design point that earned its keep.** The node channel now assembles host
+lines, because a replay line is several hundred bytes arriving across many
+64-byte host reads. `ChannelInfo::at_boundary` — added a commit earlier for the
+modem's framed parser — is what stops a fragment of one being read as a board
+probe. It was speculative when written and load-bearing two days later.
+
+**v25:** flash 212,820 (26.6%), static RAM 75,340 (32%). Counted RF block on the
+modem channel: **8 of 8**. 256 tests.
 
 ## Non-goals
 
