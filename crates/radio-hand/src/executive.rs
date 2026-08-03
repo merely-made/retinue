@@ -128,6 +128,31 @@ pub struct Received {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RadioFault;
 
+/// What the executive has actually done with the radio, counted.
+///
+/// Diagnostics assert presence, not just cost: when a path is silently dead — a receive that
+/// never completes, an ensure that always fails — these counters are what says so, loudly and
+/// attributably, on a board with no console. The `air` probe prints them.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct AirDiag {
+    /// Times `ensure_rx` re-armed the receiver.
+    pub rx_armed: u16,
+    /// Times `ensure_rx` failed. Nonzero means the radio refused receive setup.
+    pub rx_arm_failed: u16,
+    /// Frames `receive` returned.
+    pub rx_ok: u16,
+    /// Times `receive` returned a fault.
+    pub rx_err: u16,
+    /// Transmissions accepted on the air.
+    pub tx_ok: u16,
+    /// Transmissions refused or timed out.
+    pub tx_err: u16,
+    /// Times the unattended wait woke for its heartbeat.
+    pub wait_beats: u16,
+    /// Times the unattended wait woke for a received frame.
+    pub wait_frames: u16,
+}
+
 /// The hardware every channel shares, and the only way a channel reaches it.
 ///
 /// A borrowed view rather than an owner. A board that holds one for the whole of `main` gets
@@ -141,6 +166,7 @@ pub struct Executive<'r, RK: RadioKind, DLY: DelayNs> {
     status: &'r mut LocalStatus,
     face: &'r Face,
     store: &'r mut dyn BoardStore,
+    diag: AirDiag,
 }
 
 impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
@@ -157,6 +183,21 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
             status,
             face,
             store,
+            diag: AirDiag::default(),
+        }
+    }
+
+    /// The executive's own account of the radio. See [`AirDiag`].
+    pub fn diag(&self) -> AirDiag {
+        self.diag
+    }
+
+    /// Count an unattended-wait wakeup; called by [`crate::channel::await_host`].
+    pub fn note_wait(&mut self, frame: bool) {
+        if frame {
+            self.diag.wait_frames = self.diag.wait_frames.saturating_add(1);
+        } else {
+            self.diag.wait_beats = self.diag.wait_beats.saturating_add(1);
         }
     }
 
@@ -208,10 +249,16 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
         if !self.radio.prepare_rx {
             return Ok(false);
         }
-        self.lora
+        if self
+            .lora
             .prepare_for_rx(RxMode::Continuous, &self.radio.modulation, &self.radio.rx)
             .await
-            .map_err(|_| RadioFault)?;
+            .is_err()
+        {
+            self.diag.rx_arm_failed = self.diag.rx_arm_failed.saturating_add(1);
+            return Err(RadioFault);
+        }
+        self.diag.rx_armed = self.diag.rx_armed.saturating_add(1);
         self.radio.prepare_rx = false;
         Ok(true)
     }
@@ -224,12 +271,16 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
     /// a heartbeat without dropping packets.
     pub async fn receive(&mut self, buffer: &mut [u8]) -> Result<Received, RadioFault> {
         match self.lora.rx(&self.radio.rx, buffer).await {
-            Ok((len, status)) => Ok(Received {
-                len: usize::from(len),
-                rssi: status.rssi,
-                snr: status.snr,
-            }),
+            Ok((len, status)) => {
+                self.diag.rx_ok = self.diag.rx_ok.saturating_add(1);
+                Ok(Received {
+                    len: usize::from(len),
+                    rssi: status.rssi,
+                    snr: status.snr,
+                })
+            }
             Err(_) => {
+                self.diag.rx_err = self.diag.rx_err.saturating_add(1);
                 self.radio.prepare_rx = true;
                 Err(RadioFault)
             }
@@ -256,11 +307,17 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
         if !prepared {
             return selvage::TX_RADIO_FAULT;
         }
-        match with_timeout(TX_DEADLINE, self.lora.tx()).await {
+        let code = match with_timeout(TX_DEADLINE, self.lora.tx()).await {
             Ok(Ok(())) => selvage::TX_ACCEPTED,
             Ok(Err(_)) => selvage::TX_RADIO_FAULT,
             Err(_) => selvage::TX_TIMEOUT,
+        };
+        if code == selvage::TX_ACCEPTED {
+            self.diag.tx_ok = self.diag.tx_ok.saturating_add(1);
+        } else {
+            self.diag.tx_err = self.diag.tx_err.saturating_add(1);
         }
+        code
     }
 
     /// Apply a host profile, committing it only if every step passed.

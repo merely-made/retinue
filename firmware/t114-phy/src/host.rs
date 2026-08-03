@@ -33,7 +33,12 @@ pub async fn serve_status_only<'d, D: Driver<'d>>(
     status: &'static [u8],
 ) -> ! {
     loop {
+        // The same terminal gate as `attached()`: a degraded board writing its status into
+        // an unread endpoint would block exactly the way a healthy one did.
         class.wait_connection().await;
+        while !class.dtr() {
+            embassy_time::Timer::after_millis(50).await;
+        }
         let mut host = UsbHost::new(class);
         if host.write_all(status).await.is_ok() {
             let mut buffer = [0_u8; USB_PACKET];
@@ -53,8 +58,24 @@ pub async fn serve_status_only<'d, D: Driver<'d>>(
 }
 
 impl<'d, D: Driver<'d>> HostLink for UsbHost<'d, D> {
+    /// Wait for a terminal, not merely for USB.
+    ///
+    /// `wait_connection()` alone is `wait_enabled()`: it completes as soon as the *device*
+    /// is configured, which a plugged-in board always is, host application or none. Gating a
+    /// session on it made an unattended board start phantom sessions against nobody — and
+    /// because a banner write into an unread endpoint can stall, the board then spent its
+    /// life blocked in USB writes instead of selecting on the radio. That was the whole
+    /// mechanism of the N4 deafness: `air` showed `beats=0 frames=0` with `txok=1`, meaning
+    /// the unattended wait never actually waited.
+    ///
+    /// A terminal is what asserts DTR, so DTR is the signal. Polled, because embassy-usb
+    /// exposes it as a getter; 50 ms is far below human attach latency and costs nothing
+    /// against the radio work this select shares.
     async fn attached(&mut self) {
         self.class.wait_connection().await;
+        while !self.class.dtr() {
+            embassy_time::Timer::after_millis(50).await;
+        }
     }
 
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, LinkFault> {

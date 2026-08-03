@@ -427,6 +427,31 @@ async fn main(spawner: Spawner) {
                         }
                         continue;
                     }
+                    // The executive's own account of the radio: what actually armed, what
+                    // actually arrived, and which arm the unattended wait woke on. This is
+                    // the probe that distinguishes "silently dead path" from "nothing to
+                    // hear", which no other surface can.
+                    if at_boundary && (packet == b"air\n" || packet == b"air\r\n") {
+                        let d = exec.diag();
+                        let mut reply = radio_face::Text::<128>::empty();
+                        let _ = write!(
+                            &mut reply,
+                            "air armed={} armfail={} rxok={} rxerr={} txok={} txerr={} \
+                             beats={} frames={}\r\n",
+                            d.rx_armed,
+                            d.rx_arm_failed,
+                            d.rx_ok,
+                            d.rx_err,
+                            d.tx_ok,
+                            d.tx_err,
+                            d.wait_beats,
+                            d.wait_frames,
+                        );
+                        if host.write_all(reply.as_str().as_bytes()).await.is_err() {
+                            break;
+                        }
+                        continue;
+                    }
                     // Live allocation. The boot line reports it once, when it is zero by
                     // construction; this reports it whenever asked, which is what the heltec
                     // doc's heap high-water done condition actually needs now that the node

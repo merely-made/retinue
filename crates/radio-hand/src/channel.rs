@@ -239,6 +239,7 @@ pub async fn await_host<C, L, RK, DLY>(
         match woken {
             Either3::First(()) => return,
             Either3::Second(Ok(received)) => {
+                exec.note_wait(true);
                 channel
                     .serve(
                         exec,
@@ -255,6 +256,7 @@ pub async fn await_host<C, L, RK, DLY>(
             // re-prepare, so the next turn of this loop repairs it.
             Either3::Second(Err(_)) => {}
             Either3::Third(()) => {
+                exec.note_wait(false);
                 channel.serve(exec, host, Event::Beat).await;
             }
         }
