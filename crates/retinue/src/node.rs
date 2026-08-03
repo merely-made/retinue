@@ -226,6 +226,12 @@ pub struct Node<const PEERS: usize = 32, const ACTIONS: usize = 8, const LINKS: 
     iv_counter: u32,
     /// Link requests refused because the table was full. Visible rather than silent.
     refused_links: u16,
+    /// Announces refused because the address book was full. The book keeps serving every
+    /// peer it already knows; this says how many new ones were turned away.
+    refused_peers: u16,
+    /// Resource offers refused: an advertisement past the part ceiling, or arriving with
+    /// every receiver slot held. The peer's ambition, counted rather than honoured.
+    refused_offers: u16,
 }
 
 impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, ACTIONS, LINKS> {
@@ -244,6 +250,8 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
             senders: BoundedVec::new(),
             iv_counter: 0,
             refused_links: 0,
+            refused_peers: 0,
+            refused_offers: 0,
         }
     }
 
@@ -284,6 +292,17 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
     /// for the traffic this node sees, and peers are being turned away.
     pub fn refused_links(&self) -> u16 {
         self.refused_links
+    }
+
+    /// Announces turned away by a full address book. See [`Node::refused_links`] for the
+    /// posture: refusals are visible, never silent.
+    pub fn refused_peers(&self) -> u16 {
+        self.refused_peers
+    }
+
+    /// Resource offers turned away, by the part ceiling or by full receiver slots.
+    pub fn refused_offers(&self) -> u16 {
+        self.refused_offers
     }
 
     /// Publish a resource on an established link.
@@ -396,12 +415,14 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
                 // `Announce::decode` verifies the signature and that the destination hash
                 // matches the announced identity, so an entry can only come from an
                 // announce whose maths checked out. The invalid fixtures are the proof.
-                if let Ok(announce) = Announce::decode(packet)
-                    && self.book.ingest(&announce) != Ingested::Refused
-                {
-                    actions.push(Action::Learned {
-                        destination: announce.destination,
-                    });
+                if let Ok(announce) = Announce::decode(packet) {
+                    if self.book.ingest(&announce) == Ingested::Refused {
+                        self.refused_peers = self.refused_peers.saturating_add(1);
+                    } else {
+                        actions.push(Action::Learned {
+                            destination: announce.destination,
+                        });
+                    }
                 }
             }
             PacketType::LinkRequest => self.on_link_request(interface, packet, &mut actions),
@@ -561,6 +582,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
             Some(pos) => pos,
             None => {
                 if self.receivers.is_full() {
+                    self.refused_offers = self.refused_offers.saturating_add(1);
                     return;
                 }
                 let link = self.links[link_index].0.clone();
@@ -584,6 +606,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
         // between refusing one oversized offer and refusing every peer afterwards.
         if is_new && replies.is_empty() && self.receivers[pos].1.data().is_none() {
             self.receivers.swap_remove(pos);
+            self.refused_offers = self.refused_offers.saturating_add(1);
             return;
         }
 

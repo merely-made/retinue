@@ -205,16 +205,19 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
     {
         if line == b"node" {
             let status = exec.status();
-            let mut out = radio_face::Text::<192>::empty();
+            let mut out = radio_face::Text::<224>::empty();
             let _ = write!(
                 &mut out,
-                "node tx={} rx={} peers={} links={} refused={} unsent={} \
-                 unseeded={} undecoded={} echoes={} echorefused={}\r\n",
+                "node tx={} rx={} peers={} links={} refusedlinks={} refusedpeers={} \
+                 refusedoffers={} unsent={} unseeded={} undecoded={} echoes={} \
+                 echorefused={}\r\n",
                 status.tx_frames,
                 status.rx_frames,
                 self.node.peers().len(),
                 self.node.link_count(),
                 self.node.refused_links(),
+                self.node.refused_peers(),
+                self.node.refused_offers(),
                 self.unsent,
                 self.unseeded,
                 self.undecoded,
