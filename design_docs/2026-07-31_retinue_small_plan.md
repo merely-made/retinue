@@ -1,10 +1,10 @@
 # retinue-small plan
 
-**Status:** N0 proven on the T114 (power-loss leg open); N1, N2, N3 complete.
-Channels-in-one-image ruled and built (structural decision 4): executive,
-channel trait, modem and node channels, boot selection, all on hardware, with
-board and desk agreeing byte for byte on the fixture corpus. N4 next: announce
-and link over real RF.
+**Status:** N0 proven on the T114 (power-loss leg open); N1, N2, N3, N4
+complete. Channels-in-one-image ruled and built (structural decision 4), board
+and desk agree byte for byte on the fixture corpus, and desktop Retinue links
+with the board over real RF, 9 of 10 counted. N5 next: reliable data both ways,
+survival, and the adversarial set.
 **Design authority:**
 [`2026-07-19_modem_embedded_and_meshtastic_research.md`](2026-07-19_modem_embedded_and_meshtastic_research.md)
 (*Native Retinue personality*) supplies the boundary and
@@ -1007,6 +1007,66 @@ probe. It was speculative when written and load-bearing two days later.
 
 **v25:** flash 212,820 (26.6%), static RAM 75,340 (32%). Counted RF block on the
 modem channel: **8 of 8**. 256 tests.
+
+**N4 COMPLETE, 2026-08-03: desktop Retinue links with the board over real RF,
+9 of 10.** The board announces from its own clock, the desktop hears it through
+a V4 modem, opens a link, and the board's proof completes it — one request, one
+proof, ~10.3 s per pass at SF11/250 kHz, a distinct ephemeral link id every run.
+The counted block reboots the board per run, so each pass is the whole loop:
+boot → announce → discovery → request → proof → established. One setup timeout
+logged as the failure.
+
+Two defects, both invisible to every receipt taken before this gate:
+
+**The board's unattended wait never waited.** embassy-usb's `wait_connection()`
+is `wait_enabled()`: it completes when the *device* is configured, which a
+plugged-in board always is, terminal or none. So the board started phantom
+sessions against nobody, banner writes into an unread endpoint stalled, and the
+select that should have been listening never ran — announces went out (the beat
+still fired between stalls), which made the board look alive while it was deaf.
+Diagnosed by the executive's new `AirDiag` counters after three cornered-but-
+inconclusive instrumented runs: `beats=0 frames=0` with `txok=1` says the
+unattended wait was never reached, which no amount of RF observation could
+distinguish from a radio fault. `UsbHost::attached()` now gates on DTR — the
+thing a terminal actually asserts. The probe script's own comment claiming
+wait_connection gates on DTR was my earlier wrong inference, recorded and
+corrected.
+
+**The desktop's link-setup retry collided with the answer it was retrying
+for.** `DEFAULT_LINK_SETUP_RETRY_MS = 2000`; at SF11 the request is ~0.9 s of
+air and the proof ~1.4 s more, so every retry fired straight into the proof —
+while the half-duplex board missed that retry because it was still transmitting
+its answer. Both sides lost in perfect synchrony, run after run: the board
+held `links=1` with four proofs sent, and the desktop timed out having heard
+none of them. The harness sets a 12 s retry; **a follow-up for the tulle lane:
+link-setup and reliable-channel retry floors must be derived from the profile's
+airtime, not inherited from defaults tuned for fast links.**
+
+**The three-radio method earned a permanent place.** With both V4s on the bench,
+one carries the desktop and the other sniffs the same air (`node_sniff`,
+printing decoded packet type, destination, RSSI and full hex). That is what
+split "the proof was on the air" from "the proof reached the desktop process"
+— and the harness's frame-logging radio wrapper (`LoggedRadio` in `node_link`)
+closed the remaining gap by showing the desktop's own serial view. A stale-
+serial-buffer hazard surfaced on the way: a modem's unread EVENT_RX frames from
+a previous run are delivered to whoever opens the port next, so a harness can
+"hear" an announce from a board that has not spoken. Drain or ignore-first
+applies; the fixed harness matches by destination, which is immune.
+
+**Receipts, all on v27:**
+
+- N4 counted block: **9 of 10** boot-to-link passes, every pass ~10.3 s, every
+  failure logged (one setup timeout).
+- Board diag on a passing run: `armed=4 armfail=0 rxok=1 rxerr=0 txok=2
+  txerr=0 beats=2 frames=1` — one request heard, one proof sent, nothing
+  wasted, and the unattended wait demonstrably waiting.
+- Modem regression on the same image: **7 of 8** byte-exact, in the established
+  band, so the DTR gate did not disturb the personality that already shipped.
+
+The double-announce anomaly seen mid-diagnosis is explained by the same root
+cause: phantom sessions restarting around stalled writes. It has not
+reproduced since the DTR gate landed — announce cadence was exactly one per
+boot across all ten counted runs.
 
 ## Non-goals
 
