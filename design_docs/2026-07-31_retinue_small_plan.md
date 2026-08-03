@@ -1,10 +1,9 @@
 # retinue-small plan
 
 **Status:** N0 proven on the T114 (power-loss leg open); N1, N2, N3, N4
-complete. Channels-in-one-image ruled and built (structural decision 4), board
-and desk agree byte for byte on the fixture corpus, and desktop Retinue links
-with the board over real RF, 9 of 10 counted. N5 next: reliable data both ways,
-survival, and the adversarial set.
+complete; N5 first leg done — byte-exact data both directions over RF (8 of 8
+counted) with loss recovery in poll. N5 remainder: mid-transfer reboot,
+capacity errors under live traffic, the adversarial set, and current figures.
 **Design authority:**
 [`2026-07-19_modem_embedded_and_meshtastic_research.md`](2026-07-19_modem_embedded_and_meshtastic_research.md)
 (*Native Retinue personality*) supplies the boundary and
@@ -1067,6 +1066,45 @@ The double-announce anomaly seen mid-diagnosis is explained by the same root
 cause: phantom sessions restarting around stalled writes. It has not
 reproduced since the DTR gate landed — announce cadence was exactly one per
 boot across all ten counted runs.
+
+**N5 first leg, 2026-08-03: byte-exact data both directions, 8 of 8, and the
+survive-loss mechanism built.** The exchange: desktop publishes a resource to
+the board over the link, the board's loopback service — its first application —
+publishes the same bytes back, and one comparison proves both directions and
+both halves of the board's transfer machinery. Counted block: **8 of 8**
+boot-to-exchange passes, 1024 bytes each way, byte-exact every time, uniform
+~56 s per run at SF11.
+
+**The first hardware run failed exactly where N3's note said it would.** One
+2-second frame lost on the air stalled a five-part transfer forever: the
+receiver waited (correctly, per its design) for a retransmit driver that did
+not exist. "Link timeouts and resource retransmits `poll` will own as the
+gates land" — this is that gate. `Node::poll` now redrives silent transfers on
+`RESOURCE_RETRY_INTERVAL` (12 s; the airtime-derived floor remains the recorded
+follow-up): a receiver re-requests exactly what it is missing, a sender
+re-offers an advertisement nobody answered. `ingest` stops discarding `now`,
+and transfers carry a last-activity stamp. The counted block shows the
+mechanism load-bearing, not decorative: every run engages it and completes in
+the same ~56 s.
+
+**Found while wiring it: an IV-reuse defect.** The derived resource IV counter
+was a per-call local, so every ingest call replayed the same IV sequence under
+the same link key — against the sealing contract's "must not repeat". The
+counter is node state now, never reset, and a test pins that the same request
+sealed twice differs. Desk tests also cover the lost-part re-request (with a
+before/after-the-interval boundary), the lost-advertisement re-offer, and the
+existing corpus is untouched: 123 protocol tests.
+
+**Board on a passing run:** `rxok=14 txok=13 armfail=0 rxerr=0 txerr=0
+echoes=1 echorefused=0`, heap high-water 1,392 of 49,152 with the link still
+established. The `node` probe now reports the echo counters.
+
+Remaining for N5: recovery after a mid-transfer reboot; the N1 capacity errors
+re-proven under live traffic (full tables rejecting with typed outcomes while
+the node stays operational); the heltec doc's adversarial set (fuzzed frames,
+full route table, full queue, entropy failure, flash corruption, resource
+cancellation); and the idle/receive/transmit current figures, which need a
+meter on the bench.
 
 ## Non-goals
 
