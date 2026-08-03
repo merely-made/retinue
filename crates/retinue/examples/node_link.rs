@@ -123,12 +123,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let endpoint = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x41; 64]));
     endpoint.set_link_mtu(255);
-    // The retry must clear the whole round trip, or it collides with the answer it is
-    // retrying for: at SF11/250 the request is ~0.9 s of air, the board's proof ~1.4 s more,
-    // and a default tuned for fast links fires the next request straight into the proof —
-    // while the board, half-duplex, misses that retry because it is still transmitting.
-    // Both sides lose, every time, in perfect synchrony.
-    endpoint.set_link_setup_retry(Duration::from_secs(12));
+    // Derived from the profile rather than picked. This is the case `tulle::pacing` was
+    // built for: the 2 s default fired its retry straight into the proof it was waiting
+    // for, and a hand-picked 12 s fixed it without saying why 12. The floor says 3.0 s at
+    // this profile — a request out and a proof back, plus margin.
+    let params = tulle::lora::LoRaParams::try_from(board_boot_profile())?;
+    let setup_retry = tulle::pacing::link_setup_retry(&params, false);
+    println!("pacing: link setup retry {setup_retry:?} (derived)");
+    endpoint.set_link_setup_retry(setup_retry);
     let interface = endpoint.attach_interface();
     let driver = tokio::spawn(drive(interface, radio));
 

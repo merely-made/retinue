@@ -128,9 +128,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     println!("discovery: byte-carriage destination announced over direct PHY");
 
+    // Pacing derived from the profile rather than picked as a constant. The 3 s retry
+    // this used to carry is below the SF11 floor: a request and the part answering it do
+    // not both clear in three seconds, so a retry landed on top of its own answer. See
+    // `tulle::pacing` for the three separate defects that traced to this.
+    let params = tulle::lora::LoRaParams::try_from(profile(bandwidth_hz))?;
+    let listen_first = std::env::var("TULLE_LISTEN_FIRST").is_ok();
+    let retry_interval = tulle::pacing::resource_retry(&params, listen_first);
+    println!(
+        "pacing: retry {:?} (derived, listen_first={listen_first})",
+        retry_interval
+    );
     let transfer = ResourceTransferConfig {
         timeout: Duration::from_secs(timeout_secs),
-        retry_interval: Duration::from_secs(3),
+        retry_interval,
         request_window: 1,
     };
     let expected = input.clone();

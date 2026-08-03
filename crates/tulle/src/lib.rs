@@ -16,6 +16,7 @@ pub mod kiss;
 pub mod link;
 pub mod lora;
 pub mod modem;
+pub mod pacing;
 #[cfg(feature = "serial-async")]
 pub mod radio_io;
 pub mod rnode;
