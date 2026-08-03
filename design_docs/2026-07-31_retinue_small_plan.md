@@ -8,10 +8,11 @@ the board persists its identity, announces, links, exchanges byte-exact data
 with loss recovery, survives abuse and mid-transfer reboots, and shows its own
 state on its own face. What remains beyond the gates: pressure points 1
 (regulatory floor), 2 (channel citizenship), and the supervised reboot are
-BUILT; still open are quiet-window writes — which may already be discharged,
-since every settings write today persists and immediately reboots, leaving the
-staged-commit machinery without a caller until BLE or a runtime-persisted
-NodeDB creates one — and the foreign-mesh channels behind their own gates.
+BUILT; pressure point 3
+(quiet-window writes) is DISCHARGED by verification rather than machinery, with
+the one gap it exposed closed. Channel citizenship ships built but defaulted
+off, on measurement. Still open: the airtime-derived retry floors that gate
+turning it on, and the foreign-mesh channels behind their own gates.
 **Design authority:**
 [`2026-07-19_modem_embedded_and_meshtastic_research.md`](2026-07-19_modem_embedded_and_meshtastic_research.md)
 (*Native Retinue personality*) supplies the boundary and
@@ -1306,18 +1307,67 @@ retry budget was tried first and was wrong in an instructive way — it spent
 itself while the channel was still busy and gave up exactly when the air
 cleared, which is the worst possible moment.
 
-**Receipts on v35:**
+**Receipts, and a correction I had to make to my own.** The first version of
+this entry claimed the counted modem block at "8 of 8, the best the series has
+recorded" as proof the bounded budget fixed the starvation. That was wrong, and
+the counters had already said so: `cadgiveup=0` in *both* the 4-of-8 and the
+8-of-8 blocks means the policy change could not have been the difference. I saw
+the inconsistency and shipped the narrative anyway. Three more blocks settled
+it — v36, differing only in probe reply ordering and comments, scored 3 of 8 —
+and then the A/B that should have come first, same image and same session:
 
-- Counted modem block: **8 of 8**, the best the series has recorded, with
-  `cadbusy=82` across 200 transmits proving deference is real and `cadover=0`
-  proving the budget was never exhausted in ordinary traffic.
-- Under `node_jam` (a new bench instrument that holds the channel busy):
-  `cadbusy=8 cadover=1 txok=1 unsent=0` — deferred through the budget, took its
-  turn, lost nothing. The same jam against the defer-forever build gave
-  `cadgiveup=1 txok=0 unsent=1`.
-- Quiet air: `cadclear=1` on the boot announce.
-- `cad on|off` toggles it at runtime and is never persisted, so every boot is a
-  good citizen and a bench asks for the comparison each time.
+| listen-before-talk | counted modem block |
+|---|---|
+| on | **3 of 8** |
+| off | **8 of 8** |
+
+So the cost is real and CAD is its cause. It is *latency*, not loss:
+`cadgiveup=0` and `cadover=0` throughout, so nothing was dropped and no frame
+exhausted its budget. About 66 ms of carrier sense before every frame, plus
+randomised backoffs, desyncs a request/response loop whose retry intervals were
+tuned without it — the same defect N4 found in link setup, where retry floors
+must derive from the profile's airtime rather than from constants picked for
+fast links.
+
+**Listen-before-talk therefore defaults OFF.** The mechanism stays built and
+reachable with `cad on`, and is receipted where it matters: under `node_jam`
+(a new bench instrument holding the channel busy) a deferring board shows
+`cadbusy=8 cadover=1 txok=1 unsent=0` — deferring through the courtesy budget,
+taking its turn, losing nothing. The same jam against the defer-forever build
+gave `cadgiveup=1 txok=0 unsent=1`. Quiet air gives `cadclear=1` on the boot
+announce. v37 with the corrected default: 6 of 8, inside the historical band.
+
+**Turning it on by default is gated on the airtime-derived retry work**, which
+was already a recorded follow-up. Doing it sooner trades a measured,
+load-bearing receipt for a politeness nobody has asked for yet.
+
+**The lesson, since it cost real time: a single counted block is not a receipt
+when the mechanism does not explain it.** The receipt rule was written for
+flaky RF, but its deeper point is that agreement between a number and a story
+has to be checked, not assumed — and the A/B with a control on the same
+hardware is what checks it.
+
+**Pressure point 3 DISCHARGED by verification, 2026-08-03.** The ruling asks
+that flash writes stage in RAM and commit in a declared quiet window. That
+machinery has no caller, and the check is what establishes it rather than the
+assumption: there are exactly two write paths, `load_or_create` on a boot that
+finds nothing valid (before the radio is configured) and `save` from the
+`region` and `channel` probes (each followed immediately by a reset).
+
+**The check found one real gap.** Both probes returned `HostGone` if the reply
+write failed — *before* the reset — so a host vanishing mid-reply left the
+board running on stale in-memory settings with a page erase already spent
+outside any quiet window. The reply is a courtesy; the reboot is the contract.
+Both now reset unconditionally once the settings are committed, proven on
+hardware by sending `region us915` and closing the port without reading:
+`reset=soft`, sequence advanced, board back on the new settings.
+
+The invariant is recorded in `store.rs` for whoever adds the third path: **a
+write is either before the radio starts, or immediately before a reset.** A
+caller that can do neither — a runtime-persisted peer table, a crash record
+written where it happened — is the one that must build the staged window, and
+the stale claim that "boot is the only place this module writes" is corrected
+along with it.
 
 **Costs and limits, owned.** CAD is 8 symbols at the current profile, about
 66 ms at SF11/250 kHz, before every frame. Deferral adds a randomised 20-180 ms
