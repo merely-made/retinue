@@ -20,9 +20,11 @@ use lora_phy::LoRa;
 use lora_phy::sx126x::{Config as Sx126xConfig, Sx126x, Sx1262, TcxoCtrlVoltage};
 use panic_halt as _;
 use radio_hand::channel::modem::ModemChannel;
-use radio_hand::channel::{Channel, ChannelInfo, Event};
+use radio_hand::channel::node::NodeChannel;
+use radio_hand::channel::{Channel, ChannelInfo, Event, Personality};
 use radio_hand::executive::{Executive, Face, Heartbeat, RadioState};
 use radio_hand::link::{Flow, HostLink};
+use radio_hand::settings::{Channel as BootChannel, Settings};
 use selvage::{MESHTASTIC_SYNC_WORD, sx126x_sync_word};
 use static_cell::StaticCell;
 
@@ -77,6 +79,27 @@ fn describe_node(node: Option<&retinue::node::Node<32, 8, 4>>, out: &mut [u8; 64
     len
 }
 
+/// What a `channel` line asked for.
+enum ChannelProbe {
+    /// `channel` — say which personality boots.
+    Report,
+    /// `channel modem` or `channel node` — persist a choice and reboot into it.
+    Set(BootChannel),
+}
+
+/// Read a host line as a channel probe, tolerating either line ending.
+fn channel_probe(packet: &[u8]) -> Option<ChannelProbe> {
+    let line = packet
+        .strip_suffix(b"\r\n")
+        .or_else(|| packet.strip_suffix(b"\n"))?;
+    match line {
+        b"channel" => Some(ChannelProbe::Report),
+        b"channel modem" => Some(ChannelProbe::Set(BootChannel::Modem)),
+        b"channel node" => Some(ChannelProbe::Set(BootChannel::Node)),
+        _ => None,
+    }
+}
+
 fn publish_fault(status: &mut radio_face::LocalStatus, code: u8, message: &'static str) {
     status.radio = radio_face::RadioState::Fault;
     status.fault = Some(radio_face::Fault {
@@ -90,35 +113,6 @@ fn publish_online(status: &mut radio_face::LocalStatus) {
     status.radio = radio_face::RadioState::Online;
     status.fault = None;
     ui::publish(*status, radio_face::LedSignal::Idle);
-}
-
-async fn write_all(class: &mut CdcAcmClass<'static, UsbDriver>, bytes: &[u8]) -> bool {
-    for chunk in bytes.chunks(USB_PACKET) {
-        if class.write_packet(chunk).await.is_err() {
-            return false;
-        }
-    }
-    true
-}
-
-async fn serve_status_only(mut class: CdcAcmClass<'static, UsbDriver>, status: &'static [u8]) -> ! {
-    loop {
-        class.wait_connection().await;
-        if !write_all(&mut class, status).await {
-            continue;
-        }
-        let mut buffer = [0_u8; USB_PACKET];
-        while let Ok(length) = class.read_packet(&mut buffer).await {
-            let reply = if &buffer[..length] == b"sync\n" || &buffer[..length] == b"sync\r\n" {
-                b"2b 24b4\r\n".as_slice()
-            } else {
-                status
-            };
-            if !write_all(&mut class, reply).await {
-                break;
-            }
-        }
-    }
 }
 
 #[embassy_executor::task]
@@ -140,10 +134,11 @@ async fn main(spawner: Spawner) {
     // erases and writes a flash page, which stalls the CPU for tens of
     // milliseconds, so it belongs here rather than anywhere near live traffic.
     // The identity stays on the board; the channel says what to boot into.
+    // The store stays alive for the whole run rather than being read and dropped: the
+    // executive owns the board's flash and entropy, and both live here.
+    let mut store = store::SettingsStore::new(p.NVMC, p.RNG);
     let mut identity_line = [0_u8; 48];
-    let (settings, identity_line_len) = match store::SettingsStore::new(p.NVMC, p.RNG)
-        .load_or_create()
-    {
+    let (settings, identity_line_len) = match store.load_or_create() {
         Ok((settings, outcome)) => (Some(settings), store::describe(outcome, &mut identity_line)),
         Err(_) => {
             let message = b"identity=unavailable\r\n";
@@ -152,9 +147,7 @@ async fn main(spawner: Spawner) {
         }
     };
 
-    // The node this board answers as, built from the persisted identity. Built here so the
-    // protocol is genuinely linked and its cost is a measurement rather than an estimate.
-    // The channel that drives it is the next step; for now it exists and reports itself.
+    // The node this board answers as, built from the persisted identity.
     let node = settings.map(|settings| {
         retinue::node::Node::<32, 8, 4>::new(
             retinue::identity::PrivateIdentity::from_secret_bytes(&settings.identity),
@@ -252,7 +245,7 @@ async fn main(spawner: Spawner) {
         Ok(Ok(lora)) => lora,
         Ok(Err(_)) => {
             publish_fault(&mut local_status, 1, "SX1262 INIT");
-            serve_status_only(
+            host::serve_status_only(
                 class,
                 b"tulle/t114 phy online; sx1262 init failed\r\n".as_slice(),
             )
@@ -260,7 +253,7 @@ async fn main(spawner: Spawner) {
         }
         Err(_) => {
             publish_fault(&mut local_status, 1, "SX1262 TIMEOUT");
-            serve_status_only(
+            host::serve_status_only(
                 class,
                 b"tulle/t114 phy online; sx1262 init timed out\r\n".as_slice(),
             )
@@ -277,14 +270,15 @@ async fn main(spawner: Spawner) {
         Ok(params) => params,
         Err(_) => {
             publish_fault(&mut local_status, 2, "PHY PARAMS");
-            serve_status_only(class, b"tulle/t114 phy modulation invalid\r\n".as_slice()).await
+            host::serve_status_only(class, b"tulle/t114 phy modulation invalid\r\n".as_slice())
+                .await
         }
     };
     let tx_params = match lora.create_tx_packet_params(16, false, true, false, &modulation) {
         Ok(params) => params,
         Err(_) => {
             publish_fault(&mut local_status, 3, "TX PARAMS");
-            serve_status_only(
+            host::serve_status_only(
                 class,
                 b"tulle/t114 phy tx parameters invalid\r\n".as_slice(),
             )
@@ -295,7 +289,7 @@ async fn main(spawner: Spawner) {
         Ok(params) => params,
         Err(_) => {
             publish_fault(&mut local_status, 4, "RX PARAMS");
-            serve_status_only(
+            host::serve_status_only(
                 class,
                 b"tulle/t114 phy rx parameters invalid\r\n".as_slice(),
             )
@@ -321,15 +315,30 @@ async fn main(spawner: Spawner) {
         publish_host: ui::publish_host,
     };
     // Held for the rest of `main`, which is what makes the boundary real on this board:
-    // nothing below can reach `lora` again, because the executive has it.
-    let mut exec = Executive::new(&mut lora, &mut radio, &mut local_status, &face);
+    // nothing below can reach `lora`, the flash, or the RNG again, because the executive
+    // has all three.
+    let mut exec = Executive::new(&mut lora, &mut radio, &mut local_status, &face, &mut store);
 
-    // The personality this board answers as. Fixed for the life of the boot: switching is by
-    // reboot, per structural decision 4, so nothing below ever has to hand the radio over.
-    let mut channel = ModemChannel::new(Sx126xDiagnostics);
+    // The personality this board answers as, chosen from the persisted settings and fixed
+    // for the life of the boot: switching is by reboot, per structural decision 4, so
+    // nothing below ever has to hand the radio over.
+    //
+    // A board with no readable identity gets the modem regardless of what the settings ask
+    // for. That is the recovery posture rather than a fallback of convenience: the modem
+    // needs nothing but a radio and a host, so it is the one personality that cannot be
+    // denied by a bad store.
+    let mut channel = match (settings.map(|s| s.channel), node) {
+        (Some(BootChannel::Node), Some(node)) => Personality::Node(NodeChannel::new(node)),
+        _ => Personality::Modem(ModemChannel::new(Sx126xDiagnostics)),
+    };
+
+    // Outside the session loop on purpose. A channel that runs without a host keeps its
+    // clock across every attach and detach, so its announce cadence is the board's own and
+    // not a function of when somebody plugged in a cable.
+    let mut heartbeat = Heartbeat::new(channel.heartbeat());
 
     loop {
-        host.attached().await;
+        radio_hand::channel::await_host(&mut channel, &mut exec, &mut host, &mut heartbeat).await;
         exec.status_mut().host = radio_face::HostState::Attached;
         exec.publish(radio_face::LedSignal::Idle);
         if host.write_all(online).await.is_err()
@@ -344,7 +353,6 @@ async fn main(spawner: Spawner) {
             exec.publish(radio_face::LedSignal::Idle);
             continue;
         }
-        let mut heartbeat = Heartbeat::new(channel.heartbeat());
 
         loop {
             match exec.ensure_rx().await {
@@ -416,6 +424,44 @@ async fn main(spawner: Spawner) {
                     if at_boundary && (packet == b"status\n" || packet == b"status\r\n") {
                         if host.write_all(online).await.is_err() {
                             break;
+                        }
+                        continue;
+                    }
+                    // Channel selection. Switching is by reboot, so this persists the choice
+                    // and resets; the flash write lands at a moment nothing is listening,
+                    // which is what keeps it clear of the radio-quiet rule.
+                    if at_boundary && let Some(probe) = channel_probe(packet) {
+                        let mut reboot = false;
+                        let reply = match (settings, probe) {
+                            (None, _) => &b"channel unavailable: no identity\r\n"[..],
+                            (Some(current), ChannelProbe::Report) => match current.channel {
+                                BootChannel::Modem => &b"channel=modem\r\n"[..],
+                                BootChannel::Node => &b"channel=node\r\n"[..],
+                            },
+                            (Some(current), ChannelProbe::Set(wanted)) => {
+                                let next = Settings {
+                                    channel: wanted,
+                                    ..current
+                                };
+                                match exec.save_settings(&next) {
+                                    Ok(()) => {
+                                        reboot = true;
+                                        &b"channel set; rebooting\r\n"[..]
+                                    }
+                                    Err(_) => &b"channel write failed\r\n"[..],
+                                }
+                            }
+                        };
+                        if host.write_all(reply).await.is_err() {
+                            break;
+                        }
+                        if reboot {
+                            // Long enough for the reply to leave the USB endpoint. The
+                            // bootloader probe's 20 ms is not: it truncated this line at
+                            // thirteen bytes, because a CDC write returning only means the
+                            // packet was queued.
+                            Timer::after_millis(250).await;
+                            cortex_m::peripheral::SCB::sys_reset();
                         }
                         continue;
                     }

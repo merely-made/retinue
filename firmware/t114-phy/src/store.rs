@@ -14,6 +14,7 @@ use embassy_nrf::nvmc::{Nvmc, PAGE_SIZE};
 use embassy_nrf::peripherals::{NVMC, RNG};
 use embassy_nrf::rng::Rng;
 use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
+use radio_hand::executive::{BoardStore, StoreFault};
 use radio_hand::settings::{self, Settings};
 use radio_hand::store::{self, HEADER_LEN, Slot, SlotError};
 
@@ -143,7 +144,6 @@ impl<'d> SettingsStore<'d> {
     /// Erase stalls the CPU for tens of milliseconds, blanking receive, so this
     /// belongs in a declared radio-quiet window and never beside live traffic.
     /// See the plan's pressure point 3.
-    #[allow(dead_code)] // The executive's channel selection is its first caller.
     pub fn save(&mut self, settings: &Settings) -> Result<Outcome, Error> {
         let mut page_a = [0_u8; SLOT_READ_LEN];
         let mut page_b = [0_u8; SLOT_READ_LEN];
@@ -202,6 +202,27 @@ impl<'d> SettingsStore<'d> {
             Slot::A => STORE_ORIGIN,
             Slot::B => STORE_ORIGIN + PAGE_SIZE as u32,
         }
+    }
+}
+
+/// The store, as the executive sees it.
+///
+/// The executive owns the flash and the entropy, per structural decision 4, and reaches both
+/// through this. Bundling them is not a convenience: they are one object here, because the
+/// same struct holds the NVMC pages and the hardware RNG.
+impl BoardStore for SettingsStore<'_> {
+    /// The nRF52840's physical noise source, bias-corrected — see [`SettingsStore::new`].
+    /// Infallible on this board: the peripheral is always present, so the only reason this
+    /// returns a `Result` is that other boards have no such thing.
+    fn random(&mut self, out: &mut [u8]) -> Result<(), StoreFault> {
+        self.rng.blocking_fill_bytes(out);
+        Ok(())
+    }
+
+    fn save(&mut self, settings: &Settings) -> Result<(), StoreFault> {
+        SettingsStore::save(self, settings)
+            .map(|_| ())
+            .map_err(|_| StoreFault::Write)
     }
 }
 

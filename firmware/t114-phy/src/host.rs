@@ -22,6 +22,36 @@ impl<'d, D: Driver<'d>> UsbHost<'d, D> {
     }
 }
 
+/// Serve a fixed line forever, for a board whose radio never came up.
+///
+/// The degraded path, and deliberately not a halt: a board that cannot reach its SX1262 is
+/// still reachable over USB, still says why, and still takes a DFU package. `sync` keeps
+/// answering because it needs no radio and it is how the bench tells this board apart from
+/// one that is merely quiet.
+pub async fn serve_status_only<'d, D: Driver<'d>>(
+    mut class: CdcAcmClass<'d, D>,
+    status: &'static [u8],
+) -> ! {
+    loop {
+        class.wait_connection().await;
+        let mut host = UsbHost::new(class);
+        if host.write_all(status).await.is_ok() {
+            let mut buffer = [0_u8; USB_PACKET];
+            while let Ok(length) = host.read(&mut buffer).await {
+                let reply = if &buffer[..length] == b"sync\n" || &buffer[..length] == b"sync\r\n" {
+                    b"2b 24b4\r\n".as_slice()
+                } else {
+                    status
+                };
+                if host.write_all(reply).await.is_err() {
+                    break;
+                }
+            }
+        }
+        class = host.class;
+    }
+}
+
 impl<'d, D: Driver<'d>> HostLink for UsbHost<'d, D> {
     async fn attached(&mut self) {
         self.class.wait_connection().await;

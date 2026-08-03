@@ -28,7 +28,7 @@ lora-phy = { path = "../../vendor/lora-phy" }
 panic-halt = "1.0.0"
 radio-face = { path = "../../crates/radio-face" }
 retinue = { path = "../../crates/retinue", default-features = false }
-radio-hand = { path = "../../crates/radio-hand", features = ["radio"] }
+radio-hand = { path = "../../crates/radio-hand", features = ["node"] }
 static_cell = "2.1.1"
 selvage = { path = "../../crates/selvage" }
 embedded-alloc = { version = "0.7.0", features = ["llff"] }

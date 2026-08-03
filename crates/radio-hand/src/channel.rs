@@ -23,14 +23,17 @@
 //! never changes while running, which is why [`Channel::stop`] is about releasing a host
 //! session rather than about handing the radio to a successor.
 
+use embassy_futures::select::{Either3, select3};
 use embassy_time::Duration;
 use lora_phy::DelayNs;
 use lora_phy::mod_traits::RadioKind;
 
-use crate::executive::Executive;
+use crate::executive::{Executive, Heartbeat};
 use crate::link::{Flow, HostLink};
 
 pub mod modem;
+#[cfg(feature = "node")]
+pub mod node;
 
 /// Something a channel is asked to handle.
 ///
@@ -73,6 +76,19 @@ pub trait ChannelInfo {
     fn heartbeat(&self) -> Option<Duration> {
         None
     }
+
+    /// Whether this channel keeps working with no host attached.
+    ///
+    /// The modem does not: every decision it makes is the host's, so with nobody attached
+    /// there is nothing to decide and a receiving radio would only cost power. The node
+    /// does — it does not stop being a node because nobody is watching, and its announces
+    /// and timers have to keep running.
+    ///
+    /// The default is `false`, matching the personality that came first. A channel that
+    /// holds protocol state almost certainly wants `true`.
+    fn without_host(&self) -> bool {
+        false
+    }
 }
 
 /// One board personality.
@@ -104,5 +120,138 @@ pub trait Channel<L: HostLink, RK: RadioKind, DLY: DelayNs>: ChannelInfo {
     /// a channel outlives every session it serves and is only ever destroyed by the reset.
     async fn stop(&mut self, exec: &mut Executive<'_, RK, DLY>, link: &mut L) {
         let _ = (exec, link);
+    }
+}
+
+/// Every channel this image ships, as one type.
+///
+/// The selector structural decision 4 called for, and the reason it waited until a second
+/// channel existed. An enum rather than a `dyn Channel` because the serve loop is then
+/// compiled once for all personalities instead of once per personality, which is what keeps
+/// "every shipped channel is flash-resident always" an affordable cost rather than a
+/// multiplying one.
+#[cfg(feature = "node")]
+pub enum Personality<D, const PEERS: usize = 32, const ACTIONS: usize = 8, const LINKS: usize = 4> {
+    /// The host-driven modem, and the recovery personality a board falls back to.
+    Modem(modem::ModemChannel<D>),
+    /// The native Retinue node.
+    Node(node::NodeChannel<PEERS, ACTIONS, LINKS>),
+}
+
+#[cfg(feature = "node")]
+impl<D, const PEERS: usize, const ACTIONS: usize, const LINKS: usize> ChannelInfo
+    for Personality<D, PEERS, ACTIONS, LINKS>
+{
+    fn at_boundary(&self) -> bool {
+        match self {
+            Personality::Modem(c) => c.at_boundary(),
+            Personality::Node(c) => c.at_boundary(),
+        }
+    }
+
+    fn heartbeat(&self) -> Option<Duration> {
+        match self {
+            Personality::Modem(c) => c.heartbeat(),
+            Personality::Node(c) => c.heartbeat(),
+        }
+    }
+
+    fn without_host(&self) -> bool {
+        match self {
+            Personality::Modem(c) => c.without_host(),
+            Personality::Node(c) => c.without_host(),
+        }
+    }
+}
+
+#[cfg(feature = "node")]
+impl<L, RK, DLY, D, const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
+    Channel<L, RK, DLY> for Personality<D, PEERS, ACTIONS, LINKS>
+where
+    L: HostLink,
+    RK: RadioKind,
+    DLY: DelayNs,
+    D: crate::executive::ChipDiagnostics<RK, DLY>,
+{
+    async fn start(&mut self, exec: &mut Executive<'_, RK, DLY>, link: &mut L) -> Flow {
+        match self {
+            Personality::Modem(c) => c.start(exec, link).await,
+            Personality::Node(c) => c.start(exec, link).await,
+        }
+    }
+
+    async fn serve(
+        &mut self,
+        exec: &mut Executive<'_, RK, DLY>,
+        link: &mut L,
+        event: Event<'_>,
+    ) -> Flow {
+        match self {
+            Personality::Modem(c) => c.serve(exec, link, event).await,
+            Personality::Node(c) => c.serve(exec, link, event).await,
+        }
+    }
+
+    async fn stop(&mut self, exec: &mut Executive<'_, RK, DLY>, link: &mut L) {
+        match self {
+            Personality::Modem(c) => c.stop(exec, link).await,
+            Personality::Node(c) => c.stop(exec, link).await,
+        }
+    }
+}
+
+/// Wait for a host, serving the radio and the channel's clock while waiting.
+///
+/// The modem simply blocks: with nobody attached there is nothing for it to decide, and a
+/// receiving radio would only cost power. The node cannot, and the difference is not a
+/// nicety. Running a node's heartbeat inside the host session meant the board announced only
+/// while a cable was plugged in, which was found on hardware: a fresh boot reported `tx=0`
+/// until something attached, and the first version of that loop reported `tx=1` only because
+/// the probe reading the counter was itself the host that started the clock.
+///
+/// Board-agnostic, so it lives here rather than in a firmware: every board that ships a
+/// channel with its own timers needs exactly this.
+pub async fn await_host<C, L, RK, DLY>(
+    channel: &mut C,
+    exec: &mut Executive<'_, RK, DLY>,
+    host: &mut L,
+    heartbeat: &mut Heartbeat,
+) where
+    C: Channel<L, RK, DLY>,
+    L: HostLink,
+    RK: RadioKind,
+    DLY: DelayNs,
+{
+    if !channel.without_host() {
+        host.attached().await;
+        return;
+    }
+
+    loop {
+        let _ = exec.ensure_rx().await;
+        let mut frame = [0_u8; selvage::MAX_RADIO_FRAME_LEN];
+        let woken = select3(host.attached(), exec.receive(&mut frame), heartbeat.next()).await;
+        match woken {
+            Either3::First(()) => return,
+            Either3::Second(Ok(received)) => {
+                channel
+                    .serve(
+                        exec,
+                        host,
+                        Event::RadioFrame {
+                            frame: &frame[..received.len],
+                            rssi: received.rssi,
+                            snr: received.snr,
+                        },
+                    )
+                    .await;
+            }
+            // A radio fault with no host to tell. `receive` has already asked for a
+            // re-prepare, so the next turn of this loop repairs it.
+            Either3::Second(Err(_)) => {}
+            Either3::Third(()) => {
+                channel.serve(exec, host, Event::Beat).await;
+            }
+        }
     }
 }

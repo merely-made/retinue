@@ -66,6 +66,57 @@ pub trait ChipDiagnostics<RK: RadioKind, DLY: DelayNs> {
     async fn read(&self, lora: &mut LoRa<RK, DLY>) -> [u8; 7];
 }
 
+/// The board's own persistent facts and its entropy.
+///
+/// One trait rather than two because one object holds both on real hardware: the T114's
+/// `SettingsStore` owns the NVMC pages *and* the hardware RNG, so a pair of traits would
+/// need two mutable borrows of the same thing.
+///
+/// It lives on the executive for the reason structural decision 4 gives — the executive owns
+/// the flash, so a channel cannot reach past it to the store — and because it is the seam a
+/// channel switch goes through: the switch is a persisted field plus a reboot.
+pub trait BoardStore {
+    /// Fill `out` with random bytes.
+    ///
+    /// Fallible on purpose. A board can genuinely have no entropy source, and the heltec
+    /// doc's adversarial set asks for a bounded outcome when entropy fails, which is only
+    /// expressible if failing is representable. Filling with zeros would be silently worse
+    /// than refusing.
+    fn random(&mut self, out: &mut [u8]) -> Result<(), StoreFault>;
+
+    /// Persist new settings, keeping the identity already stored.
+    ///
+    /// Erase stalls the CPU for tens of milliseconds and blanks receive, so this belongs in a
+    /// declared radio-quiet window and never beside live traffic. See pressure point 3.
+    fn save(&mut self, settings: &crate::settings::Settings) -> Result<(), StoreFault>;
+}
+
+/// Why the board's store could not do what was asked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StoreFault {
+    /// This board has no such facility. Not an error in the store; an absence of one.
+    Unavailable,
+    /// The write did not land, or did not read back.
+    Write,
+}
+
+/// A board with neither persistence nor entropy.
+///
+/// The V4's honest state: gate N0 gave the T114 a store and left this board without one. It
+/// refuses rather than pretending, so a channel that needs entropy fails loudly here instead
+/// of announcing itself with zeros.
+pub struct NoStore;
+
+impl BoardStore for NoStore {
+    fn random(&mut self, _out: &mut [u8]) -> Result<(), StoreFault> {
+        Err(StoreFault::Unavailable)
+    }
+
+    fn save(&mut self, _settings: &crate::settings::Settings) -> Result<(), StoreFault> {
+        Err(StoreFault::Unavailable)
+    }
+}
+
 /// A received frame's length and signal report.
 pub struct Received {
     pub len: usize,
@@ -89,6 +140,7 @@ pub struct Executive<'r, RK: RadioKind, DLY: DelayNs> {
     radio: &'r mut RadioState,
     status: &'r mut LocalStatus,
     face: &'r Face,
+    store: &'r mut dyn BoardStore,
 }
 
 impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
@@ -97,13 +149,28 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
         radio: &'r mut RadioState,
         status: &'r mut LocalStatus,
         face: &'r Face,
+        store: &'r mut dyn BoardStore,
     ) -> Self {
         Self {
             lora,
             radio,
             status,
             face,
+            store,
         }
+    }
+
+    /// Draw random bytes from the board.
+    pub fn random(&mut self, out: &mut [u8]) -> Result<(), StoreFault> {
+        self.store.random(out)
+    }
+
+    /// Persist new settings. See [`BoardStore::save`] for when this is legal.
+    pub fn save_settings(
+        &mut self,
+        settings: &crate::settings::Settings,
+    ) -> Result<(), StoreFault> {
+        self.store.save(settings)
     }
 
     /// The board's status, as the face last saw it.

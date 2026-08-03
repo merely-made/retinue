@@ -33,7 +33,7 @@ use lora_phy::iv::GenericSx126xInterfaceVariant;
 use lora_phy::sx126x::{Config as Sx126xConfig, Sx126x, Sx1262, TcxoCtrlVoltage};
 use lora_phy::{LoRa, RxMode};
 use radio_hand::dispatch;
-use radio_hand::executive::{ChipDiagnostics, Executive, Face, RadioState};
+use radio_hand::executive::{ChipDiagnostics, Executive, Face, NoStore, RadioState};
 use radio_hand::link::HostLink;
 use selvage::{
     CommandStream, EVENT_DIAGNOSTIC, EVENT_RX, MAX_COMMAND_LEN, MESHTASTIC_SYNC_WORD, WAKE_BYTE,
@@ -353,6 +353,9 @@ async fn main(spawner: Spawner) {
     let _ = host.write_all(online).await;
     let mut command_stream = CommandStream::new();
     let mut usb_command = [0_u8; MAX_COMMAND_LEN];
+    // No persistence and no entropy on this board yet: gate N0 gave the T114 a store and
+    // left this one without. It refuses rather than inventing either.
+    let mut no_store = NoStore;
 
     // The proof enters Light-sleep from the radio task itself. This preserves the pending
     // receive future across sleep rather than asking the scheduler's idle hook to do so.
@@ -601,7 +604,13 @@ async fn main(spawner: Spawner) {
                 // own hand on the radio, and adopts the seam only where the shared command
                 // loop needs it. The T114 holds one for the whole of `main` and gets the full
                 // boundary; this board follows when the sleep work is settled.
-                let mut exec = Executive::new(&mut lora, &mut radio, &mut local_status, &face);
+                let mut exec = Executive::new(
+                    &mut lora,
+                    &mut radio,
+                    &mut local_status,
+                    &face,
+                    &mut no_store,
+                );
                 let outcome = dispatch::on_host_bytes(
                     &mut host,
                     &mut exec,

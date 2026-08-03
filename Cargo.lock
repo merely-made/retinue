@@ -2014,10 +2014,12 @@ dependencies = [
 name = "radio-hand"
 version = "0.0.1"
 dependencies = [
+ "embassy-futures",
  "embassy-time",
  "lora-modulation",
  "lora-phy",
  "radio-face",
+ "retinue",
  "selvage",
 ]
 
