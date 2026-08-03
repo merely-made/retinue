@@ -130,6 +130,11 @@ pub trait Channel<L: HostLink, RK: RadioKind, DLY: DelayNs>: ChannelInfo {
 /// compiled once for all personalities instead of once per personality, which is what keeps
 /// "every shipped channel is flash-resident always" an affordable cost rather than a
 /// multiplying one.
+// Exactly one personality is constructed at boot and lives until the reset. There is no
+// array of these and none is ever moved, so the larger variant's slack costs a few hundred
+// bytes of static storage once — cheaper than the heap indirection boxing would add to every
+// event dispatch, and simpler than making the selector allocate.
+#[allow(clippy::large_enum_variant)]
 #[cfg(feature = "node")]
 pub enum Personality<D, const PEERS: usize = 32, const ACTIONS: usize = 8, const LINKS: usize = 4> {
     /// The host-driven modem, and the recovery personality a board falls back to.

@@ -2016,6 +2016,7 @@ version = "0.0.1"
 dependencies = [
  "embassy-futures",
  "embassy-time",
+ "heapless 0.9.3",
  "lora-modulation",
  "lora-phy",
  "radio-face",

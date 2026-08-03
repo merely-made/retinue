@@ -14,6 +14,8 @@
 //! Everything the node cannot do for itself arrives from the executive: the radio to send
 //! by, the entropy an announce needs, and the clock.
 
+extern crate alloc;
+
 use core::fmt::Write as _;
 
 use embassy_time::{Duration, Instant};
@@ -26,6 +28,7 @@ use retinue::packet::Packet;
 use crate::channel::{Channel, ChannelInfo, Event};
 use crate::executive::Executive;
 use crate::link::{Flow, HostLink};
+use crate::replay;
 
 /// The radio, as the node numbers its interfaces. One radio, so one number.
 const RADIO: InterfaceId = 0;
@@ -38,9 +41,26 @@ const RADIO: InterfaceId = 0;
 /// retransmits `poll` will own as the gates land; it wants revisiting when it does.
 const BEAT: Duration = Duration::from_secs(5);
 
+/// The longest host line this channel accumulates.
+///
+/// A replay line is `replay <now> <hex>`, and the hex is a whole radio frame, so this is
+/// two characters per byte plus room for the verb and the clock. Anything longer is refused
+/// rather than truncated: a half-read packet that decoded anyway would be the worst possible
+/// outcome for a facility whose entire job is proving two implementations agree.
+const MAX_LINE: usize = 2 * selvage::MAX_RADIO_FRAME_LEN + 40;
+
 /// The board as a Retinue node.
 pub struct NodeChannel<const PEERS: usize = 32, const ACTIONS: usize = 8, const LINKS: usize = 4> {
     node: Node<PEERS, ACTIONS, LINKS>,
+    /// Host bytes accumulated since the last newline. Host reads arrive in 64-byte chunks
+    /// and a replay line is several hundred bytes, so a line spans many of them.
+    line: heapless::Vec<u8, MAX_LINE>,
+    /// Set when a line overran the buffer, so the rest of it is discarded to the next
+    /// newline instead of being read as the start of a new command.
+    line_lost: bool,
+    /// The node a replay runs against: a fixed test identity, never the board's own, built
+    /// on demand so a board that is never asked to replay pays nothing for the facility.
+    replay: Option<alloc::boxed::Box<Node<PEERS, ACTIONS, LINKS>>>,
     /// Frames the node asked for that never reached the air. Counted rather than queued: a
     /// retransmit is the protocol's decision, not the shell's, and a shell that silently
     /// buffers would be lying to it about what happened.
@@ -58,6 +78,9 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
     pub fn new(node: Node<PEERS, ACTIONS, LINKS>) -> Self {
         Self {
             node,
+            line: heapless::Vec::new(),
+            line_lost: false,
+            replay: None,
             unsent: 0,
             unseeded: 0,
             undecoded: 0,
@@ -112,9 +135,150 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
     }
 }
 
+/// One whole host line, from `node` or `replay`.
+impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
+    NodeChannel<PEERS, ACTIONS, LINKS>
+{
+    async fn on_line<L, RK, DLY>(
+        &mut self,
+        exec: &mut Executive<'_, RK, DLY>,
+        link: &mut L,
+        line: &[u8],
+    ) -> Flow
+    where
+        L: HostLink,
+        RK: RadioKind,
+        DLY: DelayNs,
+    {
+        if line == b"node" {
+            let status = exec.status();
+            let mut out = radio_face::Text::<160>::empty();
+            let _ = write!(
+                &mut out,
+                "node tx={} rx={} peers={} links={} refused={} \
+                 unsent={} unseeded={} undecoded={}\r\n",
+                status.tx_frames,
+                status.rx_frames,
+                self.node.peers().len(),
+                self.node.link_count(),
+                self.node.refused_links(),
+                self.unsent,
+                self.unseeded,
+                self.undecoded,
+            );
+            return Flow::from(link.write_all(out.as_str().as_bytes()).await);
+        }
+
+        // `replay reset` starts a fresh replay node, so a run is not contaminated by the one
+        // before it. The desk half compares against a fresh node per fixture.
+        if line == b"replay reset" {
+            self.replay = None;
+            return Flow::from(link.write_all(b"replay reset\r\n").await);
+        }
+
+        if let Some(rest) = line.strip_prefix(b"replay poll ") {
+            return self.on_replay_poll(link, rest).await;
+        }
+
+        if let Some(rest) = line.strip_prefix(b"replay ") {
+            return self.on_replay(link, rest).await;
+        }
+
+        Flow::Continue
+    }
+
+    /// `replay poll <now> <hex-seed>` — advance the replay node's own timers.
+    ///
+    /// The seed comes from the host rather than the board's RNG, which is the only way the
+    /// announce it builds can be compared to anything. The protocol layer already refuses to
+    /// hold an RNG for exactly this reason; here that decision pays.
+    async fn on_replay_poll<L: HostLink>(&mut self, link: &mut L, rest: &[u8]) -> Flow {
+        let Some((now, hex)) = split_once(rest, b' ') else {
+            return Flow::from(link.write_all(b"replay malformed\r\n").await);
+        };
+        let Some(now) = parse_u64(now) else {
+            return Flow::from(link.write_all(b"replay bad clock\r\n").await);
+        };
+        let mut seed = [0_u8; RAND_HASH_LEN];
+        if replay::from_hex(hex, &mut seed) != Some(RAND_HASH_LEN) {
+            return Flow::from(link.write_all(b"replay bad seed\r\n").await);
+        }
+
+        let node = self
+            .replay
+            .get_or_insert_with(|| alloc::boxed::Box::new(replay::replay_node()));
+        let encoded = replay::encode_actions(&node.poll(now, RADIO, &seed));
+        self.report_actions(link, &encoded).await
+    }
+
+    /// Write one encoded set of actions back as `actions <hex>`.
+    async fn report_actions<L: HostLink>(&self, link: &mut L, encoded: &[u8]) -> Flow {
+        let mut out = alloc::vec![0_u8; encoded.len() * 2];
+        let written = replay::to_hex(encoded, &mut out);
+        if link.write_all(b"actions ").await.is_err()
+            || link.write_all(&out[..written]).await.is_err()
+        {
+            return Flow::Detach;
+        }
+        Flow::from(link.write_all(b"\r\n").await)
+    }
+
+    /// `replay <now> <hex-packet>` — feed one packet to the replay node and report what it
+    /// decided, in the encoding the desk half asserts.
+    async fn on_replay<L: HostLink>(&mut self, link: &mut L, rest: &[u8]) -> Flow {
+        let Some((now, hex)) = split_once(rest, b' ') else {
+            return Flow::from(link.write_all(b"replay malformed\r\n").await);
+        };
+        let Some(now) = parse_u64(now) else {
+            return Flow::from(link.write_all(b"replay bad clock\r\n").await);
+        };
+
+        let mut frame = [0_u8; selvage::MAX_RADIO_FRAME_LEN];
+        let Some(len) = replay::from_hex(hex, &mut frame) else {
+            return Flow::from(link.write_all(b"replay bad hex\r\n").await);
+        };
+
+        let node = self
+            .replay
+            .get_or_insert_with(|| alloc::boxed::Box::new(replay::replay_node()));
+        // A frame that is not a packet produces no actions, which is an answer rather than
+        // an error: the desk half expects the same empty set for the same bytes.
+        let encoded = match Packet::decode(&frame[..len]) {
+            Ok(packet) => replay::encode_actions(&node.ingest(RADIO, &packet, now)),
+            Err(_) => replay::encode_nothing(),
+        };
+        self.report_actions(link, &encoded).await
+    }
+}
+
+/// Split at the first `sep`, dropping it. `None` if it is not there.
+fn split_once(text: &[u8], sep: u8) -> Option<(&[u8], &[u8])> {
+    let at = text.iter().position(|b| *b == sep)?;
+    Some((&text[..at], &text[at + 1..]))
+}
+
+fn parse_u64(text: &[u8]) -> Option<u64> {
+    if text.is_empty() {
+        return None;
+    }
+    let mut value: u64 = 0;
+    for byte in text {
+        let digit = byte.checked_sub(b'0').filter(|d| *d < 10)?;
+        value = value.checked_mul(10)?.checked_add(u64::from(digit))?;
+    }
+    Some(value)
+}
+
 impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> ChannelInfo
     for NodeChannel<PEERS, ACTIONS, LINKS>
 {
+    /// Only where no host line is half-read. A replay line is several hundred bytes and
+    /// arrives across many host reads, so a fragment of one must never be mistaken for a
+    /// board probe — which is exactly what this trait method exists for.
+    fn at_boundary(&self) -> bool {
+        self.line.is_empty()
+    }
+
     fn heartbeat(&self) -> Option<Duration> {
         Some(BEAT)
     }
@@ -189,26 +353,31 @@ where
                 self.perform(exec, link, actions).await
             }
             // The host protocol for this channel is gate N6, where the panels drive from
-            // board-local state. Until then a host is an observer, and `node` is the one
-            // thing it may ask: what this node has actually seen and done.
+            // board-local state. Until then a host is an observer: it may ask what this node
+            // has seen and done, and it may drive a replay.
             Event::HostBytes(bytes) => {
-                if bytes == b"node\n" || bytes == b"node\r\n" {
-                    let status = exec.status();
-                    let mut line = radio_face::Text::<160>::empty();
-                    let _ = write!(
-                        &mut line,
-                        "node tx={} rx={} peers={} links={} refused={} \
-                         unsent={} unseeded={} undecoded={}\r\n",
-                        status.tx_frames,
-                        status.rx_frames,
-                        self.node.peers().len(),
-                        self.node.link_count(),
-                        self.node.refused_links(),
-                        self.unsent,
-                        self.unseeded,
-                        self.undecoded,
-                    );
-                    return Flow::from(link.write_all(line.as_str().as_bytes()).await);
+                for &byte in bytes {
+                    if byte != b'\n' {
+                        if self.line.push(byte).is_err() {
+                            self.line_lost = true;
+                            self.line.clear();
+                        }
+                        continue;
+                    }
+                    // Taken out of `self` so the handler may borrow the rest of it.
+                    let overran = core::mem::take(&mut self.line_lost);
+                    let mut line = core::mem::take(&mut self.line);
+                    if line.last() == Some(&b'\r') {
+                        line.pop();
+                    }
+                    let flow = if overran {
+                        Flow::from(link.write_all(b"line too long\r\n").await)
+                    } else {
+                        self.on_line(exec, link, &line).await
+                    };
+                    if flow == Flow::Detach {
+                        return flow;
+                    }
                 }
                 Flow::Continue
             }

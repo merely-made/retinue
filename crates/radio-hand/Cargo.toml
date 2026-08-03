@@ -16,9 +16,13 @@ radio = ["dep:lora-phy", "dep:embassy-time", "dep:embassy-futures"]
 # The node channel. Separate from `radio` because it is the one part of this crate that
 # needs an allocator: `retinue`'s sans-io core is `no_std + alloc`, so a board asks for
 # this only once it has a global allocator to link against.
-node = ["radio", "dep:retinue"]
+node = ["radio", "replay"]
+# The fixture-replay codec. Radio-free on purpose: nothing here touches `lora-phy`, so a
+# host test can link it and assert the bytes a board must reproduce.
+replay = ["dep:retinue"]
 
 [dependencies]
+heapless = "0.9"
 lora-modulation = "0.1.5"
 lora-phy = { path = "../../vendor/lora-phy", optional = true }
 embassy-futures = { version = "0.1.2", optional = true }
@@ -26,3 +30,10 @@ embassy-time = { version = "0.5.1", optional = true }
 radio-face = { path = "../radio-face" }
 retinue = { path = "../retinue", default-features = false, optional = true }
 selvage = { path = "../selvage" }
+
+[dev-dependencies]
+retinue = { path = "../retinue", default-features = false }
+
+[[test]]
+name = "replay_corpus"
+required-features = ["replay"]

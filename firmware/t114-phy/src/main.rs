@@ -427,6 +427,24 @@ async fn main(spawner: Spawner) {
                         }
                         continue;
                     }
+                    // Live allocation. The boot line reports it once, when it is zero by
+                    // construction; this reports it whenever asked, which is what the heltec
+                    // doc's heap high-water done condition actually needs now that the node
+                    // channel allocates.
+                    if at_boundary && (packet == b"heap\n" || packet == b"heap\r\n") {
+                        let mut reply = radio_face::Text::<48>::empty();
+                        let _ = write!(
+                            &mut reply,
+                            "heap={}/{} free={}\r\n",
+                            heap::used(),
+                            heap::HEAP_SIZE,
+                            heap::free(),
+                        );
+                        if host.write_all(reply.as_str().as_bytes()).await.is_err() {
+                            break;
+                        }
+                        continue;
+                    }
                     // Channel selection. Switching is by reboot, so this persists the choice
                     // and resets; the flash write lands at a moment nothing is listening,
                     // which is what keeps it clear of the radio-quiet rule.

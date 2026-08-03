@@ -52,7 +52,6 @@ pub fn used() -> usize {
 }
 
 /// Bytes still available.
-#[allow(dead_code)] // Paired with used(); a receipt may want either.
 pub fn free() -> usize {
     HEAP.free()
 }
