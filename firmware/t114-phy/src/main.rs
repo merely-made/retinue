@@ -369,7 +369,6 @@ async fn main(spawner: Spawner) {
             ""
         },
     );
-    let online = online_line.as_str().as_bytes();
     publish_online(&mut local_status);
 
     // Past every path that hands `class` to `serve_status_only`, so the CDC endpoint can
@@ -423,7 +422,10 @@ async fn main(spawner: Spawner) {
         radio_hand::channel::await_host(&mut channel, &mut exec, &mut host, &mut heartbeat).await;
         exec.status_mut().host = radio_face::HostState::Attached;
         exec.publish(radio_face::LedSignal::Idle);
-        if host.write_all(online).await.is_err()
+        if host
+            .write_all(online_line.as_str().as_bytes())
+            .await
+            .is_err()
             || host
                 .write_all(&identity_line[..identity_line_len])
                 .await
@@ -498,7 +500,7 @@ async fn main(spawner: Spawner) {
                     match probes::handle(
                         packet,
                         at_boundary,
-                        online,
+                        &online_line,
                         settings,
                         &Sx126xDiagnostics,
                         &mut exec,

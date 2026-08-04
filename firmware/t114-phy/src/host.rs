@@ -95,6 +95,22 @@ impl<'d, D: Driver<'d>> HostLink for UsbHost<'d, D> {
                 .await
                 .map_err(|_| LinkFault::Detached)?;
         }
+        // A USB bulk transfer ends when the host sees a packet SHORTER than the endpoint
+        // size. A payload that is an exact multiple of it therefore needs an explicit
+        // zero-length packet, or the host keeps waiting for a continuation that never comes
+        // and delivers nothing at all.
+        //
+        // This was silently eating whole replies. The `status` probe answers with a
+        // 128-byte banner — exactly two full packets — and returned nothing, while every
+        // other probe, none of them a multiple of 64, answered fine. The same trap applies
+        // to the data path: an `EVENT_RX` for a 57-byte frame is 7 + 57 = 64 bytes, and was
+        // being dropped between the board and the host.
+        if !bytes.is_empty() && bytes.len().is_multiple_of(USB_PACKET) {
+            self.class
+                .write_packet(&[])
+                .await
+                .map_err(|_| LinkFault::Detached)?;
+        }
         Ok(())
     }
 }

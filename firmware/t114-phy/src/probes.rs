@@ -30,7 +30,7 @@ pub enum Outcome {
 pub async fn handle<L, RK, DLY, D>(
     packet: &[u8],
     at_boundary: bool,
-    online: &[u8],
+    online: &radio_face::Text<192>,
     settings: Option<Settings>,
     diagnostics: &D,
     exec: &mut Executive<'_, RK, DLY>,
@@ -51,7 +51,7 @@ where
         cortex_m::peripheral::SCB::sys_reset();
     }
     if at_boundary && (packet == b"status\n" || packet == b"status\r\n") {
-        if host.write_all(online).await.is_err() {
+        if host.write_all(online.as_str().as_bytes()).await.is_err() {
             return Outcome::HostGone;
         }
         return Outcome::Served;
