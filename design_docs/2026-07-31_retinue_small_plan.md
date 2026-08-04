@@ -1445,11 +1445,31 @@ second board on the way: with the build-time `Us915` replaced by the persisted
 `Unset`, the V4 rejected the harness profile with wire result 4 until a region
 was chosen. Counted block with both boards on persisted settings: **6 of 6**.
 
-**Open, noted rather than chased:** the T114's `status` probe returns nothing
-while every other probe answers, and the banner it should echo is plainly
-non-empty since the board prints it on attach. A defect somewhere in the
-crash/region probe work. It does not affect the harness, which reads the banner
-on attach rather than by probe.
+**The `status` probe defect, chased and found to be a transport bug,
+2026-08-04.** It returned nothing while every other probe answered. The
+tempting conclusion was an empty banner; instrumenting the probe to report
+`online.len()` and its content gave `len=128` with the text intact, which said
+the data was present and the transport was losing it.
+
+A USB bulk transfer ends when the host sees a packet *shorter* than the
+endpoint size. `UsbHost::write_all` chunked into 64-byte packets and stopped,
+so a payload that is an exact multiple of 64 left the host waiting for a
+continuation that never came. The banner is 128 bytes, exactly two full
+packets. Every other probe reply happened not to be a multiple of 64, which is
+why only this one looked broken.
+
+**It was not confined to the diagnostic surface.** The same trap sits on the
+data path: an `EVENT_RX` carrying a 57-byte radio frame is 7 + 57 = 64 bytes
+and was being dropped between board and host, as were 121-, 185- and 249-byte
+frames. `write_all` now sends an explicit zero-length packet to terminate such
+a transfer. The counted modem block stays at 7 of 8, in band, because this
+harness's frames rarely land on those sizes; the defect was real regardless,
+and any host protocol with fixed-size records would have hit it constantly.
+
+The V4 is unaffected: its host link is a byte stream with an explicit flush
+rather than raw bulk packets. Lesson worth keeping: a surface that answers
+*everything except one thing* is more likely a size or boundary bug in the
+transport than a logic bug in the one thing.
 
 ## Non-goals
 
