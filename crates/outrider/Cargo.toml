@@ -23,10 +23,11 @@ thiserror = "2"
 tulle = { version = "0.0.2", path = "../tulle", features = ["serial-async"], optional = true }
 
 [dev-dependencies]
+getrandom = "0.3"
 hex = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time"] }
 
 [[example]]
 name = "direct_phy_delivery"
@@ -38,4 +39,8 @@ required-features = ["tulle-radio"]
 
 [[example]]
 name = "direct_phy_ui"
+required-features = ["tulle-radio"]
+
+[[example]]
+name = "park"
 required-features = ["tulle-radio"]
