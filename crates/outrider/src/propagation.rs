@@ -998,9 +998,8 @@ pub async fn fetch_with_resource_config(
         }
         let message = entry.decrypt(recipient, max_message_bytes)?;
         let source_destination = AddressHash::from_bytes(message.source);
-        let source_identity = endpoint
-            .resolve(source_destination)
-            .ok_or(PropagationError::UnknownSource)?;
+        let source_identity = crate::announce::resolve_source(endpoint, source_destination)
+            .ok_or(PropagationError::UnknownSource(source_destination))?;
         if message.source != *delivery_destination(&source_identity).as_bytes()
             || !message.verify_with(|bytes, signature| source_identity.verify(bytes, signature))
         {
@@ -1254,8 +1253,8 @@ pub enum PropagationError {
     InvalidFetchResponse,
     #[error("propagation node returned an entry it did not offer")]
     UnexpectedTransientId,
-    #[error("the decrypted message source has no validated delivery announce")]
-    UnknownSource,
+    #[error("the decrypted message source {0} has no validated delivery announce")]
+    UnknownSource(AddressHash),
     #[error("propagation fetch request has the wrong shape")]
     InvalidFetchRequest,
     #[error("propagation fetch link did not identify its owner")]

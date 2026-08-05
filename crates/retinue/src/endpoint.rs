@@ -175,6 +175,17 @@ const PATH_TTL: Duration = Duration::from_millis(60);
 /// flood. The first announce for a destination is always accepted.
 const ANNOUNCE_MIN_INTERVAL: Duration = Duration::from_secs(1);
 
+/// The least time between path requests we will broadcast for the same destination.
+///
+/// A path request is a broadcast, and the things that provoke one are usually inbound: a
+/// message from somebody we cannot identify, a retry from a peer that has gone stale. Without
+/// a floor, a peer sending traffic we cannot verify would make us broadcast once per packet,
+/// which on a shared band is a stranger deciding how much of it we use.
+#[cfg(not(test))]
+const PATH_REQUEST_MIN_INTERVAL: Duration = Duration::from_secs(20);
+#[cfg(test)]
+const PATH_REQUEST_MIN_INTERVAL: Duration = Duration::from_millis(60);
+
 /// A bidirectional byte stream over a link.
 ///
 /// Delegates [`AsyncRead`]/[`AsyncWrite`] to an internal duplex; a relay task chunks writes
@@ -447,6 +458,7 @@ impl ResourceSession {
         let iface = self.iface;
         let packets = &mut self.packets;
         let retry = self.config.retry_interval;
+        let mut identified = self.identified_peer;
         let transfer = async move {
             let mut interval = tokio::time::interval(retry);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -457,9 +469,19 @@ impl ResourceSession {
                         let packet = maybe.ok_or_else(|| {
                             io::Error::new(io::ErrorKind::BrokenPipe, "resource link closed")
                         })?;
+                        // An IDENTIFY on a resource link is the sender telling us who it is,
+                        // signed under the link. Reading it here is what lets a receiver
+                        // authenticate a first message from somebody it has never heard
+                        // announce: the request path already did this, and dropping it here
+                        // meant the strongest evidence available was thrown away in favour of
+                        // an address-book lookup that could only fail.
+                        if let Some(identity) = link.read_identify(&packet) {
+                            identified = Some(identity);
+                            continue;
+                        }
                         match link.receive(&packet) {
                             Some(Inbound::Data(data)) => {
-                                return Ok(ReceivedPayload::Data(data));
+                                return Ok((identified, ReceivedPayload::Data(data)));
                             }
                             Some(Inbound::Close) => {
                                 return Err(io::Error::new(
@@ -473,7 +495,7 @@ impl ResourceSession {
                             shared.send_on(iface, outbound);
                         }
                         if let Some(data) = receiver.data() {
-                            return Ok(ReceivedPayload::Resource(data.to_vec()));
+                            return Ok((identified, ReceivedPayload::Resource(data.to_vec())));
                         } else if receiver.is_canceled() {
                             return Err(io::Error::new(
                                 io::ErrorKind::ConnectionAborted,
@@ -489,9 +511,22 @@ impl ResourceSession {
                 }
             }
         };
-        tokio::time::timeout(self.config.timeout, transfer)
+        let (identified, payload) = tokio::time::timeout(self.config.timeout, transfer)
             .await
-            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "payload receive timed out"))?
+            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "payload receive timed out"))??;
+        self.identified_peer = identified;
+        Ok(payload)
+    }
+
+    /// The peer identity proven by an IDENTIFY on this link, if the sender sent one.
+    ///
+    /// Stronger evidence than an announce: an announce says a destination exists somewhere,
+    /// while this is the peer on the other end of *this* link signing that it is that
+    /// identity. A caller still has to check that the identity is the one its payload claims
+    /// as the source, because IDENTIFY proves who the peer is and says nothing about who the
+    /// payload says it is from.
+    pub fn identified_peer(&self) -> Option<Identity> {
+        self.identified_peer
     }
 
     /// Wait for one request packet on this link.
@@ -1542,6 +1577,9 @@ struct Shared {
     /// [`ANNOUNCE_MIN_INTERVAL`] is dropped, so a peer cannot make us re-ingest and re-forward
     /// announces without bound.
     announce_budget: Mutex<HashMap<AddressHash, Instant>>,
+    /// Last time a path request went out per destination, for the same reason: see
+    /// [`PATH_REQUEST_MIN_INTERVAL`].
+    path_request_budget: Mutex<HashMap<AddressHash, Instant>>,
     /// The transport node reachable on each interface (its identity hash), learned from the
     /// `transport` field of header-type-2 announces. Packets sent out an interface with a
     /// transport node are addressed header-type-2 `[transport][dest]` so the node forwards
@@ -1836,6 +1874,23 @@ impl Shared {
         true
     }
 
+    /// Whether a path request for `dest` may go out now. Same shape and same reasoning as
+    /// [`Shared::announce_within_budget`], on the outbound side.
+    fn path_request_within_budget(&self, dest: AddressHash) -> bool {
+        let mut budget = self.path_request_budget.lock().unwrap();
+        let now = Instant::now();
+        if let Some(&last) = budget.get(&dest)
+            && now.duration_since(last) < PATH_REQUEST_MIN_INTERVAL
+        {
+            return false;
+        }
+        if budget.len() > SEEN_ANNOUNCES {
+            budget.retain(|_, t| now.duration_since(*t) < PATH_REQUEST_MIN_INTERVAL);
+        }
+        budget.insert(dest, now);
+        true
+    }
+
     /// Whether this announce (by packet hash) is new; records it if so.
     fn announce_is_new(&self, hash: AddressHash) -> bool {
         let mut g = self.seen_announces.lock().unwrap();
@@ -1941,6 +1996,7 @@ impl Endpoint {
             path_table: Mutex::new(HashMap::new()),
             seen_announces: Mutex::new((HashSet::new(), VecDeque::new())),
             announce_budget: Mutex::new(HashMap::new()),
+            path_request_budget: Mutex::new(HashMap::new()),
             iface_transport: Mutex::new(HashMap::new()),
             link_transport: Mutex::new(HashMap::new()),
             tasks: Mutex::new(Vec::new()),
@@ -2359,12 +2415,22 @@ impl Endpoint {
 
     /// Broadcast a path request for `dest`, asking the network to make it reachable. The
     /// matching path response is an announce, ingested like any other, which populates the
-    /// path table. Use when a route has gone stale so a subsequent link setup has an
-    /// interface to go out on.
-    pub fn request_path(&self, dest: AddressHash) {
+    /// path table *and the address book*, so this is also how an identity is learned for a
+    /// destination that has only ever been named to us. Use when a route has gone stale so a
+    /// subsequent link setup has an interface to go out on, or when a message arrives from a
+    /// source whose keys we do not have.
+    ///
+    /// Rate-limited per destination ([`PATH_REQUEST_MIN_INTERVAL`]) and silent when the
+    /// request is suppressed, because callers ask on someone else's schedule. Returns whether
+    /// a request actually went out, for tests and diagnostics.
+    pub fn request_path(&self, dest: AddressHash) -> bool {
+        if !self.shared.path_request_within_budget(dest) {
+            return false;
+        }
         let mut tag = [0u8; crate::path::TAG_LEN];
         fill_random(&mut tag);
         self.shared.broadcast(crate::path::path_request(dest, &tag));
+        true
     }
 
     /// Emit an announce for a destination on every interface.
@@ -3840,5 +3906,48 @@ mod tests {
         // We own nothing, hold no cache, so we stay silent.
         let got = tokio::time::timeout(Duration::from_millis(200), iface.next_outbound()).await;
         assert!(got.is_err(), "no response for an unknown destination");
+    }
+
+    /// Repeated asking for the same destination broadcasts once, and a different destination
+    /// is unaffected. The thing being bounded is a stranger's ability to decide how much of a
+    /// shared band we use: what provokes a path request is usually inbound traffic we cannot
+    /// verify, so without a floor a peer gets one broadcast per packet it sends.
+    #[tokio::test]
+    async fn a_path_request_is_rate_limited_per_destination() {
+        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[11u8; 64]));
+        let mut iface = ep.attach_interface();
+        let wanted = AddressHash::from_bytes([0xA1; 16]);
+        let other = AddressHash::from_bytes([0xB2; 16]);
+
+        assert!(ep.request_path(wanted), "the first ask goes out");
+        assert!(
+            !ep.request_path(wanted),
+            "an immediate repeat is suppressed"
+        );
+        assert!(
+            ep.request_path(other),
+            "a different destination is its own budget"
+        );
+
+        let first = tokio::time::timeout(Duration::from_secs(1), iface.next_outbound())
+            .await
+            .expect("first request")
+            .expect("interface open");
+        assert_eq!(first.destination, crate::path::path_request_destination());
+        let second = tokio::time::timeout(Duration::from_secs(1), iface.next_outbound())
+            .await
+            .expect("the other destination's request")
+            .expect("interface open");
+        assert_eq!(second.destination, crate::path::path_request_destination());
+        let extra = tokio::time::timeout(Duration::from_millis(200), iface.next_outbound()).await;
+        assert!(
+            extra.is_err(),
+            "the suppressed repeat put nothing on the air"
+        );
+
+        // Past the floor, asking again is allowed: a destination that never answered must be
+        // askable later, or one lost response becomes permanent.
+        tokio::time::sleep(PATH_REQUEST_MIN_INTERVAL + Duration::from_millis(20)).await;
+        assert!(ep.request_path(wanted), "the floor expires");
     }
 }

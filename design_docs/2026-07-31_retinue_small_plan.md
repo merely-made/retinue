@@ -1774,6 +1774,71 @@ proven by the link, to request the identity, or to hold the message until an
 announce arrives is a design question for `outrider`, and it is the next piece
 of work on this path.
 
+**The unknown-sender defect, worked, 2026-08-05. Two recoveries built and
+receipted; the client that motivated them still is not reachable.**
+
+Refusing an unverifiable message is correct: verifying a signature needs the
+sender's keys, and there is no way to conjure them. What was wrong was
+refusing *silently*, which made it permanent — every retry hit the same wall,
+and from the sender's side the recipient simply never answered.
+
+**Recovery one: a refusal now asks.** `outrider::resolve_source` broadcasts a
+path request for the source's delivery destination before giving up. A path
+response is an announce, an announce carries the identity, so a retrying
+sender's next attempt verifies. `Endpoint::request_path` is rate-limited per
+destination (20 s) and reports whether it went out, because the things that
+provoke one are inbound: without a floor, a peer sending traffic we cannot
+verify gets one broadcast per packet, which on a shared band is a stranger
+deciding how much of it we use.
+
+**Recovery two: an IDENTIFY on the link is now read and accepted.** Request
+links already read it; resource links dropped it. So a sender that had said
+exactly who it was, signed under the link, still failed to authenticate — the
+strongest evidence available was being thrown away in favour of an
+address-book lookup that could only fail. It is accepted only when it derives
+to the destination the message names as its source, because IDENTIFY proves who
+the *peer* is and says nothing about who its payload claims to be from.
+
+**Both are A/B receipted against a control on the same test**, since a passing
+test proves nothing about which mechanism carried it:
+
+| mechanism | with the fix | control |
+|---|---|---|
+| path request | passes | `the path request was answered: Elapsed` |
+| link IDENTIFY | passes | `UnknownSource { identified: false }` |
+
+**And against MeshChatX, neither applies, which the diagnostic now says in one
+line.** The refusal was extended twice, each time turning a guess into a fact
+within one rebuild. First it named the source:
+
+```
+[dropped] the message source 23f9f4029bffab61be661a5c138a0e31 has no validated
+delivery announce
+```
+
+That hash is exactly the LXMF address on MeshChatX's own settings page, so the
+message was well-formed and the sender was who it appeared to be. Then it named
+what the peer had offered:
+
+```
+... (peer identified on the link: false)
+```
+
+So MeshChatX neither answers a path request nor identifies on the delivery
+link. It gives a receiver nothing to authenticate it with except an announce it
+has not made. **Stock LXMF cannot verify that message either** — the constraint
+is arithmetic, not a policy of ours — so the remaining lever is the sender
+announcing, and that is out of our hands.
+
+**What that leaves, stated plainly.** Both recoveries are real, tested, and
+will work against peers that do either. The MeshChatX path is not closed, and
+the next step is not more receiver-side work: it is to find what makes that
+client announce (its transport setting is Disabled, which may bear on the path
+request), or to have *our* sender identify on delivery links so the symmetric
+case works for peers meeting us first. The latter is a sender-side change with
+a wider blast radius than tonight's, and it wants deciding rather than
+assuming.
+
 **Mark's environment, changed and recorded.** `~/.reticulum/config` gained an
 `RNodeInterface` for the board. It also had two `AutoInterface` entries
 competing for one UDP port, which made RNS panic on startup — the app's own

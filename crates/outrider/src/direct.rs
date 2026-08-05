@@ -251,7 +251,18 @@ pub async fn receive_with_stamp_cost_and_resource_config(
         return Err(DirectError::WrongDestination);
     }
     let source = AddressHash::from_bytes(message.source);
-    let source_identity = endpoint.resolve(source).ok_or(DirectError::UnknownSource)?;
+    let identified = accepted.session.identified_peer();
+    let source_identity = crate::announce::resolve_source_with_link(endpoint, source, identified)
+        .ok_or(DirectError::UnknownSource {
+        address: source,
+        identified: identified.is_some(),
+    })?;
+    // Belt and braces once a link-proven identity can reach here: `resolve_source_with_link`
+    // already refuses one that does not derive to `source`, and this says the same thing about
+    // the address-book path, where it used to be implicit in the lookup key.
+    if source != delivery_destination(&source_identity) {
+        return Err(DirectError::WrongSource);
+    }
     if !message.verify_with(|bytes, signature| source_identity.verify(bytes, signature)) {
         return Err(DirectError::BadSignature);
     }
@@ -293,8 +304,20 @@ pub enum DirectError {
     LocalIdentityMismatch,
     #[error("the session or announce is not for the expected lxmf.delivery destination")]
     WrongDestination,
-    #[error("the message source has no validated delivery announce")]
-    UnknownSource,
+    /// Carries whether the peer identified itself on the link, because that is what
+    /// separates the two causes: a sender that never announced and never said who it was,
+    /// against one that identified as somebody other than the source its message claims.
+    #[error(
+        "the message source {address} has no validated delivery announce \
+         (peer identified on the link: {identified})"
+    )]
+    UnknownSource {
+        // Not named `source`: thiserror reads that name as the error's own cause.
+        address: AddressHash,
+        identified: bool,
+    },
+    #[error("the resolved identity does not derive to the source the message names")]
+    WrongSource,
     #[error("the LXMF signature does not verify against the announced source identity")]
     BadSignature,
     #[error("the peer requires a direct-delivery stamp with cost {0}")]

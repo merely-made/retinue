@@ -159,9 +159,8 @@ pub fn receive_with_stamp_cost(
         return Err(OpportunisticError::WrongDestination);
     }
     let source = AddressHash::from_bytes(message.source);
-    let source_identity = endpoint
-        .resolve(source)
-        .ok_or(OpportunisticError::UnknownSource)?;
+    let source_identity = crate::announce::resolve_source(endpoint, source)
+        .ok_or(OpportunisticError::UnknownSource(source))?;
     if source != delivery_destination(&source_identity) {
         return Err(OpportunisticError::WrongSource);
     }
@@ -239,8 +238,8 @@ pub enum OpportunisticError {
     WrongDestination,
     #[error("the LXMF source is not that identity's lxmf.delivery destination")]
     WrongSource,
-    #[error("the message source has no validated delivery announce")]
-    UnknownSource,
+    #[error("the message source {0} has no validated delivery announce")]
+    UnknownSource(AddressHash),
     #[error("the LXMF signature does not verify against the announced source identity")]
     BadSignature,
     #[error("an opportunistic packet arrived without a receive ratchet")]

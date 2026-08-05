@@ -3,6 +3,7 @@
 use std::io::Cursor;
 
 use retinue::destination::DestinationName;
+use retinue::endpoint::Endpoint;
 use retinue::hash::AddressHash;
 use retinue::identity::Identity;
 use rmpv::Value;
@@ -111,6 +112,53 @@ pub fn delivery_name() -> DestinationName {
 
 pub fn delivery_destination(identity: &Identity) -> AddressHash {
     delivery_name().destination_hash(identity)
+}
+
+/// Resolve a message source's identity, asking the network for it when we do not have it.
+///
+/// A message is only verifiable if we hold the sender's keys, and we hold them only from an
+/// announce. Nothing obliges a sender to announce before it sends, so a first message from a
+/// stranger is unverifiable through no fault of theirs.
+///
+/// Refusing it is still right: an unverified message must not be delivered. Refusing
+/// *silently* is what was wrong, because it made the refusal permanent — every retry hit the
+/// same wall, and from the sender's side the recipient simply never answered. Found against
+/// MeshChatX 2.0.1 driving a board on the RNode channel: it sent three times, and all three
+/// arrived intact and were dropped.
+///
+/// So a refusal now asks. A path request for the source's delivery destination is answered
+/// with an announce, an announce carries the identity, and the sender's next retry verifies.
+/// The request is rate-limited per destination inside `retinue`, so a peer sending traffic we
+/// cannot verify cannot make us broadcast once per packet.
+pub fn resolve_source(endpoint: &Endpoint, source: AddressHash) -> Option<Identity> {
+    resolve_source_with_link(endpoint, source, None)
+}
+
+/// Resolve a message source, accepting an identity the sender proved on the link it opened.
+///
+/// `identified` is what the peer signed as part of link setup, so it is *stronger* evidence
+/// than an announce: an announce says some destination exists somewhere, while this is the
+/// peer on the other end of this link saying who it is. It is still only accepted when it
+/// derives to the exact delivery destination the message names as its source, because
+/// IDENTIFY proves who the peer is and says nothing about who the payload claims to be from.
+///
+/// This is what closes the case the path request could not. A path request only helps if the
+/// sender answers it, and a client with transport disabled may simply not.
+pub fn resolve_source_with_link(
+    endpoint: &Endpoint,
+    source: AddressHash,
+    identified: Option<Identity>,
+) -> Option<Identity> {
+    if let Some(identity) = endpoint.resolve(source) {
+        return Some(identity);
+    }
+    if let Some(identity) = identified
+        && delivery_destination(&identity) == source
+    {
+        return Some(identity);
+    }
+    endpoint.request_path(source);
+    None
 }
 
 #[cfg(test)]

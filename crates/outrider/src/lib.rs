@@ -38,7 +38,7 @@ pub mod stamp;
 
 pub use announce::{
     AnnounceError, DEFAULT_MAX_ANNOUNCE_BYTES, DeliveryAnnounce, delivery_destination,
-    delivery_name,
+    delivery_name, resolve_source, resolve_source_with_link,
 };
 pub use codec::{
     CodecError, DEFAULT_MAX_MESSAGE_BYTES, DESTINATION_LEN, DecodedLxmf, HEADER_LEN, LxmfPayload,
