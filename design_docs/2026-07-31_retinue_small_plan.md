@@ -1709,6 +1709,42 @@ counted at the board.
 Reticulum and ours, each able to hear and validate the other, over real RF,
 across two firmware personalities on our own hardware.
 
+**A whole LXMF message across the two personalities, 2026-08-04.** Announces
+prove identity and framing; they do not prove a link. `park` gained a radio
+mode, which cost almost nothing because `retinue::iface::tulle::drive` is
+generic over `tulle::radio_io::PacketRadio` and both serial links implement it.
+So the same app runs against either board:
+
+```
+alice: radio: COM10 online (rnode, firmware Some((1, 86)))
+bob:   radio: COM6 online (direct phy)
+bob:   (sent via Data)
+alice: [d305181748ad1c76bd91fc6953e11417] bob: hello across the channels
+```
+
+**3 of 3 delivered.** Link setup, LXMF delivery and display, over RF, between
+two different firmware personalities. That is the park test's shape with one
+leg already on the channel a stock client speaks.
+
+**The 255/500 fork did not fire, and the counter is why we know.** `tulle`'s
+RNode link reports the protocol's 500-byte limit, so the endpoint's frame
+constraint is installed at 500 while the radio carries 255. `park` sets
+`link_mtu` to 255, which bounds the traffic that matters, and across three full
+exchanges `overmtu=0`. The fork is real, it is simply not reached by this
+traffic, and the counter names it the first time it is.
+
+**One observation left standing, bounded rather than solved.** The `0x0a`
+commands are *not* the RNode host protocol: a bare `rnode_smoke` session,
+which opens the port, runs the whole init and transmits, adds **zero**. They
+appear at two per session under RNS *and* under `park` in RNode mode, which are
+two independent host implementations, and neither sends `0x0a` anywhere in its
+protocol code. What those two share and `rnode_smoke` lacks is a full Reticulum
+endpoint putting announces and link traffic through the cable. So the frame is
+most likely produced by something in the host-to-board byte path under sustained
+traffic rather than by either host deliberately. Nothing observable depends on
+it, and the way to close it is a tee on the host-to-board direction during a
+`park --rnode` session, looking for the frame that begins `0x0a`.
+
 ## Non-goals
 
 - Porting `Endpoint`. It stays the desktop shell.

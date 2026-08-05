@@ -1,12 +1,16 @@
-//! One person, one radio: LXMF chat over direct PHY.
+//! One person, one radio: LXMF chat over either board personality.
 //!
 //! Every other direct-PHY example in this crate drives *two* radios from one process, which
 //! proves the protocol and cannot be carried to opposite ends of a park. This is the missing
 //! shape: one radio, one identity, one operator, typing at a prompt.
 //!
 //! ```text
-//! park PORT [NAME] [BW_KHZ]
+//! park PORT [NAME] [BW_KHZ] [phy|rnode]
 //! ```
+//!
+//! The mode picks which board personality is on the other end of the cable. `rnode` is the
+//! same board a stock Reticulum client would drive, so two park-test legs can share hardware
+//! and differ only in which software is holding it.
 //!
 //! What it does:
 //!
@@ -42,6 +46,19 @@ use retinue::iface::tulle::drive;
 use tulle::PhyProfile;
 use tulle::airtime::AirtimeBudget;
 use tulle::direct_phy_serial::{DirectPhySerialConfig, DirectPhySerialLink};
+use tulle::serial::{RNodeSerialLink, SerialPumpConfig};
+
+/// Which board personality this operator's radio is running.
+///
+/// The same PHY either way: the RNode channel programs the sync word and preamble every other
+/// personality here uses, so the two are on one another's air.
+#[derive(Clone, Copy)]
+enum Radio {
+    /// The direct-PHY modem, this project's own host protocol.
+    Phy,
+    /// The RNode channel, the protocol stock Reticulum clients speak.
+    Rnode,
+}
 
 /// The trunk's LongFast-shaped profile, matching what the boards boot into.
 fn profile(bandwidth_hz: u32) -> PhyProfile {
@@ -103,7 +120,9 @@ fn find_peer(peers: &Arc<std::sync::Mutex<Vec<Peer>>>, prefix: &str) -> Option<P
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
-    let port = args.next().ok_or("usage: park PORT [NAME] [BW_KHZ]")?;
+    let port = args
+        .next()
+        .ok_or("usage: park PORT [NAME] [BW_KHZ] [phy|rnode]")?;
     let name = args.next().unwrap_or_else(|| "me".into());
     let bandwidth_hz = args
         .next()
@@ -111,21 +130,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .transpose()?
         .unwrap_or(250)
         * 1_000;
+    let mode = match args.next().as_deref() {
+        None | Some("phy") => Radio::Phy,
+        Some("rnode") => Radio::Rnode,
+        Some(other) => return Err(format!("unknown radio mode {other}, want phy or rnode").into()),
+    };
 
     let identity = load_identity(&name)?;
-
-    let mut radio = DirectPhySerialLink::open(
-        &port,
-        profile(bandwidth_hz),
-        AirtimeBudget::new(60_000, 60_000),
-        DirectPhySerialConfig {
-            online_timeout: Duration::from_secs(10),
-            transmit_timeout: Duration::from_secs(10),
-            ..DirectPhySerialConfig::default()
-        },
-    )?;
-    tokio::time::timeout(Duration::from_secs(15), radio.wait_online()).await??;
-    println!("radio: {port} online");
 
     let endpoint = Arc::new(Endpoint::new(identity.clone()));
     endpoint.set_link_mtu(255);
@@ -134,7 +145,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let params = tulle::lora::LoRaParams::try_from(profile(bandwidth_hz))?;
     endpoint.set_link_setup_retry(tulle::pacing::link_setup_retry(&params, false));
     let interface = endpoint.attach_interface();
-    let driver = tokio::spawn(drive(interface, radio));
+
+    // Either personality, because `drive` is generic over `tulle::radio_io::PacketRadio` and
+    // both serial links implement it. The RNode arm is what lets this app run against a board
+    // on the RNode channel, which is the same board a stock Reticulum client would drive: two
+    // of the three park-test legs then share hardware and differ only in which software is
+    // holding it.
+    let driver = match mode {
+        Radio::Phy => {
+            let mut radio = DirectPhySerialLink::open(
+                &port,
+                profile(bandwidth_hz),
+                AirtimeBudget::new(60_000, 60_000),
+                DirectPhySerialConfig {
+                    online_timeout: Duration::from_secs(10),
+                    transmit_timeout: Duration::from_secs(10),
+                    ..DirectPhySerialConfig::default()
+                },
+            )?;
+            tokio::time::timeout(Duration::from_secs(15), radio.wait_online()).await??;
+            println!("radio: {port} online (direct phy)");
+            tokio::spawn(drive(interface, radio))
+        }
+        Radio::Rnode => {
+            let mut radio = RNodeSerialLink::open(
+                &port,
+                params,
+                AirtimeBudget::new(60_000, 60_000),
+                SerialPumpConfig::default(),
+            )?;
+            let firmware =
+                tokio::time::timeout(Duration::from_secs(25), radio.wait_online()).await??;
+            println!("radio: {port} online (rnode, firmware {firmware:?})");
+            tokio::spawn(drive(interface, radio))
+        }
+    };
 
     // Register as an LXMF delivery destination and say so on the air.
     let announce = DeliveryAnnounce::named(name.as_bytes().to_vec());
