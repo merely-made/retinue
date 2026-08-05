@@ -50,6 +50,10 @@ struct State {
     refused: u16,
     /// Commands this device does not implement.
     unhandled: u16,
+    /// The marker of the most recent one. Counted is good, named is better: a count alone
+    /// says a host wanted something and cannot say what, which leaves the only way forward a
+    /// packet capture of somebody else's client.
+    unhandled_marker: u8,
     /// Received frames dropped because the host had not turned the radio on.
     dropped: u16,
 }
@@ -77,6 +81,7 @@ impl RNodeChannel {
                 over_air_mtu: 0,
                 refused: 0,
                 unhandled: 0,
+                unhandled_marker: 0,
                 dropped: 0,
             },
             out: [0; OUT_BUF],
@@ -100,11 +105,13 @@ impl RNodeChannel {
         let mut out = radio_face::Text::<128>::empty();
         let _ = write!(
             &mut out,
-            "rnode radio={} overmtu={} refused={} unhandled={} dropped={} airmtu={}\r\n",
+            "rnode radio={} overmtu={} refused={} unhandled={} last=0x{:02x} dropped={} \
+             airmtu={}\r\n",
             if self.state.radio_on { "on" } else { "off" },
             self.state.over_air_mtu,
             self.state.refused,
             self.state.unhandled,
+            self.state.unhandled_marker,
             self.state.dropped,
             rnode::MAX_AIR_FRAME,
         );
@@ -205,8 +212,9 @@ where
             reply(link, out, cmd::ERROR, &[code]).await
         }
 
-        Command::Unhandled(_) => {
+        Command::Unhandled(marker) => {
             state.unhandled = state.unhandled.saturating_add(1);
+            state.unhandled_marker = marker;
             Flow::Continue
         }
 

@@ -1599,6 +1599,62 @@ a question the counter can now answer, and could not before.
   the same capture and is the closest stand-in, but it is a stand-in. That is
   the next receipt, and the one that makes Sideband real.
 
+**Real Reticulum drives the board, 2026-08-04.** The receipt the entry above
+left open. Stock RNS, its own `RNodeInterface`, our firmware, no shim:
+
+```
+[Notice] Opening serial port COM10...
+[Notice] RNodeInterface[rnode] is configured and powered up
+interface: RNodeInterface[rnode] online=True
+destination: <718c57fe88eea2f07bfef2570899a6a5>
+```
+
+**Counted, 8 of 8 sessions online**, with `txok` matching the announces one for
+one and `refused=0 overmtu=0 dropped=0` throughout. The whole conversation was
+captured through a tee, and it is the 1.86 oracle's conversation exactly:
+`DETECT/FW_VERSION/PLATFORM/MCU`, the five settings each echoed verbatim,
+`RADIO_STATE` echoed as 1, then the announce as a `DATA` frame.
+
+**A compatibility datum worth recording:** the installed RNS is **1.4.0**, and
+the capture that pins both halves of this protocol was taken from **1.3.8**.
+The parts implemented here did not change between them. That is the first
+evidence that the wire this work is pinned to is stable across an RNS minor
+release rather than a snapshot of one.
+
+**RNS also validates.** It reads back the radio parameters after configuring
+and refuses the interface if they disagree, which is what makes the settings
+echo load-bearing rather than a courtesy. It is also why the settings are
+echoed from the *decoded* value: a decode that misread a field would be caught
+here rather than becoming a silently wrong channel.
+
+**Two things left open, and both are named rather than smoothed over.**
+
+**One intermittent startup failure.** Early in the session one attempt aborted
+with *"Spreading factor mismatch. After configuring RNodeInterface, the
+reported radio parameters did not match your configuration."* It has not
+recurred in the fifteen-plus sessions since, including the counted block, and
+the captured conversation from a good run shows the SF echo arriving 40 ms
+after the command with the right value. So it is recorded as a real
+observation with no mechanism yet, not as a fixed bug. The next occurrence
+should be caught with a tee running; the harness for that is
+`scratchpad/rns_capture.py`'s shape, which logs raw bytes and defers all
+deframing so nothing expensive runs in the serial read path.
+
+**RNS sends one command this device does not implement, twice per session.**
+The counter said so immediately; what it could not say was *which*, and a count
+that cannot name itself leaves the only way forward a packet capture of
+somebody else's client. So the probe gained `last=`, and the board answered on
+the first run after reflashing: `unhandled=2 last=0x0a`, exactly twice per
+session, eighteen across nine. The tee never saw it, which is its own small
+lesson about trusting one instrument. Nothing observable depends on it: nine
+sessions came online, announced, and shut down cleanly without it. It is left
+unimplemented rather than guessed at, because a device that answers a command
+whose semantics it inferred is worse than one that visibly does not answer.
+
+Design point worth keeping: **counted is good, named is better.** Every counter
+that exists to explain a foreign peer's behaviour should carry the identifying
+byte alongside the count, or it can only ever say that something happened.
+
 ## Non-goals
 
 - Porting `Endpoint`. It stays the desktop shell.
