@@ -1733,6 +1733,54 @@ constraint is installed at 500 while the radio carries 255. `park` sets
 exchanges `overmtu=0`. The fork is real, it is simply not reached by this
 traffic, and the counter names it the first time it is.
 
+**A real client, on Mark's desktop, 2026-08-05.** MeshChatX 2.0.1, a stock
+Reticulum client, driven by hand against the board. Its own network
+diagnostics are the receipt:
+
+```
+RNodeInterface[Retinue T114]                                   Up
+Mode: Full        Bitrate: 6.25 kbps        RX Bytes: 3.71 KB
+TX Bytes: 1.58 KB  Battery: 0%              Airtime: 0% (15s), 0% (1h)
+```
+
+Up, at the bitrate SF8/250 kHz gives, with real byte counters both ways. It
+also heard our stack and rendered it as a person would see it: **`bob` · Direct
+· SNR 10**, from `park` announcing over a direct-PHY V4.
+
+**The omission has a visible price, now measured.** `Battery 0%`, `Airtime 0%`
+and `Channel Load 0%` are the unsolicited `STAT_BAT` and `STAT_CHTM` frames
+this device does not send. Cosmetic, and no longer a guess: it is three zeroed
+fields on the client's diagnostics page.
+
+**And the client found a real defect on our side.** MeshChatX sent an LXMF
+message to `bob`. It crossed: `park` received every attempt and refused all of
+them with
+
+```
+[dropped] the message source has no validated delivery announce
+```
+
+`outrider`'s receive path requires a validated delivery announce from the
+*source* before it will accept a message. MeshChatX had not announced its own
+LXMF address on our air yet, so a message that arrived intact was thrown away.
+Repeated across three retries, plus one `payload receive timed out` when a
+retry was cut short.
+
+This is ordering-dependent acceptance, and it is the kind of thing only a real
+client finds: every harness in this repo announces before it sends, because
+both ends are ours and both were written by someone who knew the rule. A
+stranger's client does not have to. Whether the fix is to accept a source
+proven by the link, to request the identity, or to hold the message until an
+announce arrives is a design question for `outrider`, and it is the next piece
+of work on this path.
+
+**Mark's environment, changed and recorded.** `~/.reticulum/config` gained an
+`RNodeInterface` for the board. It also had two `AutoInterface` entries
+competing for one UDP port, which made RNS panic on startup — the app's own
+banner said *"RNS unavailable ... RNS.panic() was called"* before any of this
+worked. The duplicate is disabled. Backup at `~/.reticulum/config.backup-
+before-rnode`.
+
 **One observation left standing, bounded rather than solved.** The `0x0a`
 commands are *not* the RNode host protocol: a bare `rnode_smoke` session,
 which opens the port, runs the whole init and transmits, adds **zero**. They
