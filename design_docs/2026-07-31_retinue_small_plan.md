@@ -1678,10 +1678,36 @@ this firmware uses, which is the same reason it does *not* cross with stock
 RNode hardware. The one choice buys the fleet and costs the foreign device;
 that trade is deliberate and stated where it is made.
 
-The reverse direction, our stack announcing into RNS, is not receipted here:
-`rns_live.py` announces but does not log what it hears, so proving it needs a
-listener on the RNS side rather than new firmware. Cheap, and the obvious next
-thing.
+**The reverse direction, receipted the same day.** `park` announcing from a
+direct-PHY V4, real RNS listening through the T114 on the RNode channel with an
+announce handler registered:
+
+```
+HEARD d305181748ad1c76bd91fc6953e11417 app_data=..bob.
+```
+
+That is exactly the LXMF delivery address `park` printed for itself, and RNS's
+announce handler only fires for announces that pass its own validation, so the
+signature our Rust stack produced satisfies the reference implementation.
+**3 of 3** fresh RNS instances heard it, each a new process with no announce
+history so nothing could be masked by deduplication.
+
+One reading correction worth recording, because the naive number is wrong. A
+single long listen surfaced two announces where `park` had sent about five, and
+that is not a delivery rate: RNS suppresses repeats from a destination it
+already knows. The board's own counters are what separate the two questions.
+Across that window `rxok=18` with `rxbad=4`, so the air delivered the frames
+and RNS deduplicated the announces. Counting handler invocations as a loss
+figure would have blamed the radio for a cache.
+
+Those four `rxbad` are the driver fix paying off exactly where it matters most.
+Before it, a CRC-failed frame went up the cable to RNS as a packet, to fail
+RNS's own checks and possibly disturb its path state. Now it is dropped and
+counted at the board.
+
+**Both directions therefore hold, and the picture is complete:** reference
+Reticulum and ours, each able to hear and validate the other, over real RF,
+across two firmware personalities on our own hardware.
 
 ## Non-goals
 
