@@ -1655,6 +1655,34 @@ Design point worth keeping: **counted is good, named is better.** Every counter
 that exists to explain a foreign peer's behaviour should carry the identifying
 byte alongside the count, or it can only ever say that something happened.
 
+**One Reticulum network, two implementations, over real RF, 2026-08-04.** The
+step past "RNS drives our hardware", and the one that matters for the park
+test. Stock RNS announced through the T114 on the RNode channel; `outrider`'s
+`park` example, running our own Rust stack over a direct-PHY V4, heard each
+announce, validated it, and learned the peer:
+
+```
+[peer] afc3c8028bb732654bcfc5cfd2267947 appeared
+[peer] 3c45e53a18d3695cd0a34b62d191141b appeared
+[peer] 2d655cc0a6dcfc601a9177e6397fe701 appeared
+[peer] 24623b955aa99acd22595c01c4c70a11 appeared
+```
+
+**4 of 4**, each address matching the destination RNS printed on the other
+side. The path is: reference Reticulum, our RNode firmware, the air, our
+direct-PHY firmware, our Rust Reticulum. Two implementations of the protocol
+and two firmware personalities, one network.
+
+It works because the RNode channel programs the on-air settings the rest of
+this firmware uses, which is the same reason it does *not* cross with stock
+RNode hardware. The one choice buys the fleet and costs the foreign device;
+that trade is deliberate and stated where it is made.
+
+The reverse direction, our stack announcing into RNS, is not receipted here:
+`rns_live.py` announces but does not log what it hears, so proving it needs a
+listener on the RNS side rather than new firmware. Cheap, and the obvious next
+thing.
+
 ## Non-goals
 
 - Porting `Endpoint`. It stays the desktop shell.
