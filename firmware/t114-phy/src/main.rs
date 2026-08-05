@@ -20,6 +20,7 @@ use lora_phy::LoRa;
 use lora_phy::sx126x::{Config as Sx126xConfig, Sx126x, Sx1262, TcxoCtrlVoltage};
 use radio_hand::channel::modem::ModemChannel;
 use radio_hand::channel::node::NodeChannel;
+use radio_hand::channel::rnode::RNodeChannel;
 use radio_hand::channel::{Channel, ChannelInfo, Event, Personality};
 use radio_hand::executive::{Executive, Face, Heartbeat, RadioState};
 use radio_hand::link::{Flow, HostLink};
@@ -97,6 +98,7 @@ fn channel_probe(packet: &[u8]) -> Option<ChannelProbe> {
         b"channel" => Some(ChannelProbe::Report),
         b"channel modem" => Some(ChannelProbe::Set(BootChannel::Modem)),
         b"channel node" => Some(ChannelProbe::Set(BootChannel::Node)),
+        b"channel rnode" => Some(ChannelProbe::Set(BootChannel::Rnode)),
         _ => None,
     }
 }
@@ -410,6 +412,10 @@ async fn main(spawner: Spawner) {
     // clears after a clean minute, so the fallback is a refuge, not a trap.
     let mut channel = match (settings.map(|s| s.channel), node, boot_crash.fallback) {
         (Some(BootChannel::Node), Some(node), false) => Personality::Node(NodeChannel::new(node)),
+        // The RNode channel needs no identity of its own: the host holds one, which is the
+        // point of it. So it is offered on the settings alone, and only a crash loop takes
+        // it away.
+        (Some(BootChannel::Rnode), _, false) => Personality::Rnode(RNodeChannel::new()),
         _ => Personality::Modem(ModemChannel::new(Sx126xDiagnostics)),
     };
 
@@ -422,17 +428,20 @@ async fn main(spawner: Spawner) {
         radio_hand::channel::await_host(&mut channel, &mut exec, &mut host, &mut heartbeat).await;
         exec.status_mut().host = radio_face::HostState::Attached;
         exec.publish(radio_face::LedSignal::Idle);
-        if host
-            .write_all(online_line.as_str().as_bytes())
-            .await
-            .is_err()
-            || host
-                .write_all(&identity_line[..identity_line_len])
+        // The board introduces itself in plain text, unless the channel speaks somebody
+        // else's protocol from the first byte: a host opening with a binary frame is not
+        // reading a greeting, and what it does with one is nobody's guess worth taking.
+        let greeted = !channel.banner()
+            || (host
+                .write_all(online_line.as_str().as_bytes())
                 .await
-                .is_err()
-            || host.write_all(&node_line[..node_line_len]).await.is_err()
-            || channel.start(&mut exec, &mut host).await == Flow::Detach
-        {
+                .is_ok()
+                && host
+                    .write_all(&identity_line[..identity_line_len])
+                    .await
+                    .is_ok()
+                && host.write_all(&node_line[..node_line_len]).await.is_ok());
+        if !greeted || channel.start(&mut exec, &mut host).await == Flow::Detach {
             exec.status_mut().host = radio_face::HostState::Detached;
             exec.publish(radio_face::LedSignal::Idle);
             continue;

@@ -1,5 +1,7 @@
 #![no_std]
 
+pub mod kiss;
+
 /// Meshtastic's documented LoRa synchronization byte.
 pub const MESHTASTIC_SYNC_WORD: u8 = 0x2b;
 /// MeshCore's private-network LoRa synchronization byte.

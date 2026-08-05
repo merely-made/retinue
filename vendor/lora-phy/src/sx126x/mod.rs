@@ -950,10 +950,24 @@ where
             }
             RadioMode::Receive(rx_mode) => {
                 if (irq_flags & IrqMask::HeaderError.value()) == IrqMask::HeaderError.value() {
+                    // Left as it was, deliberately. A header that did not decode means no
+                    // packet was delivered, so falling through costs nothing: RxDone is not
+                    // raised with it, and this call already returns "keep waiting". Turning
+                    // it into an error would end the driver's wait and make the caller
+                    // re-arm the receiver on every burst of noise.
                     debug!("HeaderError in radio mode {}", radio_mode);
                 }
+                // A damaged packet must not fall through to RxDone.
+                //
+                // The chip raises RxDone *alongside* CRCError, so reporting it only through
+                // `debug!` — which compiles to nothing in a firmware with no defmt consumer —
+                // handed the caller a corrupt payload as though it were good. Measured on
+                // hardware before this fix: about one frame in twenty arrived with a
+                // contiguous burst of wrong bytes near its tail, and every layer above
+                // believed it.
                 if (irq_flags & IrqMask::CRCError.value()) == IrqMask::CRCError.value() {
                     debug!("CRCError in radio mode {}", radio_mode);
+                    return Err(RadioError::PayloadCrcError);
                 }
                 if (irq_flags & IrqMask::RxDone.value()) == IrqMask::RxDone.value() {
                     debug!("RxDone in radio mode {}", radio_mode);

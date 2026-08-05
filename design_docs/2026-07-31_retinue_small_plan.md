@@ -1471,6 +1471,134 @@ rather than raw bulk packets. Lesson worth keeping: a surface that answers
 *everything except one thing* is more likely a size or boundary bug in the
 transport than a logic bug in the one thing.
 
+**The RNode channel, 2026-08-04: stock Reticulum software drives the board.**
+The third channel, and the one that connects this firmware to software that
+already exists. Sideband, MeshChat and NomadNet all drive an RNode; with
+`channel rnode` selected they drive this board, with nothing in between.
+
+**Built from the same oracle as the other half.** `tulle::rnode` speaks this
+protocol as a host, pinned by a black-box capture of RNS 1.3.8 driving RNode
+firmware 1.86 through a serial tee. That capture holds *both* directions, so
+the device side is pinned by the same bytes: `radio-hand::rnode` decodes what
+the host sent and answers what the device answered, and
+`tests/rnode_device.rs` replays the capture frame for frame. Every command RNS
+sent is one this device implements, our answers match the real device's byte
+for byte, and the five settings rebuild the profile the capture's own config
+block records. The GPL firmware source stays unread.
+
+That gold test found one thing worth having found: 915 MHz is `36 89 CA C0`,
+and its last byte *is* the frame delimiter. The escape path is not an edge case
+in this protocol, it is the first setting every US host sends.
+
+**The pieces, and where each sits.** KISS framing moved to `selvage::kiss`,
+because both ends of the conversation are now in this workspace and a second
+copy of the escape rules is a second place for a resync bug to hide; `tulle`
+keeps its `Vec` storage, the board takes a fixed array, and the rules are
+shared. The `Scan` state machine also gained a rule that matters more on a
+board than on a desk: **a frame starts at a delimiter, so bytes before the
+first one are not frame contents.** Without it a mistyped line would leave the
+deframer permanently mid-frame, `at_boundary` would go false forever, and the
+`channel modem` probe that switches the board back would stop being
+recognised — a channel you can only leave by reflashing.
+
+`ChannelInfo` gained `banner`. The board introduces itself in plain text on
+every attach, which is right for a person on a terminal and wrong for a host
+that opens with a binary frame; a real RNode says nothing until asked, and now
+so does this one. Receipted directly: with the channel selected, attaching
+reads back zero bytes where the modem channel reads 187.
+
+**What it does not claim.** Speaking the host protocol is not being on the air
+with a stock RNode. Those two firmwares were swept against each other across
+seven sync words and inverted IQ in both directions and never crossed
+(`2026-07-25_rnode_direct_phy_rf_opacity.md`); the protocol has no sync-word
+command, so whatever stock RNode programs stays invisible from the host side.
+This channel therefore uses **our** on-air settings — sync `0x12`, preamble 16,
+the same as every other personality here — which is what makes our own boards
+hear each other. The 500-byte lane is likewise not smuggled in: the protocol's
+MTU is 500, this radio carries 255, and an over-long transmit is refused with
+an `ERROR` frame carrying `TX_TOO_LONG` rather than truncated. The announce the
+capture actually sent is 167 bytes, so finding peers fits.
+
+**Receipts, on v41/v43, T114 on COM10:** `channel rnode` persists and boots;
+`tulle`'s own RNode host — the one pinned to real hardware by gold tests —
+detects the board, reads firmware 1.86, applies the profile and transmits
+(`txok=1`, `duty=131ms`, which is that frame's real time on air, charged to the
+regulatory floor). The `rnode` probe reports `radio=on overmtu=0 refused=0
+unhandled=0 dropped=0 airmtu=255`. Flash cost: **+4,416 bytes**, the per-channel
+linker receipt.
+
+`rnode_phy_cross` is the new instrument, and it exists because
+`rnode_bulk_probe` says in its own header that a direct-PHY listener cannot
+serve as its receiver. That was true of *stock* RNode. Ours crosses: on v43,
+**24 of 24 rnode to phy** and **21 of 24 the other way**, with the missing three
+fully accounted for below.
+
+**What that instrument found is bigger than the channel: the SX126x driver was
+delivering CRC-failed packets as good ones.** In
+`vendor/lora-phy/src/sx126x/mod.rs`, `process_irq_event` logged `CRCError`
+through a `debug!` and fell straight through to `RxDone`. The chip raises both
+together, so every corrupt packet was handed up as a valid frame — and
+`debug!` compiles to nothing in a firmware with no defmt consumer, so the flag
+was not merely ignored, it was unobservable.
+
+It surfaced because this is the first harness that compares a *single* frame
+byte for byte in that direction and says where it differs. The signature was
+unmistakable once printed: a contiguous burst of four to nine wrong bytes near
+the tail, with the round tag intact — `DAMAGED first at byte 60 (4 of 64 bytes
+differ) [60:9a/5a 61:74/5a 62:18/5a 63:da/5a]`. It followed the *role*, not the
+board: both V4s produced it, and the reverse direction never did.
+
+The fix reports `CRCError` as `RadioError::PayloadCrcError`; the executive
+counts it as `rx_damaged` and listens again rather than reporting a fault,
+because the radio is fine and the air is not — and on a channel speaking
+somebody else's binary protocol, answering with the board's `radio rx failed`
+line would inject text into their stream. `air` gained `rxbad`. `HeaderError`
+was deliberately left as it was after a first attempt included it: a header
+that did not decode delivers no packet, so turning it into an error only makes
+the caller re-arm the receiver on every burst of noise.
+
+**The A/B, same instrument and same bench:**
+
+| image | result |
+|---|---|
+| v41, before | frames delivered `DAMAGED`, tail bursts, ~1 in 20 |
+| v42, after | 6 blocks, **zero** damaged deliveries, `rxok=47 rxbad=1` against 48 sent |
+
+Forty-eight frames sent, forty-seven delivered good, one rejected and counted.
+The accounting closes exactly, which is the part that makes it a receipt rather
+than a number: the mechanism explains the count.
+
+**It is not a reliability win, and saying so matters.** A damaged frame is
+still a lost frame; the pass rate does not move. What changed is that a corrupt
+frame no longer *masquerades* as a good one — it becomes a missing frame, which
+every layer above already knows how to handle, instead of a wrong one, which
+nothing above can detect.
+
+**Regression, because this change is under every channel:** the counted modem
+block on v43 held at **7 of 8**, squarely in the historical band. Its counters
+are the striking part — `rxok=399 rxbad=244`. Thirty-eight percent of what the
+board heard during that block failed CRC, and before this every one of those
+frames went to the host as ours. Some of it is certainly the documented
+neighbours on 906.875 MHz being demodulated and correctly rejected; how much is
+a question the counter can now answer, and could not before.
+
+**Left open, honestly:**
+
+- The V4 has no channel selector and no `channel` probe, so this lands on the
+  T114 only. Its image also could not be rebuilt this session: the `esp`
+  toolchain on this machine has no `xtensa-esp32s3-none-elf` core installed, so
+  the driver fix has not reached that board. Both V4s still run the old driver,
+  which is exactly why they were usable as the *unfixed* transmitters above.
+- Unsolicited device frames (channel utilisation, battery, PHY parameters) are
+  not emitted. `tulle` ignores all three while driving real hardware, so a host
+  that only needs the link does not depend on them; a host that wants them will
+  say so.
+- The sx127x path in the vendored driver has the same shape and was not
+  touched. No board here uses it.
+- Real RNS has not yet been pointed at the board. `tulle`'s host is pinned to
+  the same capture and is the closest stand-in, but it is a stand-in. That is
+  the next receipt, and the one that makes Sideband real.
+
 ## Non-goals
 
 - Porting `Endpoint`. It stays the desktop shell.

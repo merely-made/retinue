@@ -36,6 +36,9 @@ pub enum Channel {
     Modem = 0,
     /// The native Retinue node. The board holds the identity and answers for itself.
     Node = 1,
+    /// The board as an RNode: the same host-driven radio the modem is, speaking the protocol
+    /// stock Reticulum software already knows how to drive.
+    Rnode = 2,
 }
 
 impl Channel {
@@ -47,6 +50,7 @@ impl Channel {
         match byte {
             0 => Some(Channel::Modem),
             1 => Some(Channel::Node),
+            2 => Some(Channel::Rnode),
             _ => None,
         }
     }
@@ -209,7 +213,7 @@ mod tests {
     /// break the ones already shipped.
     #[test]
     fn every_known_channel_round_trips() {
-        for channel in [Channel::Modem, Channel::Node] {
+        for channel in [Channel::Modem, Channel::Node, Channel::Rnode] {
             let settings = Settings {
                 identity: identity(),
                 channel,

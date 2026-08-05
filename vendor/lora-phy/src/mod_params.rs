@@ -25,6 +25,10 @@ pub enum RadioError {
     InvalidOutputPowerForFrequency,
     TransmitTimeout,
     ReceiveTimeout,
+    /// A packet arrived and failed its CRC. It is not a radio fault: the radio worked and the
+    /// air did not. Reported rather than swallowed because the chip raises RxDone alongside
+    /// the error, so a caller that is not told will read the corrupt payload as a good one.
+    PayloadCrcError,
     DutyCycleUnsupported,
     RngUnsupported,
 }

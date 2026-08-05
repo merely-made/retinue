@@ -17,7 +17,7 @@
 //! deserves the word hypervisor. Channels are trusted safe Rust in the same address space.
 
 use embassy_time::{Duration, Instant, Ticker, with_timeout};
-use lora_phy::mod_params::{ModulationParams, PacketParams};
+use lora_phy::mod_params::{ModulationParams, PacketParams, RadioError};
 use lora_phy::mod_traits::RadioKind;
 use lora_phy::{DelayNs, LoRa, RxMode};
 use radio_face::{HostSnapshot, LedSignal, LocalStatus};
@@ -174,6 +174,13 @@ pub struct AirDiag {
     pub rx_ok: u16,
     /// Times `receive` returned a fault.
     pub rx_err: u16,
+    /// Packets that arrived, failed their CRC, and were dropped.
+    ///
+    /// Air, not fault. Before the driver was fixed to report these at all, they were
+    /// delivered as good frames: about one in twenty on a desk-range bench, each carrying a
+    /// contiguous burst of wrong bytes. A nonzero count here is the band being the band; a
+    /// count that climbs faster than `rx_ok` is a link that needs a slower profile.
+    pub rx_damaged: u16,
     /// Transmissions accepted on the air.
     pub tx_ok: u16,
     /// Transmissions refused or timed out.
@@ -364,19 +371,33 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
     /// rather than lost. That is what lets the serve loop select this against a host read and
     /// a heartbeat without dropping packets.
     pub async fn receive(&mut self, buffer: &mut [u8]) -> Result<Received, RadioFault> {
-        match self.lora.rx(&self.radio.rx, buffer).await {
-            Ok((len, status)) => {
-                self.diag.rx_ok = self.diag.rx_ok.saturating_add(1);
-                Ok(Received {
-                    len: usize::from(len),
-                    rssi: status.rssi,
-                    snr: status.snr,
-                })
-            }
-            Err(_) => {
-                self.diag.rx_err = self.diag.rx_err.saturating_add(1);
-                self.radio.prepare_rx = true;
-                Err(RadioFault)
+        loop {
+            match self.lora.rx(&self.radio.rx, buffer).await {
+                Ok((len, status)) => {
+                    self.diag.rx_ok = self.diag.rx_ok.saturating_add(1);
+                    return Ok(Received {
+                        len: usize::from(len),
+                        rssi: status.rssi,
+                        snr: status.snr,
+                    });
+                }
+                // A packet that did not survive the air. Counted and dropped here rather
+                // than reported upward, because the two are genuinely different events and
+                // the difference is visible from nowhere else: the radio is fine, so a board
+                // that answered this with its "radio rx failed" line would be lying to its
+                // host — and on a channel speaking somebody else's binary protocol, it would
+                // be injecting text into their stream.
+                //
+                // The radio is still in continuous receive (the driver leaves the mode alone
+                // on an error there), so listening again is the whole recovery.
+                Err(RadioError::PayloadCrcError) => {
+                    self.diag.rx_damaged = self.diag.rx_damaged.saturating_add(1);
+                }
+                Err(_) => {
+                    self.diag.rx_err = self.diag.rx_err.saturating_add(1);
+                    self.radio.prepare_rx = true;
+                    return Err(RadioFault);
+                }
             }
         }
     }

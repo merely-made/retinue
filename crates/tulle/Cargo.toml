@@ -53,5 +53,9 @@ name = "rnode_witness_probe"
 required-features = ["serial-async"]
 
 [[example]]
+name = "rnode_phy_cross"
+required-features = ["serial-async"]
+
+[[example]]
 name = "direct_phy_sleep_proof"
 required-features = ["serial-async"]

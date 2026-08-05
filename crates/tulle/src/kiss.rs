@@ -1,41 +1,31 @@
-//! KISS framing (the public amateur-radio spec RNode framing builds on).
+//! KISS framing, host side: `Vec`-backed encoding and deframing.
 //!
-//! `FEND` (0xC0) delimits frames; a literal 0xC0 inside a frame is escaped as
-//! `FESC TFEND` and a literal `FESC` (0xDB) as `FESC TFESC`. Everything about
-//! frame *contents* (RNode's command byte and opcode set) lives above this
-//! module and is pinned by hardware capture, not assumed.
+//! The escape rules themselves live in [`selvage::kiss`], because the board's RNode channel
+//! obeys the same ones with no allocator. What is here is only the storage decision a host
+//! gets to make differently: an encoder that returns a fresh `Vec`, and a deframer whose
+//! bound is a runtime number rather than a const generic.
 
-pub const FEND: u8 = 0xC0;
-pub const FESC: u8 = 0xDB;
-pub const TFEND: u8 = 0xDC;
-pub const TFESC: u8 = 0xDD;
+pub use selvage::kiss::{FEND, FESC, TFEND, TFESC};
+use selvage::kiss::{Scan, Step, encode_into, encoded_len};
 
 /// Encode one frame: leading + trailing FEND, contents escaped.
 pub fn encode(frame: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(frame.len() + 2);
-    out.push(FEND);
-    for &b in frame {
-        match b {
-            FEND => out.extend_from_slice(&[FESC, TFEND]),
-            FESC => out.extend_from_slice(&[FESC, TFESC]),
-            _ => out.push(b),
-        }
-    }
-    out.push(FEND);
+    let mut out = vec![0_u8; encoded_len(frame)];
+    let len = encode_into(frame, &mut out).expect("the buffer is sized from the frame");
+    out.truncate(len);
     out
 }
 
 /// Streaming deframer with a bounded frame size.
 ///
-/// Feed raw serial bytes in; complete frames come out. Frames that exceed
-/// `max_frame` are discarded and the deframer resyncs at the next FEND, so a
-/// corrupt stream cannot balloon memory. Invalid escape sequences discard the
-/// frame for the same reason.
+/// Feed raw serial bytes in; complete frames come out. Frames that exceed `max_frame` are
+/// discarded and the deframer resyncs at the next FEND, so a corrupt stream cannot balloon
+/// memory. Invalid escape sequences discard the frame for the same reason.
 pub struct Deframer {
     buf: Vec<u8>,
     max_frame: usize,
-    in_escape: bool,
-    overflowed: bool,
+    scan: Scan,
+    poisoned: bool,
 }
 
 impl Deframer {
@@ -43,49 +33,36 @@ impl Deframer {
         Deframer {
             buf: Vec::new(),
             max_frame,
-            in_escape: false,
-            overflowed: false,
+            scan: Scan::new(),
+            poisoned: false,
         }
     }
 
     /// Consume raw bytes, appending any completed frames to `out`.
     pub fn push(&mut self, bytes: &[u8], out: &mut Vec<Vec<u8>>) {
-        for &b in bytes {
-            if b == FEND {
-                if !self.overflowed && !self.in_escape && !self.buf.is_empty() {
-                    out.push(std::mem::take(&mut self.buf));
-                } else {
-                    self.buf.clear();
-                }
-                self.in_escape = false;
-                self.overflowed = false;
-                continue;
-            }
-            if self.overflowed {
-                continue; // discard until the next FEND
-            }
-            let decoded = if self.in_escape {
-                self.in_escape = false;
-                match b {
-                    TFEND => FEND,
-                    TFESC => FESC,
-                    _ => {
-                        // invalid escape: poison the frame, resync at FEND
-                        self.overflowed = true;
-                        continue;
+        for &byte in bytes {
+            match self.scan.step(byte) {
+                Step::Skip => {}
+                Step::Byte(decoded) => {
+                    if self.buf.len() >= self.max_frame {
+                        self.poisoned = true;
+                        self.buf.clear();
+                    } else if !self.poisoned {
+                        self.buf.push(decoded);
                     }
                 }
-            } else if b == FESC {
-                self.in_escape = true;
-                continue;
-            } else {
-                b
-            };
-            if self.buf.len() >= self.max_frame {
-                self.overflowed = true;
-                self.buf.clear();
-            } else {
-                self.buf.push(decoded);
+                Step::Bad => {
+                    self.poisoned = true;
+                    self.buf.clear();
+                }
+                Step::End => {
+                    if !self.poisoned && !self.buf.is_empty() {
+                        out.push(std::mem::take(&mut self.buf));
+                    } else {
+                        self.buf.clear();
+                    }
+                    self.poisoned = false;
+                }
             }
         }
     }

@@ -82,7 +82,7 @@ where
         let _ = write!(
             &mut reply,
             "air region={} duty={}ms listen={} armed={} armfail={} rxok={} rxerr={} \
-             txok={} txerr={} noregion={} overduty={} cadclear={} cadbusy={} \
+             rxbad={} txok={} txerr={} noregion={} overduty={} cadclear={} cadbusy={} \
              cadgiveup={} cadover={} cadfault={} beats={} frames={}\r\n",
             exec.region().name(),
             exec.duty_spent_ms(),
@@ -91,6 +91,7 @@ where
             d.rx_arm_failed,
             d.rx_ok,
             d.rx_err,
+            d.rx_damaged,
             d.tx_ok,
             d.tx_err,
             d.tx_no_region,
@@ -218,6 +219,7 @@ where
             (Some(current), ChannelProbe::Report) => match current.channel {
                 BootChannel::Modem => &b"channel=modem\r\n"[..],
                 BootChannel::Node => &b"channel=node\r\n"[..],
+                BootChannel::Rnode => &b"channel=rnode\r\n"[..],
             },
             (Some(current), ChannelProbe::Set(wanted)) => {
                 let next = Settings {

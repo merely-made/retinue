@@ -28,6 +28,7 @@ pub mod phy;
 pub mod region;
 #[cfg(feature = "replay")]
 pub mod replay;
+pub mod rnode;
 #[cfg(feature = "radio")]
 pub mod service;
 pub mod settings;

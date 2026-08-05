@@ -36,6 +36,7 @@ pub mod face;
 pub mod modem;
 #[cfg(feature = "node")]
 pub mod node;
+pub mod rnode;
 
 /// Something a channel is asked to handle.
 ///
@@ -91,6 +92,19 @@ pub trait ChannelInfo {
     fn without_host(&self) -> bool {
         false
     }
+
+    /// Whether the firmware's text banner may be written to this host.
+    ///
+    /// The board introduces itself in plain text on every attach — what it is, its region,
+    /// its carrier, the reset reason — which is right for a person on a terminal and wrong
+    /// for a host that opens with a binary frame and expects a binary frame back. A channel
+    /// speaking somebody else's protocol from the first byte says so here.
+    ///
+    /// `true` by default: the banner predates channels, and a personality that wants it kept
+    /// should not have to ask.
+    fn banner(&self) -> bool {
+        true
+    }
 }
 
 /// One board personality.
@@ -143,6 +157,8 @@ pub enum Personality<D, const PEERS: usize = 32, const ACTIONS: usize = 8, const
     Modem(modem::ModemChannel<D>),
     /// The native Retinue node.
     Node(node::NodeChannel<PEERS, ACTIONS, LINKS>),
+    /// The board as an RNode, which is what stock Reticulum software knows how to drive.
+    Rnode(rnode::RNodeChannel),
 }
 
 #[cfg(feature = "node")]
@@ -153,6 +169,7 @@ impl<D, const PEERS: usize, const ACTIONS: usize, const LINKS: usize> ChannelInf
         match self {
             Personality::Modem(c) => c.at_boundary(),
             Personality::Node(c) => c.at_boundary(),
+            Personality::Rnode(c) => c.at_boundary(),
         }
     }
 
@@ -160,6 +177,7 @@ impl<D, const PEERS: usize, const ACTIONS: usize, const LINKS: usize> ChannelInf
         match self {
             Personality::Modem(c) => c.heartbeat(),
             Personality::Node(c) => c.heartbeat(),
+            Personality::Rnode(c) => c.heartbeat(),
         }
     }
 
@@ -167,6 +185,15 @@ impl<D, const PEERS: usize, const ACTIONS: usize, const LINKS: usize> ChannelInf
         match self {
             Personality::Modem(c) => c.without_host(),
             Personality::Node(c) => c.without_host(),
+            Personality::Rnode(c) => c.without_host(),
+        }
+    }
+
+    fn banner(&self) -> bool {
+        match self {
+            Personality::Modem(c) => c.banner(),
+            Personality::Node(c) => c.banner(),
+            Personality::Rnode(c) => c.banner(),
         }
     }
 }
@@ -184,6 +211,7 @@ where
         match self {
             Personality::Modem(c) => c.start(exec, link).await,
             Personality::Node(c) => c.start(exec, link).await,
+            Personality::Rnode(c) => c.start(exec, link).await,
         }
     }
 
@@ -196,6 +224,7 @@ where
         match self {
             Personality::Modem(c) => c.serve(exec, link, event).await,
             Personality::Node(c) => c.serve(exec, link, event).await,
+            Personality::Rnode(c) => c.serve(exec, link, event).await,
         }
     }
 
@@ -203,6 +232,7 @@ where
         match self {
             Personality::Modem(c) => c.stop(exec, link).await,
             Personality::Node(c) => c.stop(exec, link).await,
+            Personality::Rnode(c) => c.stop(exec, link).await,
         }
     }
 }
