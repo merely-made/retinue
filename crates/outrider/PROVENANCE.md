@@ -20,8 +20,12 @@ Implementation facts come from three places only:
 The excluded implementation inputs are the same as the household's other clean-room crate
 (`crates/sennet/PROVENANCE.md`): third-party protocol implementation source,
 client applications, generated bindings, and implementation-derived API
-references. The Python LXMF package and its client applications carry
-post-2025 license clauses and serve strictly as external oracles.
+references. The Python LXMF package and its client applications serve
+strictly as external oracles. They are under the Reticulum License, which is
+reproduced verbatim in [`oracle/RETICULUM_LICENSE`](oracle/RETICULUM_LICENSE)
+in acknowledgment; its terms are honored for the oracle use, and its added
+clauses do not attach to outrider's own code, which is MPL-2.0 by the
+clean-room boundary this document records.
 
 ## Capture discipline
 

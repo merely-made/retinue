@@ -6,11 +6,15 @@ never read its source.
 
 That discipline is not squeamishness. Two reasons:
 
-1. **Licensing.** RNS's post-2025 license carries clauses we are not willing to take on.
-   retinue is MIT/Apache-2.0, and the provenance of every byte-level fact in it has to be
-   defensible. retinue is derived from the public-domain protocol specification, from the
-   MIT-licensed Beechat `reticulum` crate, and from bytes observed on the wire. Nothing
-   else.
+1. **Licensing.** RNS is under the Reticulum License, reproduced verbatim in
+   [`RETICULUM_LICENSE`](RETICULUM_LICENSE) beside this file — a modified MIT whose added
+   clauses (no harmful systems, no AI training datasets) must not attach to retinue's own
+   code, because retinue is MPL-2.0 and published as such, and a use restriction cannot ride
+   on MPL-2.0 code. The clean-room boundary is what keeps that true: retinue is derived from
+   the public-domain protocol specification, from the MIT-licensed Beechat `reticulum`
+   crate, and from bytes observed on the wire. Nothing else. The license's terms are
+   honored for what this directory *does* use RNS for — local black-box interoperability
+   testing, never redistributed from here.
 2. **It keeps us honest.** Reading an implementation invites copying its bugs and its
    accidents. Observing its output forces every question to be answered by what actually
    goes on the wire. This paid for itself immediately: Beechat, the readable Rust
