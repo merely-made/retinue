@@ -1,7 +1,6 @@
 #![no_std]
 #![no_main]
 
-use core::fmt::Write as _;
 #[cfg(all(feature = "host-uart-low-power", feature = "rf-sleep-proof"))]
 use core::future::{Future, poll_fn};
 #[cfg(all(feature = "host-uart-low-power", feature = "rf-sleep-proof"))]
@@ -35,15 +34,16 @@ use lora_phy::{LoRa, RxMode};
 use radio_hand::dispatch;
 use radio_hand::executive::{ChipDiagnostics, Executive, Face, RadioState};
 use radio_hand::link::HostLink;
-use radio_hand::region::Region;
-use radio_hand::settings::Settings;
 use selvage::{
     CommandStream, EVENT_DIAGNOSTIC, EVENT_RX, MAX_COMMAND_LEN, MESHTASTIC_SYNC_WORD, WAKE_BYTE,
 };
 
 mod board;
+mod channels;
 mod host;
 mod power;
+#[cfg(feature = "rf-sleep-proof")]
+mod sleep_proof;
 mod store;
 mod ui;
 mod wake_input;
@@ -56,40 +56,6 @@ esp_bootloader_esp_idf::esp_app_desc!();
 const HOST_UART_BAUD: u32 = 115_200;
 
 const MAX_RADIO_FRAME: usize = 255;
-
-#[cfg(feature = "rf-sleep-proof")]
-const RF_SLEEP_PROOF_CHALLENGE: &[u8; 21] = b"tulle/sleep-proof/v1?";
-#[cfg(feature = "rf-sleep-proof")]
-const RF_SLEEP_PROOF_RECEIPT: &[u8; 21] = b"tulle/sleep-proof/v1!";
-
-#[cfg(feature = "rf-sleep-proof")]
-fn sleep_proof_nonce(frame: &[u8]) -> Option<u32> {
-    let nonce = frame.strip_prefix(RF_SLEEP_PROOF_CHALLENGE)?;
-    let nonce: [u8; 4] = nonce.try_into().ok()?;
-    Some(u32::from_le_bytes(nonce))
-}
-
-#[cfg(feature = "rf-sleep-proof")]
-fn sleep_proof_receipt(
-    nonce: u32,
-    sleep_entries: u32,
-    wake_registrations: u32,
-    received_frames: u32,
-    last_sleep_us: u32,
-    sleep_enabled: bool,
-    reset_reason: u32,
-) -> [u8; 49] {
-    let mut receipt = [0_u8; 49];
-    receipt[..RF_SLEEP_PROOF_RECEIPT.len()].copy_from_slice(RF_SLEEP_PROOF_RECEIPT);
-    receipt[21..25].copy_from_slice(&nonce.to_le_bytes());
-    receipt[25..29].copy_from_slice(&sleep_entries.to_le_bytes());
-    receipt[29..33].copy_from_slice(&wake_registrations.to_le_bytes());
-    receipt[33..37].copy_from_slice(&received_frames.to_le_bytes());
-    receipt[37..41].copy_from_slice(&last_sleep_us.to_le_bytes());
-    receipt[41..45].copy_from_slice(&u32::from(sleep_enabled).to_le_bytes());
-    receipt[45..49].copy_from_slice(&reset_reason.to_le_bytes());
-    receipt
-}
 
 /// The board's own SX1262 registers, for `radio-hand`'s dispatch.
 ///
@@ -122,23 +88,6 @@ where
             Err(_) => [EVENT_DIAGNOSTIC, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
         }
     }
-}
-
-/// Read a host line as a region probe: `region` reports, `region us915` and friends set.
-///
-/// The T114's vocabulary exactly, because a bench should not have to remember which board it
-/// is talking to. Names come from the table, so adding a region grows the probe with it.
-fn region_probe(packet: &[u8]) -> Option<Option<Region>> {
-    let line = packet
-        .strip_suffix(b"\r\n")
-        .or_else(|| packet.strip_suffix(b"\n"))?;
-    if line == b"region" {
-        return Some(None);
-    }
-    let name = line.strip_prefix(b"region ")?;
-    Region::choices()
-        .find(|region| region.name().as_bytes().eq_ignore_ascii_case(name))
-        .map(Some)
 }
 
 /// Write to whichever host link this build selected. Generic over the transport so the USB
@@ -386,6 +335,26 @@ async fn main(spawner: Spawner) {
         publish_host: ui::publish_host,
     };
 
+    // The channel selector. The RNode loop never returns: switching back is a persisted
+    // byte and a reboot, and no banner is written because a host opening that port expects
+    // KISS frames from the first byte. The sleep-proof bench build keeps the modem
+    // unconditionally; it is a bench, not a shipping personality.
+    #[cfg(not(feature = "rf-sleep-proof"))]
+    if settings.map(|s| s.channel) == Some(radio_hand::settings::Channel::Rnode) {
+        channels::serve_rnode(
+            lora,
+            radio,
+            local_status,
+            face,
+            store,
+            settings,
+            online,
+            &identity_line[..identity_line_len],
+            host,
+        )
+        .await
+    }
+
     let _ = host.write_all(online).await;
     let _ = host.write_all(&identity_line[..identity_line_len]).await;
     let mut command_stream = CommandStream::new();
@@ -494,9 +463,9 @@ async fn main(spawner: Spawner) {
                 // already attached T114. Each matching receipt proves that this exact RF
                 // frame resumed the CPU after at least the reported number of sleep entries.
                 #[cfg(feature = "rf-sleep-proof")]
-                if let Some(nonce) = sleep_proof_nonce(&radio_frame[..length]) {
+                if let Some(nonce) = sleep_proof::nonce(&radio_frame[..length]) {
                     let (sleep_entries, _) = power::counters();
-                    let receipt = sleep_proof_receipt(
+                    let receipt = sleep_proof::receipt(
                         nonce,
                         sleep_entries,
                         wake_input::radio_wake_registrations(),
@@ -545,6 +514,11 @@ async fn main(spawner: Spawner) {
                 event[7..7 + length].copy_from_slice(&radio_frame[..length]);
                 let _ = host.write_all(&event[..7 + length]).await;
             }
+            // A packet that failed its CRC: the air's fault, not the radio's. Dropped
+            // silently, because the receiver is still listening and the alternative is
+            // writing fault text into the host's byte stream once per damaged frame,
+            // which on the T114's bench is more than a third of everything heard.
+            Either::Second(Err(lora_phy::mod_params::RadioError::PayloadCrcError)) => {}
             Either::Second(Err(_)) => {
                 local_status.radio = radio_face::RadioState::Fault;
                 local_status.fault = Some(radio_face::Fault {
@@ -576,28 +550,23 @@ async fn main(spawner: Spawner) {
                     }
                 }
                 let at_boundary = command_stream.is_boundary();
-                if at_boundary && (packet == b"status\n" || packet == b"status\r\n") {
-                    let _ = host.write_all(online).await;
-                    let _ = host.write_all(&identity_line[..identity_line_len]).await;
-                    continue;
-                }
-                if at_boundary && (packet == b"sync\n" || packet == b"sync\r\n") {
-                    let _ = host.write_all(b"2b 24b4\r\n").await;
-                    continue;
-                }
-                if at_boundary && (packet == b"ui\n" || packet == b"ui\r\n") {
-                    let diagnostic = ui::diagnostic();
-                    let mut reply = radio_face::Text::<80>::empty();
-                    let _ = write!(
-                        &mut reply,
-                        "ui={}; display={}; screen={}; button={}; host={}\r\n",
-                        diagnostic.state,
-                        diagnostic.display,
-                        diagnostic.screen,
-                        diagnostic.button,
-                        diagnostic.host,
-                    );
-                    let _ = host.write_all(reply.as_str().as_bytes()).await;
+                // The probes both channels share: status, sync, ui, region, and the channel
+                // selector itself. Only at a boundary, so a probe inside a framed command is
+                // carried rather than obeyed.
+                if at_boundary
+                    && matches!(
+                        channels::probe(
+                            packet,
+                            online,
+                            &identity_line[..identity_line_len],
+                            settings,
+                            &mut store,
+                            &mut host,
+                        )
+                        .await,
+                        channels::Outcome::Served
+                    )
+                {
                     continue;
                 }
                 #[cfg(feature = "ui-bench")]
@@ -619,47 +588,6 @@ async fn main(spawner: Spawner) {
                     let _ = host.write_all(b"ui bench fault cleared\r\n").await;
                     continue;
                 }
-                // Region selection: persist and reset, the same contract the T114 keeps.
-                // The reply is a courtesy; the reboot is the contract, so a host that
-                // vanishes mid-reply still leaves the board on the settings it committed.
-                if at_boundary && let Some(probe) = region_probe(packet) {
-                    let mut reboot = false;
-                    let mut reply = radio_face::Text::<64>::empty();
-                    match (settings, probe) {
-                        (None, _) => {
-                            let _ = write!(&mut reply, "region unavailable: no identity\r\n");
-                        }
-                        (Some(current), None) => {
-                            let _ = write!(&mut reply, "region={}\r\n", current.region.name());
-                        }
-                        (Some(current), Some(wanted)) => {
-                            let next = Settings {
-                                region: wanted,
-                                ..current
-                            };
-                            match store.save(&next) {
-                                Ok(_) => {
-                                    reboot = true;
-                                    let _ = write!(
-                                        &mut reply,
-                                        "region={}; rebooting\r\n",
-                                        wanted.name()
-                                    );
-                                }
-                                Err(_) => {
-                                    let _ = write!(&mut reply, "region write failed\r\n");
-                                }
-                            }
-                        }
-                    }
-                    let _ = host.write_all(reply.as_str().as_bytes()).await;
-                    if reboot {
-                        embassy_time::Timer::after_millis(250).await;
-                        esp_hal::system::software_reset();
-                    }
-                    continue;
-                }
-
                 // Sleep diagnostics, for the power receipt: how many times the idle hook
                 // actually slept, and how many times it wanted to but the gate was closed.
                 // A build that never sleeps answers with zeros rather than nothing, so the

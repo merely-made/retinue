@@ -1884,6 +1884,65 @@ traffic rather than by either host deliberately. Nothing observable depends on
 it, and the way to close it is a tee on the host-to-board direction during a
 `park --rnode` session, looking for the frame that begins `0x0a`.
 
+**The V4 gains the channel selector, 2026-08-06 — and first, its toolchain
+turned out never to have been broken.** The blocker recorded on 2026-08-04
+("the esp toolchain has no xtensa core installed") dissolved on inspection:
+the esp-rs 1.94/1.95 Windows dists ship no prebuilt xtensa std at all, only
+`rustlib/src`, and the V4's own README has carried the working invocation all
+along — `-Zbuild-std=core`. The failed check simply omitted the flag the
+documented build has always used. One espup uninstall/reinstall cycle was
+performed while establishing this and changed nothing. Lesson: when a build
+fails on a machine that built the same target three days earlier, read the
+documented build command before diagnosing the toolchain.
+
+**The selector, in the V4's own shape.** The V4 keeps its bespoke modem loop
+(the low-power work needs its own hand on the radio), so the channel selector
+lives beside it rather than replacing it: `channels.rs` carries the T114's
+probe vocabulary (`channel`, `channel modem`, `channel rnode`; `channel node`
+answers "unavailable on this board" rather than falling into the parser), the
+shared text probes both loops use, and a dedicated `serve_rnode` loop that
+constructs an executive per event, exactly as the modem loop already did. No
+banner and no fault text ever go to the host in that loop, because a host that
+opened the port expects KISS from the first byte. Faults still reach the
+screen. The sleep-proof bench build keeps the modem unconditionally.
+
+The 600-line ceiling forced the split that should have happened anyway:
+sleep-proof wire formats to `sleep_proof.rs`, shared probes to `channels.rs`,
+`main.rs` 709 → 636. All three personalities build.
+
+**The driver fix reached the V4, and the V4 needed its own arm.** The T114
+handles `PayloadCrcError` inside `Executive::receive`; the V4 calls `lora.rx`
+directly, so without a new match arm every damaged frame would have written
+"radio rx failed" into the host byte stream — on the T114's bench, more than a
+third of everything heard. Both V4 loops now drop CRC failures silently; the
+receiver is still listening and there is nothing to repair.
+
+**Receipts, both V4s reflashed:**
+
+- Identity and region survived the reflash on the settings-backend V4
+  (`identity=loaded slot=B seq=1`, `region=US915`).
+- COM7's old firmware predated the settings backend, so its first boot on the
+  new build minted a fresh identity with `region=unset` — and the regulatory
+  floor silenced it until `region us915` was probed in. The migration path
+  proving itself on a third board.
+- `channel rnode` persists and reboots into the RNode loop: silent attach,
+  probes answered, `rnode_smoke` brings it online as firmware 1.86 and
+  transmits.
+- Counted cross blocks, V4-rnode against V4-phy: **23 of 24** forward and
+  **24 of 24** reverse with COM7 still on the old build — including one
+  frame the old-driver COM7 accepted with five damaged bytes, a live
+  demonstration of the defect the fix closes. With both boards on the new
+  firmware: **15 of 16** and **16 of 16**, zero damaged deliveries, the one
+  miss a clean silence.
+- Real RNS 1.4.0 configures and powers up the V4's RNode channel.
+- A datum for the `0x0a` thread: the V4 session shows `unhandled=0`. The
+  mystery command appears on the T114's CDC transport and not on the V4's
+  USB-serial-JTAG, which points further toward the byte path and away from
+  RNS itself.
+
+All three boards were returned to `channel=modem`, the standard bench posture;
+any of them is one probe away from being an RNode.
+
 ## Non-goals
 
 - Porting `Endpoint`. It stays the desktop shell.
