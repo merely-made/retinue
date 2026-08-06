@@ -144,6 +144,11 @@ pub fn resolve_source(endpoint: &Endpoint, source: AddressHash) -> Option<Identi
 ///
 /// This is what closes the case the path request could not. A path request only helps if the
 /// sender answers it, and a client with transport disabled may simply not.
+///
+/// The accepted identity is deliberately NOT written into the address book: an IDENTIFY is
+/// not an announce — it carries no app_data, no stamp cost, and no claim of reachability —
+/// so it authenticates this session and nothing beyond it. The same sender on a new link
+/// without an IDENTIFY starts over.
 pub fn resolve_source_with_link(
     endpoint: &Endpoint,
     source: AddressHash,

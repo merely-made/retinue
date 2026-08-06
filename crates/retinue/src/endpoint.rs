@@ -181,10 +181,24 @@ const ANNOUNCE_MIN_INTERVAL: Duration = Duration::from_secs(1);
 /// message from somebody we cannot identify, a retry from a peer that has gone stale. Without
 /// a floor, a peer sending traffic we cannot verify would make us broadcast once per packet,
 /// which on a shared band is a stranger deciding how much of it we use.
+// The test values keep the suite fast; note that integration tests in dependent crates
+// (outrider's, for instance) compile this crate WITHOUT cfg(test) and therefore run against
+// the real 20-second floor. A test over there that needs two requests for one destination
+// will hang on the second, mysteriously, unless it knows this.
 #[cfg(not(test))]
 const PATH_REQUEST_MIN_INTERVAL: Duration = Duration::from_secs(20);
 #[cfg(test)]
 const PATH_REQUEST_MIN_INTERVAL: Duration = Duration::from_millis(60);
+
+/// The most path requests that may be broadcast in any [`PATH_REQUEST_MIN_INTERVAL`] window,
+/// across ALL destinations.
+///
+/// The per-destination floor alone is not a rate limit, because the peer that provokes a path
+/// request also chooses the destination: a flood of unverifiable packets with fabricated,
+/// unique sources would get one broadcast each, and the floor would never engage since no key
+/// repeats. This cap bounds the aggregate, and — because a refused request records nothing —
+/// it also bounds how fast the budget table can be made to grow.
+const PATH_REQUEST_GLOBAL_MAX: usize = 8;
 
 /// A bidirectional byte stream over a link.
 ///
@@ -1580,6 +1594,9 @@ struct Shared {
     /// Last time a path request went out per destination, for the same reason: see
     /// [`PATH_REQUEST_MIN_INTERVAL`].
     path_request_budget: Mutex<HashMap<AddressHash, Instant>>,
+    /// When the path requests in the current window went out, oldest first, for the global
+    /// cap ([`PATH_REQUEST_GLOBAL_MAX`]). Never longer than the cap.
+    path_request_stamps: Mutex<VecDeque<Instant>>,
     /// The transport node reachable on each interface (its identity hash), learned from the
     /// `transport` field of header-type-2 announces. Packets sent out an interface with a
     /// transport node are addressed header-type-2 `[transport][dest]` so the node forwards
@@ -1875,19 +1892,35 @@ impl Shared {
     }
 
     /// Whether a path request for `dest` may go out now. Same shape and same reasoning as
-    /// [`Shared::announce_within_budget`], on the outbound side.
+    /// [`Shared::announce_within_budget`] on the outbound side, plus the global cap: the
+    /// per-destination floor cannot be the whole answer, because the peer that provokes a
+    /// path request also chooses the destination it names.
+    ///
+    /// Ordering is load-bearing: both checks pass before either records anything, so a
+    /// request refused by the global cap does not burn the destination's own budget, and a
+    /// per-destination repeat does not spend a slot in the global window.
     fn path_request_within_budget(&self, dest: AddressHash) -> bool {
         let mut budget = self.path_request_budget.lock().unwrap();
+        let mut stamps = self.path_request_stamps.lock().unwrap();
         let now = Instant::now();
         if let Some(&last) = budget.get(&dest)
             && now.duration_since(last) < PATH_REQUEST_MIN_INTERVAL
         {
             return false;
         }
+        while let Some(&oldest) = stamps.front()
+            && now.duration_since(oldest) >= PATH_REQUEST_MIN_INTERVAL
+        {
+            stamps.pop_front();
+        }
+        if stamps.len() >= PATH_REQUEST_GLOBAL_MAX {
+            return false;
+        }
         if budget.len() > SEEN_ANNOUNCES {
             budget.retain(|_, t| now.duration_since(*t) < PATH_REQUEST_MIN_INTERVAL);
         }
         budget.insert(dest, now);
+        stamps.push_back(now);
         true
     }
 
@@ -1997,6 +2030,7 @@ impl Endpoint {
             seen_announces: Mutex::new((HashSet::new(), VecDeque::new())),
             announce_budget: Mutex::new(HashMap::new()),
             path_request_budget: Mutex::new(HashMap::new()),
+            path_request_stamps: Mutex::new(VecDeque::new()),
             iface_transport: Mutex::new(HashMap::new()),
             link_transport: Mutex::new(HashMap::new()),
             tasks: Mutex::new(Vec::new()),
@@ -3949,5 +3983,39 @@ mod tests {
         // askable later, or one lost response becomes permanent.
         tokio::time::sleep(PATH_REQUEST_MIN_INTERVAL + Duration::from_millis(20)).await;
         assert!(ep.request_path(wanted), "the floor expires");
+    }
+
+    /// A flood of unique destinations cannot broadcast without bound, because the peer that
+    /// provokes a path request also chooses the destination it names: the per-destination
+    /// floor never engages when no key repeats, so the global cap is what actually limits
+    /// the airtime — and, since a refused request records nothing, the budget table too.
+    #[tokio::test]
+    async fn fabricated_unique_destinations_hit_the_global_path_request_cap() {
+        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[12u8; 64]));
+        let _iface = ep.attach_interface();
+
+        let mut sent = 0;
+        for i in 0..(PATH_REQUEST_GLOBAL_MAX as u8 * 4) {
+            let mut bytes = [0xD0; 16];
+            bytes[0] = i;
+            if ep.request_path(AddressHash::from_bytes(bytes)) {
+                sent += 1;
+            }
+        }
+        assert_eq!(
+            sent, PATH_REQUEST_GLOBAL_MAX,
+            "the window admits exactly the cap"
+        );
+        assert!(
+            ep.shared.path_request_budget.lock().unwrap().len() <= PATH_REQUEST_GLOBAL_MAX,
+            "refused requests must not grow the budget table",
+        );
+
+        // The cap is a window, not a lifetime total: once it slides, asking resumes.
+        tokio::time::sleep(PATH_REQUEST_MIN_INTERVAL + Duration::from_millis(20)).await;
+        assert!(
+            ep.request_path(AddressHash::from_bytes([0xEE; 16])),
+            "a fresh window admits new requests",
+        );
     }
 }
