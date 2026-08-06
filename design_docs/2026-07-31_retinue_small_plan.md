@@ -1830,6 +1830,32 @@ has not made. **Stock LXMF cannot verify that message either** — the constrain
 is arithmetic, not a policy of ours — so the remaining lever is the sender
 announcing, and that is out of our hands.
 
+**The client says the same thing, in its own words.** A second session put
+MeshChatX's message list on screen, and its own status line for the failed
+message reads:
+
+```
+second attempt after the fix
+8 hours ago  FAILED, WAITING FOR ANNOUNCE
+```
+
+So both ends agree on the diagnosis and neither can act on it. Two further
+observations from that session, both negative results worth not repeating:
+
+- **MeshChatX announces *something* but never its delivery destination.**
+  Across every session, `park` learned exactly one MeshChatX-side address,
+  `0e0ce3ac8ea614031cd01e26474ae5d3`, which is not the `23f9f402…` on its
+  settings page. Most likely its telephony (LXST) or propagation destination.
+  Re-committing the display name, which is the usual trigger for an LXMF
+  re-announce because the name rides in the announce's app_data, produced
+  another `0e0ce3ac…` and no `23f9f402…`.
+- **Queued retries congest the link.** With three messages retrying at once
+  over SF8/250 kHz, the refusals changed from `no validated delivery announce`
+  to `payload receive timed out`, and the client's own progress bars sat at 1%
+  and `0 B/s`. Nothing new is wrong; it is the same messages failing later in
+  the transfer because three concurrent resource transfers do not fit. A
+  retry-storm test on this bearer would be worth having on its own.
+
 **What that leaves, stated plainly.** Both recoveries are real, tested, and
 will work against peers that do either. The MeshChatX path is not closed, and
 the next step is not more receiver-side work: it is to find what makes that
