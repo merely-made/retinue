@@ -1908,7 +1908,7 @@ screen. The sleep-proof bench build keeps the modem unconditionally.
 
 The 600-line ceiling forced the split that should have happened anyway:
 sleep-proof wire formats to `sleep_proof.rs`, shared probes to `channels.rs`,
-`main.rs` 709 → 636. All three personalities build.
+`main.rs` 709 → 637. All three personalities build.
 
 **The driver fix reached the V4, and the V4 needed its own arm.** The T114
 handles `PayloadCrcError` inside `Executive::receive`; the V4 calls `lora.rx`
@@ -1990,6 +1990,13 @@ in both directions could not hide it.
 
 Both new tests were A/B'd against a control with the old `open` restored: they
 fail, with `BadIfac`, exactly as they should.
+
+One consequence named for the record: a mixed-version retinue pair on an IFAC
+interface is coin-flip broken in both directions (old seal hides the wire flag
+from new open about half the time, and old open flips a coin against new
+seal's frames). No deployed IFAC pairing of our stack exists, so nothing
+migrates; but any bench comparing a pre-fix binary against a post-fix one over
+IFAC will see half loss and should not chase it as a radio problem.
 
 **Receipts:** twelve of twelve live gates pass on RNS 1.4.2, including
 `interop_ifac` in both directions; all crate suites green; the IFAC fixture is
