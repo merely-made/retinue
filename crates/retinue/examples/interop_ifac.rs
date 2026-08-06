@@ -31,8 +31,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("LISTENING {}", listener.local_addr()?.port());
 
     let mut interface = listener.accept().await?;
-    // RNS 1.4.0 completes its TCPClientInterface IFAC fields just after connect.
-    tokio::time::sleep(Duration::from_millis(250)).await;
+    // No wait here, deliberately. This probe used to sleep 250 ms, blamed on an RNS
+    // `ifac_size` initialization race. That race was ours: `Ifac` checked the IFAC flag
+    // underneath the mask, where it is a per-packet coin flip, so roughly half of every
+    // peer's frames were refused however long we waited. With that fixed this gate passes
+    // 5 of 5 with no wait at all; before it, at the same zero wait, it passed 3 of 5.
     println!("ACCEPTED {}", interface.peer_addr()?);
 
     let identity = PrivateIdentity::from_secret_bytes(&RETINUE_SEED);

@@ -1995,6 +1995,33 @@ fail, with `BadIfac`, exactly as they should.
 `interop_ifac` in both directions; all crate suites green; the IFAC fixture is
 byte-identical to its 1.3.8 capture.
 
+**The `ifac_size` race, measured and split in two, 2026-08-06.** The two Rust
+probes each slept 250 ms after accept, both filed under one recorded cause: an
+RNS `TCPClientInterface.ifac_size` initialization race. Nobody had measured it.
+Measurement found two different things wearing one name.
+
+**The IFAC half was ours, and the wait never addressed it.** A delay cannot
+change a coin flip whose bit comes from packet content. With the flag fix in
+and the wait removed entirely, `interop_ifac` passes **5 of 5**; with the wait
+still removed and the fix reverted, the same gate passes **3 of 5**. So the
+wait was superstition there, and it is gone.
+
+**The plain-TCP half is real, and has nothing to do with IFAC** —
+`interop_r1` carries no IFAC at all. With no wait it fails about one run in
+five, always the same way: `SENT_ANNOUNCE` then `IO_ERROR peer closed the
+connection`. RNS's `TCPClientInterface` drops a peer whose first frame lands
+before it has finished connecting. Restoring the 250 ms gives **5 of 5**, so
+that wait stays, now with a comment that says what it is actually for and
+notes the better fix: wait for RNS's own first frame instead of a clock, a
+readiness signal rather than a guess.
+
+Twelve of twelve gates still pass with the IFAC wait removed.
+
+Lesson, and it is the same shape as the one below: **a workaround with no
+measurement behind it also carries a diagnosis, and that diagnosis can be
+wrong for years.** This one named RNS for our own bug, and the name stuck
+because the workaround appeared to work.
+
 Lesson worth keeping beside the counted-block rule: **a test that passes on one
 deterministic vector proves nothing about a value that varies per packet.**
 Where the wire carries something derived freshly each time, the test has to

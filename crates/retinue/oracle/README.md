@@ -39,10 +39,21 @@ moved across 1.3.8 → 1.4.2. The committed fixture corpus otherwise stays label
 because those files are historical byte observations; current compatibility is established
 by the live gates below.
 
-RNS 1.3.9 through 1.4.2 have an observed `TCPClientInterface.ifac_size` initialization race
-when a connected peer sends its first frame immediately. The direct-TCP Rust probes wait
-250 ms after accept so this matrix measures protocol interoperability instead of RNS
-constructor timing. Retinue's production TCP interface has no such delay.
+**On the 250 ms waits in the Rust probes, corrected 2026-08-06.** These were recorded as a
+single `TCPClientInterface.ifac_size` initialization race in RNS. Measurement found two
+different things wearing one name:
+
+- **The IFAC half was ours.** `Ifac` checked the IFAC flag on the byte underneath the mask,
+  where it is exclusive-or'd with a per-packet mask bit, so it refused about half of every
+  peer's frames no matter how long anything waited. Fixed. `interop_ifac` now passes 5 of 5
+  with no wait; before the fix, at the same zero wait, it passed 3 of 5.
+- **The plain-TCP half is real, and is not about IFAC** — `interop_r1` carries no IFAC at
+  all. With no wait it fails about one run in five, RNS closing the connection right after
+  our announce: its `TCPClientInterface` drops a peer whose first frame arrives before it
+  has finished connecting. `interop_tcp.rs` keeps its 250 ms, which gives 5 of 5, and now
+  says why. A readiness signal would beat the clock there if it ever flakes again.
+
+Retinue's production TCP interface has no such delay in either case.
 
 ## Capture
 

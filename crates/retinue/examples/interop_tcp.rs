@@ -44,6 +44,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("LISTENING {port}");
 
     let mut iface = listener.accept().await?;
+    // Load-bearing, and measured: with no wait this gate fails about one run in five, with
+    // RNS closing the connection immediately after our announce. It is *not* the IFAC race
+    // this used to be filed under — this gate carries no IFAC at all. It is that RNS's
+    // `TCPClientInterface` drops a peer whose first frame lands before it has finished
+    // connecting. 250 ms gives 5 of 5.
+    //
+    // A readiness signal would beat a clock here: waiting for RNS's own first frame before
+    // sending would remove the guess entirely. Worth doing if this ever flakes again.
     tokio::time::sleep(Duration::from_millis(250)).await;
     println!("ACCEPTED {}", iface.peer_addr()?);
 
