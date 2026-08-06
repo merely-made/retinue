@@ -1943,6 +1943,63 @@ receiver is still listening and there is nothing to repair.
 All three boards were returned to `channel=modem`, the standard bench posture;
 any of them is one probe away from being an RNode.
 
+**The oracle re-pin to RNS 1.4.2, and the coin flip it exposed, 2026-08-06.**
+The pin moved from 1.4.0 to 1.4.2. Eleven of the twelve live gates passed
+immediately; `interop_ifac` failed, in the direction RNS → retinue, with
+`interface access code did not verify`.
+
+**It was not a wire change, and it was not 1.4.2.** Re-capturing
+`ifac_packet.bin` under 1.4.2 produced bytes **identical** to the 1.3.8
+original, so the IFAC wire has not moved across three releases. Taking the two
+frames retinue actually rejected and re-deriving them by hand showed the access
+codes verifying perfectly under our own pinned derivation. The bug was ours,
+and older than the re-pin.
+
+**Both failure branches of `Ifac::open` return the same error**, which is what
+made this read as a code failure for an hour. It was the other branch: the IFAC
+flag check. And the flag was being checked in the wrong place.
+
+- The flag lives on the byte that goes **on the wire**. Measured across both
+  versions and several runs: `wire_flag=True`, always, without exception.
+- `open` checked it on the byte **underneath the mask**, which is the flag
+  exclusive-or'd with a mask bit derived from the per-packet access code. That
+  bit is a coin flip. Measured: `unmasked_flag` came up True, True, False,
+  False, True across consecutive frames on *both* 1.4.0 and 1.4.2.
+- `seal` had the mirror-image bug, setting the flag before masking, so roughly
+  half of everything we sent went out with the wire flag clear.
+
+So retinue has been rejecting about half of every peer's IFAC frames, and
+emitting about half of its own malformed, since the feature was written. The
+gate passed for months because it is two frames long and kept winning the toss;
+1.4.2 did nothing but roll differently.
+
+**Fixed by moving the flag to the wire byte on both sides**: `seal` masks and
+then sets it, `open` checks it before unmasking. Recovering the logical header
+needs no change, because a logical packet always has that bit clear, so
+clearing it after unmasking is correct either way — which is exactly why the
+access code kept verifying while the frame was refused.
+
+**Why twelve unit tests missed it.** The pinned oracle vector is a single
+deterministic packet, and its mask bit happens to fall on the side where both
+orderings agree. One vector can never catch a per-packet coin flip. The new
+test sweeps sixty-four packets, asserts the wire flag on every one, and
+asserts that the masked bit *varies* — that last assertion is the one that says
+the two orderings genuinely differ rather than being harmlessly equivalent. A
+second test builds a frame by hand, flagged only on the wire, so a matching bug
+in both directions could not hide it.
+
+Both new tests were A/B'd against a control with the old `open` restored: they
+fail, with `BadIfac`, exactly as they should.
+
+**Receipts:** twelve of twelve live gates pass on RNS 1.4.2, including
+`interop_ifac` in both directions; all crate suites green; the IFAC fixture is
+byte-identical to its 1.3.8 capture.
+
+Lesson worth keeping beside the counted-block rule: **a test that passes on one
+deterministic vector proves nothing about a value that varies per packet.**
+Where the wire carries something derived freshly each time, the test has to
+sweep, and it has to assert that the varying thing actually varies.
+
 ## Non-goals
 
 - Porting `Endpoint`. It stays the desktop shell.

@@ -132,12 +132,17 @@ impl Ifac {
         let ifac = self.code(&logical);
 
         let mut wire = Vec::with_capacity(logical.len() + self.size);
-        wire.push(logical[0] | 0x80);
+        wire.push(logical[0]);
         wire.push(logical[1]);
         wire.extend_from_slice(&ifac);
         wire.extend_from_slice(&logical[2..]);
 
+        // Mask first, then flag. The order is the whole subtlety: the IFAC flag lives on the
+        // byte that goes on the wire, not on the byte underneath the mask. Setting it before
+        // masking hides it behind a mask bit that changes with every packet, so the flag a
+        // peer actually sees would be set only about half the time.
         self.apply_mask(&mut wire, &ifac);
+        wire[0] |= 0x80;
         Ok(wire)
     }
 
@@ -153,14 +158,23 @@ impl Ifac {
             return Err(Error::Oversize);
         }
 
-        let ifac = &frame[2..2 + self.size];
-        let mut unmasked = frame.to_vec();
-        self.apply_mask(&mut unmasked, ifac);
-        if unmasked[0] & 0x80 == 0 {
+        // The flag is checked on the wire byte, before unmasking, for the same reason `seal`
+        // sets it there. Checking it after unmasking tests a bit that is the exclusive-or of
+        // the flag with a per-packet mask bit — in other words, a coin flip. That is what
+        // this check used to do, and it rejected roughly half of every peer's frames; the
+        // live gate passed only because it is short enough to get lucky.
+        if frame[0] & 0x80 == 0 {
             return Err(Error::BadIfac);
         }
 
+        let ifac = &frame[2..2 + self.size];
+        let mut unmasked = frame.to_vec();
+        self.apply_mask(&mut unmasked, ifac);
+
         let mut logical = Vec::with_capacity(frame.len() - self.size);
+        // The masked header's own top bit is recoverable rather than lost: a logical packet
+        // always has the flag clear, so that bit of the masked byte is the mask's, and
+        // clearing it after unmasking recovers the original either way.
         logical.push(unmasked[0] & 0x7f);
         logical.push(unmasked[1]);
         logical.extend_from_slice(&unmasked[2 + self.size..]);
@@ -208,12 +222,86 @@ mod tests {
         Ifac::new(Some("retinue-ifac"), Some("wire-compatibility"), 8).unwrap()
     }
 
+    /// The pinned oracle vector. Captured from RNS 1.3.8 and re-captured byte for byte under
+    /// 1.4.0 and 1.4.2, so this also records that the IFAC wire did not move across them.
     #[test]
-    fn matches_pinned_rns_1_4_0_wire_bytes() {
+    fn matches_pinned_rns_wire_bytes() {
         let logical = hex::decode(LOGICAL_HEX).unwrap();
         let ifac = oracle_ifac();
         assert_eq!(ifac.seal(&logical).unwrap(), ORACLE_WIRE);
         assert_eq!(ifac.open(ORACLE_WIRE).unwrap(), logical);
+    }
+
+    /// The flag is on the wire byte, for every packet, not just the lucky ones.
+    ///
+    /// This is the test whose absence let a coin flip live in `open` for the crate's whole
+    /// life. The mask derives from the per-packet access code, so the top bit of the masked
+    /// header changes from packet to packet; a flag written or read underneath that mask is
+    /// therefore correct about half the time. The pinned vector above is a single
+    /// deterministic packet that happens to fall on the agreeing side, so it could never
+    /// catch this. Sweeping many packets is what does.
+    #[test]
+    fn every_sealed_packet_carries_the_flag_on_the_wire() {
+        let ifac = oracle_ifac();
+        let base = hex::decode(LOGICAL_HEX).unwrap();
+        let mut agreeing = 0_usize;
+        for nonce in 0..64_u8 {
+            let mut logical = base.clone();
+            // Vary the payload so each packet gets a different access code, and therefore a
+            // different mask.
+            *logical.last_mut().unwrap() = nonce;
+            let wire = ifac.seal(&logical).unwrap();
+
+            assert_eq!(
+                wire[0] & 0x80,
+                0x80,
+                "packet {nonce} went out with the IFAC flag clear",
+            );
+            assert_eq!(
+                ifac.open(&wire).unwrap(),
+                logical,
+                "packet {nonce} did not survive its own envelope",
+            );
+
+            // Count how often the flag would also have appeared under the mask. If this were
+            // always true the old ordering would have been harmless; the assertion below is
+            // what says the two orderings genuinely differ.
+            let mut unmasked = wire.clone();
+            unmasked[0] &= 0x7f;
+            ifac.apply_mask(&mut unmasked, &wire[2..2 + ifac.size]);
+            if unmasked[0] & 0x80 != 0 {
+                agreeing += 1;
+            }
+        }
+        assert!(
+            (1..64).contains(&agreeing),
+            "the masked header's flag bit should vary across packets, saw {agreeing}/64",
+        );
+    }
+
+    /// A peer's frame is accepted on the strength of its wire flag, whatever the mask does to
+    /// the byte underneath. Built by hand rather than through `seal`, so a matching bug in
+    /// both directions could not hide it.
+    #[test]
+    fn a_frame_flagged_only_on_the_wire_is_accepted() {
+        let ifac = oracle_ifac();
+        let logical = hex::decode(LOGICAL_HEX).unwrap();
+        let code = ifac.code(&logical);
+
+        let mut wire = Vec::with_capacity(logical.len() + ifac.size);
+        wire.push(logical[0]);
+        wire.push(logical[1]);
+        wire.extend_from_slice(&code);
+        wire.extend_from_slice(&logical[2..]);
+        ifac.apply_mask(&mut wire, &code);
+        wire[0] |= 0x80;
+
+        assert_eq!(ifac.open(&wire).unwrap(), logical);
+
+        // And a frame with no wire flag at all is refused, so the check still bites.
+        let mut unflagged = wire.clone();
+        unflagged[0] &= 0x7f;
+        assert_eq!(ifac.open(&unflagged), Err(Error::BadIfac));
     }
 
     #[test]

@@ -1,5 +1,5 @@
 {
-  "rns_version": "1.4.0",
+  "rns_version": "1.4.2",
   "network_name": "retinue-ifac",
   "passphrase": "wire-compatibility",
   "ifac_bits": 64,

@@ -31,12 +31,15 @@ py -m venv .venv
 ./.venv/Scripts/python.exe -m pip install -r requirements.txt
 ```
 
-`requirements.txt` pins `rns==1.4.0`, which includes the 1.3.9 `rnsh` security update and
-is Retinue's current compatibility target. Re-pin deliberately, not on every upstream release. The
-committed fixture corpus remains labelled 1.3.8 because those files are historical byte
-observations; current compatibility is established by the live gates below.
+`requirements.txt` pins `rns==1.4.2`, Retinue's current compatibility target. Re-pin
+deliberately, not on every upstream release. Re-pinned 2026-08-06 from 1.4.0 (which carried
+the 1.3.9 `rnsh` security fix); the twelve live gates pass on it, and re-capturing
+`ifac_packet.bin` produced bytes identical to the 1.3.8 original, so the IFAC wire has not
+moved across 1.3.8 → 1.4.2. The committed fixture corpus otherwise stays labelled 1.3.8
+because those files are historical byte observations; current compatibility is established
+by the live gates below.
 
-RNS 1.3.9 and 1.4.0 have an observed `TCPClientInterface.ifac_size` initialization race
+RNS 1.3.9 through 1.4.2 have an observed `TCPClientInterface.ifac_size` initialization race
 when a connected peer sends its first frame immediately. The direct-TCP Rust probes wait
 250 ms after accept so this matrix measures protocol interoperability instead of RNS
 constructor timing. Retinue's production TCP interface has no such delay.
@@ -119,7 +122,7 @@ This is a **local gate**, not CI: CI replays the committed fixtures instead.
 
 | file | what |
 | --- | --- |
-| `requirements.txt` | the current live-oracle pin: `rns==1.4.0` |
+| `requirements.txt` | the current live-oracle pin: `rns==1.4.2` |
 | `run_live.py` | the complete eleven-gate mixed-runtime matrix |
 | `capture.py` | R0 fixtures: identity vector, announces, negatives, a token |
 | `capture_tcp.py` | R1 fixtures: the raw TCP stream, and the framing rules |
