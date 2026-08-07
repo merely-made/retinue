@@ -88,11 +88,57 @@ most, then heard `park` on a second V4 announce and took its message —
 [d305181748ad1c76bd91fc6953e11417] bob: signalman and park still talk
 ```
 
+## Step 3, also the same day: linkboy
+
+`linkboy list` surveys every serial port; `linkboy flash PORT IMAGE` takes the
+right path for whatever is on it; `linkboy bootloader PORT` does the T114's
+reboot-and-rediscover dance alone.
+
+**Boards identify themselves rather than being identified.** The obvious way
+to tell a T114 from a V4 is USB vendor and product IDs, and this deliberately
+does not: a VID/PID says what chip enumerated, not what firmware is on it. A
+board in its bootloader enumerates as something else, a board running a
+stranger's firmware enumerates the same as ours, and a board on a different
+carrier enumerates as that carrier. So linkboy asks, over the `status` probe
+that every image answers in every channel. The bench probe built for a bench
+turns out to be exactly the identification a flasher needs.
+
+Flashing shells out to `adafruit-nrfutil` and `espflash` rather than
+reimplementing either. What linkboy adds is the part that is fiddly by hand
+and undocumented in one place: which board this is, sending it to its
+bootloader, **finding the port it comes back on** (the T114 re-enumerates, so
+the port to flash did not exist a moment earlier and is discovered by watching
+the port set change), and refusing to write anything until all of that and the
+image's existence are settled.
+
+**Three defects found by running it, each invisible from reading it:**
+
+1. **An off-by-one across answers.** The read loop stopped at the first
+   newline, but the V4 answers `status` with its banner *and* its identity
+   line, so the remainder sat in the buffer and was read as the answer to the
+   next question — the listing reported one board's identity line as its
+   region. Now it reads until the board goes quiet.
+2. **A false silence on the V4.** The ESP32-S3's USB-serial-JTAG needs a
+   moment after a previous host lets go, so a board surveyed right after
+   something else closed the port answered nothing. Silence means "will not
+   flash this", so a false silence is a false refusal; it now asks twice
+   before believing it. Four consecutive surveys clean afterwards.
+3. **An installed tool called missing.** The presence check used `--version`
+   universally; `espflash` takes it, `adafruit-nrfutil` wants a `version`
+   subcommand and errors on the flag. Presence is now "the OS could start it",
+   which is what the question actually means.
+
+**Receipts, on the real bench.** Both flash paths ran end to end through the
+new door: a V4 on COM7 over `espflash`, and the T114 on COM10 over the full
+DFU dance including bootloader entry and port rediscovery. All three boards
+surveyed clean afterwards, correctly typed with region and channel. Refusals
+were checked too — a missing image and an absent port are both declined before
+anything irreversible starts.
+
 ## What arrives next
 
-`linkboy` wraps the two flash paths the bench already uses
-(`adafruit-nrfutil` serial DFU for the T114, `espflash` for the V4) behind one
-door, and later grows the over-the-link update lane. Beyond that, the named
+The over-the-link update lane, which is the half of linkboy's name it has not
+earned yet: today it carries firmware over a cable. Beyond that, the named
 debts are unchanged: LXMF on the board, and the host-side answer to a first
 message from a sender who has not announced.
 

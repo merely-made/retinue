@@ -1720,6 +1720,10 @@ checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
 [[package]]
 name = "linkboy"
 version = "0.0.1"
+dependencies = [
+ "serial2",
+ "thiserror",
+]
 
 [[package]]
 name = "linked_list_allocator"

@@ -11,3 +11,11 @@ categories = ["network-programming", "embedded"]
 
 [lib]
 path = "src/lib.rs"
+
+[[bin]]
+name = "linkboy"
+path = "src/main.rs"
+
+[dependencies]
+serial2 = "0.2.37"
+thiserror = "2"
