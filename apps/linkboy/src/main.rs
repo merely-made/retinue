@@ -14,13 +14,16 @@
 
 use std::time::Duration;
 
-use linkboy::{Board, Error, enter_bootloader, have_tool, identify, ports, require_image, run};
+use linkboy::{
+    Board, Error, converse, enter_bootloader, have_tool, identify, ports, require_image, run,
+};
 
 const BOOTLOADER_PATIENCE: Duration = Duration::from_secs(12);
 
 fn usage() -> &'static str {
     "usage:\n  \
      linkboy list\n  \
+     linkboy ask PORT LINE...\n  \
      linkboy flash PORT IMAGE\n  \
      linkboy bootloader PORT"
 }
@@ -42,6 +45,21 @@ fn run_command() -> Result<(), Error> {
                 .next()
                 .ok_or_else(|| bad_usage("flash needs an IMAGE"))?;
             flash(&port, &image)
+        }
+        // The board's whole probe vocabulary, reachable from the tool that already knows how
+        // to open its port and wait out its settling. Several lines go in one session,
+        // because opening the port is the slow part.
+        Some("ask") => {
+            let port = args.next().ok_or_else(|| bad_usage("ask needs a PORT"))?;
+            let lines: Vec<String> = args.collect();
+            if lines.is_empty() {
+                return Err(bad_usage("ask needs at least one LINE"));
+            }
+            let borrowed: Vec<&str> = lines.iter().map(String::as_str).collect();
+            for answer in converse(&port, &borrowed)? {
+                print!("{answer}");
+            }
+            Ok(())
         }
         Some("bootloader") => {
             let port = args

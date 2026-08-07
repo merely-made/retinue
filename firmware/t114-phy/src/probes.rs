@@ -14,7 +14,7 @@ use radio_hand::link::HostLink;
 use radio_hand::settings::{Channel as BootChannel, Settings};
 use selvage::{MESHTASTIC_SYNC_WORD, sx126x_sync_word};
 
-use crate::{ChannelProbe, RegionProbe, channel_probe, crash, heap, region_probe, ui};
+use crate::{ChannelProbe, RegionProbe, channel_probe, crash, heap, lxmf, region_probe, ui};
 
 /// What a batch of host bytes turned out to be.
 pub enum Outcome {
@@ -104,6 +104,29 @@ where
             d.wait_beats,
             d.wait_frames,
         );
+        if host.write_all(reply.as_str().as_bytes()).await.is_err() {
+            return Outcome::HostGone;
+        }
+        return Outcome::Served;
+    }
+    // Whether the board can actually read LXMF, asked of the board rather than inferred
+    // from the fact that it linked. Both halves are checked against captured stock answers
+    // and report their own cost, because on a board the cost is half the question.
+    //
+    // Two probes rather than one: the stamp takes a thousand HKDF rounds, and a host that
+    // reads to the first newline would take the codec's answer and leave before the stamp
+    // arrived. One question, one line.
+    if at_boundary && (packet == b"lxmf\n" || packet == b"lxmf\r\n") {
+        let mut reply = radio_face::Text::<256>::empty();
+        lxmf::check_codec(&mut reply);
+        if host.write_all(reply.as_str().as_bytes()).await.is_err() {
+            return Outcome::HostGone;
+        }
+        return Outcome::Served;
+    }
+    if at_boundary && (packet == b"lxmf stamp\n" || packet == b"lxmf stamp\r\n") {
+        let mut reply = radio_face::Text::<256>::empty();
+        lxmf::check_stamp(&mut reply);
         if host.write_all(reply.as_str().as_bytes()).await.is_err() {
             return Outcome::HostGone;
         }

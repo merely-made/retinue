@@ -2814,6 +2814,7 @@ dependencies = [
  "embedded-storage",
  "lora-modulation",
  "lora-phy",
+ "outrider",
  "radio-face",
  "radio-hand",
  "retinue",

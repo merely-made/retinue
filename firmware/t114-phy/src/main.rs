@@ -35,6 +35,7 @@ mod board;
 mod crash;
 mod heap;
 mod host;
+mod lxmf;
 mod probes;
 mod radio;
 mod store;

@@ -14,6 +14,8 @@ pub const STAMP_LEN: usize = 32;
 pub const WORKBLOCK_BYTES_PER_ROUND: usize = 256;
 pub const MESSAGE_WORKBLOCK_ROUNDS: u32 = 3_000;
 pub const PROPAGATION_WORKBLOCK_ROUNDS: u32 = 1_000;
+/// The widest MessagePack unsigned integer: a marker byte and eight big-endian bytes.
+const MAX_UINT_LEN: usize = 9;
 
 /// Derive the stamp workblock observed from stock LXMF.
 ///
@@ -22,17 +24,53 @@ pub const PROPAGATION_WORKBLOCK_ROUNDS: u32 = 1_000;
 pub fn workblock(material: &[u8], rounds: u32) -> Vec<u8> {
     let mut block = Vec::with_capacity(rounds as usize * WORKBLOCK_BYTES_PER_ROUND);
     for round in 0..rounds {
-        let mut salt_input = Vec::with_capacity(material.len() + 5);
-        salt_input.extend_from_slice(material);
-        write_uint(&mut salt_input, u64::from(round));
-        let salt = Sha256::digest(&salt_input);
-        let hkdf = Hkdf::<Sha256>::new(Some(&salt), material);
         let start = block.len();
         block.resize(start + WORKBLOCK_BYTES_PER_ROUND, 0);
-        hkdf.expand(&[], &mut block[start..])
-            .expect("256 bytes is a valid HKDF-SHA256 output length");
+        expand_round(material, round, &mut block[start..]);
     }
     block
+}
+
+/// Derive one round of the workblock into `out`, which must be one round long.
+fn expand_round(material: &[u8], round: u32, out: &mut [u8]) {
+    let mut encoded = [0_u8; MAX_UINT_LEN];
+    let width = write_uint(&mut encoded, u64::from(round));
+    // Hashed in two updates rather than over a joined buffer: same bytes, no allocation, so
+    // this is callable from a round loop that must not touch the heap.
+    let mut salt = Sha256::new();
+    salt.update(material);
+    salt.update(&encoded[..width]);
+
+    Hkdf::<Sha256>::new(Some(&salt.finalize()), material)
+        .expand(&[], out)
+        .expect("256 bytes is a valid HKDF-SHA256 output length");
+}
+
+/// Score a stamp against a workblock that is never held.
+///
+/// [`workblock`] materialises `rounds * WORKBLOCK_BYTES_PER_ROUND` bytes: 256 KB at
+/// propagation cost, 768 KB at message cost. No board in this family can hold either, and
+/// the T114's whole heap is 48 KB, so on the hardware this crate is meant to reach, the
+/// materialised form is not slow but impossible.
+///
+/// It is also unnecessary for checking. The workblock's only use is to be fed into a hash,
+/// so each round can go into the hasher as it is derived and be dropped, leaving one round
+/// on the stack rather than all of them on the heap. The result is the same number by
+/// construction, and `the_streamed_score_is_the_materialised_one` holds that.
+///
+/// This is the checking side, which is the side a board needs: it must weigh the work on
+/// what arrives. Minting a stamp is a different problem, because [`find`] scores many
+/// nonces against one workblock, and streaming would re-derive every round for every trial.
+/// A board that must mint stamps needs that addressed separately, not this function.
+pub fn value_streamed(material: &[u8], rounds: u32, stamp: &[u8; STAMP_LEN]) -> u16 {
+    let mut hash = Sha256::new();
+    let mut round_block = [0_u8; WORKBLOCK_BYTES_PER_ROUND];
+    for round in 0..rounds {
+        expand_round(material, round, &mut round_block);
+        hash.update(round_block);
+    }
+    hash.update(stamp);
+    leading_zero_bits(&hash.finalize())
 }
 
 /// Score a stamp against a previously derived workblock.
@@ -47,20 +85,14 @@ pub fn valid(workblock: &[u8], stamp: &[u8; STAMP_LEN], target: u16) -> bool {
     target <= 256 && value(workblock, stamp) >= target
 }
 
+/// Score a propagation stamp. Streamed, so it costs one round of stack rather than 256 KB
+/// of heap and runs anywhere, including a board.
 pub fn propagation_value(transient_id: &[u8; 32], stamp: &[u8; STAMP_LEN]) -> u16 {
-    value(
-        &workblock(transient_id, PROPAGATION_WORKBLOCK_ROUNDS),
-        stamp,
-    )
+    value_streamed(transient_id, PROPAGATION_WORKBLOCK_ROUNDS, stamp)
 }
 
 pub fn propagation_valid(transient_id: &[u8; 32], stamp: &[u8; STAMP_LEN], target: u16) -> bool {
-    target <= 256
-        && valid(
-            &workblock(transient_id, PROPAGATION_WORKBLOCK_ROUNDS),
-            stamp,
-            target,
-        )
+    target <= 256 && propagation_value(transient_id, stamp) >= target
 }
 
 /// Search sequential 256-bit stamp nonces, starting with `seed`.
@@ -94,22 +126,21 @@ pub fn find(
 /// encoding one byte wider than the stock implementation's is not a different spelling of the
 /// same number, it is a different workblock, against which every stamp ever minted or checked
 /// scores wrong. `the_narrow_encoding_is_the_one_rmpv_writes` holds that at every boundary.
-fn write_uint(out: &mut Vec<u8>, value: u64) {
+fn write_uint(out: &mut [u8; MAX_UINT_LEN], value: u64) -> usize {
+    fn tagged(out: &mut [u8; MAX_UINT_LEN], marker: u8, bytes: &[u8]) -> usize {
+        out[0] = marker;
+        out[1..=bytes.len()].copy_from_slice(bytes);
+        1 + bytes.len()
+    }
     match value {
-        0..=0x7f => out.push(value as u8),
-        0x80..=0xff => out.extend_from_slice(&[0xcc, value as u8]),
-        0x100..=0xffff => {
-            out.push(0xcd);
-            out.extend_from_slice(&(value as u16).to_be_bytes());
+        0..=0x7f => {
+            out[0] = value as u8;
+            1
         }
-        0x1_0000..=0xffff_ffff => {
-            out.push(0xce);
-            out.extend_from_slice(&(value as u32).to_be_bytes());
-        }
-        _ => {
-            out.push(0xcf);
-            out.extend_from_slice(&value.to_be_bytes());
-        }
+        0x80..=0xff => tagged(out, 0xcc, &[value as u8]),
+        0x100..=0xffff => tagged(out, 0xcd, &(value as u16).to_be_bytes()),
+        0x1_0000..=0xffff_ffff => tagged(out, 0xce, &(value as u32).to_be_bytes()),
+        _ => tagged(out, 0xcf, &value.to_be_bytes()),
     }
 }
 
@@ -198,13 +229,30 @@ mod tests {
             .chain(0..4096)
             .chain([MESSAGE_WORKBLOCK_ROUNDS as u64, PROPAGATION_WORKBLOCK_ROUNDS as u64]);
         for value in sweep {
-            let mut mine = Vec::new();
-            write_uint(&mut mine, value);
+            let mut buffer = [0_u8; MAX_UINT_LEN];
+            let width = write_uint(&mut buffer, value);
+            let mine = &buffer[..width];
 
             let mut theirs = Vec::new();
             rmpv::encode::write_value(&mut theirs, &rmpv::Value::from(value)).unwrap();
 
-            assert_eq!(mine, theirs, "{value} encodes differently than rmpv writes it");
+            assert_eq!(mine, &theirs[..], "{value} encodes differently than rmpv writes it");
+        }
+    }
+
+    /// Streaming and materialising are the same number, at round counts where holding the
+    /// workblock is still possible on a host. The captured propagation vector above is the
+    /// same claim at the real 1,000 rounds, where a board cannot hold it at all.
+    #[test]
+    fn the_streamed_score_is_the_materialised_one() {
+        let material: Vec<u8> = (0..32).collect();
+        let stamp = [0x5a_u8; STAMP_LEN];
+        for rounds in [0_u32, 1, 2, 7, 64] {
+            assert_eq!(
+                value_streamed(&material, rounds, &stamp),
+                value(&workblock(&material, rounds), &stamp),
+                "{rounds} rounds",
+            );
         }
     }
 

@@ -27,6 +27,8 @@ lora-modulation = "0.1.5"
 lora-phy = { path = "../../vendor/lora-phy" }
 radio-face = { path = "../../crates/radio-face" }
 retinue = { path = "../../crates/retinue", default-features = false }
+# The no_std half: the LXMF codec and stamps, with no host machinery behind them.
+outrider = { path = "../../crates/outrider", default-features = false }
 radio-hand = { path = "../../crates/radio-hand", features = ["node"] }
 static_cell = "2.1.1"
 selvage = { path = "../../crates/selvage" }

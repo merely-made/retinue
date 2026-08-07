@@ -47,6 +47,26 @@ because a successful SPI transfer cannot detect whether the optional panel is
 populated. `bootloader\n` enters the board's serial-only DFU mode without a
 physical double-reset.
 
+`lxmf\n` and `lxmf stamp\n` are the board's own account of whether it can read
+LXMF, rather than an inference from the fact that outrider linked. Each decodes
+or scores a stock LXMF 0.9.6 artefact baked into flash and checks it against the
+answer the pinned oracle gave, so a divergence is loud on the board and carries
+the id it computed. They are two probes because the stamp is slow enough that a
+host reading to the first newline would leave before it finished. Verified
+2026-08-07 on v45, COM10:
+
+```text
+lxmf codec ok title=5 content=4 fields=8 took=183us heap=120
+lxmf stamp ok value=14 rounds=1000 took=1868ms heap=0
+```
+
+Two figures there are worth carrying forward. The stamp costs **zero heap**,
+because scoring streams each round through the hash instead of materialising a
+256 KB workblock the board could never hold. And it costs **1.87 s of CPU per
+stamp**, which bounds what a board can be asked to weigh: message-cost stamps
+run 3,000 rounds, so roughly 5.6 s each, and nothing here can check inbound
+proof-of-work at any rate.
+
 Build and package for both supported bootloader paths:
 
 ```text
