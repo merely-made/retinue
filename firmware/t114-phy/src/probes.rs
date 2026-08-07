@@ -113,9 +113,9 @@ where
     // from the fact that it linked. Both halves are checked against captured stock answers
     // and report their own cost, because on a board the cost is half the question.
     //
-    // Two probes rather than one: the stamp takes a thousand HKDF rounds, and a host that
-    // reads to the first newline would take the codec's answer and leave before the stamp
-    // arrived. One question, one line.
+    // Separate probes rather than one: stamp work takes seconds, and a host that reads to
+    // the first newline would take the codec's answer and leave before the rest arrived.
+    // One question, one line.
     if at_boundary && (packet == b"lxmf\n" || packet == b"lxmf\r\n") {
         let mut reply = radio_face::Text::<256>::empty();
         lxmf::check_codec(&mut reply);
@@ -126,7 +126,15 @@ where
     }
     if at_boundary && (packet == b"lxmf stamp\n" || packet == b"lxmf stamp\r\n") {
         let mut reply = radio_face::Text::<256>::empty();
-        lxmf::check_stamp(&mut reply);
+        lxmf::check_stamp(&mut reply).await;
+        if host.write_all(reply.as_str().as_bytes()).await.is_err() {
+            return Outcome::HostGone;
+        }
+        return Outcome::Served;
+    }
+    if at_boundary && (packet == b"lxmf mint\n" || packet == b"lxmf mint\r\n") {
+        let mut reply = radio_face::Text::<256>::empty();
+        lxmf::check_mint(&mut reply).await;
         if host.write_all(reply.as_str().as_bytes()).await.is_err() {
             return Outcome::HostGone;
         }

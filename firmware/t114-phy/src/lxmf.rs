@@ -95,31 +95,104 @@ pub fn check_codec(reply: &mut radio_face::Text<256>) {
     }
 }
 
-/// Score the captured propagation stamp the streamed way, and time it.
+/// Rounds absorbed between yields.
+///
+/// A round is ~1.9 ms on this CPU, so eight rounds holds the executor for ~15 ms at a
+/// stretch, and the watchdog, USB and UI get a turn a couple hundred times over the probe
+/// instead of never. The radio shares this executor slot and still pauses for the probe's
+/// full span; a live verification lane would own a task instead, which
+/// [`stamp::Derivation`] is shaped for.
+const ROUNDS_PER_SLICE: u32 = 8;
+
+/// Trials attempted between yields while minting: ~65 us each, so ~17 ms a slice.
+const TRIALS_PER_SLICE: u64 = 256;
+
+/// Score the captured propagation stamp the streamed way, cooperatively, and time it.
 ///
 /// A thousand rounds of HKDF-SHA256 on a 64 MHz Cortex-M4 is real work, so the elapsed
-/// figure is as much the point of the probe as the score is.
-pub fn check_stamp(reply: &mut radio_face::Text<256>) {
+/// figure is as much the point of the probe as the score is. The work is sliced so the
+/// probe never holds the executor for whole seconds: message-cost checks run 5.6 s, and
+/// the watchdog resets the chip at 8 s of executor silence, a margin too thin to keep.
+pub async fn check_stamp(reply: &mut radio_face::Text<256>) {
     let before = heap::used();
     let started = Instant::now();
-    let scored = stamp::value_streamed(
-        &PROPAGATION_ID,
-        stamp::PROPAGATION_WORKBLOCK_ROUNDS,
-        &PROPAGATION_STAMP,
-    );
+    let mut derivation =
+        stamp::Derivation::new(&PROPAGATION_ID, stamp::PROPAGATION_WORKBLOCK_ROUNDS);
+    while derivation.advance(ROUNDS_PER_SLICE) > 0 {
+        embassy_futures::yield_now().await;
+    }
     let took = started.elapsed().as_millis();
     let cost = heap::used().saturating_sub(before);
 
-    if scored == EXPECTED_PROPAGATION_VALUE {
-        let _ = write!(
-            reply,
-            "lxmf stamp ok value={scored} rounds={} took={took}ms heap={cost}\r\n",
-            stamp::PROPAGATION_WORKBLOCK_ROUNDS,
-        );
-    } else {
-        let _ = write!(
-            reply,
-            "lxmf stamp MISMATCH value={scored} want={EXPECTED_PROPAGATION_VALUE} took={took}ms\r\n",
-        );
+    match derivation.value(&PROPAGATION_STAMP) {
+        Some(scored) if scored == EXPECTED_PROPAGATION_VALUE => {
+            let _ = write!(
+                reply,
+                "lxmf stamp ok value={scored} rounds={} took={took}ms heap={cost}\r\n",
+                stamp::PROPAGATION_WORKBLOCK_ROUNDS,
+            );
+        }
+        Some(scored) => {
+            let _ = write!(
+                reply,
+                "lxmf stamp MISMATCH value={scored} want={EXPECTED_PROPAGATION_VALUE} took={took}ms\r\n",
+            );
+        }
+        None => {
+            let _ = write!(reply, "lxmf stamp FAILED derivation unfinished\r\n");
+        }
+    }
+}
+
+/// Mint a fresh stamp for the captured transient id, cooperatively, and time both halves.
+///
+/// The target is the captured stamp's own score, so mint and check tell one story. The
+/// seed starts at zero, which makes the run reproducible: the nonce this board reports is
+/// a fact about the transient id, and a different number is a real divergence. The nonce
+/// doubles as the trial count, since the seed is a big-endian counter.
+pub async fn check_mint(reply: &mut radio_face::Text<256>) {
+    let before = heap::used();
+    let started = Instant::now();
+    let mut derivation =
+        stamp::Derivation::new(&PROPAGATION_ID, stamp::PROPAGATION_WORKBLOCK_ROUNDS);
+    while derivation.advance(ROUNDS_PER_SLICE) > 0 {
+        embassy_futures::yield_now().await;
+    }
+    let derived_ms = started.elapsed().as_millis();
+
+    // Expected trials at this target are 2^14, and the cap is sixteen times that, so a
+    // capped run is a divergence to chase rather than bad luck to shrug at.
+    const MINT_CAP: u64 = 1 << 18;
+    let mut seed = [0_u8; stamp::STAMP_LEN];
+    let mut budget = MINT_CAP;
+    let found = loop {
+        match derivation.mint(EXPECTED_PROPAGATION_VALUE, &mut seed, TRIALS_PER_SLICE) {
+            Some(hit) => break Some(hit),
+            None => {
+                budget = budget.saturating_sub(TRIALS_PER_SLICE);
+                if budget == 0 {
+                    break None;
+                }
+                embassy_futures::yield_now().await;
+            }
+        }
+    };
+    let took = started.elapsed().as_millis();
+    let cost = heap::used().saturating_sub(before);
+
+    match found {
+        Some((minted, scored)) => {
+            let nonce = u64::from_be_bytes(minted[stamp::STAMP_LEN - 8..].try_into().unwrap());
+            let _ = write!(
+                reply,
+                "lxmf mint ok value={scored} nonce={nonce} derive={derived_ms}ms took={took}ms heap={cost}\r\n",
+            );
+        }
+        None => {
+            let _ = write!(
+                reply,
+                "lxmf mint EXHAUSTED cap={MINT_CAP} took={took}ms\r\n",
+            );
+        }
     }
 }

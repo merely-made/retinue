@@ -109,8 +109,9 @@ pub use propagation::{
     submit_with_resource_config as submit_propagation_with_resource_config,
 };
 pub use stamp::{
-    MESSAGE_WORKBLOCK_ROUNDS, PROPAGATION_WORKBLOCK_ROUNDS, STAMP_LEN, WORKBLOCK_BYTES_PER_ROUND,
-    find as find_stamp, find_streamed as find_stamp_streamed, propagation_valid,
-    propagation_value, valid as stamp_valid, value as stamp_value,
-    value_streamed as stamp_value_streamed, workblock,
+    Derivation as StampDerivation, MESSAGE_WORKBLOCK_ROUNDS, PROPAGATION_WORKBLOCK_ROUNDS,
+    STAMP_LEN, WORKBLOCK_BYTES_PER_ROUND, find as find_stamp,
+    find_streamed as find_stamp_streamed, propagation_valid, propagation_value,
+    valid as stamp_valid, value as stamp_value, value_streamed as stamp_value_streamed,
+    workblock,
 };

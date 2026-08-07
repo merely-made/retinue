@@ -63,25 +63,91 @@ fn expand_round(material: &[u8], round: u32, out: &mut [u8]) {
 /// trial. It is not, and [`find_streamed`] is why: the derivation's product can be the
 /// hasher rather than the bytes.
 pub fn value_streamed(material: &[u8], rounds: u32, stamp: &[u8; STAMP_LEN]) -> u16 {
-    let mut hash = absorbed(material, rounds);
-    hash.update(stamp);
-    leading_zero_bits(&hash.finalize())
+    let mut derivation = Derivation::new(material, rounds);
+    derivation.advance(rounds);
+    derivation
+        .value(stamp)
+        .expect("the whole round budget was advanced")
 }
 
-/// The hasher that has absorbed the whole workblock, one round at a time.
+/// A workblock derivation in progress, advanced a budget of rounds at a time.
 ///
-/// Rounds are 256 bytes and SHA-256 absorbs in 64-byte blocks, so the workblock is always
-/// an exact number of blocks and this hasher's buffer is empty when it returns. What is
-/// left is a midstate of about a hundred bytes that is, for scoring purposes, the whole
-/// workblock: score any stamp from here with one clone and one compression.
-fn absorbed(material: &[u8], rounds: u32) -> Sha256 {
-    let mut hash = Sha256::new();
-    let mut round_block = [0_u8; WORKBLOCK_BYTES_PER_ROUND];
-    for round in 0..rounds {
-        expand_round(material, round, &mut round_block);
-        hash.update(round_block);
+/// [`value_streamed`] and [`find_streamed`] run the whole derivation in one call, which is
+/// seconds of solid CPU at real round counts. Fine on a host. On a board that call starves
+/// the executor that also feeds the radio, the USB link and the watchdog; the measured
+/// check was 1.9 s of silence, and message cost at 5.6 s approaches the 8 s watchdog.
+///
+/// This is the same derivation held as a value the caller schedules: advance a budget of
+/// rounds, yield, repeat, then score or mint from the finished state as many times as
+/// wanted. Rounds are 256 bytes and SHA-256 absorbs in 64-byte blocks, so the hasher's
+/// buffer is empty at every pause and the finished state is a midstate of about a hundred
+/// bytes that is, for scoring purposes, the whole workblock.
+pub struct Derivation<'a> {
+    material: &'a [u8],
+    hash: Sha256,
+    round: u32,
+    rounds: u32,
+}
+
+impl<'a> Derivation<'a> {
+    pub fn new(material: &'a [u8], rounds: u32) -> Self {
+        Self {
+            material,
+            hash: Sha256::new(),
+            round: 0,
+            rounds,
+        }
     }
-    hash
+
+    /// Absorb up to `budget` more rounds. Returns the rounds still to go.
+    pub fn advance(&mut self, budget: u32) -> u32 {
+        let mut round_block = [0_u8; WORKBLOCK_BYTES_PER_ROUND];
+        let until = self.rounds.min(self.round.saturating_add(budget));
+        while self.round < until {
+            expand_round(self.material, self.round, &mut round_block);
+            self.hash.update(round_block);
+            self.round += 1;
+        }
+        self.rounds - self.round
+    }
+
+    pub fn done(&self) -> bool {
+        self.round == self.rounds
+    }
+
+    /// Score one stamp against the finished derivation. `None` before [`Self::done`].
+    pub fn value(&self, stamp: &[u8; STAMP_LEN]) -> Option<u16> {
+        if !self.done() {
+            return None;
+        }
+        let mut hash = self.hash.clone();
+        hash.update(stamp);
+        Some(leading_zero_bits(&hash.finalize()))
+    }
+
+    /// Try up to `attempts` sequential nonces from `seed`, advancing it in place so the
+    /// search resumes where it stopped on the next call. Also `None` before
+    /// [`Self::done`], which a caller that just drained [`Self::advance`] cannot hit.
+    pub fn mint(
+        &self,
+        target: u16,
+        seed: &mut [u8; STAMP_LEN],
+        attempts: u64,
+    ) -> Option<([u8; STAMP_LEN], u16)> {
+        if !self.done() || target > 256 {
+            return None;
+        }
+        for _ in 0..attempts {
+            let mut hash = self.hash.clone();
+            hash.update(*seed);
+            let score = leading_zero_bits(&hash.finalize());
+            if score >= target {
+                return Some((*seed, score));
+            }
+            increment(seed);
+        }
+        None
+    }
 }
 
 /// Score a stamp against a previously derived workblock.
@@ -158,9 +224,9 @@ fn write_uint(out: &mut [u8; MAX_UINT_LEN], value: u64) -> usize {
 /// Search sequential nonces without ever holding the workblock.
 ///
 /// [`find`] scores each trial against materialised workblock bytes, which no board in this
-/// family can hold. Here the one streamed derivation ends in [`absorbed`]'s midstate, each
-/// trial clones that and pays one compression for the stamp block, and the nonce walk is
-/// [`find`]'s exactly, so the two searches return the same stamp from the same seed.
+/// family can hold. Here the one streamed derivation ends in [`Derivation`]'s midstate,
+/// each trial clones that and pays one compression for the stamp block, and the nonce walk
+/// is [`find`]'s exactly, so the two searches return the same stamp from the same seed.
 /// `streamed_and_materialised_mints_agree` holds them together.
 ///
 /// The expected trial count for a target is `2^target` with a geometric tail, so the caller
@@ -177,17 +243,9 @@ pub fn find_streamed(
     if target > 256 {
         return None;
     }
-    let base = absorbed(material, rounds);
-    for _ in 0..max_attempts {
-        let mut hash = base.clone();
-        hash.update(seed);
-        let score = leading_zero_bits(&hash.finalize());
-        if score >= target {
-            return Some((seed, score));
-        }
-        increment(&mut seed);
-    }
-    None
+    let mut derivation = Derivation::new(material, rounds);
+    derivation.advance(rounds);
+    derivation.mint(target, &mut seed, max_attempts)
 }
 
 fn increment(stamp: &mut [u8; STAMP_LEN]) {
@@ -318,6 +376,45 @@ mod tests {
                 "{rounds} rounds",
             );
         }
+    }
+
+    /// Slicing the derivation changes nothing but when the CPU is held: uneven budgets,
+    /// including zero-size ones, end at the same midstate and the same score.
+    #[test]
+    fn a_derivation_advanced_in_slices_scores_the_same() {
+        let material: Vec<u8> = (0..32).collect();
+        let stamp = [0x5a_u8; STAMP_LEN];
+        let whole = value_streamed(&material, 64, &stamp);
+
+        let mut derivation = Derivation::new(&material, 64);
+        assert!(derivation.value(&stamp).is_none(), "unfinished must refuse to score");
+        for budget in [1_u32, 0, 7, 17, 3].iter().cycle() {
+            if derivation.advance(*budget) == 0 {
+                break;
+            }
+        }
+        assert!(derivation.done());
+        assert_eq!(derivation.value(&stamp), Some(whole));
+    }
+
+    /// A mint paused between attempt budgets resumes where it stopped and finds the stamp
+    /// the uninterrupted search finds, because the seed carries the whole search position.
+    #[test]
+    fn a_mint_paused_and_resumed_finds_the_same_stamp() {
+        let material: Vec<u8> = (0..32).collect();
+        let expected = find_streamed(&material, 3, 6, [7; STAMP_LEN], 100_000).unwrap();
+
+        let mut derivation = Derivation::new(&material, 3);
+        derivation.advance(3);
+        let mut seed = [7_u8; STAMP_LEN];
+        let mut found = None;
+        for _ in 0..100_000 {
+            if let Some(hit) = derivation.mint(6, &mut seed, 16) {
+                found = Some(hit);
+                break;
+            }
+        }
+        assert_eq!(found, Some(expected));
     }
 
     #[test]
