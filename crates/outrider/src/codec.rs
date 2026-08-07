@@ -8,10 +8,10 @@ use std::io::Cursor;
 use rmpv::Value;
 use sha2::{Digest, Sha256};
 
-pub const DESTINATION_LEN: usize = 16;
-pub const SOURCE_LEN: usize = 16;
-pub const SIGNATURE_LEN: usize = 64;
-pub const HEADER_LEN: usize = DESTINATION_LEN + SOURCE_LEN + SIGNATURE_LEN;
+// The wire's fixed shape and its failure vocabulary are defined in the `no_std` codec and
+// re-exported here, so that every path into this crate keeps naming them the same way.
+pub use crate::portable::{CodecError, DESTINATION_LEN, HEADER_LEN, SIGNATURE_LEN, SOURCE_LEN};
+
 pub const DEFAULT_MAX_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
 
 /// LXMF's MessagePack payload, in interoperable wire order:
@@ -82,28 +82,6 @@ impl PreparedLxmf {
         packed.extend_from_slice(&self.payload);
         packed
     }
-}
-
-#[derive(Debug, PartialEq, thiserror::Error)]
-pub enum CodecError {
-    #[error("LXMF message exceeds the configured byte limit")]
-    TooLarge,
-    #[error("LXMF message is shorter than its fixed header")]
-    TruncatedHeader,
-    #[error("LXMF payload is not one complete MessagePack value")]
-    MalformedMessagePack,
-    #[error("LXMF payload must be a four- or five-item array")]
-    InvalidPayloadShape,
-    #[error("LXMF timestamp must be a finite double-precision value")]
-    InvalidTimestamp,
-    #[error("LXMF title and content must be MessagePack binary values")]
-    InvalidTextParts,
-    #[error("LXMF fields must be a MessagePack map")]
-    InvalidFields,
-    #[error("LXMF stamp must be a MessagePack binary value")]
-    InvalidStamp,
-    #[error("LXMF payload could not be encoded")]
-    Encode,
 }
 
 /// Prepare an LXMF object and exact signature preimage.

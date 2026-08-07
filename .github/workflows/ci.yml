@@ -78,6 +78,14 @@ jobs:
           targets: thumbv7em-none-eabihf
       - name: Build (t114 phy)
         run: cargo build -p tulle-t114-phy --release --target thumbv7em-none-eabihf
+      # Outrider's `no_std` codec, which is the LXMF that can reach a board. This is a
+      # `build` and not a `test` on purpose: outrider dev-depends on postilion, which
+      # depends back on outrider with default features, so `cargo test -p outrider
+      # --no-default-features` quietly gets `std` again and proves nothing. A build for a
+      # target with no `std` at all cannot be fooled that way, because dev-dependencies are
+      # never built for it.
+      - name: Build (outrider, no_std)
+        run: cargo build -p outrider --no-default-features --target thumbv7em-none-eabihf
 
   # Enforce that the whole dependency tree stays permissively licensed. A copyleft
   # dependency would force any firmware that links retinue to GPLv3 (see deny.toml and the

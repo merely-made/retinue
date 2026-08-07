@@ -28,22 +28,54 @@
 //! black-box observation of pinned stock clients. The Python LXMF
 //! implementation and its client applications are not implementation inputs. See
 //! `PROVENANCE.md`.
+//!
+//! # Building for a board
+//!
+//! Everything here except [`portable`] wants a host: `rmpv`'s value tree, retinue's
+//! endpoint, its TCP interface. `default-features = false` turns all of that off and leaves
+//! the `no_std` codec, which is what firmware takes. That is the only supported shape
+//! without `std`; a board that is a full LXMF endpoint needs `stamp` ported too.
 
+// `not(test)` because a test harness needs `std` even when the crate under test does not.
+// Today the arm is unreachable: the dev-dependency on postilion depends back on outrider
+// with default features, so a test build always has `std` on. Which is the trap worth
+// naming, since it makes `cargo test --no-default-features` look like a `no_std` receipt
+// when it is an ordinary test run. Only a build for a target without `std` proves that.
+#![cfg_attr(all(not(feature = "std"), not(test)), no_std)]
+
+extern crate alloc;
+
+/// The `no_std` codec, built beside the shipping one. See its own docs for the bar it
+/// must clear before it replaces `codec`.
+pub mod portable;
+
+#[cfg(feature = "std")]
 pub mod announce;
+#[cfg(feature = "std")]
 pub mod codec;
+#[cfg(feature = "std")]
 pub mod direct;
+#[cfg(feature = "std")]
 pub mod opportunistic;
+#[cfg(feature = "std")]
 pub mod propagation;
+#[cfg(feature = "std")]
 pub mod stamp;
 
+#[cfg(not(feature = "std"))]
+pub use portable::{CodecError, DESTINATION_LEN, HEADER_LEN, SIGNATURE_LEN, SOURCE_LEN};
+
+#[cfg(feature = "std")]
 pub use announce::{
     AnnounceError, DEFAULT_MAX_ANNOUNCE_BYTES, DeliveryAnnounce, delivery_destination,
     delivery_name, resolve_source, resolve_source_with_link,
 };
+#[cfg(feature = "std")]
 pub use codec::{
     CodecError, DEFAULT_MAX_MESSAGE_BYTES, DESTINATION_LEN, DecodedLxmf, HEADER_LEN, LxmfPayload,
     PreparedLxmf, SIGNATURE_LEN, SOURCE_LEN, decode, decode_bounded, prepare,
 };
+#[cfg(feature = "std")]
 pub use direct::{
     DirectError, DirectReceipt, ReceivedDirect, announce as announce_delivery,
     receive as receive_direct, receive_with_resource_config as receive_direct_with_resource_config,
@@ -53,6 +85,7 @@ pub use direct::{
     send_stamped_with_resource_config as send_direct_stamped_with_resource_config,
     send_with_resource_config as send_direct_with_resource_config,
 };
+#[cfg(feature = "std")]
 pub use opportunistic::{
     OpportunisticError, OpportunisticReceipt, ReceivedOpportunistic,
     receive as receive_opportunistic,
@@ -60,6 +93,7 @@ pub use opportunistic::{
     register as register_opportunistic, send as send_opportunistic,
     send_stamped as send_opportunistic_stamped,
 };
+#[cfg(feature = "std")]
 pub use propagation::{
     DEFAULT_MAX_PROPAGATION_ANNOUNCE_BYTES, DEFAULT_MAX_PROPAGATION_BATCH_BYTES,
     DEFAULT_MAX_PROPAGATION_ENTRIES, DEFAULT_MAX_PROPAGATION_STORE_SNAPSHOT_BYTES,
@@ -74,6 +108,7 @@ pub use propagation::{
     serve_fetch, submit as submit_propagation,
     submit_with_resource_config as submit_propagation_with_resource_config,
 };
+#[cfg(feature = "std")]
 pub use stamp::{
     MESSAGE_WORKBLOCK_ROUNDS, PROPAGATION_WORKBLOCK_ROUNDS, STAMP_LEN, WORKBLOCK_BYTES_PER_ROUND,
     find as find_stamp, propagation_valid, propagation_value, valid as stamp_valid,

@@ -11,15 +11,29 @@ keywords = ["lxmf", "reticulum", "mesh", "messaging"]
 categories = ["network-programming"]
 
 [features]
-tulle-radio = ["retinue/tulle-radio", "dep:radio-face", "dep:tulle"]
+default = ["std"]
+# Everything but the `no_std` codec needs a host: `rmpv`'s value tree, retinue's endpoint,
+# its TCP interface. Turning this off leaves `portable`, which is what firmware takes.
+std = [
+    "dep:hkdf",
+    "dep:rmpv",
+    "retinue/tokio",
+    "retinue/compression",
+    "thiserror/std",
+]
+tulle-radio = ["std", "retinue/tulle-radio", "dep:radio-face", "dep:tulle"]
 
 [dependencies]
-hkdf = "0.12"
+# Held level with retinue's hkdf/sha2/digest majors on purpose: a board that links both
+# crates otherwise carries two SHA-256 implementations and two block buffers.
+hkdf = { version = "0.13", optional = true }
 radio-face = { path = "../radio-face", optional = true }
-retinue = { path = "../retinue" }
-rmpv = "1.3.1"
-sha2 = "0.10"
-thiserror = "2"
+retinue = { path = "../retinue", default-features = false }
+rmpv = { version = "1.3.1", optional = true }
+# sha2 0.11 has no std feature; its defaults are already no_std, so this line is the same
+# on a host and on a board.
+sha2 = "0.11"
+thiserror = { version = "2", default-features = false }
 tulle = { version = "0.0.2", path = "../tulle", features = ["serial-async"], optional = true }
 
 [dev-dependencies]
