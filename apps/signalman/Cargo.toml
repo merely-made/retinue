@@ -1,0 +1,13 @@
+[package]
+name = "signalman"
+version = "0.0.1"
+edition = "2024"
+rust-version.workspace = true
+license = "MPL-2.0"
+repository = "https://github.com/merely-made/retinue"
+description = "The radio-management application of the retinue family: the signal box for a household's radios."
+keywords = ["radio", "mesh", "reticulum", "lora"]
+categories = ["network-programming"]
+
+[lib]
+path = "src/lib.rs"

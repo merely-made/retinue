@@ -1,0 +1,13 @@
+[package]
+name = "linkboy"
+version = "0.0.1"
+edition = "2024"
+rust-version.workspace = true
+license = "MPL-2.0"
+repository = "https://github.com/merely-made/retinue"
+description = "Firmware and link-update tool for the retinue family: carries new firmware over the link, the way linkboys carried light."
+keywords = ["radio", "firmware", "flashing", "dfu", "lora"]
+categories = ["network-programming", "embedded"]
+
+[lib]
+path = "src/lib.rs"

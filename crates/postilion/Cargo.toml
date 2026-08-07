@@ -1,0 +1,13 @@
+[package]
+name = "postilion"
+version = "0.0.1"
+edition = "2024"
+rust-version.workspace = true
+license = "MPL-2.0"
+repository = "https://github.com/merely-made/retinue"
+description = "Shared radio-host library for the retinue family: the riding position inside the team."
+keywords = ["radio", "mesh", "reticulum", "lora", "host"]
+categories = ["network-programming"]
+
+[lib]
+path = "src/lib.rs"

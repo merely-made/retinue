@@ -1,6 +1,9 @@
 [workspace]
 resolver = "2"
 members = [
+    "apps/linkboy",
+    "apps/signalman",
+    "crates/postilion",
     "crates/retinue",
     "crates/tulle",
     "crates/selvage",
@@ -16,6 +19,9 @@ members = [
 # Firmware targets thumbv7em/xtensa and is built by name, not by default:
 #   cargo build -p tulle-t114-phy --release --target thumbv7em-none-eabihf
 default-members = [
+    "apps/linkboy",
+    "apps/signalman",
+    "crates/postilion",
     "crates/retinue",
     "crates/tulle",
     "crates/selvage",
