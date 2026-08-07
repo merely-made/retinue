@@ -11,3 +11,11 @@ categories = ["network-programming"]
 
 [lib]
 path = "src/lib.rs"
+
+[dependencies]
+getrandom = "0.3"
+outrider = { version = "0.0.1", path = "../outrider", features = ["tulle-radio"] }
+retinue = { path = "../retinue", features = ["tulle-radio"] }
+thiserror = "2"
+tokio = { version = "1.53.1", features = ["macros", "rt", "sync", "time"] }
+tulle = { version = "0.0.2", path = "../tulle", features = ["serial-async"] }

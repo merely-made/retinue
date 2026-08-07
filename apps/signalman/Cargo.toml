@@ -11,3 +11,11 @@ categories = ["network-programming"]
 
 [lib]
 path = "src/lib.rs"
+
+[[bin]]
+name = "signalman"
+path = "src/main.rs"
+
+[dependencies]
+postilion = { version = "0.0.1", path = "../../crates/postilion" }
+tokio = { version = "1.53.1", features = ["macros", "rt", "signal", "sync", "time"] }

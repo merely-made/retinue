@@ -1960,6 +1960,7 @@ dependencies = [
  "getrandom 0.3.4",
  "hex",
  "hkdf 0.12.4",
+ "postilion",
  "radio-face",
  "retinue",
  "rmpv",
@@ -2014,6 +2015,14 @@ dependencies = [
 [[package]]
 name = "postilion"
 version = "0.0.1"
+dependencies = [
+ "getrandom 0.3.4",
+ "outrider",
+ "retinue",
+ "thiserror",
+ "tokio",
+ "tulle",
+]
 
 [[package]]
 name = "proc-macro-crate"
@@ -2441,6 +2450,10 @@ dependencies = [
 [[package]]
 name = "signalman"
 version = "0.0.1"
+dependencies = [
+ "postilion",
+ "tokio",
+]
 
 [[package]]
 name = "signature"

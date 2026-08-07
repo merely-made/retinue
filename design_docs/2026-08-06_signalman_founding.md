@@ -45,16 +45,56 @@ matching the family. The `heddle` lesson (banked unchecked on 2026-07-31,
 claimed by a stranger on 2026-08-04) is why stubs went up with the decision
 rather than with the code.
 
+## Steps 1 and 2, done the same day
+
+**`postilion` absorbed the host tier.** `Station` is one operator on one
+radio: identity that survives restarts, board on a serial port in either
+personality, announce cadence, peer table, and a stream of `Event`s. The line
+it holds is that **it has no user interface** — prints nothing, prompts for
+nothing, decides no policy about how a person is shown a message. That is what
+lets a terminal, a future GUI, and a test harness share one implementation,
+and it is the thing `park.rs` could not do while the printing was braided
+through the logic.
+
+Two things the extraction improved rather than merely moved:
+
+- **Peers now carry their announced display name.** `park` decoded the
+  announce for its stamp cost and threw the name away, so `/peers` listed bare
+  hex. The name was always on the wire.
+- **Refusals became an `Event::Dropped` rather than a `println!`.** Same
+  reasoning as the board counters: the commonest cause is a sender never heard
+  announcing, and a silent drop is indistinguishable from a dead radio.
+
+**`signalman` is the operator binary.** Its library half holds the terminal
+face's vocabulary (`Command`, `parse`, `describe`, `render`, `report`) so a
+graphical face can share it, and the binary is only glass: read lines, print
+events, keep the prompt where a person expects it. It gained `/who`,
+`/announce`, and `/exit`, and a real parser — `and/or` is a message, not an
+unknown command, which the old prefix matching got wrong.
+
+**`park` thinned from 380 lines to 127** and stays as outrider's example: the
+shortest honest demonstration that delivery works over a real radio, and the
+harness the bench drives by name. It takes `postilion` as a dev-dependency, so
+outrider itself remains a boundary crate with no host machinery in it.
+
+**Receipts.** Both binaries build; workspace suites green; six new unit tests
+(profile invariants, mode parsing, identity persistence, command parsing).
+On hardware: `signalman` on a V4 came up reporting **the same address** as
+before the extraction, which is the identity-file compatibility that matters
+most, then heard `park` on a second V4 announce and took its message —
+
+```
+[peer] d305181748ad1c76bd91fc6953e11417 bob appeared
+[d305181748ad1c76bd91fc6953e11417] bob: signalman and park still talk
+```
+
 ## What arrives next
 
-1. `postilion` absorbs the shared parts of `crates/outrider/examples/park.rs`:
-   identity files, peer tables, announce cadence, the radio-mode selection
-   over `tulle::radio_io::PacketRadio`, held recipients.
-2. `signalman` becomes the operator-facing binary over it; `park` thins to an
-   example or retires.
-3. `linkboy` wraps the two flash paths the bench already uses
-   (`adafruit-nrfutil` serial DFU for the T114, `espflash` for the V4) behind
-   one door, and later grows the over-the-link update lane.
+`linkboy` wraps the two flash paths the bench already uses
+(`adafruit-nrfutil` serial DFU for the T114, `espflash` for the V4) behind one
+door, and later grows the over-the-link update lane. Beyond that, the named
+debts are unchanged: LXMF on the board, and the host-side answer to a first
+message from a sender who has not announced.
 
 The trunk guard applies unchanged: none of this re-centers the product on
 multi-protocol parity, and the LXMF-on-board lane is the named next debt after
