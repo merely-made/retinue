@@ -58,19 +58,30 @@ fn expand_round(material: &[u8], round: u32, out: &mut [u8]) {
 /// on the stack rather than all of them on the heap. The result is the same number by
 /// construction, and `the_streamed_score_is_the_materialised_one` holds that.
 ///
-/// This is the checking side, which is the side a board needs: it must weigh the work on
-/// what arrives. Minting a stamp is a different problem, because [`find`] scores many
-/// nonces against one workblock, and streaming would re-derive every round for every trial.
-/// A board that must mint stamps needs that addressed separately, not this function.
+/// This is the checking side. Minting looked like a different problem, because [`find`]
+/// scores many nonces against one workblock and streaming would re-derive every round per
+/// trial. It is not, and [`find_streamed`] is why: the derivation's product can be the
+/// hasher rather than the bytes.
 pub fn value_streamed(material: &[u8], rounds: u32, stamp: &[u8; STAMP_LEN]) -> u16 {
+    let mut hash = absorbed(material, rounds);
+    hash.update(stamp);
+    leading_zero_bits(&hash.finalize())
+}
+
+/// The hasher that has absorbed the whole workblock, one round at a time.
+///
+/// Rounds are 256 bytes and SHA-256 absorbs in 64-byte blocks, so the workblock is always
+/// an exact number of blocks and this hasher's buffer is empty when it returns. What is
+/// left is a midstate of about a hundred bytes that is, for scoring purposes, the whole
+/// workblock: score any stamp from here with one clone and one compression.
+fn absorbed(material: &[u8], rounds: u32) -> Sha256 {
     let mut hash = Sha256::new();
     let mut round_block = [0_u8; WORKBLOCK_BYTES_PER_ROUND];
     for round in 0..rounds {
         expand_round(material, round, &mut round_block);
         hash.update(round_block);
     }
-    hash.update(stamp);
-    leading_zero_bits(&hash.finalize())
+    hash
 }
 
 /// Score a stamp against a previously derived workblock.
@@ -142,6 +153,41 @@ fn write_uint(out: &mut [u8; MAX_UINT_LEN], value: u64) -> usize {
         0x1_0000..=0xffff_ffff => tagged(out, 0xce, &(value as u32).to_be_bytes()),
         _ => tagged(out, 0xcf, &value.to_be_bytes()),
     }
+}
+
+/// Search sequential nonces without ever holding the workblock.
+///
+/// [`find`] scores each trial against materialised workblock bytes, which no board in this
+/// family can hold. Here the one streamed derivation ends in [`absorbed`]'s midstate, each
+/// trial clones that and pays one compression for the stamp block, and the nonce walk is
+/// [`find`]'s exactly, so the two searches return the same stamp from the same seed.
+/// `streamed_and_materialised_mints_agree` holds them together.
+///
+/// The expected trial count for a target is `2^target` with a geometric tail, so the caller
+/// still sets `max_attempts` to what its patience allows. On the T114 a trial costs one
+/// compression, roughly 65 us, so expected trial time passes the 1.9 s derivation near
+/// target 15; below that, minting costs about what one check costs.
+pub fn find_streamed(
+    material: &[u8],
+    rounds: u32,
+    target: u16,
+    mut seed: [u8; STAMP_LEN],
+    max_attempts: u64,
+) -> Option<([u8; STAMP_LEN], u16)> {
+    if target > 256 {
+        return None;
+    }
+    let base = absorbed(material, rounds);
+    for _ in 0..max_attempts {
+        let mut hash = base.clone();
+        hash.update(seed);
+        let score = leading_zero_bits(&hash.finalize());
+        if score >= target {
+            return Some((seed, score));
+        }
+        increment(&mut seed);
+    }
+    None
 }
 
 fn increment(stamp: &mut [u8; STAMP_LEN]) {
@@ -251,6 +297,24 @@ mod tests {
             assert_eq!(
                 value_streamed(&material, rounds, &stamp),
                 value(&workblock(&material, rounds), &stamp),
+                "{rounds} rounds",
+            );
+        }
+    }
+
+    /// The streamed mint and the materialised mint walk the same nonce path to the same
+    /// stamp, which is the whole claim: the cloned hasher is the workblock, for scoring.
+    #[test]
+    fn streamed_and_materialised_mints_agree() {
+        let material: Vec<u8> = (0..32).collect();
+        for rounds in [1_u32, 3, 16] {
+            let block = workblock(&material, rounds);
+            let materialised = find(&block, 6, [7; STAMP_LEN], 100_000).unwrap();
+            let streamed = find_streamed(&material, rounds, 6, [7; STAMP_LEN], 100_000).unwrap();
+            assert_eq!(streamed, materialised, "{rounds} rounds");
+            assert_eq!(
+                value_streamed(&material, rounds, &streamed.0),
+                streamed.1,
                 "{rounds} rounds",
             );
         }
