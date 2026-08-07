@@ -38,10 +38,10 @@
 //! the same time; before that, a board linking both crates carried two SHA-256
 //! implementations, two `digest`s and two block buffers, for one hash.
 //!
-//! What a board still lacks for a full LXMF endpoint is `stamp`, which reaches for `rmpv` to
-//! encode a single integer into a hash salt. Porting it is small, but it is byte-exactness
-//! work rather than typing: the salt feeds a hash, so the hand-written encoding has to choose
-//! the same width `rmpv` chooses, and be shown to.
+//! [`crate::stamp`] came along the same way, and needed no second copy of itself: its whole
+//! tie to `rmpv` was one integer encode, replaced by a narrow-width encoder held against
+//! `rmpv`'s output at every boundary. So a board can now read a message, know its identity,
+//! and weigh the work on it.
 
 use alloc::vec::Vec;
 

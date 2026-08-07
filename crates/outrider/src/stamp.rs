@@ -5,8 +5,9 @@
 //! expensive. Propagation stamps derive it from the transient message id with
 //! 1,000 expansion rounds.
 
+use alloc::vec::Vec;
+
 use hkdf::Hkdf;
-use rmpv::Value;
 use sha2::{Digest, Sha256};
 
 pub const STAMP_LEN: usize = 32;
@@ -23,8 +24,7 @@ pub fn workblock(material: &[u8], rounds: u32) -> Vec<u8> {
     for round in 0..rounds {
         let mut salt_input = Vec::with_capacity(material.len() + 5);
         salt_input.extend_from_slice(material);
-        rmpv::encode::write_value(&mut salt_input, &Value::from(u64::from(round)))
-            .expect("encoding an integer into memory cannot fail");
+        write_uint(&mut salt_input, u64::from(round));
         let salt = Sha256::digest(&salt_input);
         let hkdf = Hkdf::<Sha256>::new(Some(&salt), material);
         let start = block.len();
@@ -86,6 +86,33 @@ pub fn find(
     None
 }
 
+/// MessagePack's encoding of an unsigned integer, in the narrowest form that holds it.
+///
+/// This one call was the only thing tying stamps to `rmpv`, and so the only thing keeping
+/// proof-of-work off a board. It is written out rather than called out to, and the width
+/// rules are not a style choice: these bytes are hashed into the workblock salt, so an
+/// encoding one byte wider than the stock implementation's is not a different spelling of the
+/// same number, it is a different workblock, against which every stamp ever minted or checked
+/// scores wrong. `the_narrow_encoding_is_the_one_rmpv_writes` holds that at every boundary.
+fn write_uint(out: &mut Vec<u8>, value: u64) {
+    match value {
+        0..=0x7f => out.push(value as u8),
+        0x80..=0xff => out.extend_from_slice(&[0xcc, value as u8]),
+        0x100..=0xffff => {
+            out.push(0xcd);
+            out.extend_from_slice(&(value as u16).to_be_bytes());
+        }
+        0x1_0000..=0xffff_ffff => {
+            out.push(0xce);
+            out.extend_from_slice(&(value as u32).to_be_bytes());
+        }
+        _ => {
+            out.push(0xcf);
+            out.extend_from_slice(&value.to_be_bytes());
+        }
+    }
+}
+
 fn increment(stamp: &mut [u8; STAMP_LEN]) {
     for byte in stamp.iter_mut().rev() {
         let (next, carried) = byte.overflowing_add(1);
@@ -142,6 +169,43 @@ mod tests {
         assert_eq!(propagation_value(&transient_id, &stamp), 14);
         assert!(propagation_valid(&transient_id, &stamp, 13));
         assert!(!propagation_valid(&transient_id, &stamp, 15));
+    }
+
+    /// The hand-written integer encoding is byte-for-byte what `rmpv` wrote, at every width
+    /// boundary and on both sides of each. Kept as a test rather than settled once by reading,
+    /// because it is what stops a future edit from silently re-salting every workblock in the
+    /// network. The oracle vectors above would catch a change at round 0..3000; this catches
+    /// one anywhere.
+    #[cfg(feature = "std")]
+    #[test]
+    fn the_narrow_encoding_is_the_one_rmpv_writes() {
+        let boundaries = [
+            0_u64,
+            1,
+            0x7f,
+            0x80,
+            0xff,
+            0x100,
+            0xffff,
+            0x1_0000,
+            0xffff_ffff,
+            0x1_0000_0000,
+            u64::MAX,
+        ];
+        let sweep = boundaries
+            .iter()
+            .copied()
+            .chain(0..4096)
+            .chain([MESSAGE_WORKBLOCK_ROUNDS as u64, PROPAGATION_WORKBLOCK_ROUNDS as u64]);
+        for value in sweep {
+            let mut mine = Vec::new();
+            write_uint(&mut mine, value);
+
+            let mut theirs = Vec::new();
+            rmpv::encode::write_value(&mut theirs, &rmpv::Value::from(value)).unwrap();
+
+            assert_eq!(mine, theirs, "{value} encodes differently than rmpv writes it");
+        }
     }
 
     #[test]

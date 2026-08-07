@@ -31,10 +31,10 @@
 //!
 //! # Building for a board
 //!
-//! Everything here except [`portable`] wants a host: `rmpv`'s value tree, retinue's
-//! endpoint, its TCP interface. `default-features = false` turns all of that off and leaves
-//! the `no_std` codec, which is what firmware takes. That is the only supported shape
-//! without `std`; a board that is a full LXMF endpoint needs `stamp` ported too.
+//! The delivery, propagation and announce modules want a host: `rmpv`'s value tree,
+//! retinue's endpoint, its TCP interface. `default-features = false` turns all of that off
+//! and leaves [`portable`] and [`stamp`], which is firmware's shape: enough to read a
+//! message, know its identity, and mint or check the proof-of-work on it.
 
 // `not(test)` because a test harness needs `std` even when the crate under test does not.
 // Today the arm is unreachable: the dev-dependency on postilion depends back on outrider
@@ -48,6 +48,8 @@ extern crate alloc;
 /// The `no_std` codec, built beside the shipping one. See its own docs for the bar it
 /// must clear before it replaces `codec`.
 pub mod portable;
+/// Proof-of-work stamps. `no_std`, so a board can mint and check its own.
+pub mod stamp;
 
 #[cfg(feature = "std")]
 pub mod announce;
@@ -59,8 +61,6 @@ pub mod direct;
 pub mod opportunistic;
 #[cfg(feature = "std")]
 pub mod propagation;
-#[cfg(feature = "std")]
-pub mod stamp;
 
 #[cfg(not(feature = "std"))]
 pub use portable::{CodecError, DESTINATION_LEN, HEADER_LEN, SIGNATURE_LEN, SOURCE_LEN};
@@ -108,7 +108,6 @@ pub use propagation::{
     serve_fetch, submit as submit_propagation,
     submit_with_resource_config as submit_propagation_with_resource_config,
 };
-#[cfg(feature = "std")]
 pub use stamp::{
     MESSAGE_WORKBLOCK_ROUNDS, PROPAGATION_WORKBLOCK_ROUNDS, STAMP_LEN, WORKBLOCK_BYTES_PER_ROUND,
     find as find_stamp, propagation_valid, propagation_value, valid as stamp_valid,
