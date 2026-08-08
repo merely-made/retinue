@@ -179,6 +179,27 @@ const PATH_TTL: Duration = Duration::from_secs(60 * 30);
 #[cfg(test)]
 const PATH_TTL: Duration = Duration::from_millis(60);
 
+/// The most destinations a path table will hold.
+///
+/// The table was unbounded, which made it the last place a stranger could grow this
+/// process's memory for free: every announce that survived the address book's cap put an
+/// entry here and nothing ever took one out except expiry.
+///
+/// The eviction policy falls out of what feeds the table. Routes are learned from announces
+/// and their time is refreshed by re-announces, so the entry with the oldest `learned` is
+/// exactly the peer that has gone quietest, and the one whose route is least likely to still
+/// be true. Evicting it costs a path request if that peer comes back; keeping it costs a
+/// route we would have had to a peer that is still talking. Expired entries go first, so a
+/// table full of the dead never evicts the living.
+///
+/// Sized for a transport node with a real neighbourhood rather than a bench: four thousand
+/// destinations is far more than a LoRa mesh sees, and a bound that is never reached in
+/// practice is the point.
+#[cfg(not(test))]
+const PATH_TABLE_CAPACITY: usize = 4096;
+#[cfg(test)]
+const PATH_TABLE_CAPACITY: usize = 4;
+
 /// The least time between announces we will accept for the same destination. A re-announce
 /// arriving sooner is dropped (not ingested, not re-forwarded), rate-limiting an announce
 /// flood. The first announce for a destination is always accepted.
@@ -1005,6 +1026,9 @@ pub struct RoutingCounters {
     /// published either. Climbing means the book is at capacity, which is worth knowing:
     /// past that point this endpoint is deaf to peers it has not already met.
     pub refused_announces: u64,
+    /// Routes dropped to make room in a full path table. Climbing means this endpoint knows
+    /// more destinations than it can hold, and is forgetting the quietest to keep the rest.
+    pub paths_evicted: u64,
 }
 
 /// The live counter cells behind [`RoutingCounters`].
@@ -1015,6 +1039,7 @@ struct RoutingStats {
     policy_rejected: AtomicU64,
     hop_limit_dropped: AtomicU64,
     refused_announces: AtomicU64,
+    paths_evicted: AtomicU64,
 }
 
 impl RoutingStats {
@@ -1025,6 +1050,7 @@ impl RoutingStats {
             policy_rejected: self.policy_rejected.load(Ordering::Relaxed),
             hop_limit_dropped: self.hop_limit_dropped.load(Ordering::Relaxed),
             refused_announces: self.refused_announces.load(Ordering::Relaxed),
+            paths_evicted: self.paths_evicted.load(Ordering::Relaxed),
         }
     }
 }
@@ -1936,6 +1962,23 @@ impl Shared {
                 e.transport = transport;
             }
         } else {
+            if t.len() >= PATH_TABLE_CAPACITY && !t.contains_key(&dest) {
+                // The dead first: a table full of expired routes must never evict a live one.
+                t.retain(|_, e| now.duration_since(e.learned) < PATH_TTL);
+                // Still full means every route is live, so the quietest peer loses. Its
+                // `learned` is oldest precisely because it has stopped re-announcing.
+                if t.len() >= PATH_TABLE_CAPACITY
+                    && let Some(stalest) = t
+                        .iter()
+                        .min_by_key(|(_, e)| e.learned)
+                        .map(|(dest, _)| *dest)
+                {
+                    t.remove(&stalest);
+                    self.routing_stats
+                        .paths_evicted
+                        .fetch_add(1, Ordering::Relaxed);
+                }
+            }
             t.insert(
                 dest,
                 PathEntry {
@@ -3992,6 +4035,71 @@ mod tests {
     /// nodes. Keyed by interface, the second one learned overwrote the first, and every
     /// packet for the first was addressed to the wrong node: announce A via X and B via Y on
     /// one interface, and A silently routes through Y.
+    /// The path table was the last place a stranger could grow this process's memory for
+    /// free. It is capped now, and what it forgets is chosen rather than arbitrary: the peer
+    /// that has gone quietest, because announces are what feed and refresh the table.
+    #[tokio::test]
+    async fn a_full_path_table_forgets_the_quietest_peer() {
+        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x34; 64]));
+        let iface = InterfaceId::from(1_u32);
+        let quiet = AddressHash::from_bytes([0x01; 16]);
+
+        // The quiet one is learned first, so its `learned` is oldest.
+        ep.shared.learn_path(quiet, iface, 1, None);
+        for n in 2..=PATH_TABLE_CAPACITY as u8 {
+            ep.shared
+                .learn_path(AddressHash::from_bytes([n; 16]), iface, 1, None);
+        }
+        assert_eq!(
+            ep.shared.path_table.lock().unwrap().len(),
+            PATH_TABLE_CAPACITY
+        );
+
+        // One more destination than the table holds.
+        let newcomer = AddressHash::from_bytes([0xFE; 16]);
+        ep.shared.learn_path(newcomer, iface, 1, None);
+
+        let table = ep.shared.path_table.lock().unwrap();
+        assert_eq!(table.len(), PATH_TABLE_CAPACITY, "the bound holds");
+        assert!(table.contains_key(&newcomer), "the newcomer is learned");
+        assert!(
+            !table.contains_key(&quiet),
+            "and the peer that had gone quietest is what made room",
+        );
+        drop(table);
+        assert_eq!(
+            ep.routing_counters().paths_evicted,
+            1,
+            "evictions are counted, not silent",
+        );
+    }
+
+    /// A peer that keeps announcing keeps its route, which is the other half of the policy:
+    /// re-announcing refreshes `learned`, so the still-talking are never the ones evicted.
+    #[tokio::test]
+    async fn a_peer_that_keeps_announcing_keeps_its_route() {
+        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x35; 64]));
+        let iface = InterfaceId::from(1_u32);
+        let talkative = AddressHash::from_bytes([0x01; 16]);
+
+        ep.shared.learn_path(talkative, iface, 1, None);
+        for n in 2..=PATH_TABLE_CAPACITY as u8 {
+            ep.shared
+                .learn_path(AddressHash::from_bytes([n; 16]), iface, 1, None);
+        }
+        // It re-announces, which is what a live peer does and what moves it off oldest.
+        ep.shared.learn_path(talkative, iface, 1, None);
+
+        ep.shared
+            .learn_path(AddressHash::from_bytes([0xFE; 16]), iface, 1, None);
+
+        let table = ep.shared.path_table.lock().unwrap();
+        assert!(
+            table.contains_key(&talkative),
+            "a peer still announcing must not be the one forgotten",
+        );
+    }
+
     /// Attaching was one-way, so a peer that reconnects repeatedly grew the interface list
     /// and its queues without bound, and the scheduler kept visiting records for carriers
     /// that were long gone.
