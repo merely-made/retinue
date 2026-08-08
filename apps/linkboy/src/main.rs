@@ -2,7 +2,8 @@
 //!
 //! ```text
 //! linkboy list                    what is on this machine's ports
-//! linkboy flash PORT IMAGE        put an image on the board at PORT
+//! linkboy flash PORT IMAGE [t114|v4]   put an image on the board at PORT
+//!                                      name the board when it cannot say what it is
 //! linkboy bootloader PORT         send a T114 to its bootloader and name the new port
 //! ```
 //!
@@ -24,7 +25,7 @@ fn usage() -> &'static str {
     "usage:\n  \
      linkboy list\n  \
      linkboy ask PORT LINE...\n  \
-     linkboy flash PORT IMAGE\n  \
+     linkboy flash PORT IMAGE [t114|v4]\n  \
      linkboy bootloader PORT"
 }
 
@@ -44,7 +45,20 @@ fn run_command() -> Result<(), Error> {
             let image = args
                 .next()
                 .ok_or_else(|| bad_usage("flash needs an IMAGE"))?;
-            flash(&port, &image)
+            // An optional third word says what the board is, for when it cannot say so
+            // itself: running stock RNode, half-flashed, or simply wedged. Naming it is the
+            // operator taking responsibility for a claim linkboy could not check.
+            let declared = match args.next().as_deref() {
+                None => None,
+                Some("t114") => Some(Board::T114),
+                Some("v4") => Some(Board::HeltecV4),
+                Some(other) => {
+                    return Err(bad_usage(&format!(
+                        "unknown board {other}, want t114 or v4"
+                    )));
+                }
+            };
+            flash(&port, &image, declared)
         }
         // The board's whole probe vocabulary, reachable from the tool that already knows how
         // to open its port and wait out its settling. Several lines go in one session,
@@ -90,13 +104,21 @@ fn list() -> Result<(), Error> {
     Ok(())
 }
 
-fn flash(port: &str, image: &str) -> Result<(), Error> {
+fn flash(port: &str, image: &str, declared: Option<Board>) -> Result<(), Error> {
     // Everything that can be checked before something irreversible starts, is.
     require_image(image)?;
-    let found = identify(port);
-    let board = found
-        .board
-        .ok_or_else(|| Error::NotOurs(port.to_string()))?;
+    // A declared board wins over the probe. A board running somebody else's firmware, or
+    // none at all, answers nothing, and refusing to flash it was exactly backwards:
+    // recovering a board that has stopped talking is the job.
+    let board = match declared {
+        Some(board) => {
+            println!("{port}: taking your word for it, {board:?}");
+            board
+        }
+        None => identify(port)
+            .board
+            .ok_or_else(|| Error::NotOurs(port.to_string()))?,
+    };
 
     match board {
         Board::Unknown(line) => Err(Error::UnknownBoard(line)),

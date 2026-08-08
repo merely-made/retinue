@@ -269,6 +269,15 @@ pub fn enter_bootloader(port: &str, patience: Duration) -> Result<String, Error>
     // the board already went, which is success, not failure.
     let _ = probe(port, "bootloader");
 
+    // Then the touch, for boards that will not answer that probe. Stock RNode firmware
+    // ignores it, and so does anything else we did not write, which used to mean linkboy
+    // could only recover a board it had put there itself: exactly backwards for a tool whose
+    // job is putting our firmware onto boards. Opening the port at 1200 baud and dropping
+    // DTR is the nRF52 bootloader's own convention and needs no cooperation from the running
+    // application. Harmless where it is not understood, so it is unconditional rather than
+    // conditioned on a board we may have failed to identify.
+    let _ = touch_1200(port);
+
     let deadline = Instant::now() + patience;
     while Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(400));
@@ -281,6 +290,25 @@ pub fn enter_bootloader(port: &str, patience: Duration) -> Result<String, Error>
         }
     }
     Err(Error::NoBootloader(patience))
+}
+
+/// Ask a board to reset into its bootloader by opening its port at 1200 baud.
+///
+/// The nRF52 bootloader watches for this and needs nothing from the running application, so
+/// it recovers a board whatever is flashed on it: stock RNode, a half-written image, or
+/// firmware that has stopped answering. That is the difference between a flashing tool and
+/// one that only works on boards already running our own.
+///
+/// Errors are swallowed by the caller on purpose. On a board that does not implement the
+/// convention this opens and closes a port and nothing happens, which is the intended
+/// outcome, and on one that does the port disappears mid-close and reports an error that
+/// means it worked.
+fn touch_1200(port: &str) -> Result<(), Error> {
+    let serial = SerialPort::open(port, 1200)?;
+    let _ = serial.set_dtr(false);
+    std::thread::sleep(Duration::from_millis(120));
+    drop(serial);
+    Ok(())
 }
 
 /// Whether a helper tool is on the path.
