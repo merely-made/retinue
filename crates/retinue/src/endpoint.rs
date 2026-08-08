@@ -1632,11 +1632,6 @@ struct Shared {
     /// When the path requests in the current window went out, oldest first, for the global
     /// cap ([`PATH_REQUEST_GLOBAL_MAX`]). Never longer than the cap.
     path_request_stamps: Mutex<VecDeque<Instant>>,
-    /// The transport node reachable on each interface (its identity hash), learned from the
-    /// `transport` field of header-type-2 announces. Packets sent out an interface with a
-    /// transport node are addressed header-type-2 `[transport][dest]` so the node forwards
-    /// them.
-    iface_transport: Mutex<HashMap<InterfaceId, AddressHash>>,
     /// Links being forwarded through us (this node is a transport hop): a link id maps to the
     /// two interfaces it bridges, so a proof or link data arriving on one goes out the other.
     link_transport: Mutex<HashMap<AddressHash, (InterfaceId, InterfaceId)>>,
@@ -1662,6 +1657,11 @@ struct Shared {
 #[derive(Clone, Copy)]
 struct PathEntry {
     iface: InterfaceId,
+    /// The transport node this destination is reached through, from the `transport` field of
+    /// the header-type-2 announce that taught us the route. Per destination, because an
+    /// interface can reach many destinations through different nodes: one radio hearing A
+    /// via X and B via Y is the ordinary case, not an exotic one.
+    transport: Option<AddressHash>,
     hops: u8,
     /// When this route was last (re)learned from an announce. Routes older than [`PATH_TTL`]
     /// are treated as stale and evicted on lookup.
@@ -1842,10 +1842,21 @@ impl Shared {
     /// transport node, make it header-type-2 with the node's id in the transport field so the
     /// node forwards it toward `destination`. A directly-connected interface leaves it as is.
     fn address_for(&self, iface: InterfaceId, mut pkt: Packet) -> Packet {
-        if let Some(t) = self.iface_transport.lock().unwrap().get(&iface).copied() {
+        // Looked up by destination, not by interface. Keyed by interface, a second
+        // destination learned through a different transport node overwrote the first, and
+        // every packet for the first was then addressed to the wrong node: announce A via X
+        // and B via Y on one radio, and A silently routes through Y.
+        let via = self
+            .path_table
+            .lock()
+            .unwrap()
+            .get(&pkt.destination)
+            .and_then(|entry| entry.transport);
+        if let Some(t) = via {
             pkt.header_type = crate::packet::HeaderType::Type2;
             pkt.transport = Some(t);
         }
+        let _ = iface;
         pkt
     }
 
@@ -1871,22 +1882,36 @@ impl Shared {
     /// Record that `dest` is reachable via `iface` at `hops`. Keeps the shortest fresh route,
     /// but always refreshes the learned time (so a re-announce keeps a route alive), and
     /// replaces a route that has expired regardless of hop count.
-    fn learn_path(&self, dest: AddressHash, iface: InterfaceId, hops: u8) {
+    fn learn_path(
+        &self,
+        dest: AddressHash,
+        iface: InterfaceId,
+        hops: u8,
+        transport: Option<AddressHash>,
+    ) {
         let mut t = self.path_table.lock().unwrap();
         let now = Instant::now();
         let keep_existing = t
             .get(&dest)
             .is_some_and(|e| e.hops <= hops && now.duration_since(e.learned) < PATH_TTL);
         if keep_existing {
-            // Existing route is at least as short and still fresh: keep it, refresh its time.
-            if let Some(e) = t.get_mut(&dest) {
+            if let Some(e) = t.get_mut(&dest)
+                && e.iface == iface
+            {
+                // Only an announce arriving the way this route goes proves this route is
+                // alive. A worse alternate used to refresh it too, which meant a preferred
+                // path that had died never aged out as long as any second path kept
+                // announcing: failover could not happen, because the dead route stayed
+                // permanently fresh.
                 e.learned = now;
+                e.transport = transport;
             }
         } else {
             t.insert(
                 dest,
                 PathEntry {
                     iface,
+                    transport,
                     hops,
                     learned: now,
                 },
@@ -2066,7 +2091,6 @@ impl Endpoint {
             announce_budget: Mutex::new(HashMap::new()),
             path_request_budget: Mutex::new(HashMap::new()),
             path_request_stamps: Mutex::new(VecDeque::new()),
-            iface_transport: Mutex::new(HashMap::new()),
             link_transport: Mutex::new(HashMap::new()),
             tasks: Mutex::new(Vec::new()),
             drainable: Mutex::new(Vec::new()),
@@ -3172,12 +3196,10 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                     return;
                 }
                 shared.address_book.lock().unwrap().ingest(&a);
-                shared.learn_path(a.destination, iface, pkt.hops);
-                // A header-type-2 announce names the transport node forwarding it; remember
-                // it as this interface's next hop so we can reach the destination through it.
-                if let Some(t) = pkt.transport {
-                    shared.iface_transport.lock().unwrap().insert(iface, t);
-                }
+                // A header-type-2 announce names the transport node forwarding it. It
+                // belongs to this destination's route, not to the interface: the same radio
+                // routinely reaches different destinations through different nodes.
+                shared.learn_path(a.destination, iface, pkt.hops, pkt.transport);
                 let _ = shared.announce_tx.send(PeerAnnounce {
                     destination: a.destination,
                     identity: a.identity,
@@ -3886,7 +3908,7 @@ mod tests {
     async fn a_learned_route_expires_and_is_evicted() {
         let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[1u8; 64]));
         let dest = AddressHash::from_bytes([0xAB; 16]);
-        ep.shared.learn_path(dest, 7, 2);
+        ep.shared.learn_path(dest, 7, 2, None);
         assert_eq!(ep.route_to(dest), Some((7, 2)), "a fresh route is returned");
 
         // PATH_TTL is short under cfg(test); wait past it.
@@ -3896,6 +3918,64 @@ mod tests {
         assert!(
             !ep.shared.path_table.lock().unwrap().contains_key(&dest),
             "and is evicted on lookup",
+        );
+    }
+
+    /// One radio routinely reaches different destinations through different transport
+    /// nodes. Keyed by interface, the second one learned overwrote the first, and every
+    /// packet for the first was addressed to the wrong node: announce A via X and B via Y on
+    /// one interface, and A silently routes through Y.
+    #[tokio::test]
+    async fn two_destinations_on_one_interface_keep_their_own_transports() {
+        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x31; 64]));
+        let iface = InterfaceId::from(3_u32);
+        let a = AddressHash::from_bytes([0xAA; 16]);
+        let b = AddressHash::from_bytes([0xBB; 16]);
+        let via_x = AddressHash::from_bytes([0x11; 16]);
+        let via_y = AddressHash::from_bytes([0x22; 16]);
+
+        ep.shared.learn_path(a, iface, 1, Some(via_x));
+        ep.shared.learn_path(b, iface, 1, Some(via_y));
+
+        let addressed = |dest| {
+            let mut pkt = crate::path::path_request(dest, &[0x5A; 16]);
+            pkt.destination = dest;
+            ep.shared.address_for(iface, pkt).transport
+        };
+        assert_eq!(addressed(a), Some(via_x), "A must still route through X");
+        assert_eq!(addressed(b), Some(via_y), "B routes through Y");
+    }
+
+    /// A worse alternate route used to refresh the preferred one's learned time, so a
+    /// preferred path that had died never aged out as long as any second path kept
+    /// announcing. Failover could not happen.
+    #[tokio::test]
+    async fn a_worse_alternate_does_not_keep_a_dead_route_alive() {
+        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x32; 64]));
+        let dest = AddressHash::from_bytes([0xCC; 16]);
+        let good = InterfaceId::from(1_u32);
+        let worse = InterfaceId::from(2_u32);
+
+        ep.shared.learn_path(dest, good, 1, None);
+        let first = ep
+            .shared
+            .path_table
+            .lock()
+            .unwrap()
+            .get(&dest)
+            .unwrap()
+            .learned;
+
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        // A longer route arrives on another interface. It is correctly not adopted, and it
+        // must not vouch for the route it lost to either.
+        ep.shared.learn_path(dest, worse, 5, None);
+
+        let entry = *ep.shared.path_table.lock().unwrap().get(&dest).unwrap();
+        assert_eq!(entry.iface, good, "the shorter route is still preferred");
+        assert_eq!(
+            entry.learned, first,
+            "and its age is untouched, so it can expire and let failover happen",
         );
     }
 
