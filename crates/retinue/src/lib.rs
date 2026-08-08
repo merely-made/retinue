@@ -9,7 +9,7 @@
 //!
 //! The wire vocabulary, links, resources, request/response, the endpoint runtime, opt-in
 //! transport-node routing, and reliable streaming are all implemented and checked
-//! byte-for-byte against a black-box RNS oracle (pinned at 1.4.0; the committed fixtures
+//! byte-for-byte against a black-box RNS oracle (pinned at 1.4.2; the committed fixtures
 //! retain their observed 1.3.8 provenance; see *Provenance*). The
 //! layering:
 //!

@@ -50,12 +50,15 @@ opinion or certification, and Sennet does not depend on access to counsel.
 
 ## Source and firmware licenses
 
-Sennet and the shared radio crates remain available under MIT or Apache-2.0.
+Sennet and the shared radio crates are MPL-2.0, as every manifest in this
+workspace states. MPL is file-level copyleft: modifications to these files stay
+open, and code under other licenses may link them.
+
 The planned downstream combined firmware distributions may be GPLv3, including
-the firmware image, corresponding source, and required notices. Permissive code
-can flow into that distribution. GPL-derived implementation code does not flow
-back into the permissive crate graph. Commercial distribution does not change
-that dependency direction.
+the firmware image, corresponding source, and required notices. MPL code can
+flow into that distribution. GPL-derived implementation code does not flow back
+into this crate graph. Commercial distribution does not change that dependency
+direction.
 
 ## Naming and non-endorsement
 

@@ -44,9 +44,11 @@ Reconstruction follows controlled radio-bench experiments, with raw captures
 and the scope of each claim recorded in [`PROVENANCE.md`](PROVENANCE.md).
 Unexplored fields remain numbered rather than acquiring speculative names.
 
-The source crates remain MIT/Apache-2.0. Downstream combined firmware may be
-distributed under GPLv3 with its corresponding source and required notices;
-GPL-derived implementation code does not enter the permissive crate graph.
+The source crates are MPL-2.0, like the rest of the retinue family: file-level
+copyleft, which keeps changes to these files open while letting differently
+licensed code link them. Downstream combined firmware may be distributed under
+GPLv3 with its corresponding source and required notices; GPL-derived
+implementation code does not enter this crate graph.
 
 ## License
 

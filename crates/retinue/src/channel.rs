@@ -699,6 +699,23 @@ impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize, const READ_B
         self.read_buf.drain(..).collect()
     }
 
+    /// Recover a compressed stream frame, or `None` if it cannot be recovered here.
+    ///
+    /// Without the `compression` feature there is no bz2 decoder linked, so the honest
+    /// answer is that these bytes are unreadable by this build. RNS compresses only when it
+    /// shrinks the payload, so a peer that never compresses never reaches this at all.
+    fn decompressed(data: &[u8]) -> Option<Vec<u8>> {
+        #[cfg(feature = "compression")]
+        {
+            crate::resource::decompress(data).ok()
+        }
+        #[cfg(not(feature = "compression"))]
+        {
+            let _ = data;
+            None
+        }
+    }
+
     fn fill(&mut self) {
         // Stop draining once the reader is this far behind. The undelivered payloads stay in
         // the channel's bounded inbox, which then withholds proofs, which stops the peer.
@@ -714,9 +731,19 @@ impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize, const READ_B
                 continue; // a different multiplexed stream on the same channel
             }
             if frame.compressed {
-                // Undecodable without a bz2 pass (see the type docs). Don't append the
-                // compressed bytes as if they were data; flag it instead of corrupting.
-                self.saw_unsupported = true;
+                // A compressed frame used to be counted as unsupported and thrown away. That
+                // was silent data loss with a receipt on it: the reliable layer has already
+                // proven this packet to the peer by the time the bytes get here, so the
+                // sender retires data the application never sees, and nothing anywhere reads
+                // the flag that recorded it. The crate has always been able to decompress
+                // (`resource::decompress`, the same bz2 pass a compressed resource takes);
+                // this path simply never called it.
+                match Self::decompressed(&frame.data) {
+                    Some(data) => self.read_buf.extend(data),
+                    // Kept as a flag rather than a panic, but it now means what it says:
+                    // bytes that could not be recovered, not bytes we declined to try.
+                    None => self.saw_unsupported = true,
+                }
             } else {
                 self.read_buf.extend(frame.data);
             }
@@ -1258,9 +1285,9 @@ mod tests {
     }
 
     #[test]
-    fn compressed_frame_is_flagged_not_corrupting() {
-        // retinue can't decode a bz2-compressed frame yet. It must drop those bytes and
-        // surface it, never splice compressed bytes into the stream as if they were data.
+    fn an_undecodable_compressed_frame_is_flagged_not_spliced() {
+        // Bytes flagged compressed that are not valid bz2 cannot be recovered. They must be
+        // surfaced, never spliced into the stream as if they were data.
         let mut r: Buffer = Buffer::with_streams(Channel::new(STREAM_MSGTYPE), 8, 0, 0);
         let feed = |r: &mut Buffer, seq: u16, f: StreamFrame| {
             let _ = r.handle(Envelope {
@@ -1302,11 +1329,71 @@ mod tests {
         assert_eq!(
             r.read_available(),
             vec![1, 2, 3],
-            "compressed bytes dropped, not appended"
+            "unrecoverable bytes dropped, not appended"
         );
         assert!(
             r.had_unsupported_frame(),
-            "the compressed frame was surfaced"
+            "the unrecoverable frame was surfaced"
+        );
+    }
+
+    /// A compressed frame carries data, and the reliable layer has already proven it to the
+    /// peer by the time it reaches the buffer. Dropping it is silent loss with an
+    /// acknowledgement on it: the sender retires bytes the application never sees. This is
+    /// the regression guard for that.
+    #[cfg(feature = "compression")]
+    #[test]
+    fn a_compressed_frame_is_recovered_in_order() {
+        let mut r: Buffer = Buffer::with_streams(Channel::new(STREAM_MSGTYPE), 8, 0, 0);
+        let feed = |r: &mut Buffer, seq: u16, f: StreamFrame| {
+            let _ = r.handle(Envelope {
+                msgtype: STREAM_MSGTYPE,
+                sequence: seq,
+                payload: f.encode(),
+            });
+        };
+        // Repetitive on purpose: bz2 only shrinks compressible input, and RNS compresses
+        // only when it wins, so this is the shape that actually arrives flagged.
+        let middle: Vec<u8> = std::iter::repeat_n(b'z', 512).collect();
+
+        feed(
+            &mut r,
+            0,
+            StreamFrame {
+                stream_id: 0,
+                eof: false,
+                compressed: false,
+                data: vec![1, 2],
+            },
+        );
+        feed(
+            &mut r,
+            1,
+            StreamFrame {
+                stream_id: 0,
+                eof: false,
+                compressed: true,
+                data: crate::resource::compress(&middle),
+            },
+        );
+        feed(
+            &mut r,
+            2,
+            StreamFrame {
+                stream_id: 0,
+                eof: false,
+                compressed: false,
+                data: vec![3],
+            },
+        );
+
+        let mut expected = vec![1, 2];
+        expected.extend_from_slice(&middle);
+        expected.push(3);
+        assert_eq!(r.read_available(), expected, "recovered, and in wire order");
+        assert!(
+            !r.had_unsupported_frame(),
+            "a frame this build can decode is not unsupported",
         );
     }
 
