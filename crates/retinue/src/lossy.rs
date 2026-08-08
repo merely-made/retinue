@@ -147,6 +147,8 @@ async fn pump(
         }
         let delay = model.delay();
         if delay.is_zero() {
+            // Only a gone endpoint stops the pump. A full router queue drops the packet and
+            // keeps going, which is what this harness is for: modelling a lossy link.
             if !sink.deliver(pkt) {
                 break;
             }

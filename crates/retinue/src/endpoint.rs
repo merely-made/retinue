@@ -836,6 +836,9 @@ pub struct Interface {
     router_tx: mpsc::Sender<(InterfaceId, Packet)>,
     frame_limit: Arc<AtomicUsize>,
     ifac: Option<Ifac>,
+    /// Inbound packets dropped because the router's queue was full. Shared with every
+    /// [`InterfaceSink`] split off this interface.
+    dropped: Arc<AtomicU64>,
 }
 
 /// Which interfaces a routing rule applies to.
@@ -1048,6 +1051,7 @@ impl Interface {
             id: self.id,
             router_tx: self.router_tx.clone(),
             ifac: self.ifac.clone(),
+            dropped: self.dropped.clone(),
         }
     }
 
@@ -1058,6 +1062,7 @@ impl Interface {
             id: self.id,
             router_tx: self.router_tx,
             ifac: self.ifac,
+            dropped: self.dropped,
         };
         (self.outbound, sink)
     }
@@ -1070,13 +1075,43 @@ pub struct InterfaceSink {
     id: InterfaceId,
     router_tx: mpsc::Sender<(InterfaceId, Packet)>,
     ifac: Option<Ifac>,
+    /// Packets dropped because the router's queue was full, shared across clones so the
+    /// figure describes the interface rather than one handle to it.
+    dropped: Arc<AtomicU64>,
 }
 
 impl InterfaceSink {
-    /// Deliver a received packet into the router. Returns `false` if the endpoint
-    /// has been dropped.
+    /// Deliver a received packet into the router.
+    ///
+    /// Returns whether the endpoint is **still there**, not whether the packet was queued,
+    /// and the difference is the whole point. `try_send` fails both when the router's
+    /// bounded queue is momentarily full and when the endpoint has been dropped. Collapsing
+    /// those into one `false` made every caller treat a burst as a dead endpoint, so a
+    /// thousand packets arriving faster than the router drained them detached a working
+    /// radio permanently, with nothing to bring it back but a restart.
+    ///
+    /// A full queue is backpressure, and dropping is the correct response: Reticulum is a
+    /// datagram network whose upper layers already retransmit, so a lost packet costs a
+    /// retry while a lost interface costs the carrier. The drop is counted rather than
+    /// silent; see [`Self::dropped`].
     pub fn deliver(&self, pkt: Packet) -> bool {
-        self.router_tx.try_send((self.id, pkt)).is_ok()
+        match self.router_tx.try_send((self.id, pkt)) {
+            Ok(()) => true,
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                self.dropped.fetch_add(1, Ordering::Relaxed);
+                true
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => false,
+        }
+    }
+
+    /// Packets this interface dropped because the router could not keep up.
+    ///
+    /// Nonzero means the endpoint is being offered more than it can route, which is a
+    /// capacity fact worth surfacing: it is invisible from the wire and indistinguishable,
+    /// from the outside, from a peer that never transmitted.
+    pub fn dropped(&self) -> u64 {
+        self.dropped.load(Ordering::Relaxed)
     }
 
     /// Authenticate and decode one complete carrier frame, then deliver it.
@@ -2141,6 +2176,7 @@ impl Endpoint {
             router_tx: self.shared.router_tx.clone(),
             frame_limit,
             ifac,
+            dropped: Arc::new(AtomicU64::new(0)),
         })
     }
 

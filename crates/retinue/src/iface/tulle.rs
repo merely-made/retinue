@@ -57,6 +57,10 @@ where
                         return Ok(());
                     };
                     match sink.deliver_frame(&received.frame) {
+                        // `false` now means the endpoint is gone, which is the only
+                        // condition that should end a carrier. A router too busy to take
+                        // this packet drops it and says so through `sink.dropped()`; the
+                        // radio keeps listening, because the next packet is usually fine.
                         Ok(true) => {}
                         Ok(false) => return Ok(()),
                         Err(_) => continue,
