@@ -472,16 +472,46 @@ pub fn profile(bandwidth_hz: u32) -> PhyProfile {
 /// can see where it lives. It is a private key: the file is the account, and losing it means
 /// becoming a stranger to everyone who knew you.
 pub fn load_identity(path: &std::path::Path) -> std::io::Result<PrivateIdentity> {
-    if let Ok(bytes) = std::fs::read(path)
-        && bytes.len() == 64
-    {
-        let mut seed = [0_u8; 64];
-        seed.copy_from_slice(&bytes);
-        return Ok(PrivateIdentity::from_secret_bytes(&seed));
+    match std::fs::read(path) {
+        Ok(bytes) if bytes.len() == 64 => {
+            let mut seed = [0_u8; 64];
+            seed.copy_from_slice(&bytes);
+            return Ok(PrivateIdentity::from_secret_bytes(&seed));
+        }
+        // A file that exists but is the wrong size used to be quietly replaced with a fresh
+        // identity. That is the worst available outcome: this is a private key, the address
+        // everyone knows this station by is derived from it, and a truncated write or a
+        // half-copied file would silently become a new station with no way back. Refuse and
+        // say so; renaming it is a decision for whoever owns it.
+        Ok(bytes) => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "{} holds {} bytes, not the 64 an identity needs. Refusing to overwrite \
+                     it: this is a private key and replacing it silently would mint a new \
+                     station under a new address. Move it aside to start fresh.",
+                    path.display(),
+                    bytes.len(),
+                ),
+            ));
+        }
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error),
+        Err(_) => {}
     }
+
     let mut seed = [0_u8; 64];
     getrandom::fill(&mut seed).expect("system entropy");
-    std::fs::write(path, seed)?;
+
+    // Write beside the target and rename into place. A direct write that is interrupted --
+    // power loss on a solar node, a full disk -- leaves a partial key, which the read above
+    // would then refuse forever. Rename is atomic on every platform this runs on, so the
+    // file either is the old identity or is the whole new one.
+    let temporary = path.with_extension("id.new");
+    std::fs::write(&temporary, seed)?;
+    if let Err(error) = std::fs::rename(&temporary, path) {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(error);
+    }
     Ok(PrivateIdentity::from_secret_bytes(&seed))
 }
 
@@ -494,6 +524,49 @@ fn now_secs() -> f64 {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    /// A station's address is derived from this key. Replacing a damaged one silently would
+    /// mint a new station under a new address, and nobody would learn why their peers
+    /// stopped answering.
+    #[test]
+    fn a_damaged_identity_is_refused_rather_than_replaced() {
+        let dir = std::env::temp_dir().join("postilion-identity-test");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("short.id");
+        std::fs::write(&path, [0x41_u8; 17]).unwrap();
+
+        let error = load_identity(&path).expect_err("a 17-byte identity must be refused");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        assert_eq!(
+            std::fs::read(&path).unwrap().len(),
+            17,
+            "and the file left exactly as it was found",
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Minting is idempotent: the second call must load what the first wrote, or every
+    /// restart would be a new station.
+    #[test]
+    fn a_minted_identity_is_loaded_again_next_time() {
+        let dir = std::env::temp_dir().join("postilion-identity-test");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("mint.id");
+        let _ = std::fs::remove_file(&path);
+
+        let first = load_identity(&path).unwrap();
+        let again = load_identity(&path).unwrap();
+        assert_eq!(
+            first.public().hash(),
+            again.public().hash(),
+            "the same station across restarts",
+        );
+        // No debris from the atomic write.
+        assert!(!path.with_extension("id.new").exists(), "temporary removed");
+        let _ = std::fs::remove_file(&path);
+    }
+
     use super::*;
 
     #[test]
