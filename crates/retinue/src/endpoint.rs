@@ -3141,6 +3141,7 @@ fn attach(shared: &Arc<Shared>, stream: TcpStream, ifac: Option<Ifac>) -> (Inter
 
     // Reader: deframe, decode, hand to the router tagged with this interface.
     let router_tx = shared.router_tx.clone();
+    let owner = Arc::clone(shared);
     let reader_started = track(shared, async move {
         let mut deframer = Deframer::new();
         let mut buf = [0u8; 4096];
@@ -3163,10 +3164,16 @@ fn attach(shared: &Arc<Shared>, stream: TcpStream, ifac: Option<Ifac>) -> (Inter
                 if let Ok(pkt) = Packet::decode(&logical)
                     && router_tx.send((id, pkt)).await.is_err()
                 {
+                    // The endpoint is going away, and it will tear its own state down.
                     return;
                 }
             }
         }
+        // The socket is gone, so this interface is. Attaching used to be one-way: a peer
+        // that reconnected -- a flapping link, a restarted daemon -- left its record and its
+        // queues behind on every cycle, and the scheduler kept visiting them. Reaching here
+        // is exactly the moment there is nothing left to visit.
+        owner.forget_interface(id);
     });
 
     let attached = writer_started && reader_started;
@@ -4035,6 +4042,33 @@ mod tests {
     /// nodes. Keyed by interface, the second one learned overwrote the first, and every
     /// packet for the first was addressed to the wrong node: announce A via X and B via Y on
     /// one interface, and A silently routes through Y.
+    /// A peer that connects and drops repeatedly -- a flapping link, a daemon being
+    /// restarted -- used to leave its interface record and queues behind on every cycle.
+    #[tokio::test]
+    async fn a_dropped_tcp_peer_leaves_no_interface_behind() {
+        let server = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x36; 64]));
+        let addr = server
+            .listen_tcp("127.0.0.1:0".parse().unwrap())
+            .await
+            .expect("listener");
+        let settled = server.shared.interfaces.lock().unwrap().len();
+
+        for _ in 0..6 {
+            let client = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x37; 64]));
+            client.attach_tcp_client(addr).await.expect("connect");
+            // Dropping the client closes its socket, which the server's reader observes.
+            drop(client);
+            tokio::time::sleep(std::time::Duration::from_millis(60)).await;
+        }
+
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        assert_eq!(
+            server.shared.interfaces.lock().unwrap().len(),
+            settled,
+            "six connect/drop cycles must leave nothing accumulated",
+        );
+    }
+
     /// The path table was the last place a stranger could grow this process's memory for
     /// free. It is capped now, and what it forgets is chosen rather than arbitrary: the peer
     /// that has gone quietest, because announces are what feed and refresh the table.
