@@ -140,6 +140,12 @@ pub struct Peer {
 }
 
 /// Something that happened, for an application to render however it likes.
+///
+/// The variants differ in size, which clippy notices: a `Peer` carries a whole announce and
+/// dwarfs a `Dropped` string. Boxing to even them out would trade a fixed few hundred bytes
+/// on a channel that sees a handful of events a minute for a heap allocation on every one,
+/// on a station whose whole point is running where memory is scarce. Kept flat on purpose.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug)]
 pub enum Event {
     /// A peer was heard for the first time.

@@ -255,18 +255,27 @@ pub fn signing_bytes(
 // --- MessagePack, only as much as this payload shape needs -------------------------------
 
 fn byte(bytes: &[u8], at: usize) -> Result<u8, CodecError> {
-    bytes.get(at).copied().ok_or(CodecError::MalformedMessagePack)
+    bytes
+        .get(at)
+        .copied()
+        .ok_or(CodecError::MalformedMessagePack)
 }
 
 fn take<'a>(bytes: &'a [u8], at: &mut usize, len: usize) -> Result<&'a [u8], CodecError> {
-    let end = at.checked_add(len).ok_or(CodecError::MalformedMessagePack)?;
-    let slice = bytes.get(*at..end).ok_or(CodecError::MalformedMessagePack)?;
+    let end = at
+        .checked_add(len)
+        .ok_or(CodecError::MalformedMessagePack)?;
+    let slice = bytes
+        .get(*at..end)
+        .ok_or(CodecError::MalformedMessagePack)?;
     *at = end;
     Ok(slice)
 }
 
 fn be(bytes: &[u8]) -> usize {
-    bytes.iter().fold(0_usize, |value, b| (value << 8) | *b as usize)
+    bytes
+        .iter()
+        .fold(0_usize, |value, b| (value << 8) | *b as usize)
 }
 
 fn at_map(bytes: &[u8], at: usize) -> bool {
@@ -454,7 +463,10 @@ mod tests {
         assert_eq!(mine.payload.content, b"BODY");
         // The whole design claim, made concrete: the fields map is carried as the bytes it
         // arrived as, and those bytes are a map holding key 7.
-        assert_eq!(mine.payload.fields, vec![0x81, 0x07, 0xc4, 0x04, b'm', b'e', b't', b'a']);
+        assert_eq!(
+            mine.payload.fields,
+            vec![0x81, 0x07, 0xc4, 0x04, b'm', b'e', b't', b'a']
+        );
 
         assert_eq!(mine.message_id, theirs.message_id);
         assert_eq!(mine.signing_bytes(), theirs.signing_bytes());
@@ -572,6 +584,9 @@ mod tests {
         // about a structure it otherwise never looks inside.
         let mut payload = Payload::text(1.0, b"t", b"b");
         payload.fields = vec![0x92, 0x01, 0x02];
-        assert_eq!(encode_payload(&payload, false), Err(CodecError::InvalidFields));
+        assert_eq!(
+            encode_payload(&payload, false),
+            Err(CodecError::InvalidFields)
+        );
     }
 }

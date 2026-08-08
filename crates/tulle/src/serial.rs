@@ -1,4 +1,4 @@
-//! Tokio serial transport for an RNode-backed [`RadioLink`](crate::link::RadioLink).
+//! Tokio serial transport for an RNode-backed [`crate::link::RadioLink`].
 //!
 //! This is the real-I/O edge around Tulle's sans-I/O radio state machine. It owns the
 //! serial port, initialization retries, transmit pacing, and the clock used by the shared

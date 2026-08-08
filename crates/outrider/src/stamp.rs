@@ -167,12 +167,7 @@ pub fn valid(workblock: &[u8], stamp: &[u8; STAMP_LEN], target: u16) -> bool {
 /// The counterpart to [`valid`] for callers that have the material rather than a derived
 /// block. Same answer, no allocation; see [`value_streamed`] for why the materialised form
 /// is not merely wasteful but impossible on the hardware this crate targets.
-pub fn valid_streamed(
-    material: &[u8],
-    rounds: u32,
-    stamp: &[u8; STAMP_LEN],
-    target: u16,
-) -> bool {
+pub fn valid_streamed(material: &[u8], rounds: u32, stamp: &[u8; STAMP_LEN], target: u16) -> bool {
     target <= 256 && value_streamed(material, rounds, stamp) >= target
 }
 
@@ -341,11 +336,10 @@ mod tests {
             0x1_0000_0000,
             u64::MAX,
         ];
-        let sweep = boundaries
-            .iter()
-            .copied()
-            .chain(0..4096)
-            .chain([MESSAGE_WORKBLOCK_ROUNDS as u64, PROPAGATION_WORKBLOCK_ROUNDS as u64]);
+        let sweep = boundaries.iter().copied().chain(0..4096).chain([
+            MESSAGE_WORKBLOCK_ROUNDS as u64,
+            PROPAGATION_WORKBLOCK_ROUNDS as u64,
+        ]);
         for value in sweep {
             let mut buffer = [0_u8; MAX_UINT_LEN];
             let width = write_uint(&mut buffer, value);
@@ -354,7 +348,11 @@ mod tests {
             let mut theirs = Vec::new();
             rmpv::encode::write_value(&mut theirs, &rmpv::Value::from(value)).unwrap();
 
-            assert_eq!(mine, &theirs[..], "{value} encodes differently than rmpv writes it");
+            assert_eq!(
+                mine,
+                &theirs[..],
+                "{value} encodes differently than rmpv writes it"
+            );
         }
     }
 
@@ -401,7 +399,10 @@ mod tests {
         let whole = value_streamed(&material, 64, &stamp);
 
         let mut derivation = Derivation::new(&material, 64);
-        assert!(derivation.value(&stamp).is_none(), "unfinished must refuse to score");
+        assert!(
+            derivation.value(&stamp).is_none(),
+            "unfinished must refuse to score"
+        );
         for budget in [1_u32, 0, 7, 17, 3].iter().cycle() {
             if derivation.advance(*budget) == 0 {
                 break;

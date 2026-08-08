@@ -20,9 +20,7 @@ use crate::codec::{
     CodecError, DEFAULT_MAX_MESSAGE_BYTES, DESTINATION_LEN, DecodedLxmf, LxmfPayload,
     decode_bounded, prepare,
 };
-use crate::stamp::{
-    MESSAGE_WORKBLOCK_ROUNDS, STAMP_LEN, find_streamed, valid_streamed,
-};
+use crate::stamp::{MESSAGE_WORKBLOCK_ROUNDS, STAMP_LEN, find_streamed, valid_streamed};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OpportunisticReceipt {

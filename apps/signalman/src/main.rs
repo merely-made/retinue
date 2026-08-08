@@ -103,7 +103,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             println!("{}", describe(peer));
                         }
                     }
-                    Command::To(prefix) if prefix.is_empty() => {
+                    Command::To("") => {
                         println!("who? /to <prefix>");
                     }
                     Command::To(prefix) => {

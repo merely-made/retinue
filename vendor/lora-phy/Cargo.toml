@@ -64,3 +64,14 @@ default-features = false
 
 [features]
 lorawan-radio = ["dep:lorawan-device"]
+
+# Vendored upstream code. Patched only where a defect forces it, never restyled, so its
+# lints are not ours to answer. CI runs clippy with -D warnings across the workspace and
+# these are path dependencies, which means without this the build fails on somebody else's
+# formatting choices. Our own crates are clippy-clean and stay that way.
+[lints.rust]
+warnings = "allow"
+
+[lints.clippy]
+all = { level = "allow", priority = -1 }
+pedantic = { level = "allow", priority = -1 }

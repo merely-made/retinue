@@ -50,11 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let deadline = tokio::time::Instant::now() + Duration::from_secs(listen_secs);
     let mut frames = 0_u32;
-    loop {
-        let remaining = match deadline.checked_duration_since(tokio::time::Instant::now()) {
-            Some(r) => r,
-            None => break,
-        };
+    while let Some(remaining) = deadline.checked_duration_since(tokio::time::Instant::now()) {
         match tokio::time::timeout(remaining, radio.recv()).await {
             Ok(Some(received)) => {
                 frames += 1;

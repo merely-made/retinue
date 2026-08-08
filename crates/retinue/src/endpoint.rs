@@ -2454,7 +2454,7 @@ impl Endpoint {
     /// subsequent link setup has an interface to go out on, or when a message arrives from a
     /// source whose keys we do not have.
     ///
-    /// Rate-limited per destination ([`PATH_REQUEST_MIN_INTERVAL`]) and silent when the
+    /// Rate-limited per destination (see `PATH_REQUEST_MIN_INTERVAL`) and silent when the
     /// request is suppressed, because callers ask on someone else's schedule. Returns whether
     /// a request actually went out, for tests and diagnostics.
     pub fn request_path(&self, dest: AddressHash) -> bool {

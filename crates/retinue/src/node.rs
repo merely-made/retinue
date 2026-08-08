@@ -11,7 +11,7 @@
 //!
 //! Nothing here reads a clock, allocates without a bound, or performs I/O. Time arrives as
 //! a `now` argument, entropy arrives as caller-supplied bytes (the same discipline
-//! [`announce::build`](crate::announce::build) already follows so fixtures reproduce byte
+//! [`crate::announce::build`] already follows so fixtures reproduce byte
 //! for byte), and everything the node wants to happen leaves as an [`Action`] for a shell
 //! to carry out. That is what makes it testable at a desk and runnable under embassy
 //! without either knowing about the other.

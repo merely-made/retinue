@@ -2,6 +2,21 @@
 
 **Date:** 2026-07-25
 
+> **SUPERSEDED 2026-08-07: they do cross.** A stock RNode 1.86 on a T114, driven
+> over BLE from an iPhone, was received by a V4 running the `rnode` channel at
+> 906.875 MHz / BW 250 kHz / SF8 / CR 4/5: RSSI -6 dBm, valid Reticulum
+> announces, repeatedly, over several sessions.
+>
+> This sweep predates the SX126x CRC fix, when the vendored driver delivered
+> CRC-failed packets to the caller as good frames. The probe below decides
+> "crossed" by whether a known smoke frame arrives **intact**, which in that
+> world answers no whether or not the radios hear each other. The sweep could
+> not distinguish RF opacity from payload corruption, and the conclusion it
+> reached is the one that bug would produce.
+>
+> Anything else concluded from `rnode_bulk_probe` before the CRC fix deserves
+> the same suspicion. See `2026-08-07_rnode_rx_leading_byte.md`.
+
 **Result:** stock RNode 1.86 and Tulle direct-PHY firmware do not cross RF in
 either direction at matched nominal parameters. The planned closure of the
 07-22 T114 bulk-TX asymmetry (T114 reflashed to RNode, direct-PHY V4 as the

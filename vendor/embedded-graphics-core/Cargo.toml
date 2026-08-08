@@ -17,3 +17,14 @@ az = "1.3"
 byteorder = { version = "1.3.4", default-features = false }
 defmt = { version = "0.3.2", optional = true }
 nalgebra = { version = "0.30.1", optional = true, default-features = false }
+
+# Vendored upstream code. Patched only where a defect forces it, never restyled, so its
+# lints are not ours to answer. CI runs clippy with -D warnings across the workspace and
+# these are path dependencies, which means without this the build fails on somebody else's
+# formatting choices. Our own crates are clippy-clean and stay that way.
+[lints.rust]
+warnings = "allow"
+
+[lints.clippy]
+all = { level = "allow", priority = -1 }
+pedantic = { level = "allow", priority = -1 }

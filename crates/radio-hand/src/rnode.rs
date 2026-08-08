@@ -1,6 +1,6 @@
 //! The RNode host protocol, device side: the board as a radio stock Reticulum drives.
 //!
-//! [`tulle::rnode`] is the other half of this conversation, and both halves come from the
+//! `tulle::rnode` is the other half of this conversation, and both halves come from the
 //! same place: black-box captures of RNS 1.3.8 driving RNode firmware 1.86 through a serial
 //! tee (`crates/tulle/tests/fixtures/rnode_serial_capture.json`). The GPL firmware source is
 //! never read; what a device must answer is what a device was observed to answer.
@@ -14,15 +14,24 @@
 //! - Transmit is `DATA` framing the packet. Receive is a triplet: `STAT_RSSI`, `STAT_SNR`,
 //!   then `DATA` with the packet verbatim.
 //!
-//! # What this deliberately does not claim
+//! # Crossing to stock RNode hardware: settled 2026-08-07
 //!
-//! Speaking the host protocol is not the same as being on the air with a stock RNode. Those
-//! two firmwares were swept against each other across seven sync words and inverted IQ in
-//! both directions and never crossed
-//! (`design_docs/2026-07-25_rnode_direct_phy_rf_opacity.md`); the host protocol exposes no
-//! sync-word control, so whatever stock RNode programs stays invisible from here. This
-//! channel therefore uses **our** on-air settings, which is what makes two boards on it hear
-//! each other. Crossing to stock RNode hardware remains that open question, untouched.
+//! This used to say the two firmwares had been swept across seven sync words and inverted IQ
+//! in both directions without ever crossing
+//! (`design_docs/2026-07-25_rnode_direct_phy_rf_opacity.md`), and that reaching stock RNode
+//! hardware was an open question. **They cross.** A stock RNode 1.86 on a T114, driven over
+//! BLE by an iPhone, was received by a V4 on this channel at the trunk profile: RSSI -6 dBm,
+//! valid Reticulum announces, repeatedly.
+//!
+//! The July sweep predates the SX126x CRC fix, when the driver handed CRC-failed packets up
+//! as good frames. A probe asking "did my smoke frame arrive intact?" answers no in that
+//! world whether or not the radios are hearing each other, so the sweep could not have
+//! distinguished opacity from corruption. Retest anything else that sweep concluded.
+//!
+//! One artefact remains and is **not** ours: frames from that peer carry one spurious byte
+//! before the packet. Because the driver now rejects CRC failures and these frames pass, the
+//! bytes are exactly what was transmitted, so the extra byte is in the sender rather than in
+//! our demodulation. See `design_docs/2026-08-07_rnode_rx_leading_byte.md`.
 //!
 //! What it does buy is the thing that was missing: Sideband, MeshChat and NomadNet drive an
 //! RNode, so they drive this board, with no host-side shim in between.
