@@ -395,8 +395,12 @@ async fn main(spawner: Spawner) {
             // That is what makes abandoning the interrupt wait below safe: there is no
             // half-finished arming left to cancel.
             if lora.rx_arm().await.is_err() {
-                let _ = host.write_all(b"radio rx arm failed
-").await;
+                let _ = host
+                    .write_all(
+                        b"radio rx arm failed
+",
+                    )
+                    .await;
                 continue;
             }
             local_status.radio = radio_face::RadioState::Online;
@@ -461,17 +465,18 @@ async fn main(spawner: Spawner) {
         match outcome {
             Either::Second(Ok(())) => {
                 // Deliberately not raced: the frame is in the radio until it is read out.
-                let (length, packet_status) = match lora.rx_collect(&radio.rx, &mut radio_frame).await {
-                    Ok(frame) => frame,
-                    // A CRC failure is the air, not the radio. The chip stays in continuous
-                    // receive, so the next frame is the whole recovery.
-                    Err(lora_phy::mod_params::RadioError::PayloadCrcError) => continue,
-                    Err(error) => {
-                        radio.prepare_rx = true;
-                        let _ = error;
-                        continue;
-                    }
-                };
+                let (length, packet_status) =
+                    match lora.rx_collect(&radio.rx, &mut radio_frame).await {
+                        Ok(frame) => frame,
+                        // A CRC failure is the air, not the radio. The chip stays in continuous
+                        // receive, so the next frame is the whole recovery.
+                        Err(lora_phy::mod_params::RadioError::PayloadCrcError) => continue,
+                        Err(error) => {
+                            radio.prepare_rx = true;
+                            let _ = error;
+                            continue;
+                        }
+                    };
                 let length = usize::from(length);
                 local_status.rx_frames = local_status.rx_frames.saturating_add(1);
                 local_status.last_rx = Some(radio_face::RxSummary {

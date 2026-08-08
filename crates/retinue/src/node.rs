@@ -156,6 +156,19 @@ pub const RESOURCE_REQUEST_WINDOW: usize = 4;
 /// profile's airtime is the same recorded follow-up as the desktop's retry floors.
 pub const RESOURCE_RETRY_INTERVAL: u64 = 12_000;
 
+/// How long a link may go unheard before its slot is reclaimed, in milliseconds.
+///
+/// A board holds four link slots. Without expiry, four peers that establish a link and then
+/// go quiet -- moved out of range, lost power, crashed -- hold every slot until one of them
+/// politely closes or the board reboots, and a peer that vanished will not be doing the
+/// former. That is a node bricked as a router by four absences, and on a pilot site nobody
+/// is there to power-cycle it.
+///
+/// Fifteen minutes is long enough that an idle but live peer is not evicted (RNS keepalives
+/// run far tighter than this), and short enough that a slot lost to a vanished peer comes
+/// back within one visit.
+pub const LINK_IDLE_TIMEOUT: u64 = 900_000;
+
 /// One derived resource IV: `full_hash(tag || identity secret || link id || counter)`.
 ///
 /// Deterministic on purpose — this layer holds no RNG — and unique by the counter, which
@@ -213,7 +226,8 @@ pub struct Node<const PEERS: usize = 32, const ACTIONS: usize = 8, const LINKS: 
     /// rather than establishing a second link. On a medium that drops, the peer not hearing
     /// our proof is ordinary, and answering twice would leave the two sides holding
     /// different keys for what the initiator thinks is one link.
-    links: BoundedVec<(Link, Packet), LINKS>,
+    /// Established links, each with the time its peer was last heard from.
+    links: BoundedVec<(Link, Packet, u64), LINKS>,
     /// Links we opened, awaiting the peer's proof.
     pending: BoundedVec<PendingLink, LINKS>,
     /// Inbound resource transfers, at most one per link.
@@ -226,6 +240,9 @@ pub struct Node<const PEERS: usize = 32, const ACTIONS: usize = 8, const LINKS: 
     iv_counter: u32,
     /// Link requests refused because the table was full. Visible rather than silent.
     refused_links: u16,
+    /// Slots reclaimed from peers that went silent. Distinguishes a busy node from one
+    /// whose peers keep vanishing, which need different answers.
+    expired_links: u16,
     /// Announces refused because the address book was full. The book keeps serving every
     /// peer it already knows; this says how many new ones were turned away.
     refused_peers: u16,
@@ -250,6 +267,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
             senders: BoundedVec::new(),
             iv_counter: 0,
             refused_links: 0,
+            expired_links: 0,
             refused_peers: 0,
             refused_offers: 0,
         }
@@ -285,13 +303,22 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
 
     /// Whether a link with this id is established.
     pub fn has_link(&self, link_id: AddressHash) -> bool {
-        self.links.iter().any(|(link, _)| link.id() == link_id)
+        self.links.iter().any(|(link, _, _)| link.id() == link_id)
     }
 
     /// Link requests refused because the table was full. Nonzero means `LINKS` is too small
     /// for the traffic this node sees, and peers are being turned away.
     pub fn refused_links(&self) -> u16 {
         self.refused_links
+    }
+
+    /// Link slots reclaimed from peers that stopped answering.
+    ///
+    /// Read alongside [`Node::refused_links`]: refusals with no expiries is a node with more
+    /// demand than slots, while expiries climbing is a node whose peers keep vanishing. The
+    /// two want different answers, and before expiry existed they were the same silence.
+    pub fn expired_links(&self) -> u16 {
+        self.expired_links
     }
 
     /// Announces turned away by a full address book. See [`Node::refused_links`] for the
@@ -322,7 +349,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
         if self.senders.iter().any(|(id, _, _)| *id == link_id) || self.senders.is_full() {
             return None;
         }
-        let (link, _) = self.links.iter().find(|(l, _)| l.id() == link_id)?;
+        let (link, _, _) = self.links.iter().find(|(l, _, _)| l.id() == link_id)?;
 
         let sender = ResourceSender::publish(link.clone(), data, random_hash, iv);
         let advertisement = sender.advertisement(iv);
@@ -388,7 +415,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
         payload: &[u8],
         iv: &[u8; crate::token::IV_LEN],
     ) -> Option<Actions<ACTIONS>> {
-        let (link, _) = self.links.iter().find(|(l, _)| l.id() == link_id)?;
+        let (link, _, _) = self.links.iter().find(|(l, _, _)| l.id() == link_id)?;
         let mut actions = Actions::new();
         actions.push(Action::Send {
             interface,
@@ -425,8 +452,8 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
                     }
                 }
             }
-            PacketType::LinkRequest => self.on_link_request(interface, packet, &mut actions),
-            PacketType::Proof => self.on_proof(packet, &mut actions),
+            PacketType::LinkRequest => self.on_link_request(interface, packet, now, &mut actions),
+            PacketType::Proof => self.on_proof(packet, now, &mut actions),
             PacketType::Data => self.on_link_data(interface, packet, now, &mut actions),
         }
 
@@ -438,6 +465,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
         &mut self,
         interface: InterfaceId,
         packet: &Packet,
+        now: u64,
         actions: &mut Actions<ACTIONS>,
     ) {
         // Only for the destination this node answers to. Anything else is not ours, and a
@@ -451,7 +479,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
 
         // Already established: the peer did not hear our proof, so send the same one again.
         // A fresh accept here would give the two sides different keys for one link.
-        if let Some((_, proof)) = self.links.iter().find(|(link, _)| link.id() == id) {
+        if let Some((_, proof, _)) = self.links.iter().find(|(link, _, _)| link.id() == id) {
             actions.push(Action::Send {
                 interface,
                 packet: proof.clone(),
@@ -474,7 +502,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
         };
         if let Ok((link, proof)) = link::accept(packet, &self.identity, &seed, offered) {
             let link_id = link.id();
-            let _ = self.links.push((link, proof.clone()));
+            let _ = self.links.push((link, proof.clone(), now));
             actions.push(Action::Send {
                 interface,
                 packet: proof,
@@ -484,7 +512,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
     }
 
     /// A proof for a link we opened.
-    fn on_proof(&mut self, packet: &Packet, actions: &mut Actions<ACTIONS>) {
+    fn on_proof(&mut self, packet: &Packet, now: u64, actions: &mut Actions<ACTIONS>) {
         let Some(index) = self
             .pending
             .iter()
@@ -503,7 +531,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
         let link_id = link.id();
         // Our own proof has no place here: this side was the initiator, so there is nothing
         // to re-send. The stored packet is the proof we received, kept only for symmetry.
-        let _ = self.links.push((link, packet.clone()));
+        let _ = self.links.push((link, packet.clone(), now));
         actions.push(Action::LinkUp { link_id });
     }
 
@@ -516,9 +544,17 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
         actions: &mut Actions<ACTIONS>,
     ) {
         let link_id = packet.destination;
-        let Some(index) = self.links.iter().position(|(link, _)| link.id() == link_id) else {
+        let Some(index) = self
+            .links
+            .iter()
+            .position(|(link, _, _)| link.id() == link_id)
+        else {
             return;
         };
+
+        // Heard from: this is what keeps the slot. Recorded before dispatching, so a
+        // resource transfer counts as liveness exactly as a keepalive does.
+        self.links[index].2 = now;
 
         // Resource contexts are a transfer's business, not the link's.
         if is_resource_context(packet.context) {
@@ -673,6 +709,21 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
         rand_hash: &[u8; RAND_HASH_LEN],
     ) -> Actions<ACTIONS> {
         let mut actions = Actions::new();
+
+        // Reclaim slots held by peers that stopped answering. Four slots and no expiry
+        // meant four vanished peers locked the node out of accepting anyone, permanently:
+        // a peer that lost power does not send a close, so nothing ever freed its slot.
+        // Dropped silently rather than announced, because there is no peer left to tell and
+        // the local side has already been told LinkUp; a LinkDown action would be the
+        // honest addition, and wants a look at every consumer of Action first.
+        while let Some(index) = self
+            .links
+            .iter()
+            .position(|(_, _, seen)| now.saturating_sub(*seen) >= LINK_IDLE_TIMEOUT)
+        {
+            self.links.swap_remove(index);
+            self.expired_links = self.expired_links.saturating_add(1);
+        }
 
         let due = match self.last_announce {
             None => true,
@@ -1046,8 +1097,8 @@ mod tests {
         let close = b
             .links
             .iter()
-            .find(|(l, _)| l.id() == id)
-            .map(|(l, _)| l.close_packet(&[3; crate::token::IV_LEN]))
+            .find(|(l, _, _)| l.id() == id)
+            .map(|(l, _, _)| l.close_packet(&[3; crate::token::IV_LEN]))
             .unwrap();
 
         let actions = a.ingest(IFACE, &close, 0);
@@ -1108,8 +1159,8 @@ mod tests {
         let keepalive = b
             .links
             .iter()
-            .find(|(l, _)| l.id() == id)
-            .map(|(l, _)| l.keepalive_packet(0xff))
+            .find(|(l, _, _)| l.id() == id)
+            .map(|(l, _, _)| l.keepalive_packet(0xff))
             .unwrap();
         assert!(a.ingest(IFACE, &keepalive, 0).is_empty());
         assert!(a.has_link(id), "and the link survives being spoken to");
@@ -1441,8 +1492,8 @@ mod tests {
         let close = a
             .links
             .iter()
-            .find(|(l, _)| l.id() == id)
-            .map(|(l, _)| l.close_packet(&[9; crate::token::IV_LEN]))
+            .find(|(l, _, _)| l.id() == id)
+            .map(|(l, _, _)| l.close_packet(&[9; crate::token::IV_LEN]))
             .unwrap();
         let actions = b.ingest(IFACE, &close, 0);
 
@@ -1452,6 +1503,47 @@ mod tests {
     }
 
     /// One transfer per link at a time: a board cannot hold two.
+    /// A peer that establishes a link and then vanishes used to hold its slot forever: a
+    /// board that lost power sends no close, and nothing else freed one. Four such absences
+    /// bricked a node as a router until somebody rebooted it.
+    #[test]
+    fn a_silent_peer_releases_its_link_slot() {
+        let (mut a, _b, _id) = linked();
+        assert_eq!(a.link_count(), 1, "the link is up");
+
+        // Nobody says anything for longer than the timeout, then the node's clock ticks.
+        let later = LINK_IDLE_TIMEOUT + 1;
+        let _ = a.poll(later, IFACE, &[0x11; RAND_HASH_LEN]);
+
+        assert_eq!(a.link_count(), 0, "a silent slot must come back");
+        assert_eq!(
+            a.expired_links(),
+            1,
+            "and be attributable, so a busy node reads differently from a deserted one",
+        );
+    }
+
+    /// The other half: a link being used must not be reclaimed underneath it.
+    #[test]
+    fn a_link_that_keeps_talking_keeps_its_slot() {
+        let (mut a, b, id) = linked();
+        let keepalive = b
+            .links
+            .iter()
+            .find(|(l, _, _)| l.id() == id)
+            .map(|(l, _, _)| l.keepalive_packet(0xff))
+            .unwrap();
+
+        let mut now = 0;
+        for _ in 0..4 {
+            now += LINK_IDLE_TIMEOUT - 1;
+            a.ingest(IFACE, &keepalive, now);
+            let _ = a.poll(now, IFACE, &[0x22; RAND_HASH_LEN]);
+            assert_eq!(a.link_count(), 1, "a live peer keeps its slot at {now}");
+        }
+        assert_eq!(a.expired_links(), 0, "nothing reclaimed from a live peer");
+    }
+
     #[test]
     fn a_second_publish_on_a_busy_link_is_refused() {
         let (mut a, _b, id) = linked();
