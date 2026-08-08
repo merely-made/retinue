@@ -471,9 +471,29 @@ async fn main(spawner: Spawner) {
                         // A CRC failure is the air, not the radio. The chip stays in continuous
                         // receive, so the next frame is the whole recovery.
                         Err(lora_phy::mod_params::RadioError::PayloadCrcError) => continue,
-                        Err(error) => {
+                        Err(_) => {
+                            // Said out loud, matching the T114. A radio that stops
+                            // receiving is the whole failure on a board whose only job is
+                            // receiving, and swallowing it leaves a host unable to tell a
+                            // dead radio from a quiet band -- which is exactly the
+                            // ambiguity that cost a night of this project already.
                             radio.prepare_rx = true;
-                            let _ = error;
+                            local_status.radio = radio_face::RadioState::Fault;
+                            local_status.fault = Some(radio_face::Fault {
+                                code: 6,
+                                message: radio_face::Text::from_truncated("RADIO RX"),
+                            });
+                            ui::publish(local_status, radio_face::LedSignal::Idle);
+                            if host
+                                .write_all(
+                                    b"radio rx failed
+",
+                                )
+                                .await
+                                .is_err()
+                            {
+                                break;
+                            }
                             continue;
                         }
                     };

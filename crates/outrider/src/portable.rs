@@ -329,6 +329,26 @@ fn read_bin<'a>(bytes: &'a [u8], at: &mut usize) -> Result<&'a [u8], CodecError>
 /// skipper that handled only the shapes seen so far would fail on the first message carrying
 /// something new — silently, by mis-slicing the rest of the payload.
 fn skip(bytes: &[u8], at: &mut usize) -> Result<(), CodecError> {
+    skip_nested(bytes, at, 0)
+}
+
+/// How deep a field map may nest before this refuses to follow it.
+///
+/// Every level of an array or map costs a stack frame here, and this parser's whole purpose
+/// is to read bytes that arrived over the air from someone we have not met. A message of
+/// nothing but `0x91` -- a one-element array, repeated -- is a handful of bytes per level,
+/// so a 500-byte LXMF payload buys about five hundred frames. On a board whose whole stack
+/// is measured in kilobytes that is not a parse failure, it is a reset, and on a host it is
+/// an abort. Neither reports what happened.
+///
+/// Sixteen is far past anything LXMF puts in a field map, which is one level of key-value
+/// pairs holding scalars, and shallow enough that the worst case costs nothing.
+const MAX_NESTING: u32 = 16;
+
+fn skip_nested(bytes: &[u8], at: &mut usize, depth: u32) -> Result<(), CodecError> {
+    if depth > MAX_NESTING {
+        return Err(CodecError::MalformedMessagePack);
+    }
     let marker = byte(bytes, *at)?;
     *at += 1;
     match marker {
@@ -369,32 +389,42 @@ fn skip(bytes: &[u8], at: &mut usize) -> Result<(), CodecError> {
             take(bytes, at, len + 1).map(|_| ())
         }
         // Containers: skip each element in turn. Maps hold two values per entry.
-        0x90..=0x9f => skip_many(bytes, at, (marker & 0x0f) as usize),
+        0x90..=0x9f => skip_many(bytes, at, (marker & 0x0f) as usize, depth),
         0xdc => {
             let len = be(take(bytes, at, 2)?);
-            skip_many(bytes, at, len)
+            skip_many(bytes, at, len, depth)
         }
         0xdd => {
             let len = be(take(bytes, at, 4)?);
-            skip_many(bytes, at, len)
+            skip_many(bytes, at, len, depth)
         }
-        0x80..=0x8f => skip_many(bytes, at, (marker & 0x0f) as usize * 2),
+        0x80..=0x8f => skip_many(bytes, at, (marker & 0x0f) as usize * 2, depth),
         0xde => {
             let len = be(take(bytes, at, 2)?);
-            skip_many(bytes, at, len * 2)
+            skip_many(
+                bytes,
+                at,
+                len.checked_mul(2).ok_or(CodecError::MalformedMessagePack)?,
+                depth,
+            )
         }
         0xdf => {
             let len = be(take(bytes, at, 4)?);
-            skip_many(bytes, at, len * 2)
+            skip_many(
+                bytes,
+                at,
+                len.checked_mul(2).ok_or(CodecError::MalformedMessagePack)?,
+                depth,
+            )
         }
         // 0xc1 is never a valid MessagePack value.
         0xc1 => Err(CodecError::MalformedMessagePack),
     }
 }
 
-fn skip_many(bytes: &[u8], at: &mut usize, count: usize) -> Result<(), CodecError> {
+fn skip_many(bytes: &[u8], at: &mut usize, count: usize, depth: u32) -> Result<(), CodecError> {
     for _ in 0..count {
-        skip(bytes, at)?;
+        skip_nested(bytes, at, depth + 1)?;
     }
     Ok(())
 }
@@ -571,6 +601,53 @@ mod tests {
         // And a value that runs off the end is refused rather than measured optimistically.
         let mut at = 0;
         assert!(skip(&[0xc4, 40, 1, 2], &mut at).is_err());
+    }
+
+    /// This parser reads bytes that arrived over the air from someone we have not met, and
+    /// every level of nesting costs a stack frame. A message of nothing but `0x91` -- a
+    /// one-element array, repeated -- is one byte per level, so a 500-byte payload used to
+    /// buy five hundred frames. On a board whose whole stack is kilobytes that is a reset,
+    /// not a parse error, and it reports nothing.
+    #[test]
+    fn deep_nesting_is_refused_rather_than_recursed() {
+        // Well inside the limit: still read normally.
+        let mut shallow = alloc::vec![0x91_u8; MAX_NESTING as usize - 2];
+        shallow.push(0xc0); // nil, to terminate the innermost array
+        let mut at = 0;
+        assert!(
+            skip(&shallow, &mut at).is_ok(),
+            "ordinary nesting still parses"
+        );
+
+        // Past it: refused, and the refusal is a value rather than a crash.
+        let mut deep = alloc::vec![0x91_u8; 400];
+        deep.push(0xc0);
+        let mut at = 0;
+        assert_eq!(
+            skip(&deep, &mut at),
+            Err(CodecError::MalformedMessagePack),
+            "a nest deeper than the limit is refused, not followed",
+        );
+    }
+
+    /// A map header names a count and each entry is two values, so the count is doubled
+    /// before anything is read. On the 32-bit boards this targets, `u32::MAX * 2` wraps to a
+    /// small number, and a header promising four billion entries would quietly become a
+    /// header promising a handful -- the rest of the message then parsed as those entries.
+    /// The multiplication is checked for that reason.
+    ///
+    /// This test cannot witness the wrap on a 64-bit host, where the product fits; what it
+    /// does hold everywhere is that an impossible count is refused rather than acted on.
+    #[test]
+    fn an_absurd_map_count_is_refused() {
+        let mut bytes = alloc::vec![0xdf_u8];
+        bytes.extend_from_slice(&u32::MAX.to_be_bytes());
+        let mut at = 0;
+        assert_eq!(
+            skip(&bytes, &mut at),
+            Err(CodecError::MalformedMessagePack),
+            "four billion entries in five bytes is refused, not attempted",
+        );
     }
 
     #[test]
