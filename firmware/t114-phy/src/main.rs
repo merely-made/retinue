@@ -465,14 +465,34 @@ async fn main(spawner: Spawner) {
             let mut radio_frame = [0_u8; MAX_RADIO_FRAME];
             // Bound rather than matched in place, so the borrows the three futures hold end
             // here and an arm is free to take the executive again.
+            // Only the interrupt wait is raced. A whole receive raced here would be
+            // cancelled wherever it stood, and once its interrupt has fired it is midway
+            // through pulling a frame out of the chip: abandoning there consumes the
+            // interrupt, leaves the bytes for the next packet to overwrite, and reports
+            // nothing. `wait_rx_irq` is the half that costs nothing to abandon.
             let woken = select3(
                 host.read(&mut usb_packet),
-                exec.receive(&mut radio_frame),
+                exec.wait_rx_irq(),
                 heartbeat.next(),
             )
             .await;
             match woken {
-                Either3::Second(Ok(received)) => {
+                Either3::Second(Ok(())) => {
+                    // Deliberately not raced: the frame is in the radio until it is read.
+                    let collected = exec.collect(&mut radio_frame).await;
+                    let received = match collected {
+                        // A frame that failed its CRC is the air being the air. Counted in
+                        // `rx_damaged`, and the next frame is the whole recovery.
+                        Ok(None) => continue,
+                        Ok(Some(received)) => received,
+                        Err(_) => {
+                            publish_fault(exec.status_mut(), 6, "RADIO RX");
+                            if host.write_all(b"radio rx failed\r\n").await.is_err() {
+                                break;
+                            }
+                            continue;
+                        }
+                    };
                     let flow = channel
                         .serve(
                             &mut exec,

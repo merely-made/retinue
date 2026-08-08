@@ -267,11 +267,21 @@ pub async fn await_host<C, L, RK, DLY>(
     loop {
         let _ = exec.ensure_rx().await;
         let mut frame = [0_u8; selvage::MAX_RADIO_FRAME_LEN];
-        let woken = select3(host.attached(), exec.receive(&mut frame), heartbeat.next()).await;
+        // Only the interrupt wait is raced; see `Executive::wait_rx_irq`. Racing a whole
+        // receive cancels it wherever it stands, and after its interrupt has fired that
+        // means abandoning a frame midway out of the chip, silently.
+        let woken = select3(host.attached(), exec.wait_rx_irq(), heartbeat.next()).await;
         match woken {
             Either3::First(()) => return,
-            Either3::Second(Ok(received)) => {
+            Either3::Second(Ok(())) => {
                 exec.note_wait(true);
+                // Not raced: the frame lives in the radio until it is read out.
+                let Ok(Some(received)) = exec.collect(&mut frame).await else {
+                    // A CRC failure is counted in `rx_damaged` and a fault has already
+                    // asked for a re-prepare. Either way the next turn of this loop is the
+                    // recovery, and there is no host here to tell.
+                    continue;
+                };
                 channel
                     .serve(
                         exec,
