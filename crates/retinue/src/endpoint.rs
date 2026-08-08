@@ -153,6 +153,15 @@ impl Default for ResourceTransferConfig {
 /// which cannot await, drops instead.
 const ROUTER_QUEUE: usize = 1024;
 
+/// How long a bridged link's interface pair is remembered after its last packet.
+///
+/// A transport node records which two interfaces a forwarded link joins, so a proof or link
+/// data arriving on one goes out the other. Nothing ever removed those records, so the map
+/// grew with every link the node had ever carried rather than the ones it was carrying. An
+/// hour is far longer than any live link goes quiet, and short enough that a node carrying
+/// strangers' traffic all day does not accumulate the day.
+const LINK_TRANSPORT_TTL: Duration = Duration::from_secs(3600);
+
 /// Maximum hops an announce or packet may travel before a transport node drops it. RNS's
 /// default `m` (`PATHFINDER_M`).
 const MAX_HOPS: u8 = 128;
@@ -1640,7 +1649,7 @@ struct Shared {
     path_request_stamps: Mutex<VecDeque<Instant>>,
     /// Links being forwarded through us (this node is a transport hop): a link id maps to the
     /// two interfaces it bridges, so a proof or link data arriving on one goes out the other.
-    link_transport: Mutex<HashMap<AddressHash, (InterfaceId, InterfaceId)>>,
+    link_transport: Mutex<HashMap<AddressHash, (InterfaceId, InterfaceId, Instant)>>,
     /// Abort handles for every task the endpoint spawned (the router, interface readers and
     /// writers, TCP listeners, and link relays). [`Endpoint`]'s drop aborts them all, which is
     /// what lets the router's `Arc<Shared>` — and thus `Shared` and every socket — be released
@@ -1712,6 +1721,20 @@ impl Shared {
         }
         self.interfaces.lock().unwrap().push(iface);
         true
+    }
+
+    /// Forget an interface, closing its outbound queues.
+    ///
+    /// Attaching was one-way: a transport that connects, drops, and reconnects left its old
+    /// record, its queues, and anything scheduling against them in place forever. Anything
+    /// still holding the matching [`Interface`] will see its queues closed and stop, which
+    /// is the intended way to end a carrier.
+    fn forget_interface(&self, id: InterfaceId) {
+        let mut interfaces = self.interfaces.lock().unwrap();
+        if let Some(index) = interfaces.iter().position(|iface| iface.id == id) {
+            let iface = interfaces.swap_remove(index);
+            iface.outbound.close();
+        }
     }
 
     fn begin_resource(&self) -> bool {
@@ -2152,6 +2175,15 @@ impl Endpoint {
     ///
     /// The effective limit cannot exceed Reticulum's own protocol MTU. Interface
     /// drivers may lower it again if they discover a stricter carrier limit.
+    /// Detach an interface, closing its queues and forgetting its record.
+    ///
+    /// The counterpart attaching never had. A transport that connects, drops, and reconnects
+    /// -- an unreliable TCP peer, a radio replugged -- otherwise left its old record and
+    /// queues behind on every cycle, and the scheduler kept visiting them.
+    pub fn detach_interface(&self, id: InterfaceId) {
+        self.shared.forget_interface(id);
+    }
+
     pub fn attach_interface_with_frame_limit(&self, max_frame_len: usize) -> io::Result<Interface> {
         self.attach_interface_access(max_frame_len, None)
     }
@@ -3163,12 +3195,19 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
         // A packet whose destination is a link we bridge goes to the opposite side, whatever
         // its header type: the two endpoints may address it differently (one type-2 through
         // us, one type-1 direct, e.g. a responder that never learned it is behind us).
-        let bridged = shared
-            .link_transport
-            .lock()
-            .unwrap()
-            .get(&pkt.destination)
-            .copied();
+        // Traffic on a bridge is proof it is still wanted, so a busy link keeps its entry
+        // and only a silent one ages out.
+        let bridged = {
+            let mut bridges = shared.link_transport.lock().unwrap();
+            let now = Instant::now();
+            match bridges.get_mut(&pkt.destination) {
+                Some((from, out, seen)) if now.duration_since(*seen) < LINK_TRANSPORT_TTL => {
+                    *seen = now;
+                    Some((*from, *out))
+                }
+                _ => None,
+            }
+        };
         // A header-type-2 packet addressed to us as the transport hop is likewise someone
         // else's traffic asking to be carried.
         let addressed_to_us_as_hop = pkt.header_type == crate::packet::HeaderType::Type2
@@ -3460,11 +3499,15 @@ fn forward(shared: &Arc<Shared>, from: InterfaceId, pkt: Packet, policy: &Routin
         if pkt.packet_type == PacketType::LinkRequest
             && let Ok(link_id) = link::link_id(&pkt)
         {
-            shared
-                .link_transport
-                .lock()
-                .unwrap()
-                .insert(link_id, (from, out));
+            let mut bridges = shared.link_transport.lock().unwrap();
+            // Prune before inserting. These entries were never removed: every link this
+            // node ever bridged stayed in the map for the life of the process, so a busy
+            // transport node's memory tracked its lifetime traffic rather than its live
+            // links. Pruning here rather than on a timer keeps the work proportional to
+            // the thing causing the growth.
+            let now = Instant::now();
+            bridges.retain(|_, (_, _, seen)| now.duration_since(*seen) < LINK_TRANSPORT_TTL);
+            bridges.insert(link_id, (from, out, now));
         }
         forward_on(shared, out, pkt, policy);
     }
@@ -3809,7 +3852,12 @@ where
         return false;
     }
     let handle = tokio::spawn(fut);
-    shared.tasks.lock().unwrap().push(handle.abort_handle());
+    let mut tasks = shared.tasks.lock().unwrap();
+    // Forget the ones that have already ended. Handles were only ever appended, so a
+    // process that connects and disconnects repeatedly grew this vector with the ghosts of
+    // every finished task, and the abort-them-all on shutdown walked all of them.
+    tasks.retain(|handle| !handle.is_finished());
+    tasks.push(handle.abort_handle());
     true
 }
 
@@ -3944,6 +3992,37 @@ mod tests {
     /// nodes. Keyed by interface, the second one learned overwrote the first, and every
     /// packet for the first was addressed to the wrong node: announce A via X and B via Y on
     /// one interface, and A silently routes through Y.
+    /// Attaching was one-way, so a peer that reconnects repeatedly grew the interface list
+    /// and its queues without bound, and the scheduler kept visiting records for carriers
+    /// that were long gone.
+    #[tokio::test]
+    async fn detaching_an_interface_forgets_it() {
+        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x33; 64]));
+        let before = ep.shared.interfaces.lock().unwrap().len();
+
+        let iface = ep.attach_interface();
+        let id = iface.id;
+        assert_eq!(ep.shared.interfaces.lock().unwrap().len(), before + 1);
+
+        ep.detach_interface(id);
+        assert_eq!(
+            ep.shared.interfaces.lock().unwrap().len(),
+            before,
+            "a detached interface leaves no record behind",
+        );
+
+        // And reconnecting the same carrier does not stack up.
+        for _ in 0..8 {
+            let again = ep.attach_interface();
+            ep.detach_interface(again.id);
+        }
+        assert_eq!(
+            ep.shared.interfaces.lock().unwrap().len(),
+            before,
+            "eight reconnects leave nothing accumulated",
+        );
+    }
+
     #[tokio::test]
     async fn two_destinations_on_one_interface_keep_their_own_transports() {
         let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x31; 64]));
@@ -3985,7 +4064,10 @@ mod tests {
             .unwrap()
             .learned;
 
-        std::thread::sleep(std::time::Duration::from_millis(20));
+        // No sleep: PATH_TTL is 60ms under cfg(test), and pausing inside that window made
+        // this test fail under a loaded parallel run for the honest reason -- the route had
+        // genuinely expired and was correctly replaced. Back to back keeps the question
+        // about refreshing rather than about expiry.
         // A longer route arrives on another interface. It is correctly not adopted, and it
         // must not vouch for the route it lost to either.
         ep.shared.learn_path(dest, worse, 5, None);
