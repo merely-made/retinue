@@ -162,6 +162,20 @@ pub fn valid(workblock: &[u8], stamp: &[u8; STAMP_LEN], target: u16) -> bool {
     target <= 256 && value(workblock, stamp) >= target
 }
 
+/// Check a stamp against a target without ever holding the workblock.
+///
+/// The counterpart to [`valid`] for callers that have the material rather than a derived
+/// block. Same answer, no allocation; see [`value_streamed`] for why the materialised form
+/// is not merely wasteful but impossible on the hardware this crate targets.
+pub fn valid_streamed(
+    material: &[u8],
+    rounds: u32,
+    stamp: &[u8; STAMP_LEN],
+    target: u16,
+) -> bool {
+    target <= 256 && value_streamed(material, rounds, stamp) >= target
+}
+
 /// Score a propagation stamp. Streamed, so it costs one round of stack rather than 256 KB
 /// of heap and runs anywhere, including a board.
 pub fn propagation_value(transient_id: &[u8; 32], stamp: &[u8; STAMP_LEN]) -> u16 {

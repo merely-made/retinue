@@ -37,6 +37,14 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+/// Nonces a stamp search may try before giving up.
+///
+/// Sixteen times the expected count for LXMF's usual cost of 8 (2^8 trials), so an
+/// unlucky-but-honest search still completes while a peer demanding an unreasonable cost is
+/// refused rather than hanging the station. Each trial is one SHA-256 compression once the
+/// derivation is done, so this bound is milliseconds on a host.
+const STAMP_ATTEMPT_BUDGET: u64 = 1 << 12;
+
 use outrider::{
     DEFAULT_MAX_MESSAGE_BYTES, DeliveryAnnounce, LxmfPayload, announce_delivery,
     delivery_destination, receive_direct_with_stamp_cost, register_delivery, send_direct_stamped,
@@ -390,19 +398,35 @@ impl Station {
         };
 
         let payload = LxmfPayload::text(now_secs(), self.name.as_bytes(), body.as_bytes().to_vec());
-        // Stamp work is off: it is spam resistance, and it burns seconds of CPU that prove
-        // nothing about the radio. A face that wants it can raise the cost.
+        // A budget, not zero. Zero meant a peer that advertises any stamp cost was
+        // unreachable: the search was asked for no attempts and failed on the first one, so
+        // the only peers this station could talk to were the ones asking nothing. Stamp
+        // work is skipped entirely when a peer advertises no cost, so a bench of our own
+        // stations still pays nothing for it.
         let receipt = send_direct_stamped(
             &self.endpoint,
             &self.identity,
             &peer.announce,
             &payload,
-            [0_u8; 32],
-            0,
+            self.stamp_seed(),
+            STAMP_ATTEMPT_BUDGET,
         )
         .await
         .map_err(|error| Error::Lxmf(error.to_string()))?;
         Ok(Sent::Delivered { mode: receipt.mode })
+    }
+
+    /// A fresh starting nonce for a stamp search.
+    ///
+    /// Random rather than zero, so two stations minting against the same message id do not
+    /// walk the same nonces in the same order. The seed need not be secret; it only needs to
+    /// differ.
+    fn stamp_seed(&self) -> [u8; 32] {
+        let mut seed = [0_u8; 32];
+        // Losing the OS entropy source costs uniqueness, not correctness: zero is still a
+        // valid place to start a search, it just may retread a neighbour's path.
+        let _ = getrandom::fill(&mut seed);
+        seed
     }
 
     /// The endpoint underneath, for work this library does not cover yet.

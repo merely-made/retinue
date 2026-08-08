@@ -20,7 +20,9 @@ use crate::codec::{
     CodecError, DEFAULT_MAX_MESSAGE_BYTES, DESTINATION_LEN, DecodedLxmf, LxmfPayload,
     decode_bounded, prepare,
 };
-use crate::stamp::{MESSAGE_WORKBLOCK_ROUNDS, STAMP_LEN, find, valid as stamp_valid, workblock};
+use crate::stamp::{
+    MESSAGE_WORKBLOCK_ROUNDS, STAMP_LEN, find_streamed, valid_streamed,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OpportunisticReceipt {
@@ -93,9 +95,14 @@ pub fn send_stamped(
     };
     let source = delivery_destination(sender.public());
     let initial = prepare(*peer.destination.as_bytes(), *source.as_bytes(), payload)?;
-    let block = workblock(&initial.message_id, MESSAGE_WORKBLOCK_ROUNDS);
-    let (stamp, _) = find(&block, u16::from(target), stamp_seed, max_stamp_attempts)
-        .ok_or(OpportunisticError::StampBudgetExhausted)?;
+    let (stamp, _) = find_streamed(
+        &initial.message_id,
+        MESSAGE_WORKBLOCK_ROUNDS,
+        u16::from(target),
+        stamp_seed,
+        max_stamp_attempts,
+    )
+    .ok_or(OpportunisticError::StampBudgetExhausted)?;
     let mut stamped = payload.clone();
     stamped.stamp = Some(stamp.to_vec());
     send(endpoint, sender, peer, &stamped)
@@ -191,8 +198,9 @@ fn enforce_stamp(
         .as_deref()
         .and_then(|stamp| <&[u8; STAMP_LEN]>::try_from(stamp).ok())
         .ok_or(OpportunisticError::StampRequired(target))?;
-    if !stamp_valid(
-        &workblock(&message_id, MESSAGE_WORKBLOCK_ROUNDS),
+    if !valid_streamed(
+        &message_id,
+        MESSAGE_WORKBLOCK_ROUNDS,
         stamp,
         u16::from(target),
     ) {
@@ -214,8 +222,9 @@ fn enforce_received_stamp(
         .as_deref()
         .and_then(|stamp| <&[u8; STAMP_LEN]>::try_from(stamp).ok())
         .ok_or(OpportunisticError::StampRequired(target))?;
-    if !stamp_valid(
-        &workblock(&message.message_id, MESSAGE_WORKBLOCK_ROUNDS),
+    if !valid_streamed(
+        &message.message_id,
+        MESSAGE_WORKBLOCK_ROUNDS,
         stamp,
         u16::from(target),
     ) {

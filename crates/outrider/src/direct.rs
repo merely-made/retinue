@@ -11,7 +11,9 @@ use crate::announce::{AnnounceError, DeliveryAnnounce, delivery_destination, del
 use crate::codec::{
     CodecError, DEFAULT_MAX_MESSAGE_BYTES, DecodedLxmf, LxmfPayload, decode_bounded, prepare,
 };
-use crate::stamp::{MESSAGE_WORKBLOCK_ROUNDS, STAMP_LEN, find, valid as stamp_valid, workblock};
+use crate::stamp::{
+    MESSAGE_WORKBLOCK_ROUNDS, STAMP_LEN, find_streamed, valid_streamed,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DirectReceipt {
@@ -94,8 +96,9 @@ pub async fn send_with_resource_config(
         else {
             return Err(DirectError::StampRequired(target));
         };
-        if !stamp_valid(
-            &workblock(&prepared.message_id, MESSAGE_WORKBLOCK_ROUNDS),
+        if !valid_streamed(
+            &prepared.message_id,
+            MESSAGE_WORKBLOCK_ROUNDS,
             stamp,
             u16::from(target),
         ) {
@@ -143,9 +146,14 @@ pub async fn send_stamped_with_resource_config(
     };
     let source = delivery_destination(sender.public());
     let initial = prepare(*peer.destination.as_bytes(), *source.as_bytes(), payload)?;
-    let block = workblock(&initial.message_id, MESSAGE_WORKBLOCK_ROUNDS);
-    let (stamp, _) = find(&block, u16::from(target), stamp_seed, max_stamp_attempts)
-        .ok_or(DirectError::StampBudgetExhausted)?;
+    let (stamp, _) = find_streamed(
+        &initial.message_id,
+        MESSAGE_WORKBLOCK_ROUNDS,
+        u16::from(target),
+        stamp_seed,
+        max_stamp_attempts,
+    )
+    .ok_or(DirectError::StampBudgetExhausted)?;
     let mut stamped = payload.clone();
     stamped.stamp = Some(stamp.to_vec());
     send_with_resource_config(endpoint, sender, peer, &stamped, resource_config).await
@@ -275,8 +283,9 @@ pub async fn receive_with_stamp_cost_and_resource_config(
         else {
             return Err(DirectError::StampRequired(target));
         };
-        if !stamp_valid(
-            &workblock(&message.message_id, MESSAGE_WORKBLOCK_ROUNDS),
+        if !valid_streamed(
+            &message.message_id,
+            MESSAGE_WORKBLOCK_ROUNDS,
             stamp,
             u16::from(target),
         ) {

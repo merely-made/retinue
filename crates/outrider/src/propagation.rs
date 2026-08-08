@@ -22,8 +22,7 @@ use crate::codec::{
     CodecError, DEFAULT_MAX_MESSAGE_BYTES, DecodedLxmf, LxmfPayload, decode_bounded, prepare,
 };
 use crate::stamp::{
-    PROPAGATION_WORKBLOCK_ROUNDS, STAMP_LEN, find, valid as stamp_valid, value as stamp_value,
-    workblock,
+    PROPAGATION_WORKBLOCK_ROUNDS, STAMP_LEN, find_streamed, valid_streamed, value_streamed,
 };
 
 pub const DEFAULT_MAX_PROPAGATION_ANNOUNCE_BYTES: usize = 4 * 1024;
@@ -188,16 +187,14 @@ impl PropagationEntry {
 
     pub fn stamp_value(&self) -> u16 {
         let transient_id = self.transient_id();
-        stamp_value(
-            &workblock(&transient_id, PROPAGATION_WORKBLOCK_ROUNDS),
-            &self.stamp,
-        )
+        value_streamed(&transient_id, PROPAGATION_WORKBLOCK_ROUNDS, &self.stamp)
     }
 
     pub fn validate_stamp(&self, target: u16) -> bool {
         let transient_id = self.transient_id();
-        stamp_valid(
-            &workblock(&transient_id, PROPAGATION_WORKBLOCK_ROUNDS),
+        valid_streamed(
+            &transient_id,
+            PROPAGATION_WORKBLOCK_ROUNDS,
             &self.stamp,
             target,
         )
@@ -404,9 +401,14 @@ pub fn prepare_propagation(
     transient_input.extend_from_slice(destination.as_slice());
     transient_input.extend_from_slice(&encrypted);
     let transient_id = full_hash(&transient_input);
-    let block = workblock(&transient_id, PROPAGATION_WORKBLOCK_ROUNDS);
-    let (stamp, stamp_value) = find(&block, target_cost, stamp_seed, max_stamp_attempts)
-        .ok_or(PropagationError::StampBudgetExhausted)?;
+    let (stamp, stamp_value) = find_streamed(
+        &transient_id,
+        PROPAGATION_WORKBLOCK_ROUNDS,
+        target_cost,
+        stamp_seed,
+        max_stamp_attempts,
+    )
+    .ok_or(PropagationError::StampBudgetExhausted)?;
     let entry = PropagationEntry {
         message: PropagationMessage {
             destination: *destination.as_bytes(),
