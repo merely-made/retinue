@@ -391,6 +391,14 @@ async fn main(spawner: Spawner) {
                 let _ = host.write_all(b"radio rx setup failed\r\n").await;
                 continue;
             }
+            // Into continuous receive now, not on the first poll of a receive future.
+            // That is what makes abandoning the interrupt wait below safe: there is no
+            // half-finished arming left to cancel.
+            if lora.rx_arm().await.is_err() {
+                let _ = host.write_all(b"radio rx arm failed
+").await;
+                continue;
+            }
             local_status.radio = radio_face::RadioState::Online;
             local_status.fault = None;
             ui::publish(local_status, radio_face::LedSignal::Idle);
@@ -435,8 +443,12 @@ async fn main(spawner: Spawner) {
             })
             .await
         };
+        // Only the interrupt wait is raced. Racing a whole receive cancels it wherever it
+        // stands, and once its interrupt has fired that abandons a frame midway out of the
+        // chip: interrupt consumed, bytes left for the next packet to overwrite, nothing
+        // reported. This half holds no transaction and leaves the radio listening.
         #[cfg(not(all(feature = "host-uart-low-power", feature = "rf-sleep-proof")))]
-        let radio_receive = lora.rx(&radio.rx, &mut radio_frame);
+        let radio_receive = lora.wait_for_irq();
         let waiting = select(host_read, radio_receive);
         let outcome = if command_stream.is_boundary() {
             waiting.await
@@ -447,7 +459,19 @@ async fn main(spawner: Spawner) {
         // Everything past here touches SPI, the radio, or the host link.
         let _awake = power::Awake::new();
         match outcome {
-            Either::Second(Ok((length, packet_status))) => {
+            Either::Second(Ok(())) => {
+                // Deliberately not raced: the frame is in the radio until it is read out.
+                let (length, packet_status) = match lora.rx_collect(&radio.rx, &mut radio_frame).await {
+                    Ok(frame) => frame,
+                    // A CRC failure is the air, not the radio. The chip stays in continuous
+                    // receive, so the next frame is the whole recovery.
+                    Err(lora_phy::mod_params::RadioError::PayloadCrcError) => continue,
+                    Err(error) => {
+                        radio.prepare_rx = true;
+                        let _ = error;
+                        continue;
+                    }
+                };
                 let length = usize::from(length);
                 local_status.rx_frames = local_status.rx_frames.saturating_add(1);
                 local_status.last_rx = Some(radio_face::RxSummary {
