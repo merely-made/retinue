@@ -992,6 +992,10 @@ pub struct RoutingCounters {
     pub policy_rejected: u64,
     /// Packets dropped for reaching the policy's hop ceiling.
     pub hop_limit_dropped: u64,
+    /// Announces turned away by a full address book, and therefore not routed, relayed, or
+    /// published either. Climbing means the book is at capacity, which is worth knowing:
+    /// past that point this endpoint is deaf to peers it has not already met.
+    pub refused_announces: u64,
 }
 
 /// The live counter cells behind [`RoutingCounters`].
@@ -1001,6 +1005,7 @@ struct RoutingStats {
     forwarded_announces: AtomicU64,
     policy_rejected: AtomicU64,
     hop_limit_dropped: AtomicU64,
+    refused_announces: AtomicU64,
 }
 
 impl RoutingStats {
@@ -1010,6 +1015,7 @@ impl RoutingStats {
             forwarded_announces: self.forwarded_announces.load(Ordering::Relaxed),
             policy_rejected: self.policy_rejected.load(Ordering::Relaxed),
             hop_limit_dropped: self.hop_limit_dropped.load(Ordering::Relaxed),
+            refused_announces: self.refused_announces.load(Ordering::Relaxed),
         }
     }
 }
@@ -3195,7 +3201,20 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                 if !shared.announce_within_budget(a.destination) {
                     return;
                 }
-                shared.address_book.lock().unwrap().ingest(&a);
+                // The book's answer is the cap, and ignoring it made the cap decorative:
+                // a refused peer still got a path-table entry, still went out the announce
+                // channel, and still relayed onward, so the only bounded structure was the
+                // one thing that did not grow. Unique signed announces could then grow
+                // memory without limit, which is a cheap thing for a stranger to arrange.
+                if shared.address_book.lock().unwrap().ingest(&a)
+                    == crate::address_book::Ingested::Refused
+                {
+                    shared
+                        .routing_stats
+                        .refused_announces
+                        .fetch_add(1, Ordering::Relaxed);
+                    return;
+                }
                 // A header-type-2 announce names the transport node forwarding it. It
                 // belongs to this destination's route, not to the interface: the same radio
                 // routinely reaches different destinations through different nodes.
