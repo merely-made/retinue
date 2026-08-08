@@ -15,3 +15,7 @@ oracle/.venv/
 
 # Hardware receipts can contain MAC addresses and serial-port observations.
 design_docs/2026-07-28_v4_on_device_ui_acceptance.md
+
+# Station identities. Postilion mints these beside the working directory, so running
+# signalman from the repo root drops one here. They are private keys: never committed.
+*.id

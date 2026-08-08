@@ -88,8 +88,18 @@ pub const MAX_AIR_FRAME: usize = selvage::MAX_RADIO_FRAME_LEN;
 /// that agree on it hear each other.
 pub const SYNC_WORD: u8 = 0x12;
 
-/// Preamble length, matching the rest of this firmware's on-air settings.
-pub const PREAMBLE_SYMBOLS: u16 = 16;
+/// Preamble length, in symbols.
+///
+/// Eight, matching what stock RNode transmits, since this channel exists to be
+/// interchangeable with one. The rest of this firmware's direct-PHY profiles use sixteen.
+///
+/// Changed from sixteen while chasing a one-byte frame shift, on the theory that a receiver
+/// expecting a longer preamble locks late. **That theory was wrong** and is recorded here so
+/// nobody re-derives it: with eight on both boards the shift was unchanged, and a
+/// board-to-board control proved this receive path byte-exact, escapes included. The shift
+/// is in what the peer transmits. Eight is kept because matching the thing we imitate is
+/// right on its own, not because it fixed anything.
+pub const PREAMBLE_SYMBOLS: u16 = 8;
 
 /// Bytes of buffer a deframer needs: the largest frame plus its command byte.
 pub const DEFRAME_BUF: usize = MAX_FRAME + 1;
