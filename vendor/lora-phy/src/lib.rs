@@ -296,6 +296,71 @@ where
         }
     }
 
+    /// Put the radio into receive without waiting for anything.
+    ///
+    /// The first half of [`Self::rx`], split out so a caller that must race the radio
+    /// against another event can do so safely. See [`Self::rx_collect`] for why.
+    pub async fn rx_arm(&mut self) -> Result<(), RadioError> {
+        if let RadioMode::Receive(listen_mode) = self.radio_mode {
+            self.radio_kind.do_rx(listen_mode).await
+        } else {
+            Err(RadioError::InvalidRadioMode)
+        }
+    }
+
+    /// Collect a frame whose interrupt has already been observed. **Never race this.**
+    ///
+    /// The second half of [`Self::rx`], for the pattern that makes racing the radio safe:
+    ///
+    /// ```text
+    /// lora.rx_arm().await?;                                  // once
+    /// loop {
+    ///     match select(other_event, lora.wait_for_irq()).await {
+    ///         First(..) => { /* the irq waiter is dropped, which is harmless */ }
+    ///         Second(..) => { lora.rx_collect(params, buf).await?; }
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// [`Self::rx`] cannot be used that way. It spends nearly all its time parked in
+    /// [`Self::wait_for_irq`], where cancelling costs nothing, but the moment the interrupt
+    /// fires it opens SPI transactions to read the IRQ cause and pull the payload out of the
+    /// chip's FIFO. Cancelling *there* loses the frame outright: the interrupt has been
+    /// consumed, the bytes are still in the FIFO, and the next packet overwrites them, so
+    /// nothing anywhere records a loss. Splitting the wait from the collection means only
+    /// the interrupt wait is ever raced, and it is the half that is safe to abandon.
+    ///
+    /// The radio stays in continuous receive across a collection, so `rx_arm` is called once
+    /// rather than per frame.
+    pub async fn rx_collect(
+        &mut self,
+        packet_params: &PacketParams,
+        receiving_buffer: &mut [u8],
+    ) -> Result<(u8, PacketStatus), RadioError> {
+        if !matches!(self.radio_mode, RadioMode::Receive(_)) {
+            return Err(RadioError::InvalidRadioMode);
+        }
+        loop {
+            match self.radio_kind.process_irq_event(self.radio_mode, None, true).await {
+                Ok(Some(IrqState::PreambleReceived)) => self.wait_for_irq().await?,
+                Ok(Some(IrqState::Done)) => {
+                    let received_len = self.radio_kind.get_rx_payload(packet_params, receiving_buffer).await?;
+                    let rx_pkt_status = self.radio_kind.get_rx_packet_status().await?;
+                    return Ok((received_len, rx_pkt_status));
+                }
+                Ok(None) => self.wait_for_irq().await?,
+                Err(err) => {
+                    if self.radio_mode != RadioMode::Receive(RxMode::Continuous) {
+                        self.radio_kind.ensure_ready(self.radio_mode).await?;
+                        self.radio_kind.set_standby().await?;
+                        self.radio_mode = RadioMode::Standby;
+                    }
+                    return Err(err);
+                }
+            }
+        }
+    }
+
     /// Prepare the Semtech chip for a channel activity detection operation
     pub async fn prepare_for_cad(&mut self, mdltn_params: &ModulationParams) -> Result<(), RadioError> {
         self.prepare_modem(mdltn_params).await?;

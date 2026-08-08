@@ -359,9 +359,63 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
             self.diag.rx_arm_failed = self.diag.rx_arm_failed.saturating_add(1);
             return Err(RadioFault);
         }
+        // Put the chip into continuous receive here, rather than leaving it to the first
+        // poll of a receive future. A caller that races the radio against its host must be
+        // able to abandon the wait without abandoning half-finished SPI, and that is only
+        // true if the arming already happened. See [`Self::wait_rx_irq`].
+        if self.lora.rx_arm().await.is_err() {
+            self.diag.rx_arm_failed = self.diag.rx_arm_failed.saturating_add(1);
+            return Err(RadioFault);
+        }
         self.diag.rx_armed = self.diag.rx_armed.saturating_add(1);
         self.radio.prepare_rx = false;
         Ok(true)
+    }
+
+    /// Wait until the radio has something to say. **This is the only radio future that is
+    /// safe to race**, and racing it is the whole point.
+    ///
+    /// A loop that selects a whole receive against host input cancels that receive wherever
+    /// it happens to be. Almost always that is inside this wait, where abandoning costs
+    /// nothing. But once the interrupt fires, a receive opens SPI transactions to read the
+    /// cause and pull the payload out of the chip; cancelling *there* consumes the interrupt,
+    /// leaves the bytes in a FIFO the next packet overwrites, and reports nothing. Rare per
+    /// event, certain over a week, and silent.
+    ///
+    /// So: race this, and when it returns, call [`Self::collect`] without racing it.
+    pub async fn wait_rx_irq(&mut self) -> Result<(), RadioFault> {
+        self.lora.wait_for_irq().await.map_err(|_| {
+            self.diag.rx_err = self.diag.rx_err.saturating_add(1);
+            self.radio.prepare_rx = true;
+            RadioFault
+        })
+    }
+
+    /// Take the frame whose interrupt [`Self::wait_rx_irq`] just reported. Never race this.
+    ///
+    /// A CRC failure is the air being the air rather than a fault, so it is counted and the
+    /// caller is told there is nothing to deliver; the radio stays in continuous receive and
+    /// the next frame is the recovery.
+    pub async fn collect(&mut self, buffer: &mut [u8]) -> Result<Option<Received>, RadioFault> {
+        match self.lora.rx_collect(&self.radio.rx, buffer).await {
+            Ok((len, status)) => {
+                self.diag.rx_ok = self.diag.rx_ok.saturating_add(1);
+                Ok(Some(Received {
+                    len: usize::from(len),
+                    rssi: status.rssi,
+                    snr: status.snr,
+                }))
+            }
+            Err(RadioError::PayloadCrcError) => {
+                self.diag.rx_damaged = self.diag.rx_damaged.saturating_add(1);
+                Ok(None)
+            }
+            Err(_) => {
+                self.diag.rx_err = self.diag.rx_err.saturating_add(1);
+                self.radio.prepare_rx = true;
+                Err(RadioFault)
+            }
+        }
     }
 
     /// Wait for one frame.
