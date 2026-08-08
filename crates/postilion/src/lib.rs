@@ -524,8 +524,6 @@ fn now_secs() -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     /// A station's address is derived from this key. Replacing a damaged one silently would
     /// mint a new station under a new address, and nobody would learn why their peers
     /// stopped answering.
