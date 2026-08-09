@@ -253,6 +253,18 @@ new `HostPointer` queue and records in-process frame readbacks: 3 frames, 0
 blank, 3 distinct digests, 2 distinct sizes across a resize. Full write-up in
 genet `docs/2026-08-09_cambium_desktop_host_g1_receipt.md`.
 
+**Two host defects the headed passes found afterwards**, both fixed:
+
+- Injected text (`VK_PACKET`) was dropped, so nothing that types by injection —
+  on-screen keyboards, remappers, assistive input tools — could type at all.
+  genet `4c1474f9e`.
+- Tab traversal is the wrong shape for a two-dimensional layout: woodshed's
+  fretboard puts sixty focusable notes before its search field. **Holding Tab
+  now steers focus with the arrow keys** over the laid-out geometry
+  (`HostOptions::spatial_focus`, default on; a tap is unchanged). It belongs to
+  the host because it needs the focusable set *and* the geometry, and no
+  application has both. genet `a5e376c9a`.
+
 **Two engine gaps found on the way**, both outside G1:
 
 - Inline-level boxes share their line's fragment, so an inline-block `<button>`
@@ -340,13 +352,20 @@ accessibility-projection tests, and a headed run that discovered this machine's
 two real V4 boards and whose tree Windows' own UI Automation reads with every
 control named, `aria-pressed` carried through, and focus reported.
 
-**Owed: the manual pass.** Live keyboard traversal is confirmed, but live
-*character typing* via synthetic OS input did not land, and the available
-tooling cannot distinguish winit's mapping of synthesized keystrokes from a
-real defect — the same unreliability that made woodshed abandon SendKeys for a
-self-drive lane. A person at the keyboard settles it, and G4's keyboard-only
-requirement depends on it. Nothing in the mechanical receipts should be read as
-that pass.
+**Live typing: resolved, and it was a real defect.** The first headed pass could
+not type into the revision field. Tracing the host rather than guessing named
+it: Windows delivers injected text as `VK_PACKET`, winit surfaces that as
+`Key::Unidentified`, and the host dropped it. Not merely a test artifact —
+on-screen keyboards, keyboard remappers, and assistive input tools all type
+that way, so a person using one could not enter text into any Cambium
+application. Fixed in genet `4c1474f9e` (`KeyPress` carries winit's `text`; an
+unnamed key with text types as that character; a Ctrl/Super chord still does
+not). "4.2" now types into the board-revision field by keyboard alone.
+
+**Still owed: a real screen-reader pass.** Keyboard-only completion is now
+demonstrated, and Windows' own UI Automation reads the tree correctly, but
+nobody has listened to a screen reader read this flow. That remains a G4
+prerequisite and a person's job.
 
 ### G3. Prove the shared host before promoting it
 
