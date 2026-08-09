@@ -314,8 +314,12 @@ async fn main(spawner: Spawner) {
         }
     };
 
-    let online =
-        b"tulle/heltec-v4 phy online; sx1262 online; sync=2b reg=24b4; longfast=906875000\r\n";
+    let online = concat!(
+        "tulle/heltec-v4 phy online; version=",
+        env!("CARGO_PKG_VERSION"),
+        "; sx1262 online; sync=2b reg=24b4; longfast=906875000\r\n",
+    )
+    .as_bytes();
     local_status.radio = radio_face::RadioState::Online;
     local_status.fault = None;
     ui::publish(local_status, radio_face::LedSignal::Idle);

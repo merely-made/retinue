@@ -17,6 +17,13 @@ use std::time::Duration;
 
 use postilion::{Event, Peer, Sent};
 
+pub mod firmware;
+
+pub use firmware::{
+    DeviceCandidate, FirmwareCatalog, FirmwareError, FirmwareInstaller, FirmwareReview,
+    FirmwareView, describe_event, event_progress, observe_device, refusal_lines, survey_devices,
+};
+
 /// How long a send waits for a recipient who has not announced yet.
 ///
 /// Generous on purpose: an address is usually something you were told or met last week, and

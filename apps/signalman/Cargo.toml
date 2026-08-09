@@ -17,5 +17,6 @@ name = "signalman"
 path = "src/main.rs"
 
 [dependencies]
+linkboy = { version = "0.0.1", path = "../linkboy" }
 postilion = { version = "0.0.1", path = "../../crates/postilion" }
 tokio = { version = "1.53.1", features = ["macros", "rt", "signal", "sync", "time"] }

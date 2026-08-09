@@ -1,0 +1,65 @@
+# Its own workspace root, excluded from retinue's. See the `exclude` note in the
+# repository root manifest: genet's engine graph needs genet's `[patch]` table,
+# and a patch does not inherit through a git dep, so pulling this into the main
+# workspace would put the whole engine into every ordinary retinue build.
+[workspace]
+
+[package]
+name = "signalman-desktop"
+version = "0.0.1"
+edition = "2024"
+# Its own floor, not the workspace's. Retinue's `rust-version` is a promise
+# about six published crates and their MSRV job; this package is private and
+# rides genet, whose stack wants a newer toolchain than that promise allows.
+rust-version = "1.92"
+license = "MPL-2.0"
+repository = "https://github.com/merely-made/retinue"
+description = "Signalman's desktop face for the owner firmware flow, on the shared Cambium desktop host."
+# Private, and deliberately so. Its host rides genet packages that inherit
+# genet's `publish = false`, so this cannot be installed from crates.io no
+# matter how it is versioned. Claiming otherwise before `cargo package` and a
+# clean resolution prove it would be the packaging defect the scope names.
+publish = false
+
+[lib]
+name = "signalman_desktop"
+path = "src/lib.rs"
+
+[[bin]]
+name = "signalman-desktop"
+path = "src/main.rs"
+
+[dependencies]
+# The presentation vocabulary. NOT linkboy: package trust, plans, execution,
+# and recovery decisions stay behind Signalman, and this application renders
+# plan facts rather than reconstituting them.
+signalman = { version = "0.0.1", path = "../signalman" }
+# Linkboy's own types appear in Signalman's projections (FlashEvent, FlashPlan,
+# OwnerStage, the receipt), so the face names them to match on them. It never
+# calls a policy, planning, or execution function directly — the worker invokes
+# the owning Signalman/Linkboy flow, and nothing here can construct a FlashPlan.
+linkboy = { version = "0.0.1", path = "../linkboy" }
+
+# The single-root Cambium desktop host and its view toolkit, at an exact genet
+# revision. A branch dep would make a Signalman build depend on whatever genet
+# happened to have pushed; the exact rev is the reproducible private route the
+# packaging decision calls for. Bump it deliberately, with a receipt.
+cambium = { git = "https://github.com/merely-made/genet.git", rev = "e4920aad6" }
+cambium-genet-winit-host = { git = "https://github.com/merely-made/genet.git", rev = "e4920aad6" }
+genet-probe = { git = "https://github.com/merely-made/genet.git", rev = "e4920aad6" }
+genet-scripted-dom = { git = "https://github.com/merely-made/genet.git", rev = "e4920aad6", version = "=0.1.0" }
+layout-dom-api = { git = "https://github.com/merely-made/genet.git", rev = "e4920aad6", version = "=0.1.0" }
+winit = "0.30"
+
+[dev-dependencies]
+# The accessibility receipt asserts against the projection the AccessKit
+# adapter is handed, so it names AccessKit's own types.
+accesskit = "0.24"
+
+# Genet's graph needs the same patches its own workspace applies; a `[patch]`
+# table does not inherit through a git dep. These are the two vendored forks
+# plus the Stylo-rename adapter, taken from genet.git at the same revision.
+[patch.crates-io]
+stylo_taffy = { git = "https://github.com/merely-made/genet.git", rev = "e4920aad6" }
+taffy = { git = "https://github.com/merely-made/genet.git", rev = "e4920aad6" }
+ipc-channel = { git = "https://github.com/merely-made/genet.git", rev = "e4920aad6" }

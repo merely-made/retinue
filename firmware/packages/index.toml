@@ -1,0 +1,21 @@
+schema = "retinue.package-index/v1"
+publisher = "Merely Made"
+version = "1"
+
+[[packages]]
+package_id = "retinue.heltec-v4"
+manifest = "heltec-v4-current.toml"
+state = "partial"
+instructions_url = "https://github.com/merely-made/retinue/blob/main/firmware/packages/README.md"
+recovery_url = "https://github.com/merely-made/retinue/blob/main/firmware/packages/heltec-v4-current-recovery.md"
+installer_receipts = []
+recovery_receipts = []
+
+[[packages]]
+package_id = "retinue.t114"
+manifest = "t114-v47.toml"
+state = "partial"
+instructions_url = "https://github.com/merely-made/retinue/blob/main/firmware/packages/README.md"
+recovery_url = "https://github.com/merely-made/retinue/blob/main/firmware/packages/t114-v47-recovery.md"
+installer_receipts = []
+recovery_receipts = []

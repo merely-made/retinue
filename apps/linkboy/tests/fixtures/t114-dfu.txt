@@ -1,0 +1,1 @@
+nRF52840 DFU bootloader=s140-v6 flash=1048576 vid=0x1915 pid=0x521f

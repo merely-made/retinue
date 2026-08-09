@@ -1,4 +1,8 @@
 /target
+# `apps/signalman-desktop` roots its own workspace (it is `exclude`d from this
+# one), so its build directory is a second `target/` the root-anchored rule
+# above does not cover.
+/apps/signalman-desktop/target
 
 # Cargo.lock IS tracked here. This workspace is not a bare library: it builds
 # firmware images that get flashed to real hardware, and tulle tracked its own

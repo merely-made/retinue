@@ -18,10 +18,38 @@
 //! it is; a board that does not is either not ours or not running, and those are the two
 //! cases a flasher must tell apart before it writes anything.
 
-use std::path::Path;
 use std::time::{Duration, Instant};
 
 use serial2::SerialPort;
+
+pub mod catalog;
+pub mod device;
+pub mod discovery;
+pub mod executor;
+pub mod flow;
+pub mod helper;
+pub mod package;
+pub mod plan;
+pub mod receipt;
+pub mod route;
+pub mod verify;
+
+pub use catalog::{CatalogError, CatalogPackage, CatalogState, PackageIndex};
+pub use device::{BoardSelection, DeviceObservation, DeviceTransport, HardwareFacts};
+pub use discovery::{DiscoveryError, is_first_flash, stock_device, unique_new_port};
+pub use executor::{
+    DeviceFailure, DeviceRunner, ExecutionError, ExecutionStage, FlashEvent, LiveDeviceRunner,
+    ProcessFailure, ProcessRunner, SystemProcessRunner, execute_plan,
+};
+pub use flow::{FlowError, OwnerFlow, OwnerStage};
+pub use helper::verify_installed as verify_helper;
+pub use package::{
+    BoardFamily, FlashPackage, FlashRange, FlashRoute, HelperRequirement, ProcessorKind,
+    StateImpact,
+};
+pub use plan::{FlashPlan, Refusal, RefusalReason, plan_flash};
+pub use receipt::{ApplicationVerification, FlashReceipt, ReceiptResult};
+pub use verify::{VerificationFailure, verify_application};
 
 /// The host baud rate every retinue image's text probe answers at.
 pub const PROBE_BAUD: u32 = 115_200;
@@ -140,6 +168,16 @@ pub enum Error {
     ToolFailed { tool: &'static str, message: String },
     #[error("the image {0} does not exist")]
     NoImage(String),
+    #[error(transparent)]
+    Package(#[from] package::PackageError),
+    #[error(transparent)]
+    Catalog(#[from] catalog::CatalogError),
+    #[error(transparent)]
+    Receipt(#[from] receipt::ReceiptError),
+    #[error("{0}")]
+    Refused(plan::Refusal),
+    #[error(transparent)]
+    Execution(#[from] executor::ExecutionError),
     #[error(transparent)]
     Io(#[from] std::io::Error),
 }
@@ -349,7 +387,7 @@ pub fn run(tool: &'static str, args: &[&str]) -> Result<String, Error> {
 
 /// Check an image exists before anything irreversible starts.
 pub fn require_image(image: &str) -> Result<(), Error> {
-    if Path::new(image).exists() {
+    if std::path::Path::new(image).exists() {
         Ok(())
     } else {
         Err(Error::NoImage(image.to_string()))

@@ -360,8 +360,9 @@ async fn main(spawner: Spawner) {
     let mut online_line = radio_face::Text::<192>::empty();
     let _ = write!(
         &mut online_line,
-        "tulle/t114 phy online; sx1262 online; spi=software; irq=poll; sync=2b reg=24b4; \
-         region={} freq={} reset={} crash={}{}\r\n",
+        "tulle/t114 phy online; version={}; sx1262 online; spi=software; irq=poll; \
+         sync=2b reg=24b4; region={} freq={} reset={} crash={}{}\r\n",
+        env!("CARGO_PKG_VERSION"),
         region.name(),
         boot_frequency,
         boot_crash.reset,

@@ -1,0 +1,1 @@
+ESP-ROM:esp32s3-20210327 chip=esp32-s3 flash=16777216 bootloader=esp-rom vid=0x303a pid=0x1001

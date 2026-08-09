@@ -1,0 +1,52 @@
+schema = 1
+package_id = "retinue.heltec-v4"
+display_name = "Retinue for Heltec WiFi LoRa 32 V4"
+version = "0.0.1-current"
+publisher = "Merely Made"
+regions = ["US915", "EU868", "EU433", "ANZ915", "JP920"]
+channel_capabilities = ["modem", "rnode"]
+state_impact = "preserved"
+license = "MPL-2.0"
+notices = "See apps/linkboy/NOTICES.md; Retinue workspace notices and the repository MPL-2.0 license apply."
+source_revision = "current release build from firmware/heltec-v4-phy"
+source_url = "https://github.com/merely-made/retinue/tree/main/firmware/heltec-v4-phy"
+origin_url = "https://github.com/merely-made/retinue"
+
+[[helpers]]
+route = "esp-rom"
+program = "espflash"
+version = "4.5.0"
+license = "MIT OR Apache-2.0"
+source_url = "https://github.com/esp-rs/espflash"
+notice = "See apps/linkboy/NOTICES.md. The helper is external; bundling remains subject to release packaging review."
+
+[payload]
+path = "../heltec-v4-phy/tulle-heltec-v4-phy"
+format = "espflash-elf"
+byte_length = 4192412
+sha256 = "7f5680ee0eb9a8d3a68eda62cd7f47b098ecb24f8096ce10d0f536a2d175fa7a"
+write_bytes = 4191528
+
+[[targets]]
+family = "heltec-v4"
+revision = "4.2"
+processor = "esp32-s3"
+flash_size = 16777216
+bootloader = "esp-rom"
+route = "esp-rom"
+
+[[write_ranges]]
+start = 0
+length = 0x3f0000
+
+[[preserved_ranges]]
+start = 0x3f0000
+length = 0x10000
+
+[expected_application]
+board = "heltec-v4"
+version = "0.0.1"
+
+[recovery]
+before_write = "Keep the USB cable attached and close other serial tools. If the application does not return, use the ESP32-S3 ROM loader through the board's reset and boot controls."
+after_failure = "Re-enter the ESP32-S3 ROM loader and retry the same verified package. Do not infer board identity from the new COM port."

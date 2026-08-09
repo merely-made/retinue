@@ -2,8 +2,14 @@
 //!
 //! ```text
 //! linkboy list                    what is on this machine's ports
-//! linkboy flash PORT IMAGE [t114|v4]   put an image on the board at PORT
-//!                                      name the board when it cannot say what it is
+//! linkboy inspect PACKAGE            verify and explain a package
+//! linkboy catalog INDEX           verify a public package index
+//! linkboy plan DEVICE PACKAGE [BOARD@REVISION]
+//!                                      produce a refusal or immutable flash plan
+//! linkboy flash DEVICE PACKAGE [BOARD@REVISION] [--receipt PATH]
+//!                                      execute an accepted package plan
+//! linkboy flash-raw PORT IMAGE [t114|v4]
+//!                                      expert-only bench route for a raw image
 //! linkboy bootloader PORT         send a T114 to its bootloader and name the new port
 //! ```
 //!
@@ -16,7 +22,9 @@
 use std::time::Duration;
 
 use linkboy::{
-    Board, Error, converse, enter_bootloader, have_tool, identify, ports, require_image, run,
+    Board, BoardFamily, DeviceObservation, Error, FlashEvent, FlashPackage, LiveDeviceRunner,
+    SystemProcessRunner, converse, enter_bootloader, execute_plan, have_tool, identify, plan_flash,
+    ports, require_image, run,
 };
 
 const BOOTLOADER_PATIENCE: Duration = Duration::from_secs(12);
@@ -25,7 +33,11 @@ fn usage() -> &'static str {
     "usage:\n  \
      linkboy list\n  \
      linkboy ask PORT LINE...\n  \
-     linkboy flash PORT IMAGE [t114|v4]\n  \
+     linkboy inspect PACKAGE\n  \
+     linkboy catalog INDEX\n  \
+     linkboy plan DEVICE PACKAGE [BOARD@REVISION]\n  \
+     linkboy flash DEVICE PACKAGE [BOARD@REVISION] [--receipt PATH]\n  \
+     linkboy flash-raw PORT IMAGE [t114|v4]\n  \
      linkboy bootloader PORT"
 }
 
@@ -40,11 +52,148 @@ fn run_command() -> Result<(), Error> {
     let mut args = std::env::args().skip(1);
     match args.next().as_deref() {
         Some("list") => list(),
+        Some("inspect") => {
+            let package = args
+                .next()
+                .ok_or_else(|| bad_usage("inspect needs a PACKAGE"))?;
+            if args.next().is_some() {
+                return Err(bad_usage("inspect accepts one PACKAGE"));
+            }
+            println!("{}", FlashPackage::load(package)?.describe());
+            Ok(())
+        }
+        Some("catalog") => {
+            let index_path = args
+                .next()
+                .ok_or_else(|| bad_usage("catalog needs an INDEX"))?;
+            if args.next().is_some() {
+                return Err(bad_usage("catalog accepts one INDEX"));
+            }
+            let index = linkboy::PackageIndex::load(&index_path)?;
+            index.verify_packages(&index_path)?;
+            println!("{}", index.describe());
+            Ok(())
+        }
+        Some("plan") => {
+            let device = args
+                .next()
+                .ok_or_else(|| bad_usage("plan needs a DEVICE"))?;
+            let package_path = args
+                .next()
+                .ok_or_else(|| bad_usage("plan needs a PACKAGE"))?;
+            let selection = args
+                .next()
+                .map(|value| parse_board_selection(&value))
+                .transpose()?;
+            if args.next().is_some() {
+                return Err(bad_usage("plan accepts DEVICE PACKAGE [BOARD@REVISION]"));
+            }
+            let package = FlashPackage::load(package_path)?;
+            let found = identify(&device);
+            let mut observation = DeviceObservation::from_found(&found);
+            let mut process = SystemProcessRunner;
+            if matches!(found.board, Some(Board::HeltecV4)) {
+                let facts = linkboy::route::esp_rom::discover(&mut process, &device)
+                    .map_err(|error| Error::Execution(linkboy::ExecutionError::Process(error)))?;
+                observation = observation.with_hardware(linkboy::HardwareFacts {
+                    processor: facts.processor.clone(),
+                    flash_size: facts.flash_size,
+                    bootloader: facts.bootloader.clone(),
+                    loader_route: Some("esp-rom".into()),
+                    bootloader_usb: Some(facts),
+                });
+            }
+            if let Some((family, revision)) = selection {
+                observation = observation.confirm_board(family, revision);
+            }
+            let plan = plan_flash(&observation, &package).map_err(Error::Refused)?;
+            println!("{}", plan.describe());
+            Ok(())
+        }
         Some("flash") => {
-            let port = args.next().ok_or_else(|| bad_usage("flash needs a PORT"))?;
+            let device = args
+                .next()
+                .ok_or_else(|| bad_usage("flash needs a DEVICE"))?;
+            let package_path = args
+                .next()
+                .ok_or_else(|| bad_usage("flash needs a PACKAGE"))?;
+            let mut selection = None;
+            let mut receipt_path = None;
+            while let Some(value) = args.next() {
+                if value == "--receipt" {
+                    receipt_path = Some(
+                        args.next()
+                            .ok_or_else(|| bad_usage("--receipt needs a PATH"))?,
+                    );
+                } else if selection.is_none() {
+                    selection = Some(parse_board_selection(&value)?);
+                } else {
+                    return Err(bad_usage(
+                        "flash accepts DEVICE PACKAGE [BOARD@REVISION] [--receipt PATH]",
+                    ));
+                }
+            }
+            let package = FlashPackage::load(package_path)?;
+            let found = identify(&device);
+            let mut observation = DeviceObservation::from_found(&found);
+            let mut process = SystemProcessRunner;
+            if matches!(found.board, Some(Board::HeltecV4)) {
+                let facts = linkboy::route::esp_rom::discover(&mut process, &device)
+                    .map_err(|error| Error::Execution(linkboy::ExecutionError::Process(error)))?;
+                observation = observation.with_hardware(linkboy::HardwareFacts {
+                    processor: facts.processor.clone(),
+                    flash_size: facts.flash_size,
+                    bootloader: facts.bootloader.clone(),
+                    loader_route: Some("esp-rom".into()),
+                    bootloader_usb: Some(facts),
+                });
+            }
+            if let Some((family, revision)) = selection {
+                observation = observation.confirm_board(family, revision);
+            }
+            let plan = match plan_flash(&observation, &package) {
+                Ok(plan) => plan,
+                Err(refusal) => {
+                    render_event(FlashEvent::Refused {
+                        reasons: refusal.reasons.clone(),
+                    });
+                    return Err(Error::Refused(refusal));
+                }
+            };
+            let mut runner = LiveDeviceRunner;
+            let mut render = render_event;
+            let result = execute_plan(
+                &plan,
+                &package,
+                &mut process,
+                &mut runner,
+                linkboy::executor::DEFAULT_PATIENCE,
+                &mut render,
+            );
+            match result {
+                Ok(receipt) => {
+                    if let Some(path) = receipt_path {
+                        receipt.save_json(path)?;
+                    }
+                    Ok(())
+                }
+                Err(error) => {
+                    if let Some(path) = receipt_path {
+                        if let linkboy::ExecutionError::RecoveryRequired { receipt, .. } = &error {
+                            receipt.save_json(path)?;
+                        }
+                    }
+                    Err(error.into())
+                }
+            }
+        }
+        Some("flash-raw") => {
+            let port = args
+                .next()
+                .ok_or_else(|| bad_usage("flash-raw needs a PORT"))?;
             let image = args
                 .next()
-                .ok_or_else(|| bad_usage("flash needs an IMAGE"))?;
+                .ok_or_else(|| bad_usage("flash-raw needs an IMAGE"))?;
             // An optional third word says what the board is, for when it cannot say so
             // itself: running stock RNode, half-flashed, or simply wedged. Naming it is the
             // operator taking responsibility for a claim linkboy could not check.
@@ -97,11 +246,68 @@ fn bad_usage(what: &str) -> Error {
     }
 }
 
+fn parse_board_selection(value: &str) -> Result<(BoardFamily, String), Error> {
+    let (family, revision) = value
+        .split_once('@')
+        .ok_or_else(|| bad_usage("BOARD must be t114@REVISION or v4@REVISION"))?;
+    let family = match family {
+        "t114" => BoardFamily::T114,
+        "v4" | "heltec-v4" => BoardFamily::HeltecV4,
+        other => return Err(bad_usage(&format!("unknown board family {other}"))),
+    };
+    if revision.trim().is_empty() {
+        return Err(bad_usage("BOARD revision cannot be empty"));
+    }
+    Ok((family, revision.to_string()))
+}
+
 fn list() -> Result<(), Error> {
     for port in ports()? {
         println!("{}", identify(&port).describe());
     }
     Ok(())
+}
+
+fn render_event(event: FlashEvent) {
+    match event {
+        FlashEvent::Inspecting { device, package_id } => {
+            println!("inspecting {device} with package {package_id}")
+        }
+        FlashEvent::WaitingForOwnerAction { message } => println!("owner action: {message}"),
+        FlashEvent::EnteringBootloader => println!("entering bootloader"),
+        FlashEvent::Rediscovering => println!("rediscovering device"),
+        FlashEvent::Erasing => println!("erasing"),
+        FlashEvent::Writing { written, total } => println!("writing {written}/{total}"),
+        FlashEvent::VerifyingTransfer => println!("verifying transfer"),
+        FlashEvent::Rebooting => println!("rebooting"),
+        FlashEvent::VerifyingApplication => println!("verifying application"),
+        FlashEvent::Complete { receipt } => {
+            println!("complete");
+            println!(
+                "{}",
+                receipt.to_json().unwrap_or_else(|error| error.to_string())
+            );
+        }
+        FlashEvent::RecoveryRequired {
+            facts,
+            instructions,
+            receipt,
+        } => {
+            println!("recovery required: {}", facts.detail);
+            println!("before write: {}", instructions.before_write);
+            println!("after failure: {}", instructions.after_failure);
+            println!(
+                "{}",
+                receipt.to_json().unwrap_or_else(|error| error.to_string())
+            );
+        }
+        FlashEvent::Refused { reasons } => {
+            println!("refused:");
+            for reason in reasons {
+                println!("- {reason}");
+            }
+        }
+    }
 }
 
 fn flash(port: &str, image: &str, declared: Option<Board>) -> Result<(), Error> {

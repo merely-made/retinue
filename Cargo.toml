@@ -16,6 +16,25 @@ members = [
     "firmware/t114-phy",
 ]
 
+# `apps/signalman-desktop` is deliberately NOT a member.
+#
+# Its host is genet's, taken from genet.git at an exact revision, and genet's
+# graph needs genet's own `[patch]` table — the vendored taffy, stylo_taffy,
+# and ipc-channel forks. A `[patch]` does not inherit through a git dep, so
+# membership would mean carrying those entries in THIS root manifest and
+# dragging the whole engine graph into every ordinary retinue build, including
+# the MSRV job that exists to hold a promise about six published crates.
+#
+# So it excludes itself and roots its own workspace. That is the staged
+# delivery the Signalman scope calls for, at its strongest: the default build,
+# the lockfile, and CI are untouched, and it can be built deliberately with
+#
+#   cargo build --manifest-path apps/signalman-desktop/Cargo.toml
+#
+# It reaches `signalman` and `linkboy` by relative path, which is not a
+# cross-checkout dependency — they are in this repository.
+exclude = ["apps/signalman-desktop"]
+
 # Firmware targets thumbv7em/xtensa and is built by name, not by default:
 #   cargo build -p tulle-t114-phy --release --target thumbv7em-none-eabihf
 default-members = [
