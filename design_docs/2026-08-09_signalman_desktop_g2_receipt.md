@@ -179,14 +179,58 @@ either winit's mapping of *synthesized* keystrokes or a real defect, and the
 available tooling cannot tell them apart — which is the exact unreliability
 that made woodshed abandon SendKeys for a self-drive lane in the first place.
 
-**This needs a person at the keyboard**, and it is a G4 prerequisite:
-"keyboard-only completion plus a real screen-reader pass". Nothing above should
-be read as that pass. The mechanical half is done and holds; the listening half
-has not happened.
+**Resolved the same day, and it was a real defect.** Tracing the host rather
+than guessing named it: Windows delivers injected text as `VK_PACKET`, winit
+surfaces that as `Key::Unidentified`, and the host dropped it. Not merely a
+test artifact — on-screen keyboards, keyboard remappers, and assistive input
+tools all type that way. Fixed in genet; "4.2" now types into the revision
+field by keyboard alone.
 
-The obvious next move if it recurs: give `signalman-desktop` the same
-`genet-probe` self-drive lane woodshed has, so keyboard receipts come from the
-app driving itself rather than from the OS input queue.
+## The accessibility pass, automated
+
+The claim that a screen-reader pass "needs a person" was too broad. Three
+things get lumped together under that name, and only the third needs one:
+
+1. **What the OS exposes** — roles, names, values, focus, bounds in the live UI
+   Automation tree. Fully automatable.
+2. **What a screen reader announces** — NVDA composes speech from that tree
+   with its own heuristics. Automatable too, with NVDA's testing driver; not
+   built here.
+3. **Whether the announcements are any good** — wording, verbosity, whether the
+   flow makes sense to someone who cannot see it. Design judgment. This is the
+   part that needs a person.
+
+Tier 1 is now `testing/a11y-audit.ps1`: launch the app, walk the live UIA tree,
+assert the contract every assistive technology reads. It checks the tree
+published at all, that every control has a name, that no name is a glyph a
+reader cannot say, that every control has a box a virtual cursor can land on,
+that focus is published and Tab moves it, that every focus stop announces as
+something nameable, and that the app kept the foreground for the sample (or the
+whole reading is fiction).
+
+It found four real defects on first run, none of which the in-process tests
+could see:
+
+- signalman's revision field was nameless — `text_field` emits a bare `<input>`
+  with no id, so `<label for>` pointed at nothing and a reader said "edit,
+  blank". Fixed by wrapping the field in its `<label>`, and by teaching genet
+  to take a control's name from the label wrapping it (genet `398e4af60`).
+- woodshed's chrome buttons announced as "dash", "white square", and
+  "multiplication sign".
+- woodshed's window drag surface was a focus stop announcing as "group" with
+  nothing to do — genet now honours `aria-hidden` (`4d2ca0211`).
+- an inline `<label>` put its `<input>` back in a shared line fragment, so the
+  field lost its box again. The same inline-box gap noted below.
+
+Both applications now audit **RESULT ok**: signalman 9 controls, focus order
+COM6 → COM7 → COM10 → Board revision → Rescan → Use this device; woodshed 72
+controls, focus order Woodshed → Minimize → Maximize → Close → Stage →
+Rehearsal.
+
+**Still owed: tier 3.** Nobody has listened to a screen reader read this flow
+and judged whether it makes sense. That is a G4 prerequisite and a person's
+job. Tier 2 (capturing NVDA's actual speech) is buildable if it turns out to be
+worth the dependency.
 
 ## Hardware acceptance (G4) not started
 

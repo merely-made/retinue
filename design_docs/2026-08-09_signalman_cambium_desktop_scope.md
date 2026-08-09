@@ -362,10 +362,18 @@ application. Fixed in genet `4c1474f9e` (`KeyPress` carries winit's `text`; an
 unnamed key with text types as that character; a Ctrl/Super chord still does
 not). "4.2" now types into the board-revision field by keyboard alone.
 
-**Still owed: a real screen-reader pass.** Keyboard-only completion is now
-demonstrated, and Windows' own UI Automation reads the tree correctly, but
-nobody has listened to a screen reader read this flow. That remains a G4
-prerequisite and a person's job.
+**The accessibility pass is now mostly automated.** "Needs a person" was too
+broad: what the OS exposes is fully checkable, what a screen reader *announces*
+is checkable with NVDA's testing driver, and only whether the announcements are
+*good* is judgment. `testing/a11y-audit.ps1` does the first tier — it walks the
+live UIA tree and asserts names, boxes, focus publication, tab order, and that
+no focus stop is unnameable. It found four real defects on its first run
+(signalman's nameless revision field, woodshed's glyph-named chrome buttons and
+its unnamed drag surface, and an inline `<label>` costing the field its box),
+all fixed. Both apps now audit **RESULT ok**.
+
+**Still owed:** somebody listening to a screen reader read this flow and
+judging whether it makes sense. That remains a G4 prerequisite.
 
 ### G3. Prove the shared host before promoting it
 

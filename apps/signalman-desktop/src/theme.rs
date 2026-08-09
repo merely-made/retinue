@@ -74,6 +74,10 @@ pub const SHEET: &str = "
 .row:focus { border: 1px solid #a8c8ee; }
 
 .revision-row { display: block; margin-bottom: 16px; }
+/* The label wraps the field, so it must be block-level too — an inline label
+   puts its <input> back in a shared line fragment, where it has no rect of its
+   own and a reader's cursor has nothing to land on. */
+.revision-label { display: block; }
 .revision-wrap { display: block; margin: 6px 0; }
 /* The tag, not a class: `text_field` renders a bare `<input>` and gives it no
    class of its own, so a class selector here would silently style nothing —

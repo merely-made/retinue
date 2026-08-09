@@ -723,7 +723,7 @@ dependencies = [
 [[package]]
 name = "cambium"
 version = "0.3.3"
-source = "git+https://github.com/merely-made/genet.git?rev=a5e376c9a#a5e376c9aa725b6c4ae834a334a25e04a42f264c"
+source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "genet-host-api",
  "genet-scripted-dom",
@@ -736,7 +736,7 @@ dependencies = [
 [[package]]
 name = "cambium-genet-winit-host"
 version = "0.1.0"
-source = "git+https://github.com/merely-made/genet.git?rev=a5e376c9a#a5e376c9aa725b6c4ae834a334a25e04a42f264c"
+source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "accesskit",
  "cambium",
@@ -759,7 +759,7 @@ dependencies = [
 [[package]]
 name = "cambium-winit"
 version = "0.3.0"
-source = "git+https://github.com/merely-made/genet.git?rev=a5e376c9a#a5e376c9aa725b6c4ae834a334a25e04a42f264c"
+source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "cambium",
  "winit",
@@ -768,7 +768,7 @@ dependencies = [
 [[package]]
 name = "cambium-winit-a11y"
 version = "0.3.0"
-source = "git+https://github.com/merely-made/genet.git?rev=a5e376c9a#a5e376c9aa725b6c4ae834a334a25e04a42f264c"
+source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "accesskit",
  "genet-layout",
@@ -1350,7 +1350,7 @@ checksum = "66b7e2430c6dff6a955451e2cfc438f09cea1965a9d6f87f7e3b90decc014099"
 [[package]]
 name = "engine-observables-api"
 version = "0.1.1"
-source = "git+https://github.com/merely-made/genet.git?rev=a5e376c9a#a5e376c9aa725b6c4ae834a334a25e04a42f264c"
+source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "genet-paint-types",
  "malloc_size_of_derive",
@@ -1706,7 +1706,7 @@ dependencies = [
 [[package]]
 name = "genet-document-resources"
 version = "0.2.0"
-source = "git+https://github.com/merely-made/genet.git?rev=a5e376c9a#a5e376c9aa725b6c4ae834a334a25e04a42f264c"
+source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "genet-host-api",
  "layout-dom-api",
@@ -1715,12 +1715,12 @@ dependencies = [
 [[package]]
 name = "genet-host-api"
 version = "0.1.0"
-source = "git+https://github.com/merely-made/genet.git?rev=a5e376c9a#a5e376c9aa725b6c4ae834a334a25e04a42f264c"
+source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 
 [[package]]
 name = "genet-layout"
 version = "0.2.0"
-source = "git+https://github.com/merely-made/genet.git?rev=a5e376c9a#a5e376c9aa725b6c4ae834a334a25e04a42f264c"
+source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "accesskit",
  "app_units",
@@ -1764,7 +1764,7 @@ dependencies = [
 [[package]]
 name = "genet-paint-types"
 version = "0.1.0"
-source = "git+https://github.com/merely-made/genet.git?rev=a5e376c9a#a5e376c9aa725b6c4ae834a334a25e04a42f264c"
+source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "app_units",
  "euclid",
@@ -1776,7 +1776,7 @@ dependencies = [
 [[package]]
 name = "genet-probe"
 version = "0.1.0"
-source = "git+https://github.com/merely-made/genet.git?rev=a5e376c9a#a5e376c9aa725b6c4ae834a334a25e04a42f264c"
+source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "genet-layout",
  "genet-scripted-dom",
@@ -1786,7 +1786,7 @@ dependencies = [
 [[package]]
 name = "genet-render-host"
 version = "0.2.0"
-source = "git+https://github.com/merely-made/genet.git?rev=a5e376c9a#a5e376c9aa725b6c4ae834a334a25e04a42f264c"
+source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "netrender",
  "tracing",
@@ -1796,7 +1796,7 @@ dependencies = [
 [[package]]
 name = "genet-scripted-dom"
 version = "0.1.0"
-source = "git+https://github.com/merely-made/genet.git?rev=a5e376c9a#a5e376c9aa725b6c4ae834a334a25e04a42f264c"
+source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "engine-observables-api",
  "genet-static-dom",
@@ -1808,7 +1808,7 @@ dependencies = [
 [[package]]
 name = "genet-static-dom"
 version = "0.1.0"
-source = "git+https://github.com/merely-made/genet.git?rev=a5e376c9a#a5e376c9aa725b6c4ae834a334a25e04a42f264c"
+source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "html5ever",
  "layout-dom-api",
@@ -1926,7 +1926,7 @@ dependencies = [
 [[package]]
 name = "genet-winit-host"
 version = "0.2.0"
-source = "git+https://github.com/merely-made/genet.git?rev=a5e376c9a#a5e376c9aa725b6c4ae834a334a25e04a42f264c"
+source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "accesskit",
  "accesskit_macos",
@@ -2452,7 +2452,7 @@ dependencies = [
 [[package]]
 name = "ipc-channel"
 version = "0.22.0"
-source = "git+https://github.com/merely-made/genet.git?rev=a5e376c9a#a5e376c9aa725b6c4ae834a334a25e04a42f264c"
+source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "crossbeam-channel",
  "libc",
@@ -2599,7 +2599,7 @@ dependencies = [
 [[package]]
 name = "layout-dom-api"
 version = "0.1.0"
-source = "git+https://github.com/merely-made/genet.git?rev=a5e376c9a#a5e376c9aa725b6c4ae834a334a25e04a42f264c"
+source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "markup5ever",
  "serde",
@@ -2793,7 +2793,7 @@ dependencies = [
 [[package]]
 name = "meristem"
 version = "0.1.1"
-source = "git+https://github.com/merely-made/genet.git?rev=a5e376c9a#a5e376c9aa725b6c4ae834a334a25e04a42f264c"
+source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "anymore",
  "hashbrown 0.17.1",
@@ -4361,7 +4361,7 @@ dependencies = [
 [[package]]
 name = "servo-allocator"
 version = "0.2.0"
-source = "git+https://github.com/merely-made/genet.git?rev=a5e376c9a#a5e376c9aa725b6c4ae834a334a25e04a42f264c"
+source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "libc",
  "tikv-jemalloc-sys",
@@ -4372,7 +4372,7 @@ dependencies = [
 [[package]]
 name = "servo-base"
 version = "0.2.0"
-source = "git+https://github.com/merely-made/genet.git?rev=a5e376c9a#a5e376c9aa725b6c4ae834a334a25e04a42f264c"
+source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "accesskit",
  "crossbeam-channel",
@@ -4397,7 +4397,7 @@ dependencies = [
 [[package]]
 name = "servo-config"
 version = "0.2.0"
-source = "git+https://github.com/merely-made/genet.git?rev=a5e376c9a#a5e376c9aa725b6c4ae834a334a25e04a42f264c"
+source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "genet-stylo-static-prefs",
  "serde",
@@ -4409,7 +4409,7 @@ dependencies = [
 [[package]]
 name = "servo-config-macro"
 version = "0.2.0"
-source = "git+https://github.com/merely-made/genet.git?rev=a5e376c9a#a5e376c9aa725b6c4ae834a334a25e04a42f264c"
+source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4420,7 +4420,7 @@ dependencies = [
 [[package]]
 name = "servo-malloc-size-of"
 version = "0.2.0"
-source = "git+https://github.com/merely-made/genet.git?rev=a5e376c9a#a5e376c9aa725b6c4ae834a334a25e04a42f264c"
+source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "app_units",
  "atomic_refcell",
@@ -4459,7 +4459,7 @@ dependencies = [
 [[package]]
 name = "servo-pixels"
 version = "0.2.0"
-source = "git+https://github.com/merely-made/genet.git?rev=a5e376c9a#a5e376c9aa725b6c4ae834a334a25e04a42f264c"
+source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "euclid",
  "genet-paint-types",
@@ -4474,7 +4474,7 @@ dependencies = [
 [[package]]
 name = "servo-url"
 version = "0.2.0"
-source = "git+https://github.com/merely-made/genet.git?rev=a5e376c9a#a5e376c9aa725b6c4ae834a334a25e04a42f264c"
+source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "encoding_rs",
  "malloc_size_of_derive",
@@ -4711,7 +4711,7 @@ dependencies = [
 [[package]]
 name = "sprigging"
 version = "0.2.1"
-source = "git+https://github.com/merely-made/genet.git?rev=a5e376c9a#a5e376c9aa725b6c4ae834a334a25e04a42f264c"
+source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "accesskit",
  "paint_list_api",
@@ -4819,7 +4819,7 @@ dependencies = [
 [[package]]
 name = "stylo_taffy"
 version = "0.3.0-beta.1"
-source = "git+https://github.com/merely-made/genet.git?rev=a5e376c9a#a5e376c9aa725b6c4ae834a334a25e04a42f264c"
+source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "genet-stylo",
  "genet-stylo-atoms",
@@ -4896,7 +4896,7 @@ dependencies = [
 [[package]]
 name = "taffy"
 version = "0.12.1"
-source = "git+https://github.com/merely-made/genet.git?rev=a5e376c9a#a5e376c9aa725b6c4ae834a334a25e04a42f264c"
+source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "arrayvec",
  "grid",

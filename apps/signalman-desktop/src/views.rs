@@ -193,20 +193,29 @@ fn choose_device(state: &DesktopState) -> Child {
             el(
                 "div",
                 (
-                    el("label", text("Board revision"))
-                        .attr("class", "field-label")
-                        .attr("for", "revision"),
-                    // A real editable field: the host's caret, selection, IME,
-                    // and visual movement all run against it through the
-                    // `focused_text` seam.
+                    // The `<label>` *wraps* the field rather than pointing at
+                    // it: `text_field` generates a bare `<input>` with no id, so
+                    // `for` would name nothing and a screen reader would say
+                    // "edit, blank". Wrapping needs no id and is how HTML has
+                    // always named a generated control.
                     el(
-                        "div",
-                        cambium::lens(
-                            |input: &mut cambium::TextInput| cambium::text_field(input),
-                            |s: &mut DesktopState| &mut s.board_revision,
+                        "label",
+                        (
+                            el("div", text("Board revision")).attr("class", "field-label"),
+                            // A real editable field: the host's caret,
+                            // selection, IME, and visual movement all run
+                            // against it through the `focused_text` seam.
+                            el(
+                                "div",
+                                cambium::lens(
+                                    |input: &mut cambium::TextInput| cambium::text_field(input),
+                                    |s: &mut DesktopState| &mut s.board_revision,
+                                ),
+                            )
+                            .attr("class", "revision-wrap"),
                         ),
                     )
-                    .attr("class", "revision-wrap"),
+                    .attr("class", "revision-label"),
                     el(
                         "div",
                         text(
