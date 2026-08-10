@@ -12,7 +12,8 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-pub const PACKAGE_SCHEMA: u32 = 1;
+pub const PACKAGE_SCHEMA: u32 = 2;
+const ESP_FLASH_SECTOR_SIZE: u32 = 0x1000;
 
 /// A carrier-board family, not a processor family.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -97,6 +98,26 @@ impl fmt::Display for FlashRoute {
 pub enum PayloadFormat {
     NrfDfuZip,
     EspflashElf,
+    RawBinary,
+}
+
+/// The job a part performs in a sparse image. The manifest order is also the write order.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FirmwarePartKind {
+    Bootloader,
+    PartitionTable,
+    Application,
+}
+
+impl fmt::Display for FirmwarePartKind {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Bootloader => "bootloader",
+            Self::PartitionTable => "partition table",
+            Self::Application => "application",
+        })
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -113,6 +134,9 @@ pub struct HelperRequirement {
     pub route: FlashRoute,
     pub program: String,
     pub version: String,
+    /// An optional exact executable digest for a platform-specific helper custody receipt.
+    /// Packages without one remain version-pinned only.
+    pub binary_sha256: Option<String>,
     pub license: String,
     pub source_url: String,
     pub notice: String,
@@ -164,6 +188,41 @@ pub struct PackagePayload {
     pub write_bytes: u64,
 }
 
+/// One immutable file in an ordered firmware package.
+///
+/// ESP sparse packages state a concrete flash offset per part. Container formats, such as the
+/// nRF DFU ZIP and a self-contained ESP ELF, keep their address layout inside the container and
+/// therefore have no outer offset.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PackagePart {
+    pub kind: FirmwarePartKind,
+    pub path: String,
+    pub format: PayloadFormat,
+    pub offset: Option<u32>,
+    pub byte_length: u64,
+    pub sha256: String,
+    pub write_bytes: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PublisherSignatureFormat {
+    Minisign,
+}
+
+/// Evidence retained from an upstream publisher. It is deliberately evidence, not a Linkboy
+/// trust root: the signed Merely package index still decides which network package is admitted.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PublisherSignature {
+    pub format: PublisherSignatureFormat,
+    pub key_id: String,
+    pub signed_manifest_url: String,
+    pub signed_manifest_sha256: String,
+    pub signature: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PackageTarget {
@@ -180,6 +239,11 @@ pub struct PackageTarget {
 pub struct ExpectedApplication {
     pub board: BoardFamily,
     pub version: String,
+    /// External firmware can require a human to exercise its own interface after the helper has
+    /// verified every written part. This prevents a Retinue-only serial probe from claiming a
+    /// foreign application is broken.
+    #[serde(default)]
+    pub manual_check: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -199,8 +263,18 @@ pub struct FlashPackageManifest {
     pub version: String,
     pub publisher: String,
     pub helpers: Vec<HelperRequirement>,
-    pub payload: PackagePayload,
+    /// The legacy one-file package form. Schema v2 keeps it for the current Retinue routes;
+    /// new sparse packages use `parts` instead.
+    #[serde(default)]
+    pub payload: Option<PackagePayload>,
+    /// Ordered immutable parts for a sparse package. Exactly one of `payload` and `parts` is
+    /// present, so an old opaque container cannot quietly become an incomplete sparse write.
+    #[serde(default)]
+    pub parts: Vec<PackagePart>,
     pub targets: Vec<PackageTarget>,
+    /// Explicit ranges for an opaque one-file container. Sparse packages derive their ranges
+    /// from the verified part offsets and must not carry a second, contradictory range list.
+    #[serde(default)]
     pub write_ranges: Vec<FlashRange>,
     pub preserved_ranges: Vec<FlashRange>,
     pub regions: Vec<String>,
@@ -212,13 +286,44 @@ pub struct FlashPackageManifest {
     pub source_revision: String,
     pub source_url: String,
     pub origin_url: String,
-    pub publisher_signature: Option<String>,
+    pub publisher_signature: Option<PublisherSignature>,
     pub recovery: RecoveryInstructions,
 }
 
 impl FlashPackageManifest {
     pub fn helper_for(&self, route: &FlashRoute) -> Option<&HelperRequirement> {
         self.helpers.iter().find(|helper| &helper.route == route)
+    }
+
+    pub fn write_ranges(&self) -> Vec<FlashRange> {
+        if self.parts.is_empty() {
+            self.write_ranges.clone()
+        } else {
+            self.parts
+                .iter()
+                .filter_map(|part| {
+                    Some(FlashRange {
+                        start: part.offset?,
+                        length: u32::try_from(part.write_bytes).ok()?,
+                    })
+                })
+                .collect()
+        }
+    }
+
+    fn declared_parts(&self) -> Vec<PackagePart> {
+        match &self.payload {
+            Some(payload) => vec![PackagePart {
+                kind: FirmwarePartKind::Application,
+                path: payload.path.clone(),
+                format: payload.format.clone(),
+                offset: None,
+                byte_length: payload.byte_length,
+                sha256: payload.sha256.clone(),
+                write_bytes: payload.write_bytes,
+            }],
+            None => self.parts.clone(),
+        }
     }
 }
 
@@ -227,8 +332,29 @@ impl FlashPackageManifest {
 pub struct FlashPackage {
     manifest: FlashPackageManifest,
     manifest_path: PathBuf,
-    payload_path: PathBuf,
-    payload: Vec<u8>,
+    parts: Vec<VerifiedPackagePart>,
+}
+
+/// A package part whose exact bytes have been checked against the manifest before planning.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VerifiedPackagePart {
+    declaration: PackagePart,
+    path: PathBuf,
+    bytes: Vec<u8>,
+}
+
+impl VerifiedPackagePart {
+    pub fn declaration(&self) -> &PackagePart {
+        &self.declaration
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
 }
 
 impl FlashPackage {
@@ -237,9 +363,15 @@ impl FlashPackage {
         let text = fs::read_to_string(&manifest_path)?;
         let manifest: FlashPackageManifest = toml::from_str(&text)?;
         let parent = manifest_path.parent().unwrap_or_else(|| Path::new("."));
-        let payload_path = parent.join(&manifest.payload.path);
-        let payload = fs::read(&payload_path)?;
-        Self::from_parts(manifest, manifest_path, payload_path, payload)
+        let parts = manifest
+            .declared_parts()
+            .into_iter()
+            .map(|part| {
+                let path = parent.join(&part.path);
+                fs::read(&path).map(|bytes| (path, bytes))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Self::from_verified_parts(manifest, manifest_path, parts)
     }
 
     /// Test and embedding seam for callers that already have the manifest and bytes. It never
@@ -250,29 +382,65 @@ impl FlashPackage {
         payload_path: impl Into<PathBuf>,
         payload: Vec<u8>,
     ) -> Result<Self, PackageError> {
+        if manifest.payload.is_none() {
+            return Err(PackageError::PartCountMismatch {
+                expected: manifest.parts.len(),
+                actual: 1,
+            });
+        }
+        Self::from_verified_parts(
+            manifest,
+            manifest_path,
+            vec![(payload_path.into(), payload)],
+        )
+    }
+
+    /// Test and embedding seam for multi-part packages. Input order is the manifest order and
+    /// every part is verified before this returns an object that planning or execution can use.
+    pub fn from_verified_parts(
+        manifest: FlashPackageManifest,
+        manifest_path: impl Into<PathBuf>,
+        supplied_parts: Vec<(PathBuf, Vec<u8>)>,
+    ) -> Result<Self, PackageError> {
         validate_manifest(&manifest)?;
-        let payload_path = payload_path.into();
-        let actual_length = payload.len() as u64;
-        if actual_length != manifest.payload.byte_length {
-            return Err(PackageError::LengthMismatch {
-                path: payload_path,
-                expected: manifest.payload.byte_length,
-                actual: actual_length,
+        let declared_parts = manifest.declared_parts();
+        if declared_parts.len() != supplied_parts.len() {
+            return Err(PackageError::PartCountMismatch {
+                expected: declared_parts.len(),
+                actual: supplied_parts.len(),
             });
         }
-        let actual_hash = sha256_hex(&payload);
-        if !actual_hash.eq_ignore_ascii_case(&manifest.payload.sha256) {
-            return Err(PackageError::HashMismatch {
-                path: payload_path,
-                expected: manifest.payload.sha256.clone(),
-                actual: actual_hash,
-            });
-        }
+        let parts = declared_parts
+            .into_iter()
+            .zip(supplied_parts)
+            .map(|(declaration, (path, bytes))| {
+                let actual_length = bytes.len() as u64;
+                if actual_length != declaration.byte_length {
+                    return Err(PackageError::LengthMismatch {
+                        path,
+                        expected: declaration.byte_length,
+                        actual: actual_length,
+                    });
+                }
+                let actual_hash = sha256_hex(&bytes);
+                if !actual_hash.eq_ignore_ascii_case(&declaration.sha256) {
+                    return Err(PackageError::HashMismatch {
+                        path,
+                        expected: declaration.sha256.clone(),
+                        actual: actual_hash,
+                    });
+                }
+                Ok(VerifiedPackagePart {
+                    declaration,
+                    path,
+                    bytes,
+                })
+            })
+            .collect::<Result<Vec<_>, PackageError>>()?;
         Ok(Self {
             manifest,
             manifest_path: manifest_path.into(),
-            payload_path,
-            payload,
+            parts,
         })
     }
 
@@ -284,12 +452,8 @@ impl FlashPackage {
         &self.manifest_path
     }
 
-    pub fn payload_path(&self) -> &Path {
-        &self.payload_path
-    }
-
-    pub fn payload(&self) -> &[u8] {
-        &self.payload
+    pub fn parts(&self) -> &[VerifiedPackagePart] {
+        &self.parts
     }
 
     pub fn helper_for(&self, route: &FlashRoute) -> Option<&HelperRequirement> {
@@ -310,7 +474,7 @@ impl FlashPackage {
              \n  version: {}\
              \n  publisher: {}\
              \n  helpers: {}\
-             \n  payload: {} ({} bytes, sha256 {})\
+             \n  parts: {}\
              \n  targets: {}\
              \n  routes: {}\
              \n  write ranges: {}\
@@ -331,9 +495,21 @@ impl FlashPackage {
                 .map(|helper| format!("{} {}", helper.program, helper.version))
                 .collect::<Vec<_>>()
                 .join(", "),
-            self.payload_path.display(),
-            self.manifest.payload.byte_length,
-            self.manifest.payload.sha256,
+            self.parts
+                .iter()
+                .map(|part| format!(
+                    "{} {} at {} ({} bytes, sha256 {})",
+                    part.declaration.kind,
+                    part.path.display(),
+                    part.declaration
+                        .offset
+                        .map(|offset| format!("{offset:#x}"))
+                        .unwrap_or_else(|| "container layout".into()),
+                    part.declaration.byte_length,
+                    part.declaration.sha256,
+                ))
+                .collect::<Vec<_>>()
+                .join(", "),
             targets,
             self.manifest
                 .targets
@@ -341,7 +517,7 @@ impl FlashPackage {
                 .map(|target| target.route.label())
                 .collect::<Vec<_>>()
                 .join(", "),
-            ranges_description(&self.manifest.write_ranges),
+            ranges_description(&self.manifest.write_ranges()),
             ranges_description(&self.manifest.preserved_ranges),
             self.manifest.regions.join(", "),
             self.manifest.channel_capabilities.join(", "),
@@ -386,23 +562,43 @@ fn validate_manifest(manifest: &FlashPackageManifest) -> Result<(), PackageError
             return Err(PackageError::InvalidField(name.to_string()));
         }
     }
-    if manifest.payload.path.trim().is_empty()
-        || manifest.payload.byte_length == 0
-        || manifest.payload.write_bytes == 0
-        || !is_sha256(&manifest.payload.sha256)
-    {
-        return Err(PackageError::InvalidField("payload".to_string()));
+    if manifest.payload.is_some() == !manifest.parts.is_empty() {
+        return Err(PackageError::InvalidField(
+            "exactly one of payload and parts must be present".to_string(),
+        ));
+    }
+    let declared_parts = manifest.declared_parts();
+    for part in &declared_parts {
+        validate_part(part)?;
+    }
+    if manifest.payload.is_some() && manifest.write_ranges.is_empty() {
+        return Err(PackageError::InvalidField(
+            "one-file payload needs write_ranges".to_string(),
+        ));
+    }
+    if !manifest.parts.is_empty() && !manifest.write_ranges.is_empty() {
+        return Err(PackageError::InvalidField(
+            "sparse parts derive write ranges and cannot also name write_ranges".to_string(),
+        ));
     }
     if manifest.targets.is_empty()
         || manifest.helpers.is_empty()
-        || manifest.write_ranges.is_empty()
-        || manifest.regions.is_empty()
-        || manifest.channel_capabilities.is_empty()
         || manifest.expected_application.version.trim().is_empty()
+        || manifest
+            .expected_application
+            .manual_check
+            .as_deref()
+            .is_some_and(|instruction| instruction.trim().is_empty())
     {
         return Err(PackageError::InvalidField(
-            "targets, helpers, write_ranges, regions, channel capabilities, and expected application must not be empty"
-                .to_string(),
+            "targets, helpers, and expected application must not be empty".to_string(),
+        ));
+    }
+    if manifest.expected_application.manual_check.is_none()
+        && (manifest.regions.is_empty() || manifest.channel_capabilities.is_empty())
+    {
+        return Err(PackageError::InvalidField(
+            "a status-verified package needs regions and channel capabilities".to_string(),
         ));
     }
     if !manifest
@@ -414,6 +610,12 @@ fn validate_manifest(manifest: &FlashPackageManifest) -> Result<(), PackageError
             "expected application board is not one of the package targets".to_string(),
         ));
     }
+    let write_ranges = manifest.write_ranges();
+    if write_ranges.len() != declared_parts.len() && !manifest.parts.is_empty() {
+        return Err(PackageError::InvalidField(
+            "every sparse part needs an in-range offset and size".to_string(),
+        ));
+    }
     for target in &manifest.targets {
         if target.revision.trim().is_empty()
             || target.bootloader.trim().is_empty()
@@ -421,8 +623,7 @@ fn validate_manifest(manifest: &FlashPackageManifest) -> Result<(), PackageError
         {
             return Err(PackageError::InvalidField("target".to_string()));
         }
-        if manifest
-            .write_ranges
+        if write_ranges
             .iter()
             .chain(manifest.preserved_ranges.iter())
             .any(|range| range.end().is_none() || range.end().unwrap() > target.flash_size)
@@ -432,28 +633,27 @@ fn validate_manifest(manifest: &FlashPackageManifest) -> Result<(), PackageError
                 target.family
             )));
         }
-        let format_matches_route = matches!(
-            (&target.route, &manifest.payload.format),
-            (FlashRoute::AdafruitDfu, PayloadFormat::NrfDfuZip)
-                | (FlashRoute::EspRom, PayloadFormat::EspflashElf)
-        );
-        if !format_matches_route {
+        validate_parts_for_route(&declared_parts, &target.route)?;
+        let helpers = manifest
+            .helpers
+            .iter()
+            .filter(|helper| helper.route == target.route)
+            .collect::<Vec<_>>();
+        let [helper] = helpers.as_slice() else {
             return Err(PackageError::InvalidField(format!(
-                "payload format does not match {} route",
-                target.route
-            )));
-        }
-        let Some(helper) = manifest.helper_for(&target.route) else {
-            return Err(PackageError::InvalidField(format!(
-                "missing helper for {} route",
+                "package needs exactly one helper for {}",
                 target.route
             )));
         };
-        if helper.program != target.route.helper()
+        if helper.program.trim().is_empty()
             || helper.version.trim().is_empty()
             || helper.license.trim().is_empty()
             || helper.source_url.trim().is_empty()
             || helper.notice.trim().is_empty()
+            || helper
+                .binary_sha256
+                .as_deref()
+                .is_some_and(|digest| !is_sha256(digest))
         {
             return Err(PackageError::InvalidField(format!(
                 "invalid helper metadata for {}",
@@ -461,9 +661,9 @@ fn validate_manifest(manifest: &FlashPackageManifest) -> Result<(), PackageError
             )));
         }
     }
-    if has_overlap(&manifest.write_ranges)
+    if has_overlap(&write_ranges)
         || has_overlap(&manifest.preserved_ranges)
-        || manifest.write_ranges.iter().any(|write| {
+        || write_ranges.iter().any(|write| {
             manifest
                 .preserved_ranges
                 .iter()
@@ -472,7 +672,123 @@ fn validate_manifest(manifest: &FlashPackageManifest) -> Result<(), PackageError
     {
         return Err(PackageError::ProtectedRangeOverlap);
     }
+    if !manifest.parts.is_empty()
+        && write_ranges.iter().filter_map(erase_span).any(|span| {
+            manifest
+                .preserved_ranges
+                .iter()
+                .any(|preserved| span.overlaps(preserved))
+        })
+    {
+        return Err(PackageError::ProtectedRangeOverlap);
+    }
+    if let Some(signature) = &manifest.publisher_signature {
+        if signature.key_id.trim().is_empty()
+            || !signature.signed_manifest_url.starts_with("https://")
+            || !is_sha256(&signature.signed_manifest_sha256)
+            || signature.signature.trim().is_empty()
+        {
+            return Err(PackageError::InvalidField(
+                "publisher_signature".to_string(),
+            ));
+        }
+    }
     Ok(())
+}
+
+fn validate_part(part: &PackagePart) -> Result<(), PackageError> {
+    if part.path.trim().is_empty()
+        || part.byte_length == 0
+        || part.write_bytes == 0
+        || part.write_bytes > part.byte_length
+        || !is_sha256(&part.sha256)
+    {
+        return Err(PackageError::InvalidField("package part".to_string()));
+    }
+    Ok(())
+}
+
+fn validate_parts_for_route(parts: &[PackagePart], route: &FlashRoute) -> Result<(), PackageError> {
+    let container = matches!(
+        (route, parts),
+        (
+            FlashRoute::AdafruitDfu,
+            [PackagePart {
+                kind: FirmwarePartKind::Application,
+                format: PayloadFormat::NrfDfuZip,
+                offset: None,
+                ..
+            }]
+        ) | (
+            FlashRoute::EspRom,
+            [PackagePart {
+                kind: FirmwarePartKind::Application,
+                format: PayloadFormat::EspflashElf,
+                offset: None,
+                ..
+            }]
+        )
+    );
+    let sparse_esp = matches!(
+        (route, parts),
+        (
+            FlashRoute::EspRom,
+            [
+                PackagePart {
+                    kind: FirmwarePartKind::Bootloader,
+                    format: PayloadFormat::RawBinary,
+                    offset: Some(_),
+                    ..
+                },
+                PackagePart {
+                    kind: FirmwarePartKind::PartitionTable,
+                    format: PayloadFormat::RawBinary,
+                    offset: Some(_),
+                    ..
+                },
+                PackagePart {
+                    kind: FirmwarePartKind::Application,
+                    format: PayloadFormat::RawBinary,
+                    offset: Some(_),
+                    ..
+                }
+            ]
+        )
+    );
+    if !container && !sparse_esp {
+        return Err(PackageError::InvalidField(format!(
+            "parts do not form a supported {} package",
+            route
+        )));
+    }
+    if sparse_esp
+        && parts.iter().any(|part| {
+            part.offset
+                .is_some_and(|offset| offset % ESP_FLASH_SECTOR_SIZE != 0)
+        })
+    {
+        return Err(PackageError::InvalidField(
+            "sparse ESP part offset is not erase-sector aligned".to_string(),
+        ));
+    }
+    let mut paths = parts.iter().map(|part| &part.path).collect::<Vec<_>>();
+    paths.sort();
+    if paths.windows(2).any(|pair| pair[0] == pair[1]) {
+        return Err(PackageError::InvalidField(
+            "package parts cannot repeat a path".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn erase_span(range: &FlashRange) -> Option<FlashRange> {
+    let end = range.end()?;
+    let rounded_end =
+        end.checked_add(ESP_FLASH_SECTOR_SIZE - 1)? / ESP_FLASH_SECTOR_SIZE * ESP_FLASH_SECTOR_SIZE;
+    Some(FlashRange {
+        start: range.start,
+        length: rounded_end.checked_sub(range.start)?,
+    })
 }
 
 fn has_overlap(ranges: &[FlashRange]) -> bool {
@@ -505,8 +821,10 @@ pub enum PackageError {
     InvalidField(String),
     #[error("package write or preserved ranges overlap")]
     ProtectedRangeOverlap,
+    #[error("package has {actual} verified parts, but its manifest requires {expected}")]
+    PartCountMismatch { expected: usize, actual: usize },
     #[error(
-        "payload length mismatch for {}: manifest says {expected}, bytes contain {actual}",
+        "package part length mismatch for {}: manifest says {expected}, bytes contain {actual}",
         path.display()
     )]
     LengthMismatch {
@@ -515,7 +833,7 @@ pub enum PackageError {
         actual: u64,
     },
     #[error(
-        "payload hash mismatch for {}: manifest says {expected}, bytes hash to {actual}",
+        "package part hash mismatch for {}: manifest says {expected}, bytes hash to {actual}",
         path.display()
     )]
     HashMismatch {
@@ -540,17 +858,19 @@ mod tests {
                 route: FlashRoute::EspRom,
                 program: "espflash".into(),
                 version: "4.5.0".into(),
+                binary_sha256: None,
                 license: "MIT OR Apache-2.0".into(),
                 source_url: "https://example.invalid/espflash".into(),
                 notice: "Test helper notice".into(),
             }],
-            payload: PackagePayload {
+            payload: Some(PackagePayload {
                 path: "payload.bin".into(),
                 format: PayloadFormat::EspflashElf,
                 byte_length: payload.len() as u64,
                 sha256: sha256_hex(payload),
                 write_bytes: payload.len() as u64,
-            },
+            }),
+            parts: Vec::new(),
             targets: vec![PackageTarget {
                 family: BoardFamily::HeltecV4,
                 revision: "4.2".into(),
@@ -573,6 +893,7 @@ mod tests {
             expected_application: ExpectedApplication {
                 board: BoardFamily::HeltecV4,
                 version: "0.0.1".into(),
+                manual_check: None,
             },
             license: "MPL-2.0".into(),
             notices: "Test notices".into(),
@@ -585,6 +906,36 @@ mod tests {
                 after_failure: "Enter the ROM loader again.".into(),
             },
         }
+    }
+
+    fn sparse_manifest(parts: &[(&str, FirmwarePartKind, u32, &[u8])]) -> FlashPackageManifest {
+        let mut value = manifest(b"legacy-container");
+        value.payload = None;
+        value.write_ranges.clear();
+        value.preserved_ranges = vec![FlashRange {
+            start: 0xd000,
+            length: 0x1000,
+        }];
+        value.parts = parts
+            .iter()
+            .map(|(path, kind, offset, bytes)| PackagePart {
+                kind: kind.clone(),
+                path: (*path).into(),
+                format: PayloadFormat::RawBinary,
+                offset: Some(*offset),
+                byte_length: bytes.len() as u64,
+                sha256: sha256_hex(bytes),
+                write_bytes: bytes.len() as u64,
+            })
+            .collect();
+        value.publisher_signature = Some(PublisherSignature {
+            format: PublisherSignatureFormat::Minisign,
+            key_id: "1FB2CA18B2C25E1F".into(),
+            signed_manifest_url: "https://example.invalid/hopspot/flash-manifest.json".into(),
+            signed_manifest_sha256: "b".repeat(64),
+            signature: "untrusted comment: retained upstream signature".into(),
+        });
+        value
     }
 
     #[test]
@@ -613,6 +964,179 @@ mod tests {
         let error =
             FlashPackage::from_parts(value, "manifest.toml", "payload.bin", b"payload".to_vec())
                 .expect_err("a write crossing a preserved range must be refused");
+        assert!(matches!(error, PackageError::ProtectedRangeOverlap));
+    }
+
+    #[test]
+    fn sparse_parts_keep_ordered_hashes_offsets_and_publisher_evidence() {
+        let bootloader = b"bootloader";
+        let partition_table = b"partition-table";
+        let application = b"application";
+        let manifest = sparse_manifest(&[
+            (
+                "bootloader.bin",
+                FirmwarePartKind::Bootloader,
+                0,
+                bootloader,
+            ),
+            (
+                "partition-table.bin",
+                FirmwarePartKind::PartitionTable,
+                0x8000,
+                partition_table,
+            ),
+            (
+                "application.bin",
+                FirmwarePartKind::Application,
+                0x10000,
+                application,
+            ),
+        ]);
+        let package = FlashPackage::from_verified_parts(
+            manifest,
+            "manifest.toml",
+            vec![
+                (PathBuf::from("bootloader.bin"), bootloader.to_vec()),
+                (
+                    PathBuf::from("partition-table.bin"),
+                    partition_table.to_vec(),
+                ),
+                (PathBuf::from("application.bin"), application.to_vec()),
+            ],
+        )
+        .expect("ordered sparse parts should verify");
+        assert_eq!(package.parts().len(), 3);
+        assert_eq!(
+            package
+                .parts()
+                .iter()
+                .map(|part| part.declaration().offset)
+                .collect::<Vec<_>>(),
+            vec![Some(0), Some(0x8000), Some(0x10000)]
+        );
+        assert_eq!(package.manifest().write_ranges().len(), 3);
+        assert!(package.manifest().publisher_signature.is_some());
+    }
+
+    #[test]
+    fn changed_sparse_part_is_rejected_before_a_plan_exists() {
+        let bootloader = b"bootloader";
+        let partition_table = b"partition-table";
+        let application = b"application";
+        let manifest = sparse_manifest(&[
+            (
+                "bootloader.bin",
+                FirmwarePartKind::Bootloader,
+                0,
+                bootloader,
+            ),
+            (
+                "partition-table.bin",
+                FirmwarePartKind::PartitionTable,
+                0x8000,
+                partition_table,
+            ),
+            (
+                "application.bin",
+                FirmwarePartKind::Application,
+                0x10000,
+                application,
+            ),
+        ]);
+        let error = FlashPackage::from_verified_parts(
+            manifest,
+            "manifest.toml",
+            vec![
+                (PathBuf::from("bootloader.bin"), bootloader.to_vec()),
+                (PathBuf::from("partition-table.bin"), b"changed".to_vec()),
+                (PathBuf::from("application.bin"), application.to_vec()),
+            ],
+        )
+        .expect_err("a changed sparse artifact must invalidate the complete package");
+        assert!(matches!(error, PackageError::LengthMismatch { .. }));
+    }
+
+    #[test]
+    fn manual_external_package_may_leave_retinue_capabilities_unspecified() {
+        let bootloader = b"bootloader";
+        let partition_table = b"partition-table";
+        let application = b"application";
+        let mut manifest = sparse_manifest(&[
+            (
+                "bootloader.bin",
+                FirmwarePartKind::Bootloader,
+                0,
+                bootloader,
+            ),
+            (
+                "partition-table.bin",
+                FirmwarePartKind::PartitionTable,
+                0x8000,
+                partition_table,
+            ),
+            (
+                "application.bin",
+                FirmwarePartKind::Application,
+                0x10000,
+                application,
+            ),
+        ]);
+        manifest.regions.clear();
+        manifest.channel_capabilities.clear();
+        manifest.expected_application.manual_check =
+            Some("Exercise the upstream interface.".into());
+        assert!(
+            FlashPackage::from_verified_parts(
+                manifest,
+                "manifest",
+                vec![
+                    ("bootloader.bin".into(), bootloader.to_vec()),
+                    ("partition-table.bin".into(), partition_table.to_vec()),
+                    ("application.bin".into(), application.to_vec()),
+                ],
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn sparse_part_cannot_enter_a_preserved_provisioning_slot() {
+        let bootloader = b"bootloader";
+        let partition_table = b"partition-table";
+        let application = b"application";
+        let manifest = sparse_manifest(&[
+            (
+                "bootloader.bin",
+                FirmwarePartKind::Bootloader,
+                0,
+                bootloader,
+            ),
+            (
+                "partition-table.bin",
+                FirmwarePartKind::PartitionTable,
+                0xd000,
+                partition_table,
+            ),
+            (
+                "application.bin",
+                FirmwarePartKind::Application,
+                0x10000,
+                application,
+            ),
+        ]);
+        let error = FlashPackage::from_verified_parts(
+            manifest,
+            "manifest.toml",
+            vec![
+                (PathBuf::from("bootloader.bin"), bootloader.to_vec()),
+                (
+                    PathBuf::from("partition-table.bin"),
+                    partition_table.to_vec(),
+                ),
+                (PathBuf::from("application.bin"), application.to_vec()),
+            ],
+        )
+        .expect_err("a sparse write cannot touch provisioning");
         assert!(matches!(error, PackageError::ProtectedRangeOverlap));
     }
 

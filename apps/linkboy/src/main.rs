@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! The linkboy, as a terminal.
 //!
 //! ```text
@@ -91,8 +93,11 @@ fn run_command() -> Result<(), Error> {
             let package = FlashPackage::load(package_path)?;
             let found = identify(&device);
             let mut observation = DeviceObservation::from_found(&found);
-            let mut process = SystemProcessRunner;
-            if matches!(found.board, Some(Board::HeltecV4)) {
+            let mut process = SystemProcessRunner::default();
+            if let Some((family, revision)) = selection {
+                observation = observation.confirm_board(family, revision);
+            }
+            if linkboy::needs_esp_rom_probe(&observation) {
                 let facts = linkboy::route::esp_rom::discover(&mut process, &device)
                     .map_err(|error| Error::Execution(linkboy::ExecutionError::Process(error)))?;
                 observation = observation.with_hardware(linkboy::HardwareFacts {
@@ -102,9 +107,6 @@ fn run_command() -> Result<(), Error> {
                     loader_route: Some("esp-rom".into()),
                     bootloader_usb: Some(facts),
                 });
-            }
-            if let Some((family, revision)) = selection {
-                observation = observation.confirm_board(family, revision);
             }
             let plan = plan_flash(&observation, &package).map_err(Error::Refused)?;
             println!("{}", plan.describe());
@@ -136,8 +138,11 @@ fn run_command() -> Result<(), Error> {
             let package = FlashPackage::load(package_path)?;
             let found = identify(&device);
             let mut observation = DeviceObservation::from_found(&found);
-            let mut process = SystemProcessRunner;
-            if matches!(found.board, Some(Board::HeltecV4)) {
+            let mut process = SystemProcessRunner::default();
+            if let Some((family, revision)) = selection {
+                observation = observation.confirm_board(family, revision);
+            }
+            if linkboy::needs_esp_rom_probe(&observation) {
                 let facts = linkboy::route::esp_rom::discover(&mut process, &device)
                     .map_err(|error| Error::Execution(linkboy::ExecutionError::Process(error)))?;
                 observation = observation.with_hardware(linkboy::HardwareFacts {
@@ -147,9 +152,6 @@ fn run_command() -> Result<(), Error> {
                     loader_route: Some("esp-rom".into()),
                     bootloader_usb: Some(facts),
                 });
-            }
-            if let Some((family, revision)) = selection {
-                observation = observation.confirm_board(family, revision);
             }
             let plan = match plan_flash(&observation, &package) {
                 Ok(plan) => plan,
@@ -283,6 +285,13 @@ fn render_event(event: FlashEvent) {
         FlashEvent::VerifyingApplication => println!("verifying application"),
         FlashEvent::Complete { receipt } => {
             println!("complete");
+            println!(
+                "{}",
+                receipt.to_json().unwrap_or_else(|error| error.to_string())
+            );
+        }
+        FlashEvent::ManualCheckRequired { receipt } => {
+            println!("manual check required");
             println!(
                 "{}",
                 receipt.to_json().unwrap_or_else(|error| error.to_string())

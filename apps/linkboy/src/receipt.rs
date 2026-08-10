@@ -5,15 +5,16 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::device::{DeviceObservation, DeviceTransport};
-use crate::package::{BoardFamily, FlashRoute, ProcessorKind};
-use crate::plan::FlashPlan;
+use crate::package::{BoardFamily, FlashRoute, ProcessorKind, PublisherSignature};
+use crate::plan::{FlashPlan, HelperIdentity, PackagePartIdentity};
 
-pub const RECEIPT_SCHEMA: u32 = 1;
+pub const RECEIPT_SCHEMA: u32 = 3;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ReceiptResult {
     Complete,
+    ManualCheckRequired,
     RecoveryRequired,
 }
 
@@ -38,10 +39,12 @@ pub struct ApplicationVerification {
 pub struct FlashReceipt {
     pub schema: u32,
     pub package_id: String,
-    pub package_sha256: String,
+    pub package_parts: Vec<PackagePartIdentity>,
+    pub publisher_signature: Option<PublisherSignature>,
     pub board: BoardFamily,
     pub board_revision: String,
     pub route: FlashRoute,
+    pub helper: HelperIdentity,
     pub transport: String,
     pub processor: Option<ProcessorKind>,
     pub flash_size: Option<u32>,
@@ -49,6 +52,7 @@ pub struct FlashReceipt {
     pub stages: Vec<ReceiptStage>,
     pub result: ReceiptResult,
     pub application: Option<ApplicationVerification>,
+    pub manual_check: Option<String>,
 }
 
 impl FlashReceipt {
@@ -64,6 +68,16 @@ impl FlashReceipt {
         Self::new(plan, ReceiptResult::RecoveryRequired, None, stages)
     }
 
+    pub fn manual_check_required(
+        plan: &FlashPlan,
+        instruction: String,
+        stages: Vec<ReceiptStage>,
+    ) -> Self {
+        let mut receipt = Self::new(plan, ReceiptResult::ManualCheckRequired, None, stages);
+        receipt.manual_check = Some(instruction);
+        receipt
+    }
+
     fn new(
         plan: &FlashPlan,
         result: ReceiptResult,
@@ -74,10 +88,12 @@ impl FlashReceipt {
         Self {
             schema: RECEIPT_SCHEMA,
             package_id: plan.package().package_id.clone(),
-            package_sha256: plan.package().sha256.clone(),
+            package_parts: plan.package().parts.clone(),
+            publisher_signature: plan.package().publisher_signature.clone(),
             board: plan.board().family.clone(),
             board_revision: plan.board().revision.clone(),
             route: plan.route().clone(),
+            helper: plan.helper_identity().clone(),
             transport: transport_label(&observation.transport),
             processor: observation.hardware.processor.clone(),
             flash_size: observation.hardware.flash_size,
@@ -85,6 +101,7 @@ impl FlashReceipt {
             stages,
             result,
             application,
+            manual_check: None,
         }
     }
 
@@ -155,7 +172,13 @@ mod tests {
                 package_id: "test".into(),
                 display_name: "Test".into(),
                 version: "1".into(),
-                sha256: "a".repeat(64),
+                parts: vec![PackagePartIdentity {
+                    kind: crate::FirmwarePartKind::Application,
+                    offset: None,
+                    byte_length: 1,
+                    sha256: "a".repeat(64),
+                }],
+                publisher_signature: None,
             },
             BoardSelection::owner_confirmed(BoardFamily::HeltecV4, "4.2"),
             FlashRoute::EspRom,
@@ -192,7 +215,7 @@ mod tests {
             }],
         );
         let json = receipt.to_json().unwrap();
-        assert!(json.contains("package_sha256"));
+        assert!(json.contains("package_parts"));
         assert!(!json.contains("private-key-material"));
         assert!(!json.contains("status_reply"));
     }

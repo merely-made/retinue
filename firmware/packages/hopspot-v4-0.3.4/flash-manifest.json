@@ -1,0 +1,257 @@
+{
+  "schema": 2,
+  "release": {
+    "version": "0.3.4",
+    "channel": "stable",
+    "commit": "fba40b292422d04614f4fbeb7427bac1a12fc8d5"
+  },
+  "signing": {
+    "key_id": "1BF5C4D8B140811A"
+  },
+  "targets": [
+    {
+      "board_slug": "heltec-v4",
+      "display_name": "Heltec LoRa 32 V4 (S3R2)",
+      "silicon": "ESP32-S3R2 + SX1262 (Quad PSRAM)",
+      "interfaces": [
+        "Wi-Fi Auto",
+        "TCP Client",
+        "BLE Auto",
+        "LoRa",
+        "ESP-NOW",
+        "USB Auto"
+      ],
+      "transport": "esp-serial",
+      "expected_chip": "esp32s3",
+      "flash_size": 16777216,
+      "flash_mode": "dio",
+      "flash_frequency": "40m",
+      "before_reset": "usb-reset",
+      "after_reset": "watchdog-reset",
+      "preparation_profile": "esp-usb-boot",
+      "parts": [
+        {
+          "kind": "bootloader",
+          "path": "firmware/hopspot/heltec-v4/0.3.4/bootloader.bin",
+          "offset": 0,
+          "size": 21056,
+          "sha256": "8a516bf82000501f129eb8bf7cd04ec6a33edb09487890beefe90989d806990d"
+        },
+        {
+          "kind": "partition-table",
+          "path": "firmware/hopspot/heltec-v4/0.3.4/partition-table.bin",
+          "offset": 32768,
+          "size": 3072,
+          "sha256": "e187b5a94e4423b42a5d41a02fd39ce1d89dd65c6c2241c14e9ec9786247a9a4"
+        },
+        {
+          "kind": "application",
+          "path": "firmware/hopspot/heltec-v4/0.3.4/application.bin",
+          "offset": 65536,
+          "size": 1703312,
+          "sha256": "c029b78248c3bd05bde79b82e31160736cddb7f8e1d88ea6b0fdf374c39762b9"
+        }
+      ],
+      "provisioning": {
+        "format": "HSPCFG1",
+        "version": 1,
+        "offset": 53248,
+        "size": 4096,
+        "ssid_max_bytes": 32,
+        "password_max_bytes": 64,
+        "tcp_client": {
+          "target_format": "ipv4-or-dns",
+          "max_clients": 1,
+          "default_port": 4242,
+          "hostname_max_bytes": 253
+        }
+      }
+    },
+    {
+      "board_slug": "heltec-v4-r8",
+      "display_name": "Heltec LoRa 32 V4 (S3R8)",
+      "silicon": "ESP32-S3R8 + SX1262 (Octal PSRAM)",
+      "interfaces": [
+        "Wi-Fi Auto",
+        "TCP Client",
+        "BLE Auto",
+        "LoRa",
+        "ESP-NOW",
+        "USB Auto"
+      ],
+      "transport": "esp-serial",
+      "expected_chip": "esp32s3",
+      "flash_size": 16777216,
+      "flash_mode": "dio",
+      "flash_frequency": "40m",
+      "before_reset": "usb-reset",
+      "after_reset": "watchdog-reset",
+      "preparation_profile": "esp-usb-boot",
+      "parts": [
+        {
+          "kind": "bootloader",
+          "path": "firmware/hopspot/heltec-v4-r8/0.3.4/bootloader.bin",
+          "offset": 0,
+          "size": 21056,
+          "sha256": "8a516bf82000501f129eb8bf7cd04ec6a33edb09487890beefe90989d806990d"
+        },
+        {
+          "kind": "partition-table",
+          "path": "firmware/hopspot/heltec-v4-r8/0.3.4/partition-table.bin",
+          "offset": 32768,
+          "size": 3072,
+          "sha256": "e187b5a94e4423b42a5d41a02fd39ce1d89dd65c6c2241c14e9ec9786247a9a4"
+        },
+        {
+          "kind": "application",
+          "path": "firmware/hopspot/heltec-v4-r8/0.3.4/application.bin",
+          "offset": 65536,
+          "size": 1704000,
+          "sha256": "bb11f3dbac1b6046b4cfe1f20c9cd227268538baa27bf74362d281fd129d0116"
+        }
+      ],
+      "provisioning": {
+        "format": "HSPCFG1",
+        "version": 1,
+        "offset": 53248,
+        "size": 4096,
+        "ssid_max_bytes": 32,
+        "password_max_bytes": 64,
+        "tcp_client": {
+          "target_format": "ipv4-or-dns",
+          "max_clients": 1,
+          "default_port": 4242,
+          "hostname_max_bytes": 253
+        }
+      }
+    },
+    {
+      "board_slug": "t-beam-supreme",
+      "display_name": "LilyGO T-Beam Supreme",
+      "silicon": "ESP32-S3 + SX1262 + AXP2101",
+      "interfaces": [
+        "Wi-Fi Auto",
+        "TCP Client",
+        "BLE Auto",
+        "LoRa",
+        "ESP-NOW",
+        "USB Auto"
+      ],
+      "transport": "esp-serial",
+      "expected_chip": "esp32s3",
+      "flash_size": 8388608,
+      "flash_mode": "dio",
+      "flash_frequency": "40m",
+      "before_reset": "usb-reset",
+      "after_reset": "watchdog-reset",
+      "preparation_profile": "esp-usb-boot",
+      "parts": [
+        {
+          "kind": "bootloader",
+          "path": "firmware/hopspot/t-beam-supreme/0.3.4/bootloader.bin",
+          "offset": 0,
+          "size": 21056,
+          "sha256": "3ceb2d848e9ef19fbdca032dc3eca91531096ec90bb35ba9a36ad42199bf8314"
+        },
+        {
+          "kind": "partition-table",
+          "path": "firmware/hopspot/t-beam-supreme/0.3.4/partition-table.bin",
+          "offset": 32768,
+          "size": 3072,
+          "sha256": "756fe6408bcd13b07449cbe6928b23ed6ab843df06af397cac283d4074515fd2"
+        },
+        {
+          "kind": "application",
+          "path": "firmware/hopspot/t-beam-supreme/0.3.4/application.bin",
+          "offset": 65536,
+          "size": 1698672,
+          "sha256": "d67e25409a6763777668d6ea40beea4cbb64254e50d662363ddcc02263a7d340"
+        }
+      ],
+      "provisioning": {
+        "format": "HSPCFG1",
+        "version": 1,
+        "offset": 53248,
+        "size": 4096,
+        "ssid_max_bytes": 32,
+        "password_max_bytes": 64,
+        "tcp_client": {
+          "target_format": "ipv4-or-dns",
+          "max_clients": 1,
+          "default_port": 4242,
+          "hostname_max_bytes": 253
+        }
+      }
+    },
+    {
+      "board_slug": "xiao-esp32-c6",
+      "display_name": "Seeed XIAO ESP32-C6",
+      "silicon": "ESP32-C6",
+      "interfaces": [
+        "ESP-NOW",
+        "BLE Auto",
+        "USB Auto"
+      ],
+      "transport": "esp-serial",
+      "expected_chip": "esp32c6",
+      "flash_size": 4194304,
+      "flash_mode": "dio",
+      "flash_frequency": "40m",
+      "before_reset": "default-reset",
+      "after_reset": "hard-reset",
+      "preparation_profile": "esp-usb-boot",
+      "parts": [
+        {
+          "kind": "bootloader",
+          "path": "firmware/hopspot/xiao-esp32-c6/0.3.4/bootloader.bin",
+          "offset": 0,
+          "size": 22592,
+          "sha256": "baae2c3e0bcf76156aa06b5e3cbed1a5450cad0fc21646930f10853212755e8a"
+        },
+        {
+          "kind": "partition-table",
+          "path": "firmware/hopspot/xiao-esp32-c6/0.3.4/partition-table.bin",
+          "offset": 32768,
+          "size": 3072,
+          "sha256": "2a3622c7efa841673a72fa42127f225d46542a386e0d5aad0544a4179ab904be"
+        },
+        {
+          "kind": "application",
+          "path": "firmware/hopspot/xiao-esp32-c6/0.3.4/application.bin",
+          "offset": 65536,
+          "size": 1442560,
+          "sha256": "ab8a21c19587e5e75da936bab328f2af8f6dce5716d6a0f5d6eccf71b6d71bb8"
+        }
+      ],
+      "provisioning": null
+    },
+    {
+      "board_slug": "t-echo",
+      "display_name": "LilyGO T-Echo",
+      "silicon": "nRF52840 + SX1262",
+      "interfaces": [
+        "BLE Auto",
+        "LoRa",
+        "USB Auto"
+      ],
+      "transport": "uf2-mass-storage",
+      "expected_chip": null,
+      "flash_size": null,
+      "flash_mode": null,
+      "flash_frequency": null,
+      "before_reset": null,
+      "after_reset": null,
+      "preparation_profile": "techo-uf2",
+      "parts": [
+        {
+          "kind": "uf2",
+          "path": "firmware/hopspot/t-echo/0.3.4/t-echo.uf2",
+          "offset": null,
+          "size": 1049088,
+          "sha256": "a96b438550f22cde294d2ce9473dfcdc56eac445a450bba7978ab04950cf26c2"
+        }
+      ],
+      "provisioning": null
+    }
+  ]
+}

@@ -78,7 +78,10 @@ fn v4_observation() -> DeviceObservation {
             loader_route: Some("esp-rom".into()),
             bootloader_usb: None,
         },
-        selected_board: Some(BoardSelection::owner_confirmed(BoardFamily::HeltecV4, "4.2")),
+        selected_board: Some(BoardSelection::owner_confirmed(
+            BoardFamily::HeltecV4,
+            "4.2",
+        )),
         firmware: FirmwareState::Retinue {
             family: BoardFamily::HeltecV4,
         },
@@ -175,18 +178,13 @@ fn the_review_page_shows_every_plan_fact() {
         h.state().refusal,
     );
 
-    let review = h
-        .state()
-        .view()
-        .review
-        .expect("the flow produced a review");
+    let review = h.state().view().review.expect("the flow produced a review");
     h.with_surfaces(|s| {
         for (what, expected) in [
             ("package id", review.package_id.as_str()),
             ("display name", review.display_name.as_str()),
             ("version", review.version.as_str()),
             ("publisher", review.publisher.as_str()),
-            ("payload hash", review.payload_sha256.as_str()),
             ("license", review.license.as_str()),
             ("source url", review.source_url.as_str()),
             ("origin url", review.origin_url.as_str()),
@@ -194,12 +192,25 @@ fn the_review_page_shows_every_plan_fact() {
             ("helper", review.helper.as_str()),
             ("helper license", review.helper_license.as_str()),
             ("helper source", review.helper_source_url.as_str()),
-            ("recovery before write", review.recovery_before_write.as_str()),
-            ("recovery after failure", review.recovery_after_failure.as_str()),
+            (
+                "recovery before write",
+                review.recovery_before_write.as_str(),
+            ),
+            (
+                "recovery after failure",
+                review.recovery_after_failure.as_str(),
+            ),
         ] {
             assert!(
                 genet_probe::text_present(s, expected),
                 "the review page must show the {what}: {expected:?}",
+            );
+        }
+        for part in &review.package_parts {
+            assert!(
+                genet_probe::text_present(s, &part.sha256),
+                "the review page must show each verified artifact hash: {:?}",
+                part.sha256,
             );
         }
         // Ranges are rendered, not summarized away.
@@ -221,10 +232,7 @@ fn approving_reaches_prepare_with_the_before_write_instructions() {
     assert_eq!(h.state().stage(), OwnerStage::PrepareDevice);
     h.with_surfaces(|s| {
         assert!(genet_probe::text_present(s, "Prepare the device"));
-        assert!(genet_probe::text_present(
-            s,
-            "Keep the USB cable attached",
-        ));
+        assert!(genet_probe::text_present(s, "Keep the USB cable attached",));
     });
 }
 
@@ -264,7 +272,11 @@ fn events_progress_the_install_page() {
         });
     });
     assert_eq!(
-        h.state().notes.iter().filter(|n| n.starts_with("Writing ")).count(),
+        h.state()
+            .notes
+            .iter()
+            .filter(|n| n.starts_with("Writing "))
+            .count(),
         1,
     );
     h.with_surfaces(|s| assert!(genet_probe::text_present(s, "(75%)")));
@@ -306,7 +318,10 @@ fn a_recovery_event_shows_the_recovery_context() {
 
     assert_eq!(h.state().stage(), OwnerStage::VerifyOrRecover);
     assert!(h.state().needs_recovery());
-    assert_eq!(h.state().view().result, Some(ReceiptResult::RecoveryRequired));
+    assert_eq!(
+        h.state().view().result,
+        Some(ReceiptResult::RecoveryRequired)
+    );
     h.with_surfaces(|s| {
         assert!(genet_probe::text_present(s, "Recovery required"));
         assert!(genet_probe::text_present(s, "during the transfer"));
@@ -333,6 +348,12 @@ fn controls_activate_by_role_and_label() {
         "the surveyed device row must resolve by its label",
     );
     assert_eq!(h.state().selected_device, Some(0));
+
+    assert!(
+        h.click_on(&Selector::role("button").containing("Use V4 revision 4.2")),
+        "the recognized V4 revision remains an explicit owner choice",
+    );
+    assert_eq!(h.state().board_revision.text(), "4.2");
 
     assert!(
         h.click_on(&Selector::role("button").containing("Use this device")),

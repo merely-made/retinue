@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! Signalman: the radio-management application of the retinue family.
 //!
 //! The signalman sits in the box, sets the routes, works the block sections, and hands out
@@ -22,6 +24,7 @@ pub mod firmware;
 pub use firmware::{
     DeviceCandidate, FirmwareCatalog, FirmwareError, FirmwareInstaller, FirmwareReview,
     FirmwareView, describe_event, event_progress, observe_device, refusal_lines, survey_devices,
+    survey_ports,
 };
 
 /// How long a send waits for a recipient who has not announced yet.

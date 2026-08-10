@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! Linkboy: the firmware and link-update tool of the retinue family.
 //!
 //! A linkboy carried the light that saw travellers through dark streets; this one carries
@@ -36,7 +38,9 @@ pub mod verify;
 
 pub use catalog::{CatalogError, CatalogPackage, CatalogState, PackageIndex};
 pub use device::{BoardSelection, DeviceObservation, DeviceTransport, HardwareFacts};
-pub use discovery::{DiscoveryError, is_first_flash, stock_device, unique_new_port};
+pub use discovery::{
+    DiscoveryError, is_first_flash, needs_esp_rom_probe, stock_device, unique_new_port,
+};
 pub use executor::{
     DeviceFailure, DeviceRunner, ExecutionError, ExecutionStage, FlashEvent, LiveDeviceRunner,
     ProcessFailure, ProcessRunner, SystemProcessRunner, execute_plan,
@@ -44,10 +48,11 @@ pub use executor::{
 pub use flow::{FlowError, OwnerFlow, OwnerStage};
 pub use helper::verify_installed as verify_helper;
 pub use package::{
-    BoardFamily, FlashPackage, FlashRange, FlashRoute, HelperRequirement, ProcessorKind,
-    StateImpact,
+    BoardFamily, FirmwarePartKind, FlashPackage, FlashRange, FlashRoute, HelperRequirement,
+    PackagePart, ProcessorKind, PublisherSignature, PublisherSignatureFormat, StateImpact,
+    VerifiedPackagePart,
 };
-pub use plan::{FlashPlan, Refusal, RefusalReason, plan_flash};
+pub use plan::{FlashPlan, PackagePartIdentity, Refusal, RefusalReason, plan_flash};
 pub use receipt::{ApplicationVerification, FlashReceipt, ReceiptResult};
 pub use verify::{VerificationFailure, verify_application};
 

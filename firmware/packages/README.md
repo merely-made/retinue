@@ -1,18 +1,26 @@
 # Retinue firmware packages
 
-This directory contains Linkboy package manifests, payloads, recovery instructions, and the
-public package index. The index currently lists the two Retinue packages as `partial`. That
-status is intentional: the packages have integrity metadata and recovery guidance, but the
-public installer has not yet produced the required installer and recovery receipts.
+This directory contains Linkboy package manifests, one-file payloads or ordered sparse parts,
+recovery instructions, and the public package index. Every part has its own digest; sparse ESP
+parts also name their write offset. The index currently lists the two Retinue packages as
+`partial`. That status is intentional: the packages have integrity metadata and recovery
+guidance, but the public installer has not yet produced the required installer and recovery
+receipts.
 
 ## Before installing
 
-Use Linkboy's package path so the manifest, payload hash, board facts, flash route, and recovery
-instructions are checked together. The current development slice invokes the pinned helpers
-from `PATH`:
+Use Linkboy's package path so the manifest, every artifact hash, board facts, flash route, and
+recovery instructions are checked together. The current development slice resolves the pinned helpers
+from `PATH` once per install, then keeps that resolved executable for the write:
 
-- Heltec WiFi LoRa 32 V4: `espflash` 4.5.0 through the ESP32-S3 ROM loader.
+- Heltec WiFi LoRa 32 V4: `espflash` 4.5.0 through the ESP32-S3 ROM loader. The current Windows
+  development package also requires its recorded executable SHA-256.
 - Heltec T114: `adafruit-nrfutil` 0.5.3.post16 through serial DFU.
+
+The retained Prns Hopspot V4 package is an external firmware choice, not a Retinue capability
+claim. Its signed channel descriptor and flash manifest are retained with its immutable sparse
+parts. Linkboy verifies every part and preserves the HSPCFG1 provisioning slot, then requires the
+owner to exercise Hopspot's own interface before calling the route proven.
 
 Helper packaging, license review for `adafruit-nrfutil`, and Windows, macOS, and Linux physical
 receipts remain open before this becomes a public cross-platform installer.
@@ -23,6 +31,7 @@ Inspect the catalog and a package before connecting a board:
 linkboy catalog firmware/packages/index.toml
 linkboy inspect firmware/packages/heltec-v4-current.toml
 linkboy inspect firmware/packages/t114-v47.toml
+linkboy inspect firmware/packages/hopspot-v4-0.3.4.toml
 ```
 
 The accepted plan is the only path that may write. Use the board-specific selection when a

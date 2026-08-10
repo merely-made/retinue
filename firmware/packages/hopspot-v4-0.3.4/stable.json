@@ -1,0 +1,7 @@
+{
+  "channel": "stable",
+  "manifest_sha256": "e954ed3a5c94990f5ee2c074d7521e41cec803718d3dafaf123cdf14f0abcf0a",
+  "manifest_url": "https://reticulum.rs/releases/0.3.4/flash-manifest.json",
+  "schema": 1,
+  "version": "0.3.4"
+}

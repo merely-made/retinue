@@ -2,7 +2,7 @@
 //!
 //! Everything a page shows comes from the flow's own projection. The review
 //! page in particular renders `FirmwareReview` field by field: package identity
-//! and version, publisher, payload hash, license and source, origin, board
+//! and version, publisher, every artifact hash and address, license and source, origin, board
 //! revision, route and helper provenance, write and preserved ranges, state
 //! impact, and recovery instructions. None of it is summarized away, because
 //! the whole point of a review page is that the owner can check it.
@@ -99,10 +99,7 @@ fn trail(stage: OwnerStage) -> Child {
             Box::new(
                 el("li", text((*label).to_string()))
                     .attr("class", class)
-                    .attr(
-                        "aria-current",
-                        if i == here { "step" } else { "false" },
-                    ),
+                    .attr("aria-current", if i == here { "step" } else { "false" }),
             )
         })
         .collect();
@@ -156,19 +153,16 @@ fn choose_device(state: &DesktopState) -> Child {
                 button(device.summary(), move |s: &mut DesktopState, _| {
                     s.select_device(index)
                 })
-                .attr(
-                    "class",
-                    if selected { "row selected" } else { "row" },
-                )
+                .attr("class", if selected { "row selected" } else { "row" })
                 .attr("aria-pressed", if selected { "true" } else { "false" })
                 .attr("data-port", device.port.clone()),
             )
         })
         .collect();
     let empty: Child = match state.survey {
-        SurveyState::Unasked => Box::new(
-            el("div", text("Looking for boards…")).attr("class", "empty"),
-        ),
+        SurveyState::Unasked => {
+            Box::new(el("div", text("Looking for boards…")).attr("class", "empty"))
+        }
         SurveyState::Surveyed if state.devices.is_empty() => Box::new(
             el(
                 "div",
@@ -180,6 +174,22 @@ fn choose_device(state: &DesktopState) -> Child {
             .attr("class", "empty"),
         ),
         SurveyState::Surveyed => Box::new(el("div", ()).attr("class", "empty-none")),
+    };
+    // A recognized board can offer its printed revision as an explicit choice.
+    // It is deliberately not a default: the board, not the USB banner, is the
+    // authority for this claim. Free text remains available for every board.
+    let known_revision: Child = match state.device().and_then(|device| device.board.as_deref()) {
+        Some("HeltecV4") => Box::new(
+            button("Use V4 revision 4.2", |s: &mut DesktopState, _| {
+                s.select_board_revision("4.2")
+            })
+            .attr("class", "secondary")
+            .attr(
+                "aria-description",
+                "Select only when 4.2 is printed on the Heltec V4 board.",
+            ),
+        ),
+        _ => Box::new(el("div", ()).attr("class", "empty-none")),
     };
     Box::new(el(
         "div",
@@ -224,6 +234,7 @@ fn choose_device(state: &DesktopState) -> Child {
                         ),
                     )
                     .attr("class", "hint"),
+                    known_revision,
                 ),
             )
             .attr("class", "revision-row"),
@@ -250,14 +261,17 @@ fn choose_device(state: &DesktopState) -> Child {
 fn choose_firmware(state: &DesktopState) -> Child {
     let catalog_note: Child = match (&state.catalog, &state.catalog_error) {
         (_, Some(error)) => Box::new(
-            el("div", text(format!("The package catalog did not verify: {error}")))
-                .attr("class", "empty")
-                .attr("role", "alert"),
+            el(
+                "div",
+                text(format!("The package catalog did not verify: {error}")),
+            )
+            .attr("class", "empty")
+            .attr("role", "alert"),
         ),
         (Some(_), None) => Box::new(el("div", ()).attr("class", "empty-none")),
-        (None, None) => Box::new(
-            el("div", text("No package catalog is loaded.")).attr("class", "empty"),
-        ),
+        (None, None) => {
+            Box::new(el("div", text("No package catalog is loaded.")).attr("class", "empty"))
+        }
     };
     let rows: Vec<Child> = state
         .catalog
@@ -326,6 +340,20 @@ fn ranges(label: &str, ranges: &[linkboy::FlashRange]) -> Child {
     )
 }
 
+fn part_hashes(parts: &[linkboy::PackagePartIdentity]) -> String {
+    parts
+        .iter()
+        .map(|part| {
+            let address = part
+                .offset
+                .map(|offset| format!(" at {offset:#x}"))
+                .unwrap_or_else(|| " in its container".into());
+            format!("{}{}: {}", part.kind, address, part.sha256)
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn review_changes(state: &DesktopState) -> Child {
     let view = state.view();
     let Some(review) = view.review else {
@@ -333,11 +361,8 @@ fn review_changes(state: &DesktopState) -> Child {
             "div",
             (
                 heading("Review changes", "No approved plan to review."),
-                el(
-                    "div",
-                    text("Choose a device and a firmware package first."),
-                )
-                .attr("class", "empty"),
+                el("div", text("Choose a device and a firmware package first."))
+                    .attr("class", "empty"),
             ),
         ));
     };
@@ -353,18 +378,31 @@ fn review_changes(state: &DesktopState) -> Child {
                 "Review changes",
                 "Exactly what will be written, and what it will cost you.",
             ),
-            el(
-                "div",
-                (
-                    field("Package", format!("{} ({})", review.display_name, review.package_id)),
+            el("div", {
+                let mut fields = vec![
+                    field(
+                        "Package",
+                        format!("{} ({})", review.display_name, review.package_id),
+                    ),
                     field("Version", review.version.clone()),
                     field("Publisher", review.publisher.clone()),
-                    field("Payload SHA-256", review.payload_sha256.clone()),
+                    field("Artifact SHA-256", part_hashes(&review.package_parts)),
                     field("License", review.license.clone()),
                     field("Source", review.source_url.clone()),
                     field("Origin", review.origin_url.clone()),
-                ),
-            )
+                ];
+                if let Some(signature) = &review.publisher_signature {
+                    fields.extend([
+                        field("Publisher signing key", signature.key_id.clone()),
+                        field("Signed manifest", signature.signed_manifest_url.clone()),
+                        field(
+                            "Signed manifest SHA-256",
+                            signature.signed_manifest_sha256.clone(),
+                        ),
+                    ]);
+                }
+                fields
+            })
             .attr("class", "group")
             .attr("aria-label", "Package"),
             el(
@@ -373,7 +411,10 @@ fn review_changes(state: &DesktopState) -> Child {
                     field("Board", review.board.clone()),
                     field("Board revision", review.board_revision.clone()),
                     field("Route", review.route.clone()),
-                    field("Helper", format!("{} {}", review.helper, review.helper_version)),
+                    field(
+                        "Helper",
+                        format!("{} {}", review.helper, review.helper_version),
+                    ),
                     field("Helper license", review.helper_license.clone()),
                     field("Helper source", review.helper_source_url.clone()),
                 ),
@@ -457,9 +498,7 @@ fn install(state: &DesktopState) -> Child {
     let notes: Vec<Child> = state
         .notes
         .iter()
-        .map(|line| -> Child {
-            Box::new(el("li", text(line.clone())).attr("class", "note"))
-        })
+        .map(|line| -> Child { Box::new(el("li", text(line.clone())).attr("class", "note")) })
         .collect();
     let bar: Child = match pct {
         Some(pct) => Box::new(
@@ -510,10 +549,7 @@ fn verify_or_recover(state: &DesktopState) -> Child {
             Box::new(el(
                 "div",
                 (
-                    heading(
-                        "Verified",
-                        "The board came back and said what it is now.",
-                    ),
+                    heading("Verified", "The board came back and said what it is now."),
                     field("Result", "Complete"),
                     field("Running", application),
                     field(
@@ -524,10 +560,10 @@ fn verify_or_recover(state: &DesktopState) -> Child {
                             .unwrap_or_default(),
                     ),
                     field(
-                        "Payload SHA-256",
+                        "Artifact SHA-256",
                         receipt
                             .as_ref()
-                            .map(|r| r.package_sha256.clone())
+                            .map(|r| part_hashes(&r.package_parts))
                             .unwrap_or_default(),
                     ),
                     field(
@@ -537,6 +573,27 @@ fn verify_or_recover(state: &DesktopState) -> Child {
                             .map(|r| format!("{:?} {}", r.board, r.board_revision))
                             .unwrap_or_default(),
                     ),
+                ),
+            ))
+        }
+        Some(ReceiptResult::ManualCheckRequired) => {
+            let instruction = state
+                .receipt()
+                .and_then(|receipt| receipt.manual_check)
+                .unwrap_or_else(|| {
+                    "Use the upstream firmware's documented interface to verify it.".into()
+                });
+            Box::new(el(
+                "div",
+                (
+                    heading(
+                        "Manual check required",
+                        "The verified package transferred, but this firmware has its own interface.",
+                    ),
+                    field("Result", "Manual check required"),
+                    el("div", text(instruction))
+                        .attr("class", "instructions")
+                        .attr("role", "note"),
                 ),
             ))
         }
@@ -554,7 +611,9 @@ fn verify_or_recover(state: &DesktopState) -> Child {
                 .as_ref()
                 .map(|i| i.after_failure.clone())
                 .or_else(|| {
-                    view.review.as_ref().map(|r| r.recovery_after_failure.clone())
+                    view.review
+                        .as_ref()
+                        .map(|r| r.recovery_after_failure.clone())
                 })
                 .unwrap_or_else(|| "No recovery instructions in this package.".into());
             Box::new(el(
@@ -565,7 +624,10 @@ fn verify_or_recover(state: &DesktopState) -> Child {
                         "The board is in a known state and these steps get it back.",
                     ),
                     field("Result", "Recovery required"),
-                    field("What happened", format!("{stage} {detail}").trim().to_string()),
+                    field(
+                        "What happened",
+                        format!("{stage} {detail}").trim().to_string(),
+                    ),
                     el("div", text(instructions))
                         .attr("class", "instructions")
                         .attr("role", "note"),

@@ -146,6 +146,11 @@ impl OwnerFlow {
                 self.recovery = None;
                 self.stage = OwnerStage::VerifyOrRecover;
             }
+            FlashEvent::ManualCheckRequired { receipt } => {
+                self.receipt = Some(receipt.clone());
+                self.recovery = None;
+                self.stage = OwnerStage::VerifyOrRecover;
+            }
             FlashEvent::RecoveryRequired { facts, receipt, .. } => {
                 self.receipt = Some(receipt.clone());
                 self.recovery = Some(facts.clone());
@@ -223,17 +228,19 @@ mod tests {
                 route: crate::package::FlashRoute::EspRom,
                 program: "espflash".into(),
                 version: "4.5.0".into(),
+                binary_sha256: None,
                 license: "MIT OR Apache-2.0".into(),
                 source_url: "https://example.invalid/espflash".into(),
                 notice: "Test".into(),
             }],
-            payload: PackagePayload {
+            payload: Some(PackagePayload {
                 path: "payload".into(),
                 format: PayloadFormat::EspflashElf,
                 byte_length: bytes.len() as u64,
                 sha256: crate::package::sha256_hex(&bytes),
                 write_bytes: bytes.len() as u64,
-            },
+            }),
+            parts: Vec::new(),
             targets: vec![PackageTarget {
                 family: BoardFamily::HeltecV4,
                 revision: "4.2".into(),
@@ -256,6 +263,7 @@ mod tests {
             expected_application: ExpectedApplication {
                 board: BoardFamily::HeltecV4,
                 version: "0.0.1".into(),
+                manual_check: None,
             },
             license: "MPL-2.0".into(),
             notices: "Test".into(),

@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! The window.
 //!
 //! Wiring only. `cambium-genet-winit-host` owns the winit lifecycle, the
@@ -11,7 +13,7 @@ use cambium_genet_winit_host::{AppCtx, HostHooks, HostOptions, Init, run};
 use signalman_desktop::state::DesktopState;
 use signalman_desktop::views::{Child, Logic};
 use signalman_desktop::worker::{FromWorker, Worker};
-use signalman_desktop::{SHEET, default_catalog_path, flow, root};
+use signalman_desktop::{SHEET, default_catalog_path, flow, root, survey};
 
 type Ctx<'a> = AppCtx<'a, DesktopState, Logic, Child>;
 
@@ -66,10 +68,7 @@ fn main() {
     let options = HostOptions {
         title: "Signalman — install firmware".into(),
         initial_logical_size: (960.0, 680.0),
-        size_env: Some((
-            "SIGNALMAN_WIDTH".into(),
-            "SIGNALMAN_HEIGHT".into(),
-        )),
+        size_env: Some(("SIGNALMAN_WIDTH".into(), "SIGNALMAN_HEIGHT".into())),
         ..Default::default()
     };
     run(
@@ -79,7 +78,7 @@ fn main() {
             // The first survey happens before the first frame, so the device
             // page opens with what is actually plugged in rather than with a
             // spinner that resolves a moment later.
-            state.adopt_survey(signalman::survey_devices());
+            state.adopt_survey(survey::devices());
             Init {
                 state,
                 logic: root as Logic,

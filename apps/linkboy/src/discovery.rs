@@ -68,6 +68,25 @@ pub fn is_first_flash(observation: &DeviceObservation) -> bool {
     ) && observation.status_reply.is_none()
 }
 
+/// Whether a V4 observation has enough of a claim to justify the ROM loader's
+/// non-writing board-info probe. A running Retinue V4 has already named its
+/// family; a silent board needs the owner's explicit V4 selection. A serial
+/// location by itself is never enough to reset a board into its loader.
+pub fn needs_esp_rom_probe(observation: &DeviceObservation) -> bool {
+    matches!(
+        observation
+            .selected_board
+            .as_ref()
+            .map(|board| &board.family),
+        Some(crate::package::BoardFamily::HeltecV4)
+    ) || matches!(
+        observation.firmware,
+        FirmwareState::Retinue {
+            family: crate::package::BoardFamily::HeltecV4
+        }
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -173,5 +192,31 @@ mod tests {
             contradictions: Vec::new(),
         };
         assert!(is_first_flash(&observation));
+    }
+
+    #[test]
+    fn a_silent_owner_selected_v4_is_worth_a_loader_probe() {
+        let v4 = DeviceObservation::from_found(&crate::Found {
+            port: "COM7".into(),
+            board: None,
+            banner: String::new(),
+            region: None,
+            channel: None,
+        })
+        .confirm_board(BoardFamily::HeltecV4, "4.2");
+        assert!(needs_esp_rom_probe(&v4));
+
+        let t114 = DeviceObservation::from_found(&crate::Found {
+            port: "COM8".into(),
+            board: None,
+            banner: String::new(),
+            region: None,
+            channel: None,
+        })
+        .confirm_board(BoardFamily::T114, "2.x");
+        assert!(
+            !needs_esp_rom_probe(&t114),
+            "a T114 selection cannot borrow V4 loader evidence"
+        );
     }
 }

@@ -7,7 +7,8 @@ use thiserror::Error;
 
 use crate::device::{BoardSelection, DeviceObservation, FirmwareState};
 use crate::package::{
-    BoardFamily, FlashPackage, FlashRange, FlashRoute, ProcessorKind, StateImpact,
+    BoardFamily, FirmwarePartKind, FlashPackage, FlashRange, FlashRoute, ProcessorKind,
+    PublisherSignature, StateImpact,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -28,7 +29,26 @@ pub struct PackageIdentity {
     pub package_id: String,
     pub display_name: String,
     pub version: String,
+    pub parts: Vec<PackagePartIdentity>,
+    pub publisher_signature: Option<PublisherSignature>,
+}
+
+/// The exact ordered artifacts approved for this device. A plan carries these rather than an
+/// aggregate hash so a sparse write stays inspectable and cannot lose an offset in presentation.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PackagePartIdentity {
+    pub kind: FirmwarePartKind,
+    pub offset: Option<u32>,
+    pub byte_length: u64,
     pub sha256: String,
+}
+
+/// The version and, where supplied, exact executable accepted for the approved write.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HelperIdentity {
+    pub program: String,
+    pub version: String,
+    pub binary_sha256: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -37,7 +57,7 @@ pub struct FlashPlan {
     package: PackageIdentity,
     board: BoardSelection,
     route: FlashRoute,
-    helper: String,
+    helper: HelperIdentity,
     write_ranges: Vec<FlashRange>,
     preserved_ranges: Vec<FlashRange>,
     state_impact: StateImpact,
@@ -67,7 +87,11 @@ impl FlashPlan {
             observation,
             package,
             board,
-            helper: route.helper().into(),
+            helper: HelperIdentity {
+                program: route.helper().into(),
+                version: "test".into(),
+                binary_sha256: None,
+            },
             route,
             write_ranges,
             preserved_ranges,
@@ -96,7 +120,15 @@ impl FlashPlan {
     }
 
     pub fn helper(&self) -> &str {
+        &self.helper.program
+    }
+
+    pub fn helper_identity(&self) -> &HelperIdentity {
         &self.helper
+    }
+
+    pub fn parts(&self) -> &[PackagePartIdentity] {
+        &self.package.parts
     }
 
     pub fn write_ranges(&self) -> &[FlashRange] {
@@ -148,14 +180,19 @@ impl FlashPlan {
                 .join("\n")
         };
         format!(
-            "flash plan\n  device: {device}\n  board: {} revision {}\n  package: {} {}\n  payload sha256: {}\n  route: {}\n  helper: {}\n  write ranges: {}\n  preserved ranges: {}\n  state impact: {}\n  compatibility:\n{facts}\n  warnings:\n{warnings}\n  recovery before write: {}\n  recovery after failure: {}",
+            "flash plan\n  device: {device}\n  board: {} revision {}\n  package: {} {}\n  parts: {}\n  route: {}\n  helper: {}\n  write ranges: {}\n  preserved ranges: {}\n  state impact: {}\n  compatibility:\n{facts}\n  warnings:\n{warnings}\n  recovery before write: {}\n  recovery after failure: {}",
             self.board.family,
             self.board.revision,
             self.package.display_name,
             self.package.version,
-            self.package.sha256,
+            self.package
+                .parts
+                .iter()
+                .map(describe_part)
+                .collect::<Vec<_>>()
+                .join(", "),
             self.route,
-            self.helper,
+            describe_helper(&self.helper),
             describe_ranges(&self.write_ranges),
             describe_ranges(&self.preserved_ranges),
             self.state_impact,
@@ -163,6 +200,25 @@ impl FlashPlan {
             self.recovery_after_failure,
         )
     }
+}
+
+fn describe_helper(helper: &HelperIdentity) -> String {
+    match &helper.binary_sha256 {
+        Some(digest) => format!("{} {} (sha256 {digest})", helper.program, helper.version),
+        None => format!("{} {}", helper.program, helper.version),
+    }
+}
+
+fn describe_part(part: &PackagePartIdentity) -> String {
+    format!(
+        "{} at {} ({} bytes, sha256 {})",
+        part.kind,
+        part.offset
+            .map(|offset| format!("{offset:#x}"))
+            .unwrap_or_else(|| "container layout".into()),
+        part.byte_length,
+        part.sha256,
+    )
 }
 
 fn describe_ranges(ranges: &[FlashRange]) -> String {
@@ -334,10 +390,11 @@ pub fn plan_flash(
         Some(_) => {}
         None => {}
     }
-    if has_protected_overlap(&manifest.write_ranges, &manifest.preserved_ranges) {
+    let write_ranges = manifest.write_ranges();
+    if has_protected_overlap(&write_ranges, &manifest.preserved_ranges) {
         refusals.push(RefusalReason::ProtectedRangeOverlap);
     }
-    for range in &manifest.write_ranges {
+    for range in &write_ranges {
         match range.end() {
             Some(end) if end <= target.flash_size => {}
             Some(end) => refusals.push(RefusalReason::RangeOutsideFlash {
@@ -400,18 +457,35 @@ pub fn plan_flash(
             source: fact_source.into(),
         },
     ];
+    let helper = manifest
+        .helper_for(&target.route)
+        .expect("validated package target has exactly one helper");
     Ok(FlashPlan {
         observation: observation.clone(),
         package: PackageIdentity {
             package_id: manifest.package_id.clone(),
             display_name: manifest.display_name.clone(),
             version: manifest.version.clone(),
-            sha256: manifest.payload.sha256.clone(),
+            parts: package
+                .parts()
+                .iter()
+                .map(|part| PackagePartIdentity {
+                    kind: part.declaration().kind.clone(),
+                    offset: part.declaration().offset,
+                    byte_length: part.declaration().byte_length,
+                    sha256: part.declaration().sha256.clone(),
+                })
+                .collect(),
+            publisher_signature: manifest.publisher_signature.clone(),
         },
         board: board.clone(),
         route: target.route.clone(),
-        helper: target.route.helper().into(),
-        write_ranges: manifest.write_ranges.clone(),
+        helper: HelperIdentity {
+            program: helper.program.clone(),
+            version: helper.version.clone(),
+            binary_sha256: helper.binary_sha256.clone(),
+        },
+        write_ranges,
         preserved_ranges: manifest.preserved_ranges.clone(),
         state_impact: manifest.state_impact.clone(),
         compatibility,
@@ -438,8 +512,8 @@ mod tests {
     use super::*;
     use crate::device::{DeviceTransport, HardwareFacts};
     use crate::package::{
-        ExpectedApplication, FlashPackageManifest, PACKAGE_SCHEMA, PackagePayload, PackageTarget,
-        PayloadFormat, RecoveryInstructions,
+        ExpectedApplication, FirmwarePartKind, FlashPackageManifest, PACKAGE_SCHEMA, PackagePart,
+        PackagePayload, PackageTarget, PayloadFormat, RecoveryInstructions,
     };
 
     fn package() -> FlashPackage {
@@ -454,17 +528,19 @@ mod tests {
                 route: FlashRoute::EspRom,
                 program: "espflash".into(),
                 version: "4.5.0".into(),
+                binary_sha256: None,
                 license: "MIT OR Apache-2.0".into(),
                 source_url: "https://example.invalid/espflash".into(),
                 notice: "Test helper notice".into(),
             }],
-            payload: PackagePayload {
+            payload: Some(PackagePayload {
                 path: "payload".into(),
                 format: PayloadFormat::EspflashElf,
                 byte_length: bytes.len() as u64,
                 sha256: crate::package::sha256_hex(&bytes),
                 write_bytes: bytes.len() as u64,
-            },
+            }),
+            parts: Vec::new(),
             targets: vec![PackageTarget {
                 family: BoardFamily::HeltecV4,
                 revision: "4.2".into(),
@@ -487,6 +563,7 @@ mod tests {
             expected_application: ExpectedApplication {
                 board: BoardFamily::HeltecV4,
                 version: "0.0.1".into(),
+                manual_check: None,
             },
             license: "MPL-2.0".into(),
             notices: "Notices".into(),
@@ -514,17 +591,19 @@ mod tests {
                 route: FlashRoute::AdafruitDfu,
                 program: "adafruit-nrfutil".into(),
                 version: "0.5.3.post16".into(),
+                binary_sha256: None,
                 license: "test".into(),
                 source_url: "https://example.invalid/adafruit-nrfutil".into(),
                 notice: "Test helper notice".into(),
             }],
-            payload: PackagePayload {
+            payload: Some(PackagePayload {
                 path: "payload".into(),
                 format: PayloadFormat::NrfDfuZip,
                 byte_length: bytes.len() as u64,
                 sha256: crate::package::sha256_hex(&bytes),
                 write_bytes: bytes.len() as u64,
-            },
+            }),
+            parts: Vec::new(),
             targets: vec![PackageTarget {
                 family: BoardFamily::T114,
                 revision: "2.x".into(),
@@ -547,6 +626,7 @@ mod tests {
             expected_application: ExpectedApplication {
                 board: BoardFamily::T114,
                 version: "0.0.1".into(),
+                manual_check: None,
             },
             license: "MPL-2.0".into(),
             notices: "Notices".into(),
@@ -560,6 +640,101 @@ mod tests {
             },
         };
         FlashPackage::from_parts(manifest, "manifest", "payload", bytes).unwrap()
+    }
+
+    fn sparse_package() -> FlashPackage {
+        let bootloader = b"bootloader".to_vec();
+        let partition_table = b"partition-table".to_vec();
+        let application = b"application".to_vec();
+        let parts = [
+            (
+                "bootloader.bin",
+                FirmwarePartKind::Bootloader,
+                0,
+                bootloader,
+            ),
+            (
+                "partition-table.bin",
+                FirmwarePartKind::PartitionTable,
+                0x8000,
+                partition_table,
+            ),
+            (
+                "application.bin",
+                FirmwarePartKind::Application,
+                0x10000,
+                application,
+            ),
+        ];
+        let manifest = FlashPackageManifest {
+            schema: PACKAGE_SCHEMA,
+            package_id: "upstream.hopspot-v4".into(),
+            display_name: "Upstream Hopspot for Heltec V4".into(),
+            version: "test".into(),
+            publisher: "Upstream".into(),
+            helpers: vec![crate::package::HelperRequirement {
+                route: FlashRoute::EspRom,
+                program: "esptool".into(),
+                version: "4.8.1".into(),
+                binary_sha256: None,
+                license: "GPL-2.0-or-later".into(),
+                source_url: "https://example.invalid/esptool".into(),
+                notice: "Test helper notice".into(),
+            }],
+            payload: None,
+            parts: parts
+                .iter()
+                .map(|(path, kind, offset, bytes)| PackagePart {
+                    kind: kind.clone(),
+                    path: (*path).into(),
+                    format: PayloadFormat::RawBinary,
+                    offset: Some(*offset),
+                    byte_length: bytes.len() as u64,
+                    sha256: crate::package::sha256_hex(bytes),
+                    write_bytes: bytes.len() as u64,
+                })
+                .collect(),
+            targets: vec![PackageTarget {
+                family: BoardFamily::HeltecV4,
+                revision: "4.2".into(),
+                processor: ProcessorKind::Esp32S3,
+                flash_size: 4 * 1024 * 1024,
+                bootloader: "esp-rom".into(),
+                route: FlashRoute::EspRom,
+            }],
+            write_ranges: Vec::new(),
+            preserved_ranges: vec![FlashRange {
+                start: 0xd000,
+                length: 0x1000,
+            }],
+            regions: vec!["US915".into()],
+            channel_capabilities: vec!["modem".into()],
+            state_impact: StateImpact::Unknown,
+            expected_application: ExpectedApplication {
+                board: BoardFamily::HeltecV4,
+                version: "test".into(),
+                manual_check: None,
+            },
+            license: "MPL-2.0".into(),
+            notices: "Notices".into(),
+            source_revision: "test".into(),
+            source_url: "https://example.invalid/source".into(),
+            origin_url: "https://example.invalid/package".into(),
+            publisher_signature: None,
+            recovery: RecoveryInstructions {
+                before_write: "Keep cable attached.".into(),
+                after_failure: "Use ROM entry.".into(),
+            },
+        };
+        FlashPackage::from_verified_parts(
+            manifest,
+            "manifest",
+            parts
+                .into_iter()
+                .map(|(path, _, _, bytes)| (path.into(), bytes))
+                .collect(),
+        )
+        .unwrap()
     }
 
     fn observation() -> DeviceObservation {
@@ -592,6 +767,22 @@ mod tests {
         assert_eq!(plan.helper(), "espflash");
         assert_eq!(plan.state_impact(), &StateImpact::Preserved);
         assert!(plan.describe().contains("recovery before write"));
+    }
+
+    #[test]
+    fn sparse_package_plan_preserves_every_artifact_and_offset() {
+        let plan = plan_flash(&observation(), &sparse_package()).expect("sparse package plans");
+        assert_eq!(plan.helper(), "esptool");
+        assert_eq!(plan.parts().len(), 3);
+        assert_eq!(
+            plan.parts()
+                .iter()
+                .map(|part| part.offset)
+                .collect::<Vec<_>>(),
+            vec![Some(0), Some(0x8000), Some(0x10000)]
+        );
+        assert_eq!(plan.write_ranges().len(), 3);
+        assert!(plan.describe().contains(&plan.parts()[2].sha256));
     }
 
     #[test]

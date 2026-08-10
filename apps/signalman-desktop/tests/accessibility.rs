@@ -71,7 +71,10 @@ fn has_named_button(nodes: &[(Role, String)], name: &str) -> bool {
 fn every_control_on_the_device_page_has_a_name() {
     let mut h = harness();
     let nodes = announced(&mut h);
-    assert!(has_named_button(&nodes, "COM7"), "the device row: {nodes:?}");
+    assert!(
+        has_named_button(&nodes, "COM7"),
+        "the device row: {nodes:?}"
+    );
     assert!(has_named_button(&nodes, "Rescan"), "{nodes:?}");
     assert!(has_named_button(&nodes, "Use this device"), "{nodes:?}");
     assert!(
@@ -147,15 +150,20 @@ fn the_review_page_and_a_refusal_are_both_announced() {
     let text: String = tree
         .nodes
         .iter()
-        .filter_map(|(_, node)| node.value().map(|v| v.to_string()).or_else(|| node.label().map(|l| l.to_string())))
+        .filter_map(|(_, node)| {
+            node.value()
+                .map(|v| v.to_string())
+                .or_else(|| node.label().map(|l| l.to_string()))
+        })
         .collect::<Vec<_>>()
         .join("\n");
-    for fact in [
-        review.payload_sha256.as_str(),
+    let mut facts = vec![
         review.publisher.as_str(),
         review.helper_license.as_str(),
         review.recovery_after_failure.as_str(),
-    ] {
+    ];
+    facts.extend(review.package_parts.iter().map(|part| part.sha256.as_str()));
+    for fact in facts {
         assert!(
             text.contains(fact),
             "a screen reader can reach {fact:?} on the review page",
@@ -212,7 +220,10 @@ fn observation() -> DeviceObservation {
             loader_route: Some("esp-rom".into()),
             bootloader_usb: None,
         },
-        selected_board: Some(BoardSelection::owner_confirmed(BoardFamily::HeltecV4, "4.2")),
+        selected_board: Some(BoardSelection::owner_confirmed(
+            BoardFamily::HeltecV4,
+            "4.2",
+        )),
         firmware: FirmwareState::Retinue {
             family: BoardFamily::HeltecV4,
         },

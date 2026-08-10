@@ -65,6 +65,16 @@ pub fn survey_devices() -> Vec<DeviceCandidate> {
     let Ok(ports) = linkboy::ports() else {
         return Vec::new();
     };
+    survey_ports(ports)
+}
+
+/// Ask only the named serial ports what they are.
+///
+/// The graphical application normally calls [`survey_devices`]. An owner who
+/// has already selected the physical port can instead use this narrow survey,
+/// which leaves every other serial device alone. The observations remain
+/// Linkboy's; this function only defines the survey set.
+pub fn survey_ports(ports: impl IntoIterator<Item = String>) -> Vec<DeviceCandidate> {
     ports
         .into_iter()
         .map(|port| {
@@ -100,8 +110,11 @@ pub fn observe_device(
 ) -> Result<DeviceObservation, FirmwareError> {
     let found = linkboy::identify(port);
     let mut observation = DeviceObservation::from_found(&found);
-    if matches!(found.board, Some(linkboy::Board::HeltecV4)) {
-        let mut process = linkboy::SystemProcessRunner;
+    if let Some((family, revision)) = selection {
+        observation = observation.confirm_board(family, revision);
+    }
+    if linkboy::needs_esp_rom_probe(&observation) {
+        let mut process = linkboy::SystemProcessRunner::default();
         let facts = linkboy::route::esp_rom::discover(&mut process, port)
             .map_err(|error| FirmwareError::Execution(linkboy::ExecutionError::Process(error)))?;
         observation = observation.with_hardware(linkboy::HardwareFacts {
@@ -111,9 +124,6 @@ pub fn observe_device(
             loader_route: Some("esp-rom".into()),
             bootloader_usb: Some(facts),
         });
-    }
-    if let Some((family, revision)) = selection {
-        observation = observation.confirm_board(family, revision);
     }
     Ok(observation)
 }
@@ -125,9 +135,7 @@ pub fn observe_device(
 /// the owner flow exists to avoid.
 pub fn refusal_lines(error: &FlowError) -> Vec<String> {
     match error {
-        FlowError::Refused(refusal) => {
-            refusal.reasons.iter().map(ToString::to_string).collect()
-        }
+        FlowError::Refused(refusal) => refusal.reasons.iter().map(ToString::to_string).collect(),
         other => vec![other.to_string()],
     }
 }
@@ -156,7 +164,9 @@ pub fn describe_event(event: &FlashEvent) -> Option<String> {
         FlashEvent::VerifyingTransfer => "Verifying what was written".into(),
         FlashEvent::Rebooting => "Rebooting the board".into(),
         FlashEvent::VerifyingApplication => "Asking the board what it is now".into(),
-        FlashEvent::Complete { .. } | FlashEvent::RecoveryRequired { .. } => return None,
+        FlashEvent::Complete { .. }
+        | FlashEvent::ManualCheckRequired { .. }
+        | FlashEvent::RecoveryRequired { .. } => return None,
         FlashEvent::Refused { reasons } => {
             format!(
                 "Refused: {}",
@@ -187,7 +197,8 @@ pub struct FirmwareReview {
     pub display_name: String,
     pub version: String,
     pub publisher: String,
-    pub payload_sha256: String,
+    pub package_parts: Vec<linkboy::PackagePartIdentity>,
+    pub publisher_signature: Option<linkboy::PublisherSignature>,
     pub license: String,
     pub source_url: String,
     pub origin_url: String,
@@ -393,7 +404,8 @@ fn review(plan: &FlashPlan, package: &FlashPackage) -> FirmwareReview {
         display_name: manifest.display_name.clone(),
         version: manifest.version.clone(),
         publisher: manifest.publisher.clone(),
-        payload_sha256: manifest.payload.sha256.clone(),
+        package_parts: plan.parts().to_vec(),
+        publisher_signature: plan.package().publisher_signature.clone(),
         license: manifest.license.clone(),
         source_url: manifest.source_url.clone(),
         origin_url: manifest.origin_url.clone(),

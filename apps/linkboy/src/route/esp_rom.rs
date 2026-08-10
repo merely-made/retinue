@@ -4,6 +4,7 @@ use std::path::Path;
 
 use crate::device::BootloaderObservation;
 use crate::executor::{ProcessFailure, ProcessProgress, ProcessRunner};
+use crate::package::VerifiedPackagePart;
 
 pub(crate) fn command(port: &str, payload: &Path) -> Vec<String> {
     vec![
@@ -14,6 +15,45 @@ pub(crate) fn command(port: &str, payload: &Path) -> Vec<String> {
         "esp32s3".into(),
         payload.display().to_string(),
     ]
+}
+
+/// One `espflash` process per sparse artifact. The first invocation follows the upstream
+/// package's USB-reset entry contract; intermediate parts keep the ROM session alive and only
+/// the final verified part resets the board into its application.
+pub(crate) fn sparse_commands(port: &str, parts: &[VerifiedPackagePart]) -> Vec<Vec<String>> {
+    let last = parts.len().saturating_sub(1);
+    parts
+        .iter()
+        .enumerate()
+        .map(|(index, part)| {
+            let offset = part
+                .declaration()
+                .offset
+                .expect("validated sparse ESP part has a flash offset");
+            vec![
+                "write-bin".into(),
+                "--port".into(),
+                port.into(),
+                "--chip".into(),
+                "esp32s3".into(),
+                "--before".into(),
+                if index == 0 {
+                    "usb-reset".into()
+                } else {
+                    "no-reset".into()
+                },
+                "--after".into(),
+                if index == last {
+                    "watchdog-reset".into()
+                } else {
+                    "no-reset".into()
+                },
+                "--non-interactive".into(),
+                format!("{offset:#x}"),
+                part.path().display().to_string(),
+            ]
+        })
+        .collect()
 }
 
 /// Query the ESP ROM loader and return the board to its application afterward.

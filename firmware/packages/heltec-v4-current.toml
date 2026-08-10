@@ -1,4 +1,4 @@
-schema = 1
+schema = 2
 package_id = "retinue.heltec-v4"
 display_name = "Retinue for Heltec WiFi LoRa 32 V4"
 version = "0.0.1-current"
@@ -16,9 +16,10 @@ origin_url = "https://github.com/merely-made/retinue"
 route = "esp-rom"
 program = "espflash"
 version = "4.5.0"
+binary_sha256 = "768f0adfc71629a1e2e690923dd63d267cbfcd2828c26ac1315f664bca1dffc7"
 license = "MIT OR Apache-2.0"
 source_url = "https://github.com/esp-rs/espflash"
-notice = "See apps/linkboy/NOTICES.md. The helper is external; bundling remains subject to release packaging review."
+notice = "See apps/linkboy/NOTICES.md. This Windows development custody digest is exact; the helper remains external and cross-platform bundling remains subject to release packaging review."
 
 [payload]
 path = "../heltec-v4-phy/tulle-heltec-v4-phy"

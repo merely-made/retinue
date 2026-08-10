@@ -58,7 +58,7 @@ impl Worker {
         let handle = std::thread::Builder::new()
             .name("signalman-installer".into())
             .spawn(move || {
-                let mut process = SystemProcessRunner;
+                let mut process = SystemProcessRunner::default();
                 let mut device = LiveDeviceRunner;
                 let emit_tx = tx.clone();
                 let mut emit = move |event: FlashEvent| {
@@ -114,10 +114,7 @@ impl Worker {
                 }
             }
         }
-        if out
-            .iter()
-            .any(|m| matches!(m, FromWorker::Finished))
-        {
+        if out.iter().any(|m| matches!(m, FromWorker::Finished)) {
             self.channel = None;
         }
         out

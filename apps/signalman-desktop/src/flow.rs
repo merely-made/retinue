@@ -15,7 +15,7 @@ use crate::worker::Worker;
 pub fn perform(state: &mut DesktopState, request: Request, worker: &mut Worker) {
     match request {
         Request::Rescan => {
-            state.adopt_survey(signalman::survey_devices());
+            state.adopt_survey(crate::survey::devices());
         }
         Request::ConfirmDevice => confirm_device(state),
         Request::ConfirmFirmware => confirm_firmware(state),

@@ -309,46 +309,35 @@ is not a T114 receipt.
   custody design is still worth harvesting; the receipt discipline of
   recording the waiver is itself worth harvesting.
 
-## Suggested first harvests, in order
+## Execution lanes
 
-1. **Evidence and provenance boundary:** retain the exact Prns commit, add an
-   itemized donor ledger, prepare the private security report, and update
-   Retinue's declared implementation inputs with the first code port.
-2. **Second live peer** (H8): add pinned Prns to the mixed-runtime matrix before
-   donor work reduces its independence. A receipt records all three pairings
-   against stock RNS 1.4.2.
-3. **First upstream firmware** (H9/H6): admit official Hopspot V4 through the
-   signed Merely index, extend Linkboy from one payload to ordered sparse parts,
-   install it, exercise it, and restore Retinue through the same owner flow.
-4. **FT1 airtime and announce pacing** (H2): extend `tulle::AirtimeBudget`
-   with announce pacing adapted from `AnnouncePacer`, taking the effective
-   interface policy facts as vocabulary; do not import `AirtimeLedger` as a
-   parallel accountant. Close FT1 only with the scaling document's
-   modeled-versus-measured airtime and cap receipt.
-5. **Announce ingress admission** (H1): port the two announce-limit state
-   machines with attribution under a separate ingress-flood receipt.
-6. **Validation hub minimum** (H5): register existing cross-boundary suites,
-   enforce exact-SHA result evidence and orphan detection, then adapt the
-   forbid-by-default unsafe audit. Do not copy Prns's whole 102-suite inventory.
-7. **FS1 fuzz harness shape** (H5): drive Retinue's whole ingest path with
-   deterministic injected entropy and immutable corpus seeds copied to a
-   writable run directory.
-8. **Signed-artifact evaluation** (H7): reproduce the canonical RSG/RSM vectors
-   in Retinue, then decide whether FS2 uses that interoperable carrier or a
-   narrower Retinue-specific envelope. FS2's replay and authorization grammar
-   remains authoritative either way.
-9. **Finish FS6 rather than restart it** (H3/H5): preserve Retinue's existing
-   T114 flood-survival receipt, add TTL and eviction, record memory high-water
-   under sustained flood, and prove transport relaying. Use `StorageLayout` and
-   Lemire indexing as donors only where the live `Node` needs them.
-10. **RAM-delta acceptance gate** (H5): adopt the per-linker-section reserved-RAM
-    ceiling format for Retinue firmware acceptance documents.
+The harvest is splittable. Its execution authority is the
+[Retinue work lanes](2026-08-09_retinue_work_lanes.md), which audits the other
+plans and keeps shared seams from colliding. All lanes first pin the source,
+record donor provenance, preserve an untouched Prns executable, and move the
+security finding into private coordinated disclosure.
 
-Open follow-ups: read `prns-runtime`'s manifold/wake-scheduling model before
-designing the murmuration scheduler's timer story; cross-check the Retinue wire
-reference's O-10 (hops on rebroadcast) against Prns's retransmit path; evaluate
-whether `warmth`/`departed-interface` grace maps onto FT3's beacon design or
-stays Prns-specific. After the interop and upstream-package receipts, reassess
+| Lane | Prns harvests | Immediate sequence |
+| --- | --- | --- |
+| **Peer** | H8 | Run and capture all three pairings before donor work touches the same seam; cross-check O-10. |
+| **Air** | H1-H4, H10 | Extend `tulle::AirtimeBudget` for FT1, add ingress admission, finish firmware FT2/FS6, then close CM1. |
+| **Assurance** | H5, H7 | Establish the validation minimum, whole-ingest fuzzing, and RSG/RSM vectors before settling FS2 and FS3. |
+| **Distribution** | H6, H9 | Sparse signed packages and the V4 Linkboy install/restore landed; settle F5, close graphical G4 and cross-firmware recovery, then admit a T114 upstream. |
+
+The Air lane keeps Retinue's existing airtime budget authoritative; it does not
+import Prns's `AirtimeLedger` as a parallel accountant. It also preserves the
+existing T114 flood receipt and extends it with expiry, eviction, sustained
+memory, and relay evidence.
+
+The Distribution lane cannot close F7 with Hopspot alone because Prns does not
+ship a T114 target. A separate official T114 upstream package is required. The
+Peer lane does not import donor code, and the Assurance lane owns the central
+validation registry to prevent concurrent edits from turning it into a second
+test authority.
+
+Later Air work reads `prns-runtime`'s manifold/wake-scheduling model before the
+murmuration timer design and evaluates whether `warmth`/`departed-interface`
+grace belongs in FT3. After the interop and upstream-package receipts, reassess
 whether Retinue's independent wire engine earns its maintenance through policy,
-footprint, or protocol experimentation. This harvest brief does not settle that
-strategic choice in advance.
+footprint, or protocol experimentation. This brief does not settle that choice
+in advance.

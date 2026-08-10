@@ -1,5 +1,7 @@
 //! Structured execution beneath CLI and graphical faces.
 
+use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
@@ -8,7 +10,8 @@ use thiserror::Error;
 
 use crate::device::DeviceTransport;
 use crate::package::{
-    ExpectedApplication, FlashPackage, FlashRoute, HelperRequirement, RecoveryInstructions,
+    ExpectedApplication, FirmwarePartKind, FlashPackage, FlashRoute, HelperRequirement,
+    PayloadFormat, RecoveryInstructions, VerifiedPackagePart,
 };
 use crate::plan::{FlashPlan, RefusalReason};
 use crate::receipt::{ApplicationVerification, FlashReceipt, ReceiptStage};
@@ -41,7 +44,9 @@ pub trait ProcessRunner {
 }
 
 #[derive(Default)]
-pub struct SystemProcessRunner;
+pub struct SystemProcessRunner {
+    verified_helpers: BTreeMap<String, PathBuf>,
+}
 
 impl ProcessRunner for SystemProcessRunner {
     fn run(
@@ -50,7 +55,12 @@ impl ProcessRunner for SystemProcessRunner {
         args: &[String],
         progress: &mut dyn FnMut(ProcessProgress),
     ) -> Result<ProcessOutput, ProcessFailure> {
-        let output = Command::new(program)
+        let executable = self
+            .verified_helpers
+            .get(program)
+            .cloned()
+            .unwrap_or_else(|| PathBuf::from(program));
+        let output = Command::new(executable)
             .args(args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -85,7 +95,13 @@ impl ProcessRunner for SystemProcessRunner {
     }
 
     fn verify_helper(&mut self, requirement: &HelperRequirement) -> Result<(), ProcessFailure> {
-        crate::helper::verify_installed(self, requirement)
+        let executable = crate::helper::resolve_program(&requirement.program)?;
+        crate::helper::verify_file_digest(&executable, requirement)?;
+        let executable_text = executable.to_string_lossy().into_owned();
+        crate::helper::verify_installed_at(self, requirement, &executable_text)?;
+        self.verified_helpers
+            .insert(requirement.program.clone(), executable);
+        Ok(())
     }
 }
 
@@ -230,6 +246,14 @@ pub enum ProcessFailure {
         expected: String,
         found: String,
     },
+    #[error(
+        "{program} digest mismatch: package requires {expected}, resolved helper hashes to {found}"
+    )]
+    HelperDigestMismatch {
+        program: String,
+        expected: String,
+        found: String,
+    },
 }
 
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
@@ -300,6 +324,9 @@ pub enum FlashEvent {
     Complete {
         receipt: FlashReceipt,
     },
+    ManualCheckRequired {
+        receipt: FlashReceipt,
+    },
     RecoveryRequired {
         facts: RecoveryFacts,
         instructions: RecoveryInstructions,
@@ -314,6 +341,10 @@ pub enum FlashEvent {
 pub enum ExecutionError {
     #[error("execution requires a serial device")]
     UnsupportedTransport,
+    #[error(
+        "this executor cannot write the approved multi-part package; no device was opened or changed"
+    )]
+    UnsupportedPackageLayout,
     #[error("process failed: {0}")]
     Process(#[from] ProcessFailure),
     #[error("device failed: {0}")]
@@ -337,6 +368,7 @@ pub fn execute_plan<P: ProcessRunner, D: DeviceRunner>(
     patience: Duration,
     emit: &mut dyn FnMut(FlashEvent),
 ) -> Result<FlashReceipt, ExecutionError> {
+    let executable = executable_layout(plan, package)?;
     let port = match &plan.observation().transport {
         DeviceTransport::SerialPort(port) => port.clone(),
         DeviceTransport::MountedVolume(_) => return Err(ExecutionError::UnsupportedTransport),
@@ -360,8 +392,8 @@ pub fn execute_plan<P: ProcessRunner, D: DeviceRunner>(
     })?;
     process.verify_helper(helper)?;
 
-    let (bootloader_port, arguments) = match plan.route() {
-        FlashRoute::AdafruitDfu => {
+    let (bootloader_port, commands, command_bytes) = match (plan.route(), executable) {
+        (FlashRoute::AdafruitDfu, ExecutableLayout::Container(part)) => {
             emit(FlashEvent::EnteringBootloader);
             let dfu = device.enter_bootloader(&port, patience).map_err(|error| {
                 recover(
@@ -376,44 +408,73 @@ pub fn execute_plan<P: ProcessRunner, D: DeviceRunner>(
             emit(FlashEvent::Rediscovering);
             (
                 dfu.clone(),
-                adafruit_dfu::command(&dfu, package.payload_path()),
+                vec![adafruit_dfu::command(&dfu, part.path())],
+                vec![part.declaration().write_bytes],
             )
         }
-        FlashRoute::EspRom => (
+        (FlashRoute::EspRom, ExecutableLayout::Container(part)) => (
             port.clone(),
-            esp_rom::command(&port, package.payload_path()),
+            vec![esp_rom::command(&port, part.path())],
+            vec![part.declaration().write_bytes],
         ),
+        (FlashRoute::EspRom, ExecutableLayout::SparseEsp(parts)) => (
+            port.clone(),
+            esp_rom::sparse_commands(&port, parts),
+            parts
+                .iter()
+                .map(|part| part.declaration().write_bytes)
+                .collect(),
+        ),
+        _ => return Err(ExecutionError::UnsupportedPackageLayout),
     };
 
     emit(FlashEvent::Erasing);
     let mut progress_events = Vec::new();
-    let output = process
-        .run(plan.helper(), &arguments, &mut |progress| {
-            progress_events.push(progress)
-        })
-        .map_err(|error| {
-            let write_started = !progress_events.is_empty();
-            if write_started {
-                recover(
-                    plan,
-                    emit,
-                    ExecutionStage::Transfer,
-                    &port,
-                    true,
-                    error.to_string(),
-                )
-            } else {
-                ExecutionError::Process(error)
-            }
-        })?;
+    let total_write_bytes = command_bytes.iter().sum::<u64>();
+    let mut completed_write_bytes = 0;
+    let mut write_started = false;
     let route_progress = match plan.route() {
         FlashRoute::AdafruitDfu => adafruit_dfu::progress,
         FlashRoute::EspRom => esp_rom::progress,
     };
-    for line in output.diagnostics.lines() {
-        if let Some(progress) = route_progress(line) {
-            progress_events.push(progress);
+    for (arguments, part_write_bytes) in commands.iter().zip(command_bytes.iter().copied()) {
+        let mut part_progress = false;
+        let output = process
+            .run(plan.helper(), arguments, &mut |progress| {
+                part_progress = true;
+                progress_events.push(scale_progress(
+                    progress,
+                    completed_write_bytes,
+                    part_write_bytes,
+                    total_write_bytes,
+                ));
+            })
+            .map_err(|error| {
+                if write_started || part_progress {
+                    recover(
+                        plan,
+                        emit,
+                        ExecutionStage::Transfer,
+                        &port,
+                        true,
+                        error.to_string(),
+                    )
+                } else {
+                    ExecutionError::Process(error)
+                }
+            })?;
+        for line in output.diagnostics.lines() {
+            if let Some(progress) = route_progress(line) {
+                progress_events.push(scale_progress(
+                    progress,
+                    completed_write_bytes,
+                    part_write_bytes,
+                    total_write_bytes,
+                ));
+            }
         }
+        write_started = true;
+        completed_write_bytes += part_write_bytes;
     }
     for progress in progress_events {
         emit(FlashEvent::Writing {
@@ -423,6 +484,20 @@ pub fn execute_plan<P: ProcessRunner, D: DeviceRunner>(
     }
     emit(FlashEvent::VerifyingTransfer);
     emit(FlashEvent::Rebooting);
+    if let Some(instruction) = &package.manifest().expected_application.manual_check {
+        let receipt = FlashReceipt::manual_check_required(
+            plan,
+            instruction.clone(),
+            vec![ReceiptStage {
+                name: "manual-check-required".into(),
+                detail: Some("Every package part transferred and verified by the helper.".into()),
+            }],
+        );
+        emit(FlashEvent::ManualCheckRequired {
+            receipt: receipt.clone(),
+        });
+        return Ok(receipt);
+    }
     let application_port = device
         .rediscover_application(&port, &bootloader_port, patience)
         .map_err(|error| {
@@ -478,6 +553,60 @@ pub fn execute_plan<P: ProcessRunner, D: DeviceRunner>(
     Ok(receipt)
 }
 
+enum ExecutableLayout<'a> {
+    Container(&'a VerifiedPackagePart),
+    SparseEsp(&'a [VerifiedPackagePart]),
+}
+
+fn executable_layout<'a>(
+    plan: &FlashPlan,
+    package: &'a FlashPackage,
+) -> Result<ExecutableLayout<'a>, ExecutionError> {
+    match (plan.route(), package.parts()) {
+        (FlashRoute::AdafruitDfu, [part])
+            if matches!(part.declaration().format, PayloadFormat::NrfDfuZip) =>
+        {
+            Ok(ExecutableLayout::Container(part))
+        }
+        (FlashRoute::EspRom, [part])
+            if matches!(part.declaration().format, PayloadFormat::EspflashElf) =>
+        {
+            Ok(ExecutableLayout::Container(part))
+        }
+        (FlashRoute::EspRom, parts)
+            if parts.len() == 3
+                && parts[0].declaration().kind == FirmwarePartKind::Bootloader
+                && parts[1].declaration().kind == FirmwarePartKind::PartitionTable
+                && parts[2].declaration().kind == FirmwarePartKind::Application
+                && parts.iter().all(|part| {
+                    matches!(part.declaration().format, PayloadFormat::RawBinary)
+                        && part.declaration().offset.is_some()
+                }) =>
+        {
+            Ok(ExecutableLayout::SparseEsp(parts))
+        }
+        _ => Err(ExecutionError::UnsupportedPackageLayout),
+    }
+}
+
+fn scale_progress(
+    progress: ProcessProgress,
+    completed: u64,
+    part_total: u64,
+    total: u64,
+) -> ProcessProgress {
+    let written = if progress.total == 0 {
+        0
+    } else {
+        progress.written.saturating_mul(part_total) / progress.total
+    }
+    .min(part_total);
+    ProcessProgress {
+        written: completed + written,
+        total,
+    }
+}
+
 fn recover(
     plan: &FlashPlan,
     emit: &mut dyn FnMut(FlashEvent),
@@ -527,8 +656,8 @@ mod tests {
         BoardSelection, DeviceObservation, EvidenceConfidence, FirmwareState, HardwareFacts,
     };
     use crate::package::{
-        BoardFamily, ExpectedApplication, FlashPackageManifest, FlashRange, PACKAGE_SCHEMA,
-        PackagePayload, PackageTarget, PayloadFormat, StateImpact,
+        BoardFamily, ExpectedApplication, FirmwarePartKind, FlashPackageManifest, FlashRange,
+        PACKAGE_SCHEMA, PackagePart, PackagePayload, PackageTarget, PayloadFormat, StateImpact,
     };
     use crate::plan::{CompatibilityFact, PackageIdentity, PlanWarning};
 
@@ -548,6 +677,29 @@ mod tests {
                 progress(value);
             }
             self.result.clone()
+        }
+    }
+
+    #[derive(Default)]
+    struct RecordingProcess {
+        calls: Vec<Vec<String>>,
+    }
+
+    impl ProcessRunner for RecordingProcess {
+        fn run(
+            &mut self,
+            _program: &str,
+            args: &[String],
+            progress: &mut dyn FnMut(ProcessProgress),
+        ) -> Result<ProcessOutput, ProcessFailure> {
+            self.calls.push(args.to_vec());
+            progress(ProcessProgress {
+                written: 100,
+                total: 100,
+            });
+            Ok(ProcessOutput {
+                diagnostics: "write 100%".into(),
+            })
         }
     }
 
@@ -616,17 +768,19 @@ mod tests {
                     FlashRoute::EspRom => "4.5.0",
                 }
                 .into(),
+                binary_sha256: None,
                 license: "test".into(),
                 source_url: "https://example.invalid/helper".into(),
                 notice: "Test helper notice".into(),
             }],
-            payload: PackagePayload {
+            payload: Some(PackagePayload {
                 path: "payload".into(),
                 format,
                 byte_length: bytes.len() as u64,
                 sha256: crate::package::sha256_hex(&bytes),
                 write_bytes: bytes.len() as u64,
-            },
+            }),
+            parts: Vec::new(),
             targets: vec![PackageTarget {
                 family: family.clone(),
                 revision: revision.into(),
@@ -649,6 +803,7 @@ mod tests {
             expected_application: ExpectedApplication {
                 board: family,
                 version: "0.0.1".into(),
+                manual_check: None,
             },
             license: "MPL-2.0".into(),
             notices: "Notices".into(),
@@ -662,6 +817,101 @@ mod tests {
             },
         };
         FlashPackage::from_parts(manifest, "manifest", "payload", bytes).unwrap()
+    }
+
+    fn sparse_esp_package() -> FlashPackage {
+        let bootloader = b"bootloader".to_vec();
+        let partition_table = b"partition-table".to_vec();
+        let application = b"application".to_vec();
+        let parts = [
+            (
+                "bootloader.bin",
+                FirmwarePartKind::Bootloader,
+                0,
+                bootloader,
+            ),
+            (
+                "partition-table.bin",
+                FirmwarePartKind::PartitionTable,
+                0x8000,
+                partition_table,
+            ),
+            (
+                "application.bin",
+                FirmwarePartKind::Application,
+                0x10000,
+                application,
+            ),
+        ];
+        let manifest = FlashPackageManifest {
+            schema: PACKAGE_SCHEMA,
+            package_id: "upstream.hopspot-v4".into(),
+            display_name: "Upstream Hopspot for Heltec V4".into(),
+            version: "test".into(),
+            publisher: "Upstream".into(),
+            helpers: vec![crate::package::HelperRequirement {
+                route: FlashRoute::EspRom,
+                program: "espflash".into(),
+                version: "4.5.0".into(),
+                binary_sha256: None,
+                license: "MIT OR Apache-2.0".into(),
+                source_url: "https://example.invalid/espflash".into(),
+                notice: "Test helper notice".into(),
+            }],
+            payload: None,
+            parts: parts
+                .iter()
+                .map(|(path, kind, offset, bytes)| PackagePart {
+                    kind: kind.clone(),
+                    path: (*path).into(),
+                    format: PayloadFormat::RawBinary,
+                    offset: Some(*offset),
+                    byte_length: bytes.len() as u64,
+                    sha256: crate::package::sha256_hex(bytes),
+                    write_bytes: bytes.len() as u64,
+                })
+                .collect(),
+            targets: vec![PackageTarget {
+                family: BoardFamily::HeltecV4,
+                revision: "4.2".into(),
+                processor: crate::package::ProcessorKind::Esp32S3,
+                flash_size: 4 * 1024 * 1024,
+                bootloader: "esp-rom".into(),
+                route: FlashRoute::EspRom,
+            }],
+            write_ranges: Vec::new(),
+            preserved_ranges: vec![FlashRange {
+                start: 0xd000,
+                length: 0x1000,
+            }],
+            regions: vec!["US915".into()],
+            channel_capabilities: vec!["modem".into()],
+            state_impact: StateImpact::Unknown,
+            expected_application: ExpectedApplication {
+                board: BoardFamily::HeltecV4,
+                version: "test".into(),
+                manual_check: Some("Exercise the upstream interface.".into()),
+            },
+            license: "MPL-2.0".into(),
+            notices: "Test notices".into(),
+            source_revision: "test".into(),
+            source_url: "https://example.invalid/source".into(),
+            origin_url: "https://example.invalid/package".into(),
+            publisher_signature: None,
+            recovery: RecoveryInstructions {
+                before_write: "Keep the cable attached.".into(),
+                after_failure: "Enter the ROM loader again.".into(),
+            },
+        };
+        FlashPackage::from_verified_parts(
+            manifest,
+            "manifest",
+            parts
+                .into_iter()
+                .map(|(path, _, _, bytes)| (path.into(), bytes))
+                .collect(),
+        )
+        .unwrap()
     }
 
     fn plan(route: FlashRoute) -> FlashPlan {
@@ -701,7 +951,13 @@ mod tests {
                 package_id: "test".into(),
                 display_name: "Test".into(),
                 version: "1".into(),
-                sha256: "a".repeat(64),
+                parts: vec![crate::PackagePartIdentity {
+                    kind: crate::FirmwarePartKind::Application,
+                    offset: None,
+                    byte_length: 1,
+                    sha256: "a".repeat(64),
+                }],
+                publisher_signature: None,
             },
             BoardSelection::owner_confirmed(family, revision),
             route,
@@ -1006,5 +1262,53 @@ mod tests {
         assert_eq!(command[5], "COM9");
         let command = esp_rom::command("COM7", std::path::Path::new("firmware.elf"));
         assert_eq!(command[2], "COM7");
+    }
+
+    #[test]
+    fn sparse_esp_package_writes_every_part_then_requires_its_own_manual_check() {
+        let plan = plan(FlashRoute::EspRom);
+        let package = sparse_esp_package();
+        let mut process = RecordingProcess::default();
+        let mut device = success_device();
+        let mut events = Vec::new();
+        let receipt = execute_plan(
+            &plan,
+            &package,
+            &mut process,
+            &mut device,
+            Duration::from_secs(1),
+            &mut |event| events.push(event),
+        )
+        .expect("a validated sparse package should execute every part");
+        assert_eq!(
+            receipt.result,
+            crate::receipt::ReceiptResult::ManualCheckRequired
+        );
+        assert_eq!(process.calls.len(), 3);
+        assert!(
+            process.calls[0]
+                .windows(2)
+                .any(|pair| pair == ["--before", "usb-reset"])
+        );
+        assert!(
+            process.calls[1]
+                .windows(2)
+                .any(|pair| pair == ["--before", "no-reset"])
+        );
+        assert!(
+            process.calls[2]
+                .windows(2)
+                .any(|pair| pair == ["--after", "watchdog-reset"])
+        );
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, FlashEvent::ManualCheckRequired { .. }))
+        );
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(event, FlashEvent::VerifyingApplication))
+        );
     }
 }

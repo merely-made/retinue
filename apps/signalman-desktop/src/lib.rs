@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! Signalman's desktop face for the owner firmware flow.
 //!
 //! Six pages over Linkboy's owner flow, projected through Signalman, rendered
@@ -17,6 +19,7 @@
 
 pub mod flow;
 pub mod state;
+pub mod survey;
 pub mod theme;
 pub mod views;
 pub mod worker;
@@ -58,6 +61,5 @@ pub fn focused_revision_field(
 /// it is the repository's own package index, which is what the physical
 /// acceptance runs flash from.
 pub fn default_catalog_path() -> std::path::PathBuf {
-    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../firmware/packages/index.toml")
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../firmware/packages/index.toml")
 }

@@ -1,0 +1,38 @@
+{
+  "schema": 3,
+  "package_id": "retinue.heltec-v4",
+  "package_parts": [
+    {
+      "kind": "application",
+      "offset": null,
+      "byte_length": 4192412,
+      "sha256": "7f5680ee0eb9a8d3a68eda62cd7f47b098ecb24f8096ce10d0f536a2d175fa7a"
+    }
+  ],
+  "publisher_signature": null,
+  "board": "heltec-v4",
+  "board_revision": "4.2",
+  "route": "esp-rom",
+  "helper": {
+    "program": "espflash",
+    "version": "4.5.0",
+    "binary_sha256": "768f0adfc71629a1e2e690923dd63d267cbfcd2828c26ac1315f664bca1dffc7"
+  },
+  "transport": "serial:COM7",
+  "processor": "esp32-s3",
+  "flash_size": 16777216,
+  "bootloader": "esp-rom",
+  "stages": [
+    {
+      "name": "application-verified",
+      "detail": null
+    }
+  ],
+  "result": "complete",
+  "application": {
+    "board": "heltec-v4",
+    "version": "0.0.1",
+    "region": "US915",
+    "channel": "rnode"
+  }
+}

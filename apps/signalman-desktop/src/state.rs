@@ -152,8 +152,8 @@ impl DesktopState {
         // kind of "it worked".
         let selected_port = self.device().map(|d| d.port.clone());
         self.devices = devices;
-        self.selected_device = selected_port
-            .and_then(|port| self.devices.iter().position(|d| d.port == port));
+        self.selected_device =
+            selected_port.and_then(|port| self.devices.iter().position(|d| d.port == port));
         self.survey = SurveyState::Surveyed;
         self.refusal.clear();
     }
@@ -164,6 +164,14 @@ impl DesktopState {
             self.selected_device = Some(index);
             self.refusal.clear();
         }
+    }
+
+    /// Adopt a board revision the owner selected from a visible, board-specific
+    /// choice. This is still an owner claim: it neither inspects a port nor
+    /// asks Linkboy to infer a revision from device evidence.
+    pub fn select_board_revision(&mut self, revision: &str) {
+        self.board_revision = cambium::TextInput::new(revision);
+        self.refusal.clear();
     }
 
     /// Select a catalog package by index.
@@ -207,6 +215,12 @@ impl DesktopState {
         }
         match event {
             FlashEvent::Complete { .. } => {
+                self.progress = Some(1.0);
+                self.install_running = false;
+                self.recovery = None;
+                self.recovery_instructions = None;
+            }
+            FlashEvent::ManualCheckRequired { .. } => {
                 self.progress = Some(1.0);
                 self.install_running = false;
                 self.recovery = None;

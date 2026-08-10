@@ -1,0 +1,81 @@
+schema = 2
+package_id = "prns.hopspot.heltec-v4"
+display_name = "Prns Hopspot for Heltec LoRa 32 V4"
+version = "0.3.4"
+publisher = "Prns"
+regions = []
+channel_capabilities = []
+state_impact = "unknown"
+license = "MIT OR Apache-2.0"
+notices = "External Prns firmware. It has its own provisioning and operating interface; Linkboy does not claim Retinue region or channel facts for this package."
+source_revision = "fba40b292422d04614f4fbeb7427bac1a12fc8d5"
+source_url = "https://github.com/KenAKAFrosty/Prns/tree/fba40b292422d04614f4fbeb7427bac1a12fc8d5"
+origin_url = "https://reticulum.rs/releases/channels/stable.json"
+
+[[helpers]]
+route = "esp-rom"
+program = "espflash"
+version = "4.5.0"
+binary_sha256 = "768f0adfc71629a1e2e690923dd63d267cbfcd2828c26ac1315f664bca1dffc7"
+license = "MIT OR Apache-2.0"
+source_url = "https://github.com/esp-rs/espflash"
+notice = "The upstream Hopspot flasher pins espflash 4.5.0. This Windows development package requires the recorded executable SHA-256; the helper remains external."
+
+[[parts]]
+kind = "bootloader"
+path = "hopspot-v4-0.3.4/bootloader.bin"
+format = "raw-binary"
+offset = 0
+byte_length = 21056
+sha256 = "8a516bf82000501f129eb8bf7cd04ec6a33edb09487890beefe90989d806990d"
+write_bytes = 21056
+
+[[parts]]
+kind = "partition-table"
+path = "hopspot-v4-0.3.4/partition-table.bin"
+format = "raw-binary"
+offset = 0x8000
+byte_length = 3072
+sha256 = "e187b5a94e4423b42a5d41a02fd39ce1d89dd65c6c2241c14e9ec9786247a9a4"
+write_bytes = 3072
+
+[[parts]]
+kind = "application"
+path = "hopspot-v4-0.3.4/application.bin"
+format = "raw-binary"
+offset = 0x10000
+byte_length = 1703312
+sha256 = "c029b78248c3bd05bde79b82e31160736cddb7f8e1d88ea6b0fdf374c39762b9"
+write_bytes = 1703312
+
+[[targets]]
+family = "heltec-v4"
+revision = "4.2"
+processor = "esp32-s3"
+flash_size = 16777216
+bootloader = "esp-rom"
+route = "esp-rom"
+
+[[preserved_ranges]]
+start = 0xd000
+length = 0x1000
+
+[expected_application]
+board = "heltec-v4"
+version = "0.3.4"
+manual_check = "Open the serial console at 115200 baud and confirm HOPSPOT_HELTECV4 boot version=0.3.4, OLED initialized, and RNS_ESPNOW interface up. This release may report network_stack=false without configured Wi-Fi; do not claim a SoftAP unless it is separately observed."
+
+[publisher_signature]
+format = "minisign"
+key_id = "1BF5C4D8B140811A"
+signed_manifest_url = "https://reticulum.rs/releases/0.3.4/flash-manifest.json"
+signed_manifest_sha256 = "e954ed3a5c94990f5ee2c074d7521e41cec803718d3dafaf123cdf14f0abcf0a"
+signature = '''untrusted comment: signature from minisign secret key
+RUQagUCx2MT1GwasUQqN6ytkY0Oj7Q/6G5LKu7YUHECHV/0h63PqNImq1rrIAazfTiQgwWEIN9y8z+MLN1+S9agFICaHLutV3wg=
+trusted comment: prns-release-sha256:e954ed3a5c94990f5ee2c074d7521e41cec803718d3dafaf123cdf14f0abcf0a
+1Rrh8hMHhK0x4BtAJBtyo+vtUcXYULksT37lqFfzMFHcTsP4pE4qN3EMZx1o9EBMa0fqr/oXJsjwegvRHqP2DA==
+'''
+
+[recovery]
+before_write = "Keep the USB cable attached and close other serial tools. This package writes the official bootloader, partition table, and application in order while preserving Prns provisioning at 0xD000..0xE000."
+after_failure = "Re-enter the ESP32-S3 USB ROM loader and retry the same verified package. Do not write the preserved provisioning slot unless the upstream recovery procedure explicitly requires it."

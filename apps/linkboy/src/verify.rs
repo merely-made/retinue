@@ -70,6 +70,7 @@ mod tests {
         ExpectedApplication {
             board: BoardFamily::HeltecV4,
             version: "0.0.1".into(),
+            manual_check: None,
         }
     }
 

@@ -1,7 +1,11 @@
 //! Version-pinned helper discovery for the public package path.
 
+use std::env;
+use std::fs;
+use std::path::{Path, PathBuf};
+
 use crate::executor::{ProcessFailure, ProcessRunner};
-use crate::package::{FlashRoute, HelperRequirement};
+use crate::package::{FlashRoute, HelperRequirement, sha256_hex};
 
 pub fn version_args(route: &FlashRoute) -> Vec<String> {
     match route {
@@ -19,6 +23,82 @@ pub fn verify_installed<P: ProcessRunner>(
         &version_args(&requirement.route),
         &mut |_| {},
     )?;
+    let found = parse_version(&output.diagnostics).ok_or_else(|| {
+        ProcessFailure::HelperVersionMismatch {
+            program: requirement.program.clone(),
+            expected: requirement.version.clone(),
+            found: output.diagnostics.trim().to_string(),
+        }
+    })?;
+    if found != requirement.version {
+        return Err(ProcessFailure::HelperVersionMismatch {
+            program: requirement.program.clone(),
+            expected: requirement.version.clone(),
+            found,
+        });
+    }
+    Ok(())
+}
+
+/// Resolve a helper from an explicit path or the current process PATH once, before an install
+/// begins. The system runner retains the resulting path for its later write command.
+pub fn resolve_program(program: &str) -> Result<PathBuf, ProcessFailure> {
+    let direct = Path::new(program);
+    if direct.is_file() {
+        return Ok(fs::canonicalize(direct).unwrap_or_else(|_| direct.to_path_buf()));
+    }
+
+    let Some(paths) = env::var_os("PATH") else {
+        return Err(ProcessFailure::MissingHelper {
+            program: program.into(),
+        });
+    };
+    for directory in env::split_paths(&paths) {
+        let candidate = directory.join(program);
+        if candidate.is_file() {
+            return Ok(fs::canonicalize(&candidate).unwrap_or(candidate));
+        }
+        #[cfg(windows)]
+        if Path::new(program).extension().is_none() {
+            let executable = candidate.with_extension("exe");
+            if executable.is_file() {
+                return Ok(fs::canonicalize(&executable).unwrap_or(executable));
+            }
+        }
+    }
+    Err(ProcessFailure::MissingHelper {
+        program: program.into(),
+    })
+}
+
+pub fn verify_file_digest(
+    path: &Path,
+    requirement: &HelperRequirement,
+) -> Result<(), ProcessFailure> {
+    let Some(expected) = &requirement.binary_sha256 else {
+        return Ok(());
+    };
+    let bytes = fs::read(path).map_err(|error| ProcessFailure::Failed {
+        program: requirement.program.clone(),
+        diagnostics: format!("cannot read resolved helper {}: {error}", path.display()),
+    })?;
+    let found = sha256_hex(&bytes);
+    if !found.eq_ignore_ascii_case(expected) {
+        return Err(ProcessFailure::HelperDigestMismatch {
+            program: requirement.program.clone(),
+            expected: expected.clone(),
+            found,
+        });
+    }
+    Ok(())
+}
+
+pub fn verify_installed_at<P: ProcessRunner>(
+    process: &mut P,
+    requirement: &HelperRequirement,
+    executable: &str,
+) -> Result<(), ProcessFailure> {
+    let output = process.run(executable, &version_args(&requirement.route), &mut |_| {})?;
     let found = parse_version(&output.diagnostics).ok_or_else(|| {
         ProcessFailure::HelperVersionMismatch {
             program: requirement.program.clone(),
@@ -81,6 +161,7 @@ mod tests {
             route,
             program: "helper".into(),
             version: version.into(),
+            binary_sha256: None,
             license: "test".into(),
             source_url: "https://example.invalid/helper".into(),
             notice: "test".into(),
@@ -113,5 +194,22 @@ mod tests {
             verify_installed(&mut process, &expected),
             Err(ProcessFailure::HelperVersionMismatch { .. })
         ));
+    }
+
+    #[test]
+    fn helper_digest_must_match_the_package() {
+        let path =
+            std::env::temp_dir().join(format!("linkboy-helper-digest-{}", std::process::id()));
+        std::fs::write(&path, b"expected helper").unwrap();
+        let mut expected = requirement(FlashRoute::EspRom, "4.5.0");
+        expected.binary_sha256 = Some(sha256_hex(b"expected helper"));
+        assert!(verify_file_digest(&path, &expected).is_ok());
+
+        expected.binary_sha256 = Some(sha256_hex(b"other helper"));
+        assert!(matches!(
+            verify_file_digest(&path, &expected),
+            Err(ProcessFailure::HelperDigestMismatch { .. })
+        ));
+        std::fs::remove_file(path).unwrap();
     }
 }

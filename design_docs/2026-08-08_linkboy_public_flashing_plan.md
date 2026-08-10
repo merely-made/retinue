@@ -1,7 +1,13 @@
 # Linkboy public flashing plan
 
 **Date:** 2026-08-08  
-**Status:** proposed trunk and sidequests
+**Status:** F1-F4 software slices landed; physical/public acceptance remains
+open where each gate requires it. F5 is open. Signalman G0-G3 landed and G4 has
+a physical keyboard-operated V4 install receipt; V4 recovery, T114, and manual
+screen-reader acceptance remain open. F7 is in progress: Linkboy installed,
+exercised, and restored a signed Prns V4 package, while the graphical
+cross-firmware restore and a T114 upstream package remain open. Sidequests
+remain unstarted unless a later receipt says otherwise.
 
 ## Outcome
 

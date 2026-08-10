@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! The signal box, as a terminal.
 //!
 //! ```text
