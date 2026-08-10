@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! retinue — an endpoint-scoped implementation of the
 //! [Reticulum](https://reticulum.network/) protocol.
 //!

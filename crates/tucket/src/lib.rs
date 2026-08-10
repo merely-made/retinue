@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! Tucket: MeshCore interop for the retinue radio family.
 //!
 //! Node management and text interop with MeshCore mesh networks, as a sibling

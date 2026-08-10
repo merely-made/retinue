@@ -1,5 +1,6 @@
 #![no_std]
 #![no_main]
+#![deny(unsafe_op_in_unsafe_fn)]
 
 use core::fmt::Write as _;
 

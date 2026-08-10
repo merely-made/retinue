@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://retinue.dev/validation/result.schema.json",
+  "title": "Retinue exact-commit validation result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "suite_id",
+    "status",
+    "revision",
+    "manifest_sha256",
+    "command",
+    "started_at",
+    "duration_ms",
+    "exit_code",
+    "worktree_clean_before",
+    "worktree_clean_after",
+    "tool_versions",
+    "stdout_sha256",
+    "stderr_sha256"
+  ],
+  "properties": {
+    "format": { "const": "retinue.validation.result.v1" },
+    "suite_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+    "status": { "enum": ["passed", "failed"] },
+    "revision": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "manifest_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "command": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string" }
+    },
+    "started_at": { "type": "string", "format": "date-time" },
+    "duration_ms": { "type": "integer", "minimum": 0 },
+    "exit_code": { "type": "integer" },
+    "worktree_clean_before": { "const": true },
+    "worktree_clean_after": { "const": true },
+    "tool_versions": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "stdout_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "stderr_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

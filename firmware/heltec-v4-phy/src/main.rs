@@ -1,5 +1,6 @@
 #![no_std]
 #![no_main]
+#![deny(unsafe_op_in_unsafe_fn)]
 
 #[cfg(all(feature = "host-uart-low-power", feature = "rf-sleep-proof"))]
 use core::future::{Future, poll_fn};

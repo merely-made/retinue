@@ -98,6 +98,55 @@ jobs:
         with:
           command: check licenses
 
+  # The registry's structural check: every validation asset belongs to a suite, no stale
+  # selectors, no orphans. Cheap, and it is what stops a new capture script or fuzz corpus
+  # entering the tree unaccounted for.
+  validation-registry:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify the validation registry
+        run: python3 validation/run.py verify
+      - name: Audit unsafe policy
+        run: python3 validation/security/unsafe_audit.py
+
+  # Fuzzing runs here rather than on a developer's machine, and the reason is a finding
+  # rather than a preference: cargo-fuzz cannot execute on Windows-MSVC without an ASan
+  # runtime that the nightly toolchain does not ship, so both targets failed to launch and
+  # the suite had never produced a single execution at any commit. Linux has the sanitizer
+  # in-toolchain, so this is where the evidence can actually exist.
+  #
+  # Short budgets: this is a smoke gate proving the targets build, launch, and survive their
+  # own seeds. Long campaigns belong to the scheduled tier, which owns real corpus growth.
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Prove corpus isolation for every target
+        run: |
+          python3 validation/run_fuzz.py --dry-run --seconds 1 --target retinue-node-ingest
+          python3 validation/run_fuzz.py --dry-run --seconds 1 --target outrider-lxmf-decode
+      - name: Fuzz the node ingest path
+        run: python3 validation/run_fuzz.py --seconds 120 --target retinue-node-ingest
+      - name: Fuzz the board LXMF ingress
+        run: python3 validation/run_fuzz.py --seconds 120 --target outrider-lxmf-decode
+      - name: Preserve any crash artifact
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts
+          path: fuzz/artifacts/
+          if-no-files-found: ignore
+
 # The RNS interoperability oracle (crates/retinue/oracle/) needs a Python venv and is
 # not run here; the bytes it produced are checked in under crates/retinue/tests/fixtures/,
 # so the gold tests that pin the wire run in CI against those fixtures with no Python.

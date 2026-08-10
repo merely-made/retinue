@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! Sennet: an independent, permissively licensed mesh radio protocol
 //! implementation in the retinue family.
 //!

@@ -1,0 +1,32 @@
+version = 1
+
+[policy]
+source_roots = ["apps", "crates", "firmware"]
+safe_crate_lint = "#![forbid(unsafe_code)]"
+exception_crate_lint = "#![deny(unsafe_op_in_unsafe_fn)]"
+
+# These four files are the complete first-party unsafe surface at this baseline.
+# Counts are deliberate drift detection: a new unsafe token needs a new reviewed entry.
+[[exception]]
+path = "firmware/t114-phy/src/heap.rs"
+expected_unsafe = 2
+reason = "Fixed allocator initialization is a one-time startup operation before allocations."
+review_by = "2027-08-10"
+
+[[exception]]
+path = "firmware/t114-phy/src/crash.rs"
+expected_unsafe = 9
+reason = "Fault persistence uses the reserved crash section and raw static crash record."
+review_by = "2027-08-10"
+
+[[exception]]
+path = "firmware/t114-phy/src/main.rs"
+expected_unsafe = 1
+reason = "Board startup invokes the allocator exactly once before spawning work."
+review_by = "2027-08-10"
+
+[[exception]]
+path = "firmware/heltec-v4-phy/src/wake_input.rs"
+expected_unsafe = 2
+reason = "The Light-sleep adapter reads and updates its exclusively owned GPIO14 PAC bits."
+review_by = "2027-08-10"

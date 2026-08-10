@@ -1,0 +1,31 @@
+[package]
+name = "retinue-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[workspace]
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+retinue = { path = "../crates/retinue", default-features = false }
+# The board shape on purpose: this target exists to exercise the parser as firmware links
+# it, without rmpv or the host delivery machinery behind it.
+outrider = { path = "../crates/outrider", default-features = false }
+
+[[bin]]
+name = "retinue-node-ingest"
+path = "fuzz_targets/retinue_node_ingest.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "outrider-lxmf-decode"
+path = "fuzz_targets/outrider_lxmf_decode.rs"
+test = false
+doc = false
+bench = false

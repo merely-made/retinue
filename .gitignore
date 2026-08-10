@@ -1,4 +1,10 @@
 /target
+# Exact-commit validation records are local evidence artifacts.  A record is
+# valid only for the clean commit it names, so it is never source-controlled.
+/validation/results/
+/validation/**/__pycache__/
+/fuzz/target/
+/fuzz/artifacts/
 # `apps/signalman-desktop` roots its own workspace (it is `exclude`d from this
 # one), so its build directory is a second `target/` the root-anchored rule
 # above does not cover.

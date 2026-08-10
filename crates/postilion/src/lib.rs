@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! Postilion: the shared radio-host library of the retinue family.
 //!
 //! A postilion rides mounted on the lead horse, guiding the team from inside the motive

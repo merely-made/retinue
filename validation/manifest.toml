@@ -1,0 +1,109 @@
+version = 1
+
+# This is an inventory and evidence registry, not a second assertion suite.
+# Assertions remain in the Rust tests, oracle scripts, and hardware procedures
+# that own them.  Discovery is deliberately derived from Git so that adding a
+# new manifest or capture helper cannot silently evade the ledger.
+[discovery]
+owned_manifest_globs = [
+    "Cargo.toml",
+    "apps/*/Cargo.toml",
+    "crates/*/Cargo.toml",
+    "firmware/*/Cargo.toml",
+]
+validation_asset_globs = [
+    "validation/*.py",
+    "validation/*.json",
+    "validation/security/*.py",
+    "validation/security/*.toml",
+    "fuzz/Cargo.toml",
+    "fuzz/Cargo.lock",
+    "fuzz/fuzz_targets/*.rs",
+    # Per-target seed directories. Globbed by wildcard rather than named one by one, so a
+    # new target's corpus cannot enter the tree unregistered -- which is exactly what the
+    # first addition after this glob was written did.
+    "fuzz/seeds/*/*",
+    "testing/*.py",
+    "crates/retinue/oracle/*.py",
+    "crates/outrider/oracle/*.py",
+    "crates/sennet/capture/*.py",
+]
+
+[[suite]]
+id = "validation-tool"
+tier = "pr"
+command = ["python3", "validation/run.py", "self-test"]
+asset_globs = ["validation/*.py", "validation/*.json"]
+
+[[suite]]
+id = "first-party-unsafe-policy"
+tier = "pr"
+command = ["python3", "validation/security/unsafe_audit.py"]
+asset_globs = ["validation/security/*.py", "validation/security/*.toml"]
+
+[[suite]]
+id = "retinue-node-ingest-fuzz"
+tier = "scheduled"
+command = ["python3", "validation/run_fuzz.py", "--seconds", "900"]
+asset_globs = ["fuzz/Cargo.toml", "fuzz/Cargo.lock", "fuzz/fuzz_targets/*.rs", "fuzz/seeds/retinue-node-ingest/*", "validation/run_fuzz.py"]
+
+# The board's LXMF ingress. Separate from the node target because it is a different
+# trust boundary: this parser runs on firmware with a kilobyte-scale stack, and the bytes
+# it reads are chosen by a stranger. Its bounds on nesting depth and container counts are
+# new and have never been attacked by anything but hand-written cases.
+[[suite]]
+id = "outrider-lxmf-decode-fuzz"
+tier = "scheduled"
+command = ["python3", "validation/run_fuzz.py", "--target", "outrider-lxmf-decode", "--seconds", "900"]
+asset_globs = ["fuzz/Cargo.toml", "fuzz/Cargo.lock", "fuzz/fuzz_targets/*.rs", "fuzz/seeds/outrider-lxmf-decode/*", "validation/run_fuzz.py"]
+
+[[suite]]
+id = "host-workspace"
+tier = "pr"
+command = ["cargo", "test"]
+
+[[suite]]
+id = "retinue-sans-io"
+tier = "pr"
+command = ["cargo", "test", "-p", "retinue", "--no-default-features"]
+
+[[suite]]
+id = "sennet-tucket-sans-io"
+tier = "pr"
+command = ["cargo", "test", "-p", "sennet", "-p", "tucket", "--no-default-features"]
+
+[[suite]]
+id = "t114-firmware"
+tier = "pr"
+command = ["cargo", "build", "-p", "tulle-t114-phy", "--release", "--target", "thumbv7em-none-eabihf"]
+
+[[suite]]
+id = "outrider-sans-io"
+tier = "pr"
+command = ["cargo", "build", "-p", "outrider", "--no-default-features", "--target", "thumbv7em-none-eabihf"]
+
+[[suite]]
+id = "retinue-rns-live-oracle"
+tier = "local"
+command = ["python3", "-u", "crates/retinue/oracle/run_live.py"]
+asset_globs = ["crates/retinue/oracle/*.py"]
+
+[[suite]]
+id = "outrider-lxmf-live-oracle"
+tier = "local"
+command = ["python3", "-u", "crates/outrider/oracle/interop_propagation_stock.py"]
+asset_globs = ["crates/outrider/oracle/*.py"]
+
+[[suite]]
+id = "sennet-capture-tooling"
+tier = "local"
+command = ["python3", "-u", "crates/sennet/capture/capture_airmsg.py"]
+asset_globs = ["crates/sennet/capture/*.py"]
+
+# This is a physical serial bridge helper, not an executable validation suite.
+# It is intentionally registered as an expiring exemption rather than silently
+# disappearing from the derived asset inventory.
+[[asset_exemption]]
+path = "testing/rnode_host.py"
+reason = "Physical RNode bridge helper; board receipt owns execution."
+expires = "2026-11-01"

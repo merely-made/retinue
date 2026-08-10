@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! Outrider: LXMF as a boundary crate in the retinue family.
 //!
 //! An outrider rides ahead of or beside the party to scout the road and carry

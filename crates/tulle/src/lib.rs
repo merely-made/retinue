@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! Tulle: the shared radio interface layer for LoRa mesh stacks.
 //!
 //! Tulle is the seam between protocol stacks and radio hardware: RNode serial
