@@ -84,7 +84,9 @@ doubles as cover traffic.
 policy must be channel-aware, because a murmuration node carries traffic across
 mesh boundaries as its job. What it re-injects after a visit passes the same
 refusal policy as any border relay, or every visitor punches a hole in island
-containment.
+containment. The authorization complement (signed command envelopes that make
+a visit auth-neutral no matter what bearer carried it) is the
+[field node security posture](2026-08-09_field_node_security_posture.md).
 
 **6. A visit is a store-and-forward window.** The mere boundary doc already
 rules that reconciliation splits by transport class, with the constrained tier
@@ -92,10 +94,14 @@ reduced to store-and-forward entry shipping. A dwell window is exactly that
 shape: a bounded slot with a known per-channel MDU, into which the scheduler
 bin-packs queued entries. Grants-as-data makes the payloads legal end to end,
 since a signed grant is valid however it arrived, including via a thirty-second
-Meshtastic visit.
+Meshtastic visit. The delivery machinery partly exists: outrider's un-stamped
+opportunistic delivery already passes both directions on hardware
+([acceptance](2026-07-28_outrider_opportunistic_delivery.md)), and a visit
+window is a scheduled occasion for exactly that opportunism.
 
 **7. Visits are honest citizenship, abbreviated.** The Meshtastic done
-conditions (modem research doc) stand: a visitor observes CSMA, waits for the
+conditions ([modem research doc](2026-07-19_modem_embedded_and_meshtastic_research.md))
+stand: a visitor observes CSMA, waits for the
 implicit ACK, retries on miss. The right posture is the mute-client role:
 transmit, confirm, decline relay duty it cannot honor, leave. On the home side,
 RNS links are stateful, so dwell windows must fit inside link keepalive
@@ -172,3 +178,11 @@ design rule 2: it waits on logged demand from CM2 through CM5 deployments.
   switching, but queue depth still leaks through visit utilization to an
   observer counting frames on both meshes. Whether padding is worth its
   airtime.
+- Regulatory posture of deliberate retuning: the
+  [collision mitigation notes](2026-07-24_lora_collision_mitigation_ideas.md)
+  flag that deliberate hopping can move a device under FCC 15.247's
+  frequency-hopping rules (channel count, minimum dwell). Second-scale
+  protocol-level retuning is a scanner's behavior rather than FHSS modulation,
+  but the question interacts with the region-locked-firmware posture
+  ([FCC reselling doc](2026-07-20_fcc_reselling_flashed_radios.md)) and should
+  be answered before murmuration ships in a sold unit.

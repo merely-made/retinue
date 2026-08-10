@@ -26,6 +26,12 @@ replay. Survivable on a Pi, fatal at the microcontroller tier.
    expiry, bounded path table with LRU eviction. All three are in the spec and
    absent from Retinue. The airtime cap is the highest-value single change in the
    project.
+   *(Code check, 2026-08-09: partly stale as written. The host tier already has
+   path TTL, a bounded table with dead-first-then-stalest eviction, and a
+   `paths_evicted` stat (`crates/retinue/src/endpoint.rs`), and tulle carries a
+   transmit airtime budget. FT2 below is substantially met on the host; still
+   open are announce-specific rate caps and the firmware-tier table story on
+   256 KB parts.)*
 2. **Existing hooks, used hard.** Boundary and gateway interface modes already
    change announce propagation. Islands announcing densely inward and
    summarizing outward is the shipped hierarchy primitive, underused.

@@ -23,7 +23,7 @@ section 0 says so, and stand where it does not.
 ## 0. What the oracle settled (2026-07-13)
 
 These are `[O]` facts: observed from bytes RNS actually emitted, or from independent
-recomputation against them. They outrank every `[M]`, `[B]`, `[X]` and `[I]` claim below.
+recomputation against them. They outrank every `[M]`, `[B]`, `[X]`, `[I]`, and `[P]` claim below.
 
 **Ratchets are carried in the announce, and the Context Flag signals them.** A
 ratchet-enabled destination inserts a 32-byte X25519 public key **between `rand_hash` and
@@ -196,6 +196,12 @@ notes. Where it is wrong, the fix goes here first and into code second.
   are no [O] facts in this document yet.
 - **Independent recomputation** by me, from allowed sources, with `hashlib` +
   `cryptography`. Cited as **[X]**.
+- **Prns** (MIT/Apache Rust implementation, pinned commit in the
+  [harvest brief](2026-08-09_prns_harvest_brief.md)), read freely, added
+  2026-08-09. Cited as **[P]** with `file:line`. Current, actively
+  interop-tested against stock RNS 1.4.2, and canonical-vector-tested; ranks
+  above [B] as byte-level evidence, below [O]. A [P] claim is another
+  implementation's reading, not observed stock behavior.
 - **Inference** by me on top of the above. Cited as **[I]**. An [I] claim is a hypothesis,
   not a fact, and is never a basis for shipping without a fixture.
 
@@ -514,6 +520,15 @@ diagram is neutral (`[HASH1][HASH2]`). It is corroborated internally by the pack
 covers only the *destination* and would otherwise not be stable across hops. Still: a swapped
 order silently yields garbage destinations on every forwarded packet. Open question O-9.
 
+> **Second-implementation corroboration, 2026-08-09 [P].** Prns parses the
+> type-2 header as `[flags][hops][transport_id:16][destination:16][context]`,
+> transport id first, destination second (`prns-core/src/wire/header.rs`, parse
+> splits the transport chunk off before the address; the struct doc diagram
+> states the same layout). This is a current, interop-tested implementation
+> agreeing with Beechat, which lifts O-9 from [B]-only to [B]+[P]. Still short
+> of a stock on-air capture, so O-9 stays formally open, but the swapped-order
+> risk is now low.
+
 **After IFAC unmasking, every offset shifts by N when the IFAC flag is set.**
 On the carrier, the two header bytes and the packet body are masked; only the
 inserted code at bytes `2..2+N` remains directly visible. Beechat never parses IFAC at all
@@ -559,6 +574,24 @@ Max 128 (`PATHFINDER_M`) [M] [B]. **Who increments it, and when, is not establis
 Beechat's `create_retransmit_packet` (`transport.rs:610-626`, which does `hops + 1`) is
 **dead code with no callers**. The crate's only live repeat path (`transport.rs:667-670`)
 re-broadcasts the received packet **verbatim**, hops untouched. Open question O-10.
+
+> **Second-implementation evidence, 2026-08-09 [P].** Prns (pinned commit in the
+> [harvest brief](2026-08-09_prns_harvest_brief.md)) increments **at ingest, on
+> the receiving node, before any routing decision**:
+> `prns-core/src/routing/ingress/classification/mod.rs:146` does
+> `header.hops.saturating_add(1)` on every inbound packet, the stored announce
+> carries the incremented count, and rebroadcast re-emits it with the payload
+> byte-exact (tested: `stored.hops == header.hops + 1`, plus a round-trip
+> assert that a rebroadcast must not re-emit a signature-broken packet). The
+> reach boundary confirms the model: wire hops 127 is accepted as distance 128
+> (`PATHFINDER_M`), wire hops 128 is ignored and learns no route
+> (`routing/ingress/announce.rs`,
+> `received_hops_are_incremented_so_the_reach_boundary_matches_pathfinder_m`).
+> Local-client interfaces adjust separately (the hop-0 local override). So the
+> wire value means "hops taken by the sender"; each receiver's own distance is
+> wire + 1, and Beechat's live verbatim path reads as divergent, not
+> normative. Not yet confirmed against the Python reference on air; O-10 stays
+> formally open until a stock capture shows a forwarded packet's hops byte.
 
 The hops byte is excluded from the packet hash, which is what makes the hash stable across
 the network.
@@ -716,7 +749,8 @@ plus an explicit degenerate-key check if we want that property. Low-priority ora
 Beechat: `SHA256(32 random bytes)[0..10]` ([B] `hash.rs:48-56`, `destination.rs:246-247`).
 [M]: "a random blob, making each new announce unique." To a verifier the field is opaque, so
 signature interop is unaffected either way, but RNS may give it internal structure (a timestamp
-component used for de-duplication or ordering). O-10.
+component used for de-duplication or ordering). O-20. *(Was mis-tagged O-10 until 2026-08-09;
+O-10 is hop-count semantics, and its now-partial answer says nothing about this field.)*
 
 #### 3.3.5 Receiver validation
 
@@ -1290,8 +1324,8 @@ Ranked by blast radius: how badly a wrong guess hurts, and how silently.
 | **O-6** | **Link MDU.** `link.get_mdu()` on a fresh link over a 500-MTU interface: 415, 431, or something else? Then send a plaintext of exactly that length and one byte more. | Wastes 4% of every packet, or overflows the MTU on the last hop. Also settles whether the block-quantisation model is real. This is v0-plan Lesson 7. |
 | **O-7** | **Does RNS ratchet on links at all?** [M] frames ratcheting as a link-*less*, per-destination feature, so we expect no. If the link request or link KDF touches a ratchet key, section 3.4.4 is wrong. | Rewrites the whole link crypto section. Cheap to ask early. |
 | **O-8** | **Ratchet selection on receive.** How does a receiver know which of up to 512 retained ratchet keys a link-less packet used: trial decryption with HMAC check, or an explicit id on the wire? | Blocks link-less encrypted packets to a ratcheting destination. Not needed for R0-R3. |
-| **O-9** | **Type-2 address order.** In a transport-forwarded packet, is the transport id the first 16-byte field and the destination the second? The signature covers the destination, so getting it backwards makes every relayed announce fail. Run the oracle as a transport node and capture a forwarded announce; the destination field is identifiable (it must match the known announcer). | Garbage destinations on every forwarded packet. |
-| **O-10** | **Hop-count semantics.** Who increments, and when relative to the forwarding decision? Is a packet arriving with hops >= 128 dropped? (1.3.8's changelog mentions a fixed hop-count serialization error on transport.) | Beechat's evidence here is dead code. Endpoint-only impact is modest, but decode must be right. |
+| **O-9** | **Type-2 address order.** In a transport-forwarded packet, is the transport id the first 16-byte field and the destination the second? The signature covers the destination, so getting it backwards makes every relayed announce fail. Run the oracle as a transport node and capture a forwarded announce; the destination field is identifiable (it must match the known announcer). **Corroborated [B]+[P] 2026-08-09 (see §3.2.1 note): Prns also parses transport-first. Risk now low; awaiting stock capture to close.** | Garbage destinations on every forwarded packet. |
+| **O-10** | **Hop-count semantics.** Who increments, and when relative to the forwarding decision? Is a packet arriving with hops >= 128 dropped? (1.3.8's changelog mentions a fixed hop-count serialization error on transport.) **Answered by second-implementation evidence 2026-08-09 (see §3.2.3 [P] note): receiver increments at ingest; 128-on-wire is ignored. Awaiting stock on-air capture to close.** | Beechat's evidence here is dead code. Endpoint-only impact is modest, but decode must be right. |
 | **O-11** | **TCP: does RNS send any bytes on connect, in either direction, before the first frame?** Point RNS's `TCPClientInterface` at a dumb hexdumping listener and record every byte from `accept()`. Is byte 0 `0x7E`? | A preamble is invisible to a resynchronising decoder, so "it works" proves nothing. If it exists, we must emit it. |
 | **O-12** | **What are the "internal reliability and recovery mechanisms" that `kiss_framing` disables between a TCP client and server?** In-band bytes, or local reconnect logic? Kill the connection mid-frame, let RNS reconnect, diff the bytes against a clean connection. | If in-band, our TCP framing is incomplete and reconnects corrupt the first frame. |
 | **O-13** | **Does RNS drop an announce whose address field != `SHA256(name_hash ‖ identity_hash)[0..16]`?** Hand-craft a correctly-signed announce with an all-zero destination (the signature covers the address, so we can legitimately sign it) and check whether it enters the oracle's path table. | Determines whether address squatting is a real behavior we must mirror. Recompute-and-compare regardless. |

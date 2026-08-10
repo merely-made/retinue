@@ -358,7 +358,10 @@ airtime beside ordinary text and telemetry traffic.
 
 > **Superseded in part (2026-08-01):** the separate *images* below became separate
 > *channels* in one image, selected at boot; see the retinue-small plan's structural
-> decision 4. Each personality's done conditions here are unchanged.
+> decision 4. Each personality's done conditions here are unchanged. Runtime
+> switching between channels is designed in the
+> [channel murmuration doc](2026-08-09_channel_murmuration.md) (2026-08-09), which
+> also inherits this doc's done conditions for visiting foreign channels.
 
 1. **T114:** prove the common crate and separate RNode, Retinue-small, and
    Meshtastic-minimum images. Its nRF52840 has the strongest Embassy path and its

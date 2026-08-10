@@ -261,6 +261,8 @@ existed. One SKU under the stock-hardware user-flash posture.
   a fraction of the complexity, the flash write lands at the reboot boundary
   where writes are already legal, and channel-teardown correctness is
   sidestepped entirely. Hot-switching is a later question if it ever matters.
+  *(It matters: see the [channel murmuration design](2026-08-09_channel_murmuration.md),
+  which takes teardown-correct hot switching as its first gate.)*
 - This supersedes the research doc's board order item 1, "separate RNode,
   Retinue-small, and Meshtastic-minimum images" on the T114: separate
   **channels** in one image, selected at boot. Each channel's *done conditions*

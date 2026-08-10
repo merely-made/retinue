@@ -152,6 +152,15 @@ accordingly:
   flip remotely; nRF52840 (T114, 1MB flash) flips by local reflash only. The
   switch command must arrive over a channel that survives the switch.
 
+  > **Superseded (2026-08-01, again 2026-08-09):** the flip mechanism is no
+  > longer images at all. The retinue-small plan's structural decision 4 made
+  > personalities boot-selected **channels in one image** on both boards
+  > (switch-by-reboot, no A/B partitions, no reflash), and the
+  > [channel murmuration design](2026-08-09_channel_murmuration.md) takes up
+  > runtime switching. The first sentence stands; the mechanism sentences do
+  > not. "The switch command must arrive over a channel that survives the
+  > switch" remains true and is inherited by both successors.
+
 ## Sequencing
 
 None of this is on the critical path for the first sellable unit, which remains
