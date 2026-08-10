@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# Design derived from Prns, github.com/KenAKAFrosty/Prns, Copyright (c) 2026 The Prns
+# Authors, MIT OR Apache-2.0 (MIT elected). The discipline is theirs; no Prns text is
+# copied here. See THIRD_PARTY_NOTICES.md and
+# design_docs/2026-08-10_prns_donor_ledger.md.
 """Run the deterministic Retinue node-ingest corpus in a writable temporary copy."""
 
 from __future__ import annotations

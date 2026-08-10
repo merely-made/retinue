@@ -1,7 +1,11 @@
 # Assurance lane: what passes, and one surface that has never run
 
-**Date:** 2026-08-10. **Lane:** Assurance (ASSURE1, ASSURE2).
-**Status:** ASSURE1 verified. ASSURE2 half-blocked on a platform fact.
+**Date:** 2026-08-10. **Lane:** Assurance (ASSURE1 through ASSURE5).
+**Status:** ASSURE1 and ASSURE2 verified. ASSURE3, ASSURE4, and ASSURE5
+implemented; see [the FS2 carrier decision](2026-08-10_fs2_command_carrier_decision.md)
+and [FS4 custody and FS5 seizure](2026-08-10_fs4_custody_and_fs5_seizure.md).
+The shared source lock is cleared by the
+[Prns donor ledger](2026-08-10_prns_donor_ledger.md).
 
 ## ASSURE1, validation minimum: substantially closed
 
@@ -97,13 +101,29 @@ from.
   had.
 - `validation/manifest.toml`: widened seed glob, new suite.
 
-## Remaining in this lane, not started
+A third target joined later the same day: `retinue-command-accept`, the FS2
+authorization boundary. It asserts three properties rather than only absence of
+panics, because two of them are the gate's actual claims: no command attributed
+to an unallowlisted key is ever accepted, and no command is ever accepted twice.
 
-- **ASSURE3**, reproducing the canonical RNS RSG/RSM vectors independently.
-- **ASSURE4**, the FS2 carrier decision and its implementation, which must land
-  before FS3 so the durable monotonic counter binds a settled command grammar.
-- **ASSURE5**, FS4 process policy and FS5's compromised-node inventory.
+## The rest of the lane
 
-These are design decisions with implementations attached rather than mechanical
-work, and each wants a fresh reading of the security-posture plan that owns the
-FS gates.
+- **ASSURE3, carrier evidence: done.** Six RNS 1.4.2 signed artifacts captured
+  from `rnid` and reproduced byte for byte. Details in
+  [the FS2 carrier decision](2026-08-10_fs2_command_carrier_decision.md).
+- **ASSURE4, command decision: done, and FS2 with it.** The compact Retinue
+  envelope is normative; the signed artifact stays on the host tier. FS3 now has
+  a settled grammar to bind, which is why it was sequenced second.
+- **ASSURE5, custody and seizure: done in software.**
+  [FS4 custody and FS5 seizure](2026-08-10_fs4_custody_and_fs5_seizure.md)
+  supplies the process policy and the release checklist, and FS5's inventory is
+  now an enforced check (`flash-classification`) rather than a paragraph. FS4's
+  physical receipts remain Distribution's.
+- **Shared source lock: cleared.** The
+  [Prns donor ledger](2026-08-10_prns_donor_ledger.md) itemizes every seam with
+  measured overlap figures, elects MIT inbound, and records the disclosure state
+  as owed and unpaid.
+
+What the lane has not produced is on-metal evidence. Every claim here is
+host-side or CI-side. No board has verified a command over RF, and the CI fuzz
+job has not yet run green once.

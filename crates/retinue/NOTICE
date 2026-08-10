@@ -1,0 +1,54 @@
+# Third-party notices
+
+Retinue is licensed under the Mozilla Public License, Version 2.0 (see
+LICENSE).
+
+## Prns
+
+`src/artifact.rs` and `src/msgpack.rs` implement the RNS signed-artifact
+envelope (`.rsg` / `.rsm`). Its layout was read from Prns
+(<https://github.com/KenAKAFrosty/Prns>), a ground-up Rust Reticulum
+implementation, at commit `72b6b30d27cac910ce20d370e1dc711fe9b95955` (v0.3.4).
+Prns is dual-licensed MIT OR Apache-2.0; Retinue elects **MIT**.
+
+The Rust in those two files was written for this crate and shares no text with
+Prns. What was taken is the structure of the envelope: which fields exist, what
+they are named, that the metadata map opens with `signer` and `pubkey`, and
+that the signature covers the encoded envelope rather than the message. That is
+a description of an RNS wire format, and the vectors proving Retinue reproduces
+it were captured independently by running RNS 1.4.2's own `rnid` executable
+(`oracle/capture_signed_artifact.py`).
+
+One verbatim copy exists: `tests/signed_artifact.rs` quotes the 224-byte
+`RNS_RSG` hex constant from Prns's own tests as `PRNS_PUBLISHED_RSG`, so that
+our independently captured vector can be compared against the one Prns
+publishes. It is quoted as evidence about Prns, and it is the only place in
+this crate where Prns's text is reproduced.
+
+The MIT license requires that the original copyright and permission notice be
+retained. It is reproduced in full below and applies to the derived portions
+named above.
+
+---
+
+MIT License
+
+Copyright (c) 2026 The Prns Authors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

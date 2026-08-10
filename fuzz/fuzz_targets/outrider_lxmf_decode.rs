@@ -1,6 +1,11 @@
 #![no_main]
 #![forbid(unsafe_code)]
 
+// Design derived from Prns, github.com/KenAKAFrosty/Prns, Copyright (c) 2026 The Prns
+// Authors, MIT OR Apache-2.0 (MIT elected). The discipline is theirs; no Prns text is
+// copied here. See THIRD_PARTY_NOTICES.md and
+// design_docs/2026-08-10_prns_donor_ledger.md.
+
 use libfuzzer_sys::fuzz_target;
 use outrider::portable::{Payload, decode, encode_payload};
 

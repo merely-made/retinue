@@ -38,9 +38,11 @@ any license, including a proprietary one, but modifications to *these files*
 must be published under the MPL. It is GPL-compatible, so this code combines
 into the GPLv3 firmware images the product ships.
 
-`crates/tucket/NOTICE` records the MIT-licensed MeshCore portions it derives
-from, and `crates/sennet/PROVENANCE.md` records how that implementation was
-built.
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) aggregates what this
+repository derives from. `crates/tucket/NOTICE` records the MIT-licensed
+MeshCore portions it derives from, `crates/retinue/NOTICE` records the
+MIT-licensed Prns portions of the signed-artifact seam, and
+`crates/sennet/PROVENANCE.md` records how that implementation was built.
 
 ## History
 

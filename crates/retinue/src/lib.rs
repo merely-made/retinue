@@ -42,6 +42,12 @@
 //! strictly as a black-box interoperability oracle, run and observed, and the bytes it
 //! emitted are checked in as fixtures under `tests/fixtures/`. See
 //! `design_docs/2026-07-13_rns_wire_format_reference.md`.
+//!
+//! One seam has a third input. The signed-artifact envelope in [`artifact`] had its layout
+//! read from [Prns](https://github.com/KenAKAFrosty/Prns) (MIT OR Apache-2.0, MIT elected),
+//! so this crate no longer has only two implementation inputs. The vectors proving it are
+//! still independent: they were captured by running RNS 1.4.2's own `rnid`. See `NOTICE`
+//! and `design_docs/2026-08-10_prns_donor_ledger.md`.
 
 #![no_std]
 
@@ -54,8 +60,10 @@ extern crate std;
 
 pub mod address_book;
 pub mod announce;
+pub mod artifact;
 pub mod capacity;
 pub mod channel;
+pub mod command;
 pub mod destination;
 #[cfg(feature = "tokio")]
 pub mod endpoint;
@@ -65,6 +73,7 @@ pub mod ifac;
 pub mod iface;
 pub mod link;
 pub mod lossy;
+pub mod msgpack;
 pub mod node;
 pub mod packet;
 pub mod path;

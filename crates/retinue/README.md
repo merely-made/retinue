@@ -96,6 +96,13 @@ implementation was never read — it is used strictly as a black-box oracle, run
 and observed. Wire notes: `design_docs/2026-07-13_rns_wire_format_reference.md`.
 Not affiliated with the Reticulum project.
 
+One seam has a third input. `src/artifact.rs` and `src/msgpack.rs` implement the
+RNS signed-artifact envelope, whose layout was read from
+[Prns](https://github.com/KenAKAFrosty/Prns) (MIT OR Apache-2.0, MIT elected).
+The vectors proving the implementation are independent of it: they were captured
+by running RNS 1.4.2's own `rnid`. See [NOTICE](NOTICE) and
+`design_docs/2026-08-10_prns_donor_ledger.md`.
+
 ## License
 
 Licensed under the Mozilla Public License, Version 2.0 ([LICENSE](LICENSE)).

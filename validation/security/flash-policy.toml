@@ -1,0 +1,114 @@
+# Design derived from Prns, github.com/KenAKAFrosty/Prns, Copyright (c) 2026 The Prns
+# Authors, MIT OR Apache-2.0 (MIT elected). The discipline is theirs; no Prns text is
+# copied here. See THIRD_PARTY_NOTICES.md and
+# design_docs/2026-08-10_prns_donor_ledger.md.
+
+# FS5: what a seized node yields.
+#
+# The security posture's seizure paragraph is a design target, and a target with
+# no check drifts.  This file is the check's other half: every field of the
+# persisted settings record must be classified here before it can ship, and the
+# forbidden patterns below fail a build that tries to put the wrong class of
+# thing on a pole at all.
+#
+# Classifications:
+#
+#   public        Already knowable to anyone within radio range, or from the
+#                 hardware itself.  Costs nothing when seized.
+#   pseudonymous  Identifies this node, and only this node.  Priced in the
+#                 seizure paragraph and revocable by de-listing.
+#   forbidden     Must not exist here.  Listing a field as forbidden fails the
+#                 audit; the entry is how a rejected proposal stays rejected
+#                 instead of being re-proposed later by someone who was not in
+#                 the room.
+
+schema_source = "crates/radio-hand/src/settings.rs"
+schema_struct = "Settings"
+
+[[field]]
+name = "identity"
+classification = "pseudonymous"
+reason = """
+The node's own relay keypair, and the one secret on the board.  This is the
+cost the seizure paragraph already names: an attacker gets one impersonable
+relay until it is de-listed.  It is never an operator identity and never a
+shared fleet identity, which is what keeps the cost to one relay.  On the T114
+assume it is readable: APPROTECT has a voltage-glitch history, so the design
+does not lean on it.
+"""
+
+[[field]]
+name = "channel"
+classification = "public"
+reason = """
+Which personality the board boots into (modem, node, or RNode).  Observable
+from one packet by anyone listening, so storing it costs nothing.
+"""
+
+[[field]]
+name = "region"
+classification = "public"
+reason = """
+The regulatory region, which fixes the band the radio transmits on.  Anyone in
+range already knows it, because they are receiving on that frequency.  It
+narrows location to a continent, which the transmission itself does anyway.
+"""
+
+# Substrings that must never appear in a persisted field name, checked against
+# the settings schema and every board's flash-backed store.  Each is a specific
+# thing the seizure paragraph says lives in signalman on the host instead.
+[forbidden]
+name_patterns = [
+    # Host network credentials.  The V4 is the live risk: it has Wi-Fi, and the
+    # donor project stores its PSK on flash in cleartext.  That is the honest
+    # counterexample the posture rejects, so the pattern lands before the
+    # feature does.
+    "psk",
+    "passphrase",
+    "password",
+    "ssid",
+    "wifi_key",
+    "credential",
+    # Operator identity.  Authorization flows one direction: the node holds
+    # public keys and nothing that authorizes anything.
+    "operator_secret",
+    "operator_private",
+    "signing_key",
+    "private_key",
+    # Site inventory and contacts.
+    "site_name",
+    "site_note",
+    "contact",
+    "address_book",
+    "latitude",
+    "longitude",
+    "owner_name",
+]
+scan_globs = [
+    "crates/radio-hand/src/settings.rs",
+    "crates/radio-hand/src/store.rs",
+    "firmware/t114-phy/src/store.rs",
+    "firmware/heltec-v4-phy/src/store.rs",
+]
+
+# Things that are persisted but are not settings-record fields, enumerated so
+# the seizure inventory is complete rather than only convenient.
+[[adjacent]]
+name = "store record header"
+location = "crates/radio-hand/src/store.rs"
+classification = "public"
+reason = """
+Magic, version, body length, a monotonic sequence, and a CRC-32.  Structural.
+It says a record exists and whether it survived the last write.
+"""
+
+[[adjacent]]
+name = "crash residue"
+location = "firmware/t114-phy/src/crash.rs"
+classification = "public"
+reason = """
+A panic message, a fault address, and a consecutive-crash count, in noinit RAM
+rather than flash: it survives a reset and does not survive power removal, so a
+seized board arrives without it.  The message is a source location and a short
+reason from our own binary, which ships as open source anyway.
+"""

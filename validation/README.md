@@ -1,5 +1,12 @@
 # Retinue validation registry
 
+> Design derived from [Prns](https://github.com/KenAKAFrosty/Prns), Copyright (c)
+> 2026 The Prns Authors, MIT OR Apache-2.0 (MIT elected). The drift-detection
+> discipline, evidence records, tier split, and orphan-asset rule are theirs,
+> reimplemented here; no Prns text is copied. See
+> [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) and
+> `design_docs/2026-08-10_prns_donor_ledger.md`.
+
 `validation/manifest.toml` is a derived inventory of Retinue's cross-boundary
 validation surfaces. It names commands and their owner, but does not duplicate
 test assertions from Cargo tests, live oracles, capture scripts, or physical

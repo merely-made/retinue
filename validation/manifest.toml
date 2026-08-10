@@ -1,3 +1,8 @@
+# Design derived from Prns, github.com/KenAKAFrosty/Prns, Copyright (c) 2026 The Prns
+# Authors, MIT OR Apache-2.0 (MIT elected). The discipline is theirs; no Prns text is
+# copied here. See THIRD_PARTY_NOTICES.md and
+# design_docs/2026-08-10_prns_donor_ledger.md.
+
 version = 1
 
 # This is an inventory and evidence registry, not a second assertion suite.
@@ -41,6 +46,16 @@ tier = "pr"
 command = ["python3", "validation/security/unsafe_audit.py"]
 asset_globs = ["validation/security/*.py", "validation/security/*.toml"]
 
+# FS5. The seizure paragraph is a design target, and a target with no check drifts. This
+# refuses a settings-record field that ships without a public/pseudonymous classification,
+# and fails on any persisted name matching a forbidden pattern. Its report is the flash
+# inventory the paragraph is compared against.
+[[suite]]
+id = "flash-classification"
+tier = "pr"
+command = ["python3", "validation/security/flash_classification.py"]
+asset_globs = ["validation/security/*.py", "validation/security/*.toml"]
+
 [[suite]]
 id = "retinue-node-ingest-fuzz"
 tier = "scheduled"
@@ -56,6 +71,17 @@ id = "outrider-lxmf-decode-fuzz"
 tier = "scheduled"
 command = ["python3", "validation/run_fuzz.py", "--target", "outrider-lxmf-decode", "--seconds", "900"]
 asset_globs = ["fuzz/Cargo.toml", "fuzz/Cargo.lock", "fuzz/fuzz_targets/*.rs", "fuzz/seeds/outrider-lxmf-decode/*", "validation/run_fuzz.py"]
+
+# FS2's authorization boundary. The third distinct trust boundary in the tree, and the one
+# with the most to lose: everything an attacker can reach on a field node arrives here, and
+# the node holds no secret that could authorize anything if they got past it. The target
+# asserts three properties rather than only absence of panics -- no unallowlisted key is ever
+# accepted, no command is ever accepted twice, and every attempt is counted.
+[[suite]]
+id = "retinue-command-accept-fuzz"
+tier = "scheduled"
+command = ["python3", "validation/run_fuzz.py", "--target", "retinue-command-accept", "--seconds", "900"]
+asset_globs = ["fuzz/Cargo.toml", "fuzz/Cargo.lock", "fuzz/fuzz_targets/*.rs", "fuzz/seeds/retinue-command-accept/*", "validation/run_fuzz.py"]
 
 [[suite]]
 id = "host-workspace"

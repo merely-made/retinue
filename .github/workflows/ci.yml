@@ -112,6 +112,10 @@ jobs:
         run: python3 validation/run.py verify
       - name: Audit unsafe policy
         run: python3 validation/security/unsafe_audit.py
+      - name: Audit what a seized node yields
+        run: |
+          python3 validation/security/flash_classification.py --self-test
+          python3 validation/security/flash_classification.py
 
   # Fuzzing runs here rather than on a developer's machine, and the reason is a finding
   # rather than a preference: cargo-fuzz cannot execute on Windows-MSVC without an ASan
@@ -135,10 +139,13 @@ jobs:
         run: |
           python3 validation/run_fuzz.py --dry-run --seconds 1 --target retinue-node-ingest
           python3 validation/run_fuzz.py --dry-run --seconds 1 --target outrider-lxmf-decode
+          python3 validation/run_fuzz.py --dry-run --seconds 1 --target retinue-command-accept
       - name: Fuzz the node ingest path
         run: python3 validation/run_fuzz.py --seconds 120 --target retinue-node-ingest
       - name: Fuzz the board LXMF ingress
         run: python3 validation/run_fuzz.py --seconds 120 --target outrider-lxmf-decode
+      - name: Fuzz the command authorization boundary
+        run: python3 validation/run_fuzz.py --seconds 120 --target retinue-command-accept
       - name: Preserve any crash artifact
         if: failure()
         uses: actions/upload-artifact@v4

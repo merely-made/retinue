@@ -29,3 +29,10 @@ path = "fuzz_targets/outrider_lxmf_decode.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "retinue-command-accept"
+path = "fuzz_targets/retinue_command_accept.rs"
+test = false
+doc = false
+bench = false

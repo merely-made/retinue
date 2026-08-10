@@ -26,6 +26,12 @@ oracle/.venv/
 # Hardware receipts can contain MAC addresses and serial-port observations.
 design_docs/2026-07-28_v4_on_device_ui_acceptance.md
 
+# Coordinated-disclosure records. An upstream security finding's board, source
+# path, reproduction, and impact stay out of a public repository until the
+# maintainer has had a report and a disclosure state is recorded. See
+# design_docs/2026-08-10_prns_donor_ledger.md section 5.
+design_docs/private/
+
 # Station identities. Postilion mints these beside the working directory, so running
 # signalman from the repo root drops one here. They are private keys: never committed.
 *.id
