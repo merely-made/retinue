@@ -1,5 +1,15 @@
 # Channel Murmuration: Runtime Channel Scheduling
 
+> **Framing superseded, 2026-08-10.** The
+> [listener executive and protocol leases](2026-08-10_listener_executive_and_protocol_leases.md)
+> design removes this doc's center: there is no home channel and no visit.
+> The executive's DetectionProfile/ReceiveProfile scan plan is the resident
+> identity, and speaking any protocol is a bounded lease. The design rules and CM ladder
+> below survive translated (mapping in that doc's "What dies, what survives"),
+> and this doc remains their authority read through the lease model. CM1 is
+> absorbed into LE2; CM2 through CM5 carry, with visit schedules read as scan
+> plans and coverage division.
+
 Design doc, 2026-08-09. Lifts the question the
 [retinue-small plan](2026-07-31_retinue_small_plan.md) deliberately deferred.
 Structural decision 4 made personalities boot-selected channels behind the

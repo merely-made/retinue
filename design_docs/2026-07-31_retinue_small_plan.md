@@ -7,14 +7,15 @@ state, RF forwarding survives host attach and detach. `retinue-small` runs:
 the board persists its identity, announces, links, exchanges byte-exact data
 with loss recovery, survives abuse and mid-transfer reboots, and shows its own
 state on its own face. What remains beyond the gates: pressure points 1
-(regulatory floor), 2 (channel citizenship), and the supervised reboot are
-BUILT; pressure point 3
+(regulatory floor), 2 (the historical boot-selected channel machinery), and
+the supervised reboot are BUILT; pressure point 3
 (quiet-window writes) is DISCHARGED by verification rather than machinery, with
-the one gap it exposed closed. Channel citizenship ships built but defaulted
-off, on measurement. The airtime-derived retry floors are BUILT
+the one gap it exposed closed. Boot-selected channel citizenship exists in the
+image but is superseded as product direction by the resident listener
+executive. The airtime-derived retry floors are BUILT
 (`tulle::pacing`) and validated, but did not turn out to be what gates
 citizenship. Still open: cheaper carrier sense or skipping it inside an owned
-turn, and the foreign-mesh channels behind their own gates.
+turn, and the foreign-protocol adapters behind the LE gates.
 **Design authority:**
 [`2026-07-19_modem_embedded_and_meshtastic_research.md`](2026-07-19_modem_embedded_and_meshtastic_research.md)
 (*Native Retinue personality*) supplies the boundary and
@@ -234,6 +235,17 @@ the image, so the byte-identity shortcut is gone and the RF check runs as a
 counted block per the receipt rule below), then the V4's two impls.
 
 ### 4. One image, channels, and the executive (ruled 2026-08-01)
+
+> **Superseded in part, 2026-08-10.** The channel-ownership clause of this
+> decision ("exactly one channel is active" behind `start`/`serve`/`stop`,
+> switch-by-reboot) is superseded by the
+> [listener executive and protocol leases](2026-08-10_listener_executive_and_protocol_leases.md)
+> design: the executive owns the only loop, protocol personalities are
+> adapters holding bounded radio leases, and the board's durable state is the
+> listening plan, never a protocol mode. The one-image ruling, the licensing
+> edge, flash residency, and the trunk guard stand there, translated. This
+> section's reasoning conflated the chip's per-transaction one-profile
+> constraint with a per-boot citizenship; the record below is kept as ruled.
 
 Mark's framing, from game consoles: since shipped images are GPLv3 anyway,
 ship one image whose personalities are runtime-selectable channels, rather

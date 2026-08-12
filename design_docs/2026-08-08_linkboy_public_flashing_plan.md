@@ -425,12 +425,15 @@ The V4 and T114 may need different update designs. A/B is not asserted merely
 because the V4 has more flash, and the current settings A/B record is not an
 application rollback system.
 
-### S4. Authenticated remote channel switching
+### S4. Authenticated remote listener-policy updates
 
-Retinue already keeps modem, native-node, and RNode channels in one image and
-can change the persisted channel locally. Remote switching is management, not
-firmware flashing. It needs authorization, an acknowledgement before reboot,
-a timed fallback when the new channel cannot be reached, and an audit event.
+The resident executive supersedes boot-selected channel switching. Remote
+management may change the enabled ReceiveProfiles, adapter participation
+levels, lease policy, and coverage assignment. It does not put the board into a
+durable Sennet, Tucket, or RNode mode. Such updates need FS2 authorization,
+FS3 replay persistence, an acknowledgement before apply, a bounded fallback
+when the new listening plan cannot be reached, and an audit event. RNode host
+control remains an explicitly exclusive compatibility mode.
 
 ### S5. Browser installer
 

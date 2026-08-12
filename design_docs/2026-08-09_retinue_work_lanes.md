@@ -35,9 +35,13 @@ current plan set sorts as follows.
 | [Signalman Cambium desktop scope](2026-08-09_signalman_cambium_desktop_scope.md) | Active GUI authority. G0 through G3 are complete. G4 has a keyboard-operated physical V4 install receipt; recovery, T114, and manual screen-reader judgment remain. |
 | [Signalman G2 receipt](2026-08-09_signalman_desktop_g2_receipt.md) | Evidence, not a work queue. It proves the headed shell and automated accessibility surface, not a board flash. |
 | [Mesh scaling and asymmetric routing](2026-08-09_mesh_scaling_and_asymmetric_routing.md) | Active network-scaling authority. FT1 through FT5 own airtime, expiry, bidirectionality, ETX, and scope policy. |
-| [Channel murmuration](2026-08-09_channel_murmuration.md) | Active channel-mobility authority. CM1 through CM5 stay serial and consume FT1, FT3, and FT5 facts. |
+| [Channel murmuration](2026-08-09_channel_murmuration.md) | Framing superseded 2026-08-10 by the listener-executive doc; its rules and CM2 through CM5 survive translated and stay serial, consuming FT1, FT3, and FT5 facts. CM1 is absorbed into LE2. |
+| [Listener executive and protocol leases](2026-08-10_listener_executive_and_protocol_leases.md) | Active executive-boundary authority. LE1 through LE5 own the adapter boundary, bounded leases, and the DetectionProfile/ReceiveProfile scan plan; supersedes retinue-small decision 4's channel-ownership clause. |
 | [Field node security posture](2026-08-09_field_node_security_posture.md) | Active security authority. FS1 through FS6 own ingest, command authorization, replay, custody, seizure, and bounded tables. |
 | [Prns harvest brief](2026-08-09_prns_harvest_brief.md) | Active donor and external-peer program. It supplies candidates and evidence; it does not take ownership from FT, CM, FS, Linkboy, or Signalman. |
+| [Assurance lane status](2026-08-10_assurance_lane_status.md), [FS2 carrier decision](2026-08-10_fs2_command_carrier_decision.md), and [FS4/FS5](2026-08-10_fs4_custody_and_fs5_seizure.md) | Current assurance evidence. ASSURE1 and the unsafe audit pass; ASSURE3 through ASSURE5 are complete in software. A first green Linux fuzz run, FS3, on-metal command verification, physical FS4, and disclosure remain open. |
+| [Bluetooth capability scoping](2026-08-11_bluetooth_capability_scoping.md) | Pre-decision candidate lane. LB1 through LB6 do not become active gates until the stack ruling is accepted; LB1 is the only opening hardware risk. |
+| [Civic deployment](2026-08-11_civic_deployment_prescribed_paths.md) | Phase-two program consuming FT/FS/LE/LB facts. CV1 through CV6 and D1 through D5 are not pilot-critical engineering gates. |
 
 The low-power UART personality and first on-device UI design are inputs to the
 Retinue Small and UI ledgers, not separate queues. The 2026-07-21 through
@@ -49,7 +53,7 @@ additional execution lane.
 
 ## Shared source lock
 
-All four lanes may begin once this small common record exists:
+The source lock has four items:
 
 1. Pin Prns at `72b6b30d27cac910ce20d370e1dc711fe9b95955` and record the
    exact RNS 1.4.2 peer version.
@@ -59,8 +63,14 @@ All four lanes may begin once this small common record exists:
 4. Put the security finding in a private disclosure record before publishing
    board, path, reproduction, or impact details.
 
-The shared lock is a provenance and evidence boundary. It does not require a
-board session and should not hold up independent software work.
+Items 1 through 3 are present: the clean oracle checkout remains
+`Code/crates/prns` at the pin, distinct from the working T114 port in
+`Code/repos/Prns` and its current-main adaptation in
+`Code/worktrees/Prns-t114-upstream`. Item 4 is still owed: the donor ledger
+records that no private disclosure record has been sent. This blocks
+publication of the finding and any release claim that the disclosure duty is
+complete; it does not freeze unrelated software or hardware work. Assurance
+owns its closure.
 
 ## Lane 1: Peer
 
@@ -88,32 +98,37 @@ edit the registry concurrently.
 
 ## Lane 2: Air
 
-**Owns:** H1 through H4 and H10; FT1 through FT5; CM1 through CM5; FS6.
-**Primary write surface:** `crates/tulle`, `crates/retinue`, `apps/radio-hand`,
+**Owns:** H1 through H4 and H10; FT1 through FT5; LE1 through LE5 and the
+translated CM2 through CM5; FS6.
+**Primary write surface:** `crates/tulle`, `crates/retinue`, `crates/radio-hand`,
 and board firmware.
 
 Sequence:
 
-1. **AIR1, outbound pressure:** extend `tulle::AirtimeBudget` with
+1. **AIR0, profile model:** keep CAD detection separate from exact packet
+   capture. The executive schedules DetectionProfiles and ReceiveProfiles;
+   shared SF/BW may share a CAD observation, but different sync words require
+   different capture dwell. LE3's proof measures both stages.
+2. **AIR1, outbound pressure:** extend `tulle::AirtimeBudget` with
    announce-specific pacing adapted from Prns's `AnnouncePacer`. Keep the
    existing shared transmission budget authoritative. Close FT1 with modeled
    versus measured airtime and an enforced announce cap on two interfaces.
-2. **AIR2, inbound pressure:** port the interface and destination announce
+3. **AIR2, inbound pressure:** port the interface and destination announce
    admission state machines with attribution and a separate flood receipt.
-3. **AIR3, bounded firmware state:** add route expiry and eviction, then extend
+4. **AIR3, bounded firmware state:** add route expiry and eviction, then extend
    the existing T114 flood receipt with sustained memory high-water and
    transport relay evidence. This completes the still-open firmware portion of
    FT2/FS6 rather than repeating N0 through N6.
-4. **AIR4, hot switching:** close CM1 with teardown-correct retuning and an
-   on-air switch receipt.
-5. **AIR5, measured MAC work:** evaluate Prns's CCA, fairness, and diagnostics
+5. **AIR4, executive boundary:** land LE1 and LE2 (adapter boundary, lease
+   revocation) with an on-air receipt. Absorbs the old CM1 hot-switch gate.
+6. **AIR5, measured MAC work:** evaluate Prns's CCA, fairness, and diagnostics
    against Retinue's current SX1262 path. Port techniques only where Retinue's
    measurements name a real deficit.
 
-After CM1, continue through FT3 bidirectionality, FT4 delivery ratio, and FT5
-scope policy before CM2 through CM5. The CM sequence stays together because
-those gates share the Executive, radio ownership, dwell state, and firmware
-bench. Prns's manifold wake scheduling and `warmth`/`departed-interface` grace
+After LE2, continue through FT3 bidirectionality, FT4 delivery ratio, and FT5
+scope policy before LE3 through LE5 and the translated CM2 through CM5. The
+sequence stays together because those gates share the Executive, radio
+ownership, dwell state, and firmware bench. Prns's manifold wake scheduling and `warmth`/`departed-interface` grace
 belong in that later design pass.
 
 ## Lane 3: Assurance
@@ -123,24 +138,33 @@ disclosure.
 **Primary write surface:** validation tooling, security tests, signed-artifact
 experiments, private disclosure material.
 
-Sequence:
+Current ground truth:
 
-1. **ASSURE1, validation minimum:** inventory existing cross-boundary suites,
-   enforce exact-SHA result records, and detect orphan validation assets. Keep
-   assertions in their owning tests rather than copying Prns's suite list.
-2. **ASSURE2, ingest and unsafe boundaries:** fuzz the whole Retinue ingest
-   path with deterministic entropy and immutable seeds copied to a writable
-   corpus. Add a first-party unsafe-policy audit with an explicit exception
-   list.
-3. **ASSURE3, carrier evidence:** reproduce the canonical RNS RSG/RSM vectors
-   independently in Retinue.
-4. **ASSURE4, command decision:** decide whether FS2 uses the interoperable
-   signed-artifact carrier or a smaller Retinue envelope. Then implement FS2
-   before FS3, because the durable monotonic counter must bind the settled
-   command grammar.
-5. **ASSURE5, custody and seizure:** finish FS4 process policy and FS5's
-   compromised-node inventory. The Distribution lane supplies the physical
-   secure-boot and recovery receipts where installer behavior is involved.
+- **ASSURE1:** validation inventory, orphan detection, and exact-SHA recording
+  pass.
+- **ASSURE2:** the unsafe audit passes and three fuzz targets exist. Windows
+  cannot run them; the Linux CI job exists but has not yet produced a witnessed
+  green campaign receipt.
+- **ASSURE3:** six stock RNS 1.4.2 signed artifacts were reproduced byte for
+  byte.
+- **ASSURE4 / FS2:** the compact Retinue command envelope is implemented. The
+  RNS signed artifact remains a host-tier carrier.
+- **ASSURE5:** custody policy and the enforced seizure inventory exist in
+  software. Physical FS4 remains Distribution evidence.
+
+Next sequence:
+
+1. **ASSURE6, run what exists:** capture the first green Linux fuzz result for
+   all registered targets rather than treating registration as execution.
+2. **FS3, durable replay state:** bind the settled command grammar to the
+   wear-leveled flash counter and prove power-cut monotonicity and erase life.
+   Settle opcode ownership in the same pass.
+3. **Command lifecycle:** write the bootstrap, key-rotation, and last-key
+   revocation ceremony. Then capture an on-metal command over RF; a host-only
+   reboot simulation cannot close that claim.
+4. **Disclosure:** send the private Prns report through its documented security
+   route and record only its state here. Never publish the board/path details
+   from the disclosure record.
 
 The signed artifact is a carrier. Retinue still owns command authorization,
 expiry, target class, replay policy, and key custody. The signed Merely index
@@ -155,8 +179,11 @@ installer and recovery receipts.
 Current ground truth: Linkboy's F1 through F4 software slices and sparse-package
 extension are present; 50 library tests and the retained Prns signature test
 pass. Signalman G0 through G3 have receipts and the V4 keyboard route ran on
-hardware. Public helper policy, graphical recovery, the T114 G4 path, manual
-screen-reader judgment, and the T114 second-publisher package remain open.
+hardware. Linkboy installed, exercised, and restored official Hopspot on V4.
+Official Meshtastic ran on the T114 through a manual UF2 demo, but no admitted
+Linkboy package or graphical restore receipt exists. Public helper policy,
+graphical recovery, the T114 G4 path, manual screen-reader judgment, and the
+T114 second-publisher package remain open.
 
 Sequence:
 
@@ -164,21 +191,20 @@ Sequence:
    conditions. Run the missing structured-executor, as-shipped discovery,
    post-write verification, and recovery receipts on both boards. Keep a gate
    open where its physical claim has not run.
-2. **DIST1, package shape:** extend the immutable package and plan model from a
-   single payload to ordered sparse parts with offsets, individual hashes, and
-   preserved provisioning ranges. Retain Prns's publisher signature as
-   package evidence beneath authorization by the signed Merely index.
+2. **DIST1, package shape: landed.** Ordered sparse parts, per-part offsets and
+   hashes, preserved ranges, and publisher-signature evidence are present.
 3. **DIST2, helper custody:** finish F5 for public installation. Record the
    helper version and digest in every plan and receipt; do not promote the
    current T114 helper until its distribution and recovery policy is settled.
 4. **DIST3, owner route:** rerun G4 on physical V4 and T114 paths, including
    recovery and the manual accessibility judgment.
-5. **DIST4, V4 second publisher:** install official Hopspot on a V4, exercise
-   its expected interface, and restore Retinue through the same graphical
-   flow.
-6. **DIST5, T114 second publisher:** select and admit a separate official T114
-   upstream firmware. Hopspot has no T114 target, so the V4 receipt alone
-   cannot close F7.
+5. **DIST4, V4 second publisher:** Linkboy install/interface/restore is proven.
+   Repeat the cross-firmware restore through Signalman's graphical flow and
+   retain the complete terminal receipt. Record an actual Retichat pairing if
+   the BLE demo is claimed; boot readiness alone is not a phone receipt.
+6. **DIST5, T114 second publisher:** admit the already-observed official
+   Meshtastic T114 UF2 as a signed package, then install and restore Retinue
+   through the graphical flow. The manual demo is candidate evidence, not F7.
 7. **DIST6, optional product consumer:** only after the install and restore
    receipts, decide whether the V4 field gateway should expose browser
    rendezvous to Turnstone.
@@ -202,6 +228,24 @@ test cannot be promoted to that claim.
 
 ## Work outside the four engineering lanes
 
+- **Prns upstream:** the hardware-proven old-base port is preserved in
+  `Code/repos/Prns` as `3939a726` plus `365e0b01`. The current-main adaptation
+  lives in `Code/worktrees/Prns-t114-upstream` as `1e83d23a` plus `855330a1`,
+  split into shared SX1262 correctness and the board target. Its T114 and
+  T-Echo locked builds, T114 clippy, focused radio/USB tests, and validation
+  registry pass. The current-main binary still needs the physical USB/RF
+  receipt before publication; the older UF2 receipt is preserved evidence, not
+  proof of this rebuild. Public signed-flasher admission and multi-node CSMA
+  qualification follow the board contribution. A separate modest proposal may
+  expose one configurable LoRa sync word; Retinue's multi-ReceiveProfile
+  scheduler is not smuggled into Prns with it.
+- **Bluetooth, pre-decision:** if the LB ruling is accepted, LB1 is the opening
+  proof: enable the resident T114 SoftDevice, record RAM, and rerun counted
+  SX1262 receipts. LB2 through LB6 remain gated by that result. BLE transport,
+  BLE firmware update, and LoRa ReceiveProfile scanning are separate claims.
+- **Civic deployment, phase two:** CV1 through CV6 consume measured FT facts.
+  The pilot ships the open mesh and measurement machinery first; prescriptions,
+  emergency precedence, remote shaping, and the atlas do not jump that gate.
 - **Smolweb:** R-A, then R-B, then optional R-C. It can begin independently and
   should not be folded into the Prns harvest.
 - **ARDC:** application writing and submission remain an external lane. The
@@ -216,7 +260,8 @@ This lane split has done its job when:
 
 1. every active engineering gate in this map names exactly one owning lane;
 2. the untouched Prns peer receipt precedes donor work in the same seam;
-3. FT and CM work share one radio-state sequence instead of racing edits;
+3. FT, LE, and translated CM work share one radio-state sequence instead of
+   racing edits;
 4. FS policy remains separate from artifact and installer mechanisms;
 5. F7 has second-publisher install-and-restore receipts on both supported board
    families; and
