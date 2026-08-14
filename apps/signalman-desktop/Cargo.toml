@@ -44,11 +44,11 @@ linkboy = { version = "0.0.1", path = "../linkboy" }
 # revision. A branch dep would make a Signalman build depend on whatever genet
 # happened to have pushed; the exact rev is the reproducible private route the
 # packaging decision calls for. Bump it deliberately, with a receipt.
-cambium = { git = "https://github.com/merely-made/genet.git", rev = "398e4af60" }
-cambium-genet-winit-host = { git = "https://github.com/merely-made/genet.git", rev = "398e4af60" }
-genet-probe = { git = "https://github.com/merely-made/genet.git", rev = "398e4af60" }
-genet-scripted-dom = { git = "https://github.com/merely-made/genet.git", rev = "398e4af60", version = "=0.1.0" }
-layout-dom-api = { git = "https://github.com/merely-made/genet.git", rev = "398e4af60", version = "=0.1.0" }
+cambium = { git = "https://github.com/merely-made/genet.git", rev = "d47a17bf65ceafada26e4c15c9afcce6c18c17f9" }
+cambium-genet-winit-host = { git = "https://github.com/merely-made/genet.git", rev = "d47a17bf65ceafada26e4c15c9afcce6c18c17f9" }
+genet-probe = { git = "https://github.com/merely-made/genet.git", rev = "d47a17bf65ceafada26e4c15c9afcce6c18c17f9" }
+genet-scripted-dom = { git = "https://github.com/merely-made/genet.git", rev = "d47a17bf65ceafada26e4c15c9afcce6c18c17f9", version = "=0.1.0" }
+layout-dom-api = { git = "https://github.com/merely-made/genet.git", rev = "d47a17bf65ceafada26e4c15c9afcce6c18c17f9", version = "=0.1.0" }
 winit = "0.30"
 
 [dev-dependencies]
@@ -60,6 +60,6 @@ accesskit = "0.24"
 # table does not inherit through a git dep. These are the two vendored forks
 # plus the Stylo-rename adapter, taken from genet.git at the same revision.
 [patch.crates-io]
-stylo_taffy = { git = "https://github.com/merely-made/genet.git", rev = "398e4af60" }
-taffy = { git = "https://github.com/merely-made/genet.git", rev = "398e4af60" }
-ipc-channel = { git = "https://github.com/merely-made/genet.git", rev = "398e4af60" }
+stylo_taffy = { git = "https://github.com/merely-made/genet.git", rev = "d47a17bf65ceafada26e4c15c9afcce6c18c17f9" }
+taffy = { git = "https://github.com/merely-made/genet.git", rev = "d47a17bf65ceafada26e4c15c9afcce6c18c17f9" }
+ipc-channel = { git = "https://github.com/merely-made/genet.git", rev = "d47a17bf65ceafada26e4c15c9afcce6c18c17f9" }

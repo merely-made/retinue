@@ -21,11 +21,13 @@ strictly: the default build, the lockfile, and CI are untouched.
 cargo test --manifest-path apps/signalman-desktop/Cargo.toml
 ```
 
-Genet comes in **at an exact revision, not a branch**: `398e4af60`. The
-extraction commit `246f0f1e7` predates the four routing fixes; `e4920aad6`
-adds the ARIA roles this application's accessibility receipt turned up; and
-`398e4af60` also carries the accessible-label repair this face needs. Bump the
-pin deliberately, with a receipt.
+Genet comes in **at an exact revision, not a branch**:
+`d47a17bf65ceafada26e4c15c9afcce6c18c17f9`. The original G2 pin was
+`398e4af60`: the extraction commit `246f0f1e7` predates the four routing fixes;
+`e4920aad6` adds the ARIA roles this application's accessibility receipt turned
+up; and `398e4af60` carries the accessible-label repair this face needs. The
+current pin retains that history and adds the G5 host wake/close API. Bump it
+deliberately, with a locked consumer receipt.
 
 `signalman` and `linkboy` come in by relative path. That is not a cross-checkout
 dependency — they are in this repository.

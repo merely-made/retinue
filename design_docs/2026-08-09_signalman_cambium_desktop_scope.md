@@ -1,11 +1,11 @@
 # Cambium adoption and upgrade scope for Signalman
 
 **Date:** 2026-08-09  
-**Status:** G0, G1, G2, and G3 are complete. G5.1 and G5.2 are implemented and
-locally verified against the live Cambium checkout; the checked-in consumer
-receipts still need the host change's own immutable Genet revision. G4 and the
-manual accessibility pass remain open. Consumer order is woodshed first,
-Signalman second, Pelt optional.
+**Status:** G0, G1, G2, G3, and G5 are complete. Signalman pins the G5 host at
+an immutable Genet revision; Woodshed intentionally tracks the same moving
+Genet reference as Mere and records its resolved revision matrix in the lockfile.
+G4 and the manual accessibility pass remain open. Consumer order is woodshed
+first, Signalman second, Pelt optional.
 
 ## Decision
 
@@ -597,21 +597,41 @@ active.
 
 #### G5.3. Reproducible consumer revisions
 
-Signalman currently pins the host stack to Genet `398e4af60`, which contains
-the earlier G1 fixes and later accessible-label repair. Update the G2 receipt
-and this plan's historical pin wording from `e4920aad6` to that tested
-revision. Woodshed must replace its moving `branch = "main"` host dependency
-with an explicit tested revision, or a recorded revision matrix must name the
-two exact commits used by its receipts. A branch is a development convenience,
-not a reproducible consumer contract.
+Signalman is the private exact-pinned consumer. Every Genet package and
+crates.io patch in `apps/signalman-desktop/Cargo.toml` must name one immutable
+revision; its lockfile is the actual resolution receipt. That gives the G5
+host API a buildable consumer without relying on a developer's sibling
+checkout.
 
-**Implementation 2026-08-12:** Woodshed's Genet-family dependencies now all
-pin `398e4af60`, matching Signalman's current host matrix. Once the G5 host
-change has its own immutable Genet revision, both consumer manifests and their
-lock receipts must advance together; a local checkout change is not a consumer
-revision receipt. Signalman's full 16-test desktop receipt passed only through
-a command-local source override for this checkout, which is intentionally not
-a substitute for that future immutable pin.
+Woodshed is deliberately different. It receives Genet both directly and
+through Mere, which itself tracks `branch = "main"`. Cargo keys Git sources by
+both URL and reference, so pinning Woodshed alone to a revision would create
+two Cambium/Meristem families in a clean graph. Its Genet-family declarations
+therefore all use the same `branch = "main"` reference. Do not change that to
+an exact revision just to satisfy this gate. Instead, its release receipt must
+be made in a clean checkout without the local `.cargo/config.toml` path
+patches, then record the exact Git hashes Cargo writes to `Cargo.lock` alongside
+the test result. The local patch-backed lockfile is development evidence, not
+that receipt.
+
+**Implementation 2026-08-14:** Signalman now pins the full Genet family to
+`d47a17bf65ceafada26e4c15c9afcce6c18c17f9`, the immutable G5 host revision.
+Its regenerated lockfile records that same hash for Cambium, the host, and the
+transitive Genet graph. `cargo test --manifest-path
+apps/signalman-desktop/Cargo.toml --locked --offline` passed all 18 tests (one
+Signalman library test, five accessibility tests, and twelve owner-flow tests)
+without a command-local source override. This replaces the former
+`398e4af60` consumer pin, which remains historical G2/accessibility context.
+
+**Woodshed receipt 2026-08-14:** The three vendor-patch declarations
+(`stylo_taffy`, `taffy`, and `ipc-channel`) now take Genet `branch = "main"`
+rather than sibling paths. A clean checkout without Woodshed's local path
+patches resolved 28 Genet source entries at
+`1fd6a4f552481bb5d194bd9f46c3d6c14daa98bf` and six Mere source entries at
+`7b6b41303b8f845f143dc9c2817273b929f1caed`; its regenerated lockfile is the
+checked-in one. `cargo check --locked -p woodshed-genet` passed on that graph,
+with only the existing unused `open_store` warning. This is a consumer-graph
+proof, not a reason to perturb Woodshed's deliberate one-reference manifest.
 
 ## Non-goals
 
@@ -648,8 +668,10 @@ better consumer one and it can be migrated before Signalman rather than after.
 5. ~~Produce the headless, semantic, headed, and accessibility receipts.~~
    **Done**, except the manual screen-reader and keyboard pass, which needs a
    person and is a G4 prerequisite.
-6. Complete G5.1 through G5.3: host wake and close disposition, Signalman-owned
-   installation, and immutable consumer revisions.
+6. ~~Complete G5.1 through G5.3: host wake and close disposition,
+   Signalman-owned installation, and consumer revisions.~~ **Done 2026-08-14.**
+   Signalman is exact-pinned at the G5 host revision; Woodshed's moving-main
+   lockfile records the clean single-graph matrix.
 7. Run the manual accessibility pass, then G4 on V4, then T114 when hardware
    is available.
 8. With both consumers proven, decide the host's stable API and release story —
