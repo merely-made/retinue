@@ -286,6 +286,38 @@ mod tests {
         assert!((energy / pcm.len() as f64).sqrt() > 100.0, "silence came back");
     }
 
+
+    #[test]
+    fn a_half_rate_clip_carries_and_identifies_itself() {
+        // Codec ids travel in the clip header, so a new codec needs nothing
+        // from this module. Proving that rather than assuming it.
+        let pcm: Vec<i16> = (0..8_000)
+            .map(|i| {
+                let t = i as f32 / 8000.0;
+                ((t * 180.0 * core::f32::consts::TAU).sin() * 7000.0) as i16
+            })
+            .collect();
+        let clip = pipit::encode_clip(&pcm, pipit::ClipParams::lpc10_half()).unwrap();
+
+        let mut payload = payload();
+        let info = attach(&mut payload, FieldKey(7), &clip).unwrap();
+        assert_eq!(info.codec, pipit::Codec::Lpc10Half);
+        assert_eq!(info.duration_ms, 1_000);
+
+        let prepared = prepare([1; 16], [2; 16], &payload).unwrap();
+        let decoded = decode(&prepared.finish([4; 64])).unwrap();
+        let (found_key, bytes, found) = find_clip(&decoded.payload).unwrap();
+        assert_eq!(found_key, FieldKey(7));
+        assert_eq!(found.codec, pipit::Codec::Lpc10Half);
+
+        let (_, out) = pipit::decode_clip(bytes).unwrap();
+        assert_eq!(out.len(), pcm.len());
+
+        // A third of the airtime of the full-rate vocoder, over the air.
+        let full = pipit::encode_clip(&pcm, pipit::ClipParams::lpc10()).unwrap();
+        assert!(clip.len() < full.len() * 7 / 10, "{} vs {}", clip.len(), full.len());
+    }
+
     #[test]
     fn replacing_a_clip_does_not_duplicate_the_field() {
         let mut payload = payload();

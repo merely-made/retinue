@@ -1994,9 +1994,9 @@ checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
 name = "pipit"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15bda10b58ed0543e582bc456f66fd537f779fa0805023776245a5db748623ab"
+checksum = "83852ffc47af1e42844fe7f7f472ed248b159a0f31498e2e7df2cbae54c927a4"
 
 [[package]]
 name = "png"
