@@ -7,8 +7,10 @@ use std::future::Future;
 use std::io;
 
 use tulle::radio_io::PacketRadio;
+use tulle::serial::TransmitError;
 
 use crate::endpoint::Interface;
+use crate::packet::PacketType;
 
 /// Drive one endpoint interface over a running Tulle radio until either side
 /// closes or an outbound packet cannot be transmitted.
@@ -47,10 +49,20 @@ where
                             ),
                         ));
                     }
-                    radio
-                        .send_frame(bytes)
-                        .await
-                        .map_err(|error| io::Error::other(error.to_string()))?;
+                    let announce = packet.packet_type == PacketType::Announce;
+                    let transmitted = if announce {
+                        radio.send_announcement(bytes).await
+                    } else {
+                        radio.send_frame(bytes).await
+                    };
+                    match transmitted {
+                        // A disabled announce policy is deliberate carrier policy,
+                        // not a radio fault. Keep the interface alive for the other
+                        // packet classes it still carries.
+                        Err(TransmitError::AnnouncementDisabled) if announce => {}
+                        Ok(_) => {}
+                        Err(error) => return Err(io::Error::other(error.to_string())),
+                    }
                 }
                 received = radio.recv_frame() => {
                     let Some(received) = received else {

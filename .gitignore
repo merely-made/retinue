@@ -19,6 +19,8 @@
 # The oracle's Python venv. Recreate with oracle/requirements.txt (currently rns==1.4.0);
 # see oracle/README.md. The fixtures it produces ARE committed, so tests need no Python.
 oracle/.venv/
+# Python's bytecode cache for the local Reticulum oracle drivers.
+crates/retinue/oracle/__pycache__/
 
 # Weave's local merge state is machine-local generated data.
 .weave/

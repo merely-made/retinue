@@ -32,7 +32,7 @@ use crate::announce::{self, Announce, RAND_HASH_LEN, RATCHET_LEN};
 use crate::hash::{AddressHash, NameHash};
 use crate::identity::PrivateIdentity;
 use crate::link::{self, Inbound, Link, LinkMode, LinkTrailer, PendingLink};
-use crate::packet::{Packet, PacketType};
+use crate::packet::{HeaderType, Packet, PacketType};
 use crate::resource_transfer::{ResourceReceiver, ResourceSender};
 
 /// Which interface a packet arrived on or should leave by.
@@ -87,9 +87,12 @@ impl<const N: usize> Actions<N> {
         }
     }
 
-    fn push(&mut self, action: Action) {
+    fn push(&mut self, action: Action) -> bool {
         if self.items.push(action).is_err() {
             self.overflowed = self.overflowed.saturating_add(1);
+            false
+        } else {
+            true
         }
     }
 
@@ -169,6 +172,122 @@ pub const RESOURCE_RETRY_INTERVAL: u64 = 12_000;
 /// back within one visit.
 pub const LINK_IDLE_TIMEOUT: u64 = 900_000;
 
+/// How long a learned transport route is usable, in the caller's tick unit.
+///
+/// A board that hears a peer once must not retain that route forever. Thirty minutes leaves
+/// room for the ten-minute announce cadence, while making a disappeared peer's path become
+/// eligible for replacement during one field visit.
+pub const DEFAULT_ROUTE_TTL: u64 = 1_800_000;
+
+/// How long a carried link remains bridgeable after it last carries traffic.
+///
+/// A link's own keepalives are considerably more frequent than this. The longer interval
+/// avoids discarding a quiet but live remote link while still bounding stale transport state.
+pub const LINK_TRANSPORT_TIMEOUT: u64 = 3_600_000;
+
+/// How long this node remembers a forwarded packet hash on a shared radio.
+///
+/// A single-radio transport retransmits on the carrier it heard. Remembering a packet briefly
+/// prevents its own relay from becoming a flood loop while still allowing a normal retry later.
+pub const TRANSPORT_DEDUP_TIMEOUT: u64 = 60_000;
+
+/// The Reticulum transport hop ceiling.
+pub const DEFAULT_TRANSPORT_MAX_HOPS: u8 = 128;
+
+/// What this node agrees to carry for other destinations.
+///
+/// Transport is explicit because many boards are endpoints, not routers. The firmware can opt
+/// in to transit without changing the behaviour of a desk fixture or an application node that
+/// only answers for itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TransportConfig {
+    /// Re-broadcast verified announces with this node as their next transport hop.
+    pub relay_announces: bool,
+    /// Carry header-type-2 packets addressed to this node, and packets on remembered links.
+    pub relay_packets: bool,
+    /// Packets at or above this hop count are dropped instead of relayed.
+    pub max_hops: u8,
+    /// Lifetime of a route learned from a verified announce.
+    pub route_ttl: u64,
+    /// Lifetime of a remembered carried link.
+    pub bridge_ttl: u64,
+}
+
+impl TransportConfig {
+    /// The default: carry nothing for other destinations.
+    pub const fn none() -> Self {
+        Self {
+            relay_announces: false,
+            relay_packets: false,
+            max_hops: 0,
+            route_ttl: DEFAULT_ROUTE_TTL,
+            bridge_ttl: LINK_TRANSPORT_TIMEOUT,
+        }
+    }
+
+    /// Carry verified announces and transit packets up to Reticulum's normal hop ceiling.
+    pub const fn transit() -> Self {
+        Self {
+            relay_announces: true,
+            relay_packets: true,
+            max_hops: DEFAULT_TRANSPORT_MAX_HOPS,
+            route_ttl: DEFAULT_ROUTE_TTL,
+            bridge_ttl: LINK_TRANSPORT_TIMEOUT,
+        }
+    }
+}
+
+impl Default for TransportConfig {
+    fn default() -> Self {
+        Self::none()
+    }
+}
+
+/// What the bounded transport tables have done since this node started.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TransportCounters {
+    /// Verified announces re-broadcast for another destination.
+    pub forwarded_announces: u16,
+    /// Data, link, and proof packets carried for another destination.
+    pub forwarded_packets: u16,
+    /// Routes removed after their announce freshness expired.
+    pub expired_routes: u16,
+    /// Live routes evicted to admit a newly heard destination.
+    pub evicted_routes: u16,
+    /// Carried-link entries removed after their idle timeout.
+    pub expired_bridges: u16,
+    /// Carried-link entries evicted to admit a newer transport link.
+    pub evicted_bridges: u16,
+    /// Transit dropped at the configured hop ceiling.
+    pub hop_limit_dropped: u16,
+    /// Transit that named this node but had no fresh route onward.
+    pub unroutable_packets: u16,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Route {
+    destination: AddressHash,
+    interface: InterfaceId,
+    /// The next transport hop that announced this destination, if it is not direct.
+    transport: Option<AddressHash>,
+    hops: u8,
+    learned: u64,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct LinkBridge {
+    link_id: AddressHash,
+    from: InterfaceId,
+    out: InterfaceId,
+    seen: u64,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct SeenPacket {
+    hash: AddressHash,
+    seen: u64,
+}
+
 /// One derived resource IV: `full_hash(tag || identity secret || link id || counter)`.
 ///
 /// Deterministic on purpose — this layer holds no RNG — and unique by the counter, which
@@ -207,15 +326,32 @@ fn is_resource_context(context: u8) -> bool {
 /// An executor-neutral Reticulum node.
 ///
 /// `PEERS` bounds the address book. `ACTIONS` bounds what one call can ask of the shell.
-/// Both default to the board profile, because the desktop has `Endpoint` and does not want
-/// this type.
-pub struct Node<const PEERS: usize = 32, const ACTIONS: usize = 8, const LINKS: usize = 4> {
+/// `ROUTES` bounds learned paths, recent transit hashes, and transport bridges. All default to
+/// the board profile, because the desktop has `Endpoint` and does not want this type.
+pub struct Node<
+    const PEERS: usize = 32,
+    const ACTIONS: usize = 8,
+    const LINKS: usize = 4,
+    const ROUTES: usize = 16,
+> {
     identity: PrivateIdentity,
     /// The destination this node announces. One for now: a board is one thing.
     name_hash: NameHash,
     book: AddressBook,
     /// Application data carried in our announces.
     app_data: Vec<u8>,
+    /// The explicit policy for carrying traffic whose destination is not this node.
+    transport: TransportConfig,
+    /// Paths learned from verified announces. This is separate from the address book: the book
+    /// has keys needed to initiate a link, while a route says where a transport packet goes.
+    routes: BoundedVec<Route, ROUTES>,
+    /// Link ids this node is carrying, with their ingress and egress interfaces. A proof or
+    /// link-data packet names a link id rather than its original destination, so this is the
+    /// small fact that lets return traffic take the same bridge back.
+    bridges: BoundedVec<LinkBridge, ROUTES>,
+    /// Recently relayed packet hashes. Bounded and time-limited because a shared radio hears
+    /// its own relays; without this, one transport node can keep repeating the same frame.
+    seen_transit: BoundedVec<SeenPacket, ROUTES>,
     /// When we last announced, and how often to. `None` until the first poll, so a node
     /// announces promptly on boot rather than waiting a full interval.
     last_announce: Option<u64>,
@@ -249,9 +385,12 @@ pub struct Node<const PEERS: usize = 32, const ACTIONS: usize = 8, const LINKS: 
     /// Resource offers refused: an advertisement past the part ceiling, or arriving with
     /// every receiver slot held. The peer's ambition, counted rather than honoured.
     refused_offers: u16,
+    transport_counters: TransportCounters,
 }
 
-impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, ACTIONS, LINKS> {
+impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES: usize>
+    Node<PEERS, ACTIONS, LINKS, ROUTES>
+{
     /// A node with an identity and the destination it answers to.
     pub fn new(identity: PrivateIdentity, name_hash: NameHash) -> Self {
         Self {
@@ -259,6 +398,10 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
             name_hash,
             book: AddressBook::with_max_peers(PEERS),
             app_data: Vec::new(),
+            transport: TransportConfig::none(),
+            routes: BoundedVec::new(),
+            bridges: BoundedVec::new(),
+            seen_transit: BoundedVec::new(),
             last_announce: None,
             announce_interval: DEFAULT_ANNOUNCE_INTERVAL,
             links: BoundedVec::new(),
@@ -270,6 +413,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
             expired_links: 0,
             refused_peers: 0,
             refused_offers: 0,
+            transport_counters: TransportCounters::default(),
         }
     }
 
@@ -286,6 +430,22 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
         self
     }
 
+    /// Configure the traffic this node will carry for other destinations.
+    pub fn with_transport_config(mut self, config: TransportConfig) -> Self {
+        self.transport = config;
+        self
+    }
+
+    /// Change the transport policy without replacing the node's learned state.
+    pub fn set_transport_config(&mut self, config: TransportConfig) {
+        self.transport = config;
+    }
+
+    /// The current transport policy.
+    pub fn transport_config(&self) -> TransportConfig {
+        self.transport
+    }
+
     /// This node's own destination hash: what a peer addresses to reach it.
     pub fn destination(&self) -> AddressHash {
         crate::destination::destination_hash(self.name_hash, self.identity.hash())
@@ -299,6 +459,26 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
     /// Established links.
     pub fn link_count(&self) -> usize {
         self.links.len()
+    }
+
+    /// Number of fresh or not-yet-polled route entries currently held.
+    pub fn route_count(&self) -> usize {
+        self.routes.len()
+    }
+
+    /// A fresh route's radio interface and hop count. Lookup also evicts an expired entry, so
+    /// a stale path does not linger until an unrelated new announce arrives.
+    pub fn route_to(&mut self, destination: AddressHash, now: u64) -> Option<(InterfaceId, u8)> {
+        self.expire_routes(now);
+        self.routes
+            .iter()
+            .find(|route| route.destination == destination)
+            .map(|route| (route.interface, route.hops))
+    }
+
+    /// Transport activity and bounded-state pressure since boot.
+    pub fn transport_counters(&self) -> TransportCounters {
+        self.transport_counters
     }
 
     /// Whether a link with this id is established.
@@ -424,6 +604,299 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
         Some(actions)
     }
 
+    /// Remove routes and carried-link records that have outlived the policy that admitted
+    /// them. This is called both from [`Node::poll`] and before a transit decision, so a slow
+    /// board clock cannot leave a stale route usable merely because it has not polled yet.
+    fn expire_transport_state(&mut self, now: u64) {
+        self.expire_routes(now);
+        while let Some(index) = self
+            .bridges
+            .iter()
+            .position(|bridge| now.saturating_sub(bridge.seen) >= self.transport.bridge_ttl)
+        {
+            self.bridges.swap_remove(index);
+            self.transport_counters.expired_bridges =
+                self.transport_counters.expired_bridges.saturating_add(1);
+        }
+        self.seen_transit
+            .retain(|seen| now.saturating_sub(seen.seen) < TRANSPORT_DEDUP_TIMEOUT);
+    }
+
+    fn expire_routes(&mut self, now: u64) {
+        while let Some(index) = self
+            .routes
+            .iter()
+            .position(|route| now.saturating_sub(route.learned) >= self.transport.route_ttl)
+        {
+            self.routes.swap_remove(index);
+            self.transport_counters.expired_routes =
+                self.transport_counters.expired_routes.saturating_add(1);
+        }
+    }
+
+    /// Record a route from a verified announce. The shortest live path wins; a re-announce
+    /// refreshes that path only when it arrived on the same interface, so a worse alternate
+    /// cannot keep a dead preferred route alive forever.
+    fn learn_route(
+        &mut self,
+        destination: AddressHash,
+        interface: InterfaceId,
+        hops: u8,
+        transport: Option<AddressHash>,
+        now: u64,
+    ) {
+        if destination == self.destination() {
+            return;
+        }
+        self.expire_routes(now);
+        if let Some(route) = self
+            .routes
+            .iter_mut()
+            .find(|route| route.destination == destination)
+        {
+            if route.hops <= hops {
+                if route.interface == interface {
+                    route.learned = now;
+                    route.transport = transport;
+                }
+                return;
+            }
+            *route = Route {
+                destination,
+                interface,
+                transport,
+                hops,
+                learned: now,
+            };
+            return;
+        }
+
+        if self.routes.is_full()
+            && let Some(index) = self
+                .routes
+                .iter()
+                .enumerate()
+                .min_by_key(|(_, route)| route.learned)
+                .map(|(index, _)| index)
+        {
+            self.routes.swap_remove(index);
+            self.transport_counters.evicted_routes =
+                self.transport_counters.evicted_routes.saturating_add(1);
+        }
+        let _ = self.routes.push(Route {
+            destination,
+            interface,
+            transport,
+            hops,
+            learned: now,
+        });
+    }
+
+    /// Whether this is a fresh packet for a shared-radio relay. At capacity, forget the
+    /// oldest observation rather than growing or refusing all later traffic.
+    fn transit_is_new(&mut self, hash: AddressHash, now: u64) -> bool {
+        self.seen_transit
+            .retain(|seen| now.saturating_sub(seen.seen) < TRANSPORT_DEDUP_TIMEOUT);
+        if self.seen_transit.iter().any(|seen| seen.hash == hash) {
+            return false;
+        }
+        if self.seen_transit.is_full()
+            && let Some(index) = self
+                .seen_transit
+                .iter()
+                .enumerate()
+                .min_by_key(|(_, seen)| seen.seen)
+                .map(|(index, _)| index)
+        {
+            self.seen_transit.swap_remove(index);
+        }
+        self.seen_transit
+            .push(SeenPacket { hash, seen: now })
+            .is_ok()
+    }
+
+    fn remember_bridge(
+        &mut self,
+        link_id: AddressHash,
+        from: InterfaceId,
+        out: InterfaceId,
+        now: u64,
+    ) {
+        if let Some(bridge) = self
+            .bridges
+            .iter_mut()
+            .find(|bridge| bridge.link_id == link_id)
+        {
+            *bridge = LinkBridge {
+                link_id,
+                from,
+                out,
+                seen: now,
+            };
+            return;
+        }
+        if self.bridges.is_full()
+            && let Some(index) = self
+                .bridges
+                .iter()
+                .enumerate()
+                .min_by_key(|(_, bridge)| bridge.seen)
+                .map(|(index, _)| index)
+        {
+            self.bridges.swap_remove(index);
+            self.transport_counters.evicted_bridges =
+                self.transport_counters.evicted_bridges.saturating_add(1);
+        }
+        let _ = self.bridges.push(LinkBridge {
+            link_id,
+            from,
+            out,
+            seen: now,
+        });
+    }
+
+    /// Relay a packet already associated with a carried link. Link proofs and data name the
+    /// link id rather than the original destination, so this lookup precedes normal transit
+    /// routing.
+    fn forward_bridged_packet(
+        &mut self,
+        interface: InterfaceId,
+        packet: &Packet,
+        now: u64,
+        actions: &mut Actions<ACTIONS>,
+    ) -> bool {
+        if !self.transport.relay_packets {
+            return false;
+        }
+        let Some(index) = self
+            .bridges
+            .iter()
+            .position(|bridge| bridge.link_id == packet.destination)
+        else {
+            return false;
+        };
+        if packet.hops >= self.transport.max_hops {
+            self.transport_counters.hop_limit_dropped =
+                self.transport_counters.hop_limit_dropped.saturating_add(1);
+            return true;
+        }
+        if !self.transit_is_new(packet.hash(), now) {
+            return true;
+        }
+        let bridge = &mut self.bridges[index];
+        bridge.seen = now;
+        let out = if interface == bridge.from {
+            bridge.out
+        } else if interface == bridge.out {
+            bridge.from
+        } else {
+            return false;
+        };
+        let mut forwarded = packet.clone();
+        forwarded.hops = forwarded.hops.saturating_add(1);
+        forwarded.header_type = HeaderType::Type1;
+        forwarded.transport = None;
+        if actions.push(Action::Send {
+            interface: out,
+            packet: forwarded,
+        }) {
+            self.transport_counters.forwarded_packets =
+                self.transport_counters.forwarded_packets.saturating_add(1);
+        }
+        true
+    }
+
+    /// Carry a header-type-2 packet addressed to this node towards its learned destination.
+    fn forward_transport_packet(
+        &mut self,
+        interface: InterfaceId,
+        packet: &Packet,
+        now: u64,
+        actions: &mut Actions<ACTIONS>,
+    ) -> bool {
+        if !self.transport.relay_packets
+            || packet.header_type != HeaderType::Type2
+            || packet.transport != Some(self.identity.hash())
+            || packet.destination == self.destination()
+        {
+            return false;
+        }
+        if packet.hops >= self.transport.max_hops {
+            self.transport_counters.hop_limit_dropped =
+                self.transport_counters.hop_limit_dropped.saturating_add(1);
+            return true;
+        }
+        let Some(route) = self
+            .routes
+            .iter()
+            .find(|route| route.destination == packet.destination)
+            .copied()
+        else {
+            self.transport_counters.unroutable_packets =
+                self.transport_counters.unroutable_packets.saturating_add(1);
+            return true;
+        };
+        if !self.transit_is_new(packet.hash(), now) {
+            return true;
+        }
+        if packet.packet_type == PacketType::LinkRequest
+            && let Ok(link_id) = link::link_id(packet)
+        {
+            self.remember_bridge(link_id, interface, route.interface, now);
+        }
+        let mut forwarded = packet.clone();
+        forwarded.hops = forwarded.hops.saturating_add(1);
+        forwarded.header_type = HeaderType::Type1;
+        forwarded.transport = None;
+        if let Some(next_transport) = route.transport {
+            forwarded.header_type = HeaderType::Type2;
+            forwarded.transport = Some(next_transport);
+        }
+        if actions.push(Action::Send {
+            interface: route.interface,
+            packet: forwarded,
+        }) {
+            self.transport_counters.forwarded_packets =
+                self.transport_counters.forwarded_packets.saturating_add(1);
+        }
+        true
+    }
+
+    /// Re-broadcast a verified announce with this node recorded as the transport hop.
+    fn relay_announce(
+        &mut self,
+        interface: InterfaceId,
+        packet: &Packet,
+        destination: AddressHash,
+        now: u64,
+        actions: &mut Actions<ACTIONS>,
+    ) {
+        if !self.transport.relay_announces || destination == self.destination() {
+            return;
+        }
+        if packet.hops >= self.transport.max_hops {
+            self.transport_counters.hop_limit_dropped =
+                self.transport_counters.hop_limit_dropped.saturating_add(1);
+            return;
+        }
+        if !self.transit_is_new(packet.hash(), now) {
+            return;
+        }
+        let mut forwarded = packet.clone();
+        forwarded.hops = forwarded.hops.saturating_add(1);
+        forwarded.header_type = HeaderType::Type2;
+        forwarded.transport = Some(self.identity.hash());
+        if actions.push(Action::Send {
+            interface,
+            packet: forwarded,
+        }) {
+            self.transport_counters.forwarded_announces = self
+                .transport_counters
+                .forwarded_announces
+                .saturating_add(1);
+        }
+    }
+
     /// Feed a received packet in.
     ///
     /// Anything malformed, unsigned, or not addressed to work this node does is dropped
@@ -437,6 +910,14 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
     ) -> Actions<ACTIONS> {
         let mut actions = Actions::new();
 
+        self.expire_transport_state(now);
+        if packet.packet_type != PacketType::Announce
+            && (self.forward_bridged_packet(interface, packet, now, &mut actions)
+                || self.forward_transport_packet(interface, packet, now, &mut actions))
+        {
+            return actions;
+        }
+
         match packet.packet_type {
             PacketType::Announce => {
                 // `Announce::decode` verifies the signature and that the destination hash
@@ -446,9 +927,25 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
                     if self.book.ingest(&announce) == Ingested::Refused {
                         self.refused_peers = self.refused_peers.saturating_add(1);
                     } else {
+                        if self.transport.relay_announces || self.transport.relay_packets {
+                            self.learn_route(
+                                announce.destination,
+                                interface,
+                                packet.hops,
+                                packet.transport,
+                                now,
+                            );
+                        }
                         actions.push(Action::Learned {
                             destination: announce.destination,
                         });
+                        self.relay_announce(
+                            interface,
+                            packet,
+                            announce.destination,
+                            now,
+                            &mut actions,
+                        );
                     }
                 }
             }
@@ -468,8 +965,8 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
         now: u64,
         actions: &mut Actions<ACTIONS>,
     ) {
-        // Only for the destination this node answers to. Anything else is not ours, and a
-        // board is not a transport node.
+        // Only for the destination this node answers to. Transport requests were handled
+        // before local dispatch; anything that reaches here is not ours to answer.
         if packet.destination != self.destination() {
             return;
         }
@@ -563,7 +1060,9 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
         }
 
         match self.links[index].0.receive(packet) {
-            Some(Inbound::Data(payload)) => actions.push(Action::Data { link_id, payload }),
+            Some(Inbound::Data(payload)) => {
+                actions.push(Action::Data { link_id, payload });
+            }
             Some(Inbound::Close) => {
                 self.drop_link(index, actions);
             }
@@ -709,6 +1208,8 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> Node<PEERS, A
         rand_hash: &[u8; RAND_HASH_LEN],
     ) -> Actions<ACTIONS> {
         let mut actions = Actions::new();
+
+        self.expire_transport_state(now);
 
         // Reclaim slots held by peers that stopped answering. Four slots and no expiry
         // meant four vanished peers locked the node out of accepting anyone, permanently:
@@ -1074,8 +1575,8 @@ mod tests {
         }
     }
 
-    /// A link request for another destination is ignored: a board is not a transport node
-    /// and must not answer for addresses it does not hold.
+    /// A link request for another destination is ignored by a non-transport node and must
+    /// never be answered as if its destination were local.
     #[test]
     fn a_link_request_for_another_destination_is_ignored() {
         let (mut a, b) = pair();
@@ -1559,5 +2060,136 @@ mod tests {
                 .is_none(),
             "the second is refused while the first runs"
         );
+    }
+
+    /// The transport table is a fixed board resource: expired paths go first, then the
+    /// quietest live route makes room. A flood cannot turn it into a lifetime allocation.
+    #[test]
+    fn transport_routes_expire_then_evict_at_their_bound() {
+        let mut relay = Node::<8, 8, 4, 2>::new(
+            PrivateIdentity::from_secret_bytes(&[0x50; 64]),
+            DestinationName::new("retinue", ["relay"]).name_hash(),
+        )
+        .with_transport_config(TransportConfig {
+            route_ttl: 100,
+            ..TransportConfig::transit()
+        });
+        let peer = |seed, name| {
+            Node::<8, 8, 4, 2>::new(
+                PrivateIdentity::from_secret_bytes(&[seed; 64]),
+                DestinationName::new("retinue", [name]).name_hash(),
+            )
+        };
+        let a = peer(0x11, "a");
+        let b = peer(0x22, "b");
+        let c = peer(0x33, "c");
+
+        relay.ingest(IFACE, &a.announce(&[1; RAND_HASH_LEN], None), 0);
+        relay.ingest(IFACE, &b.announce(&[2; RAND_HASH_LEN], None), 1);
+        assert_eq!(relay.route_count(), 2, "the typed route bound is full");
+
+        relay.ingest(IFACE, &c.announce(&[3; RAND_HASH_LEN], None), 2);
+        assert_eq!(
+            relay.route_count(),
+            2,
+            "a third route displaces, never grows"
+        );
+        assert_eq!(
+            relay.route_to(a.destination(), 2),
+            None,
+            "the quietest live route was evicted"
+        );
+        assert_eq!(relay.transport_counters().evicted_routes, 1);
+
+        let _ = relay.poll(102, IFACE, &[0; RAND_HASH_LEN]);
+        assert_eq!(relay.route_count(), 0, "stale routes are reclaimed by poll");
+        assert_eq!(relay.transport_counters().expired_routes, 2);
+    }
+
+    /// A transport node relays both sides of a link setup: the announce makes the route
+    /// visible, the type-2 request reaches the destination, and the remembered link bridge
+    /// returns its proof. This is the smallest real transport transaction, not a broadcast
+    /// counter that could pass without carrying a packet.
+    #[test]
+    fn transport_relays_announce_request_and_proof() {
+        let (mut source, mut destination) = pair();
+        let mut relay = Node::<32, 8, 4, 4>::new(
+            PrivateIdentity::from_secret_bytes(&[0x44; 64]),
+            DestinationName::new("retinue", ["relay"]).name_hash(),
+        )
+        .with_transport_config(TransportConfig::transit());
+
+        let announce = destination.announce(&[0x77; RAND_HASH_LEN], None);
+        let relayed_announce = sent(&relay.ingest(IFACE, &announce, 0))
+            .expect("a transport node re-broadcasts a verified announce");
+        assert_eq!(relayed_announce.header_type, HeaderType::Type2);
+        assert_eq!(relayed_announce.transport, Some(relay.identity.hash()));
+        assert_eq!(relayed_announce.hops, 1);
+        source.ingest(IFACE, &relayed_announce, 1);
+        assert!(
+            source.peers().knows(destination.destination()),
+            "the source learned the destination through the relay"
+        );
+
+        let mut request = sent(
+            &source
+                .open_link(destination.destination(), IFACE, &[0x99; 64])
+                .expect("the announced destination is linkable"),
+        )
+        .unwrap();
+        request.header_type = HeaderType::Type2;
+        request.transport = Some(relay.identity.hash());
+        let forwarded_request = sent(&relay.ingest(IFACE, &request, 2))
+            .expect("the type-2 request is carried toward its route");
+        assert_eq!(forwarded_request.header_type, HeaderType::Type1);
+        assert_eq!(forwarded_request.transport, None);
+        assert_eq!(forwarded_request.hops, 1);
+
+        let proof = sent(&destination.ingest(IFACE, &forwarded_request, 3))
+            .expect("the destination accepts the transported request");
+        let forwarded_proof = sent(&relay.ingest(IFACE, &proof, 4))
+            .expect("the remembered bridge carries the proof back");
+        assert_eq!(forwarded_proof.hops, 1);
+        assert!(
+            link_up(&source.ingest(IFACE, &forwarded_proof, 5)).is_some(),
+            "the source completes the transported link"
+        );
+        let counters = relay.transport_counters();
+        assert_eq!(counters.forwarded_announces, 1);
+        assert_eq!(counters.forwarded_packets, 2);
+    }
+
+    /// This is the desk half of the T114 flood: enough distinct signed announces to turn the
+    /// route table over many times, while every retained table stays at its declared ceiling.
+    /// The board's allocator probe supplies the separate live-byte high-water receipt.
+    #[test]
+    fn transport_flood_keeps_retained_state_bounded() {
+        let mut relay = Node::<128, 8, 4, 4>::new(
+            PrivateIdentity::from_secret_bytes(&[0x55; 64]),
+            DestinationName::new("retinue", ["relay"]).name_hash(),
+        )
+        .with_transport_config(TransportConfig::transit());
+
+        for seed in 1_u8..=32 {
+            let peer = Node::<128, 8, 4, 4>::new(
+                PrivateIdentity::from_secret_bytes(&[seed; 64]),
+                DestinationName::new("retinue", ["flood"]).name_hash(),
+            );
+            let actions = relay.ingest(
+                IFACE,
+                &peer.announce(&[seed; RAND_HASH_LEN], None),
+                seed.into(),
+            );
+            assert!(actions.len() <= 2, "one learn and one relay at most");
+            assert_eq!(
+                relay.route_count(),
+                usize::from(seed).min(4),
+                "route residency remains at its four-entry ceiling"
+            );
+        }
+        let counters = relay.transport_counters();
+        assert_eq!(counters.forwarded_announces, 32);
+        assert_eq!(counters.evicted_routes, 28);
+        assert_eq!(relay.route_count(), 4);
     }
 }

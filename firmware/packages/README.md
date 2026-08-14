@@ -16,6 +16,10 @@ from `PATH` once per install, then keeps that resolved executable for the write:
 - Heltec WiFi LoRa 32 V4: `espflash` 4.5.0 through the ESP32-S3 ROM loader. The current Windows
   development package also requires its recorded executable SHA-256.
 - Heltec T114: `adafruit-nrfutil` 0.5.3.post16 through serial DFU.
+- Meshtastic T114: Linkboy's built-in, explicit UF2-volume writer. The retained official
+  release file is GPL-3.0 external firmware, not a Retinue capability claim. A UF2 volume can
+  disappear while Linkboy flushes a complete file: that expected Windows device-removal
+  acknowledgement is recorded, but the package still requires an upstream interface check.
 
 The retained Prns Hopspot V4 package is an external firmware choice, not a Retinue capability
 claim. Its signed channel descriptor and flash manifest are retained with its immutable sparse
@@ -32,6 +36,7 @@ linkboy catalog firmware/packages/index.toml
 linkboy inspect firmware/packages/heltec-v4-current.toml
 linkboy inspect firmware/packages/t114-v47.toml
 linkboy inspect firmware/packages/hopspot-v4-0.3.4.toml
+linkboy inspect firmware/packages/meshtastic-t114-2.7.26.54e0d8d.toml
 ```
 
 The accepted plan is the only path that may write. Use the board-specific selection when a

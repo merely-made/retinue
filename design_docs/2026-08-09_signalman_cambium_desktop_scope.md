@@ -1,9 +1,11 @@
 # Cambium adoption and upgrade scope for Signalman
 
 **Date:** 2026-08-09  
-**Status:** G0, G1, G2, and G3 complete; G4 and the manual accessibility pass
-open. Consumer order corrected — woodshed first, Signalman second, Pelt
-optional.
+**Status:** G0, G1, G2, and G3 are complete. G5.1 and G5.2 are implemented and
+locally verified against the live Cambium checkout; the checked-in consumer
+receipts still need the host change's own immutable Genet revision. G4 and the
+manual accessibility pass remain open. Consumer order is woodshed first,
+Signalman second, Pelt optional.
 
 ## Decision
 
@@ -11,7 +13,7 @@ Use Cambium for Signalman's native desktop face. Do not put a GUI in Linkboy
 and do not make Retinue invent a second component toolkit.
 
 This is a Cambium adoption and upgrade plan. Cambium is the GUI toolkit;
-Signalman is the first concrete application integration used to expose and
+Signalman is the first Retinue installer integration used to expose and
 prioritize real toolkit gaps.
 
 Cambium is currently a Genet-native application toolkit, not a proven universal
@@ -44,7 +46,7 @@ on 2026-08-09; see G3.
 
 The useful pieces already exist:
 
-- `cambium 0.3.2` owns application view composition and the retained
+- `cambium 0.3.3` owns application view composition and the retained
   `GenetAppRunner`.
 - `cambium-winit 0.3.0` deliberately maps only native input into Cambium key,
   IME, modifier, and wheel vocabulary.
@@ -216,7 +218,7 @@ supply plain closures (`HostHooks`: frame / after_dispatch / after_frame /
 focused_text / key_intercept) with their own state in the closures'
 environment; no application trait, exactly as scoped. `publish = false` (it
 rides genet-layout and genet-winit-host), so consumers take it from genet.git
-by branch like the a11y crate. Compiles clean with a headed smoke example
+at a recorded immutable revision. Compiles clean with a headed smoke example
 (`--example smoke`) proving the API from the consumer side. Receipts still
 owed from the list above: the deterministic retained-DOM test, a headed run
 record, the a11y regression, and the genet-probe semantic receipt. The
@@ -228,7 +230,8 @@ isometry, cleromancy, and turnstone follow in their own windows).
 
 **Closed 2026-08-09, later the same day.** The extraction at `246f0f1e7` had
 four routing gaps and none of the receipts. Both are closed at genet
-**`e4920aad6`** — the revision consumers pin, not `246f0f1e7`.
+**`e4920aad6`**. Signalman's later tested consumer pin is `398e4af60`, which
+also contains the accessible-label repair; `246f0f1e7` is never a consumer pin.
 
 Routing: pointer Down/Move/Up now reach `on_pointer` with the *captured*
 element's local coordinates, read from a new scroll-aware
@@ -282,6 +285,12 @@ genet `docs/2026-08-09_cambium_desktop_host_g1_receipt.md`.
 on `signalman`, not on Linkboy internals, for presentation vocabulary. The
 terminal `apps/signalman` binary remains buildable without a GUI runtime.
 
+**Boundary correction 2026-08-12:** the delivered first face remains policy
+safe, but it still names Linkboy presentation types and its worker calls
+`execute_plan` directly. That does not meet the package boundary in the prior
+paragraph. G5.2 moves the approved-install worker and its public update
+vocabulary into Signalman; no desktop release claim is made before that cut.
+
 The first desktop surface has exactly the public-flow pages already specified
 for Linkboy:
 
@@ -330,7 +339,7 @@ The worker is Signalman application code, not Cambium infrastructure.
   order, and the visible transfer/recovery result.
 
 **Progress 2026-08-09: built, with one receipt owed.** `apps/signalman-desktop`
-exists, pinned to genet `e4920aad6`. Full write-up in
+exists, pinned to genet `398e4af60`. Full write-up in
 `2026-08-09_signalman_desktop_g2_receipt.md`; the parts that change this plan:
 
 **It is `exclude`d from the retinue workspace rather than a non-default
@@ -395,9 +404,10 @@ products across three repositories: pelt's tile stack in-repo
 (tile_surface.rs 1434 lines, tile_shell.rs 745), woodshed-genet
 (main.rs 1679), cleromancy's native UI (native.rs 754 plus worker.rs 326),
 and isometry-genet (host.rs 409 plus main.rs and input.rs), with turnstone's
-panes riding the same runner. All the external ones already consume the
-cambium family from genet.git by branch, so they can adopt a private
-`publish = false` host package with no new delivery mechanism. Candidate
+panes riding the same runner. The external consumers already obtain the
+cambium family from genet.git, so they can adopt a private `publish = false`
+host package with no new source location. Their acceptance receipts still need
+an immutable revision rather than a moving branch. Candidate
 consumer #2 is therefore an existing assembler rather than a new Pelt
 example, woodshed-genet looking simplest as a single-root app; that proves
 the same boundary while deleting live duplication. Also note the extraction
@@ -467,11 +477,149 @@ The UI does not upgrade the flashing proof. It must re-run it visibly.
 Retain the terminal flow until both graphical routes have physical receipts.
 Do not infer post-flash application identity from a helper's successful exit.
 
+### G5. Application lifetime, wake, and management boundary
+
+The host is now the correct place to establish the small common mechanics of a
+long-lived application. It is not the place to create a Cambium task runtime,
+updater, or Retinue service layer.
+
+**Armillary compatibility:** Cambium's `HostWake::callback()` has the exact
+`Arc<dyn Fn() + Send + Sync>` shape Armillary calls `Wake`. Cambium does not
+depend on Armillary: an actor owns its own channel and typed updates, calls the
+callback after sending, and the host grants the application one UI-thread drain
+turn. Canonical Cambium state never crosses the actor boundary.
+
+The immediate defect is concrete: a native `CloseRequested` event currently
+exits the host immediately. Signalman's worker can be writing when that happens;
+the process exiting terminates its thread, so an in-memory worker is not a
+promise that the transfer will finish after the window goes away.
+
+#### G5.1. Cambium host lifecycle and wake seam
+
+Extend the private single-root host with two deliberately narrow facilities:
+
+1. A cloneable, `Send` host wake handle. A product worker, updater, timer, or
+   device watcher sends its own data over its own channel, then calls `wake()`.
+   The host receives one user event, schedules a frame, and invokes an
+   application hook to drain that channel. This replaces product polling while
+   idle. It does not spawn tasks, choose a runtime, retain task state, or
+   interpret a message.
+2. A close-request hook whose disposition is explicit: keep the window visible,
+   hide it while the event loop stays alive, or exit. Both the native close
+   button and an application `Close` command must enter this same request path;
+   only an application-approved exit stops the loop. Existing explicit exit
+   mechanics remain a deliberate terminal action, not the default response to
+   an operating-system close request.
+
+The host owns window visibility and redraw scheduling. The application owns
+whether work may continue, what explanation appears, persistence, notifications,
+and how a later reopen request restores its state.
+
+**Implementation 2026-08-12:** `HostWake` coalesces cross-thread wake requests
+onto winit user events and offers Armillary's callback shape; `after_wake`
+drains product-owned channels. `CloseRequest` and `CloseDisposition` unify
+native close and application `WindowCommand::Close`, with `Show` restoring a
+hidden retained root. The private host suite passes 42 tests, including the
+three deterministic lifecycle cases. The headed hidden-and-restored Windows
+receipt remains open.
+
+**Receipts:**
+
+- a windowless host test proves a worker-side wake runs the drain hook without
+  continuous redraw polling;
+- a close-request test proves native close and app-command close take the same
+  path, and that Keep, Hide, and Exit have distinct effects;
+- a headed Windows receipt proves a hidden app can wake, redraw when restored,
+  and keep its accessibility tree coherent;
+- idle wake, suspend/resume, and a close request while a frame is pending leave
+  no busy loop or lost queued message.
+
+**Stop rule:** do not add Tokio, a task registry, auto-update policy, restart
+logic, a system tray dependency, or generic multi-window management to this
+crate. Those are product and platform-extension decisions, not necessary
+preconditions for a correct close and wake path.
+
+#### G5.2. Signalman owns installer execution
+
+Move the executor worker from `signalman-desktop` behind Signalman's public
+management vocabulary. The desktop must stop importing Linkboy execution types
+or calling `execute_plan` directly.
+
+Signalman should expose an approved-install handle or worker whose inputs stay
+private to Signalman: it begins only from `FirmwareInstaller`'s approved flow,
+runs Linkboy's exact approved plan on a dedicated worker, and emits
+Signalman-owned semantic install updates plus a terminal result. The desktop
+starts it, drains its updates using the host wake handle, and projects them.
+It cannot name a raw plan, package, helper runner, or Linkboy execution error.
+
+This does not hide Linkboy's facts. Signalman's semantic update and receipt
+types retain the owner-visible stage, progress, refusal, recovery instructions,
+and receipt facts needed by the six pages.
+
+**Implementation 2026-08-12:** `FirmwareInstaller::start_install` owns the
+helper runners, execution thread, and Linkboy call. Its `FirmwareInstallWorker`
+delivers opaque updates; `FirmwareInstaller::apply_install_update` advances the
+owner flow and returns a Signalman `FirmwareInstallNotice` with activity,
+progress, terminal outcome, or a Signalman-owned recovery stage. Signalman's
+desktop drains those notices from Cambium's `after_wake` hook. It retains its
+existing Linkboy display and receipt projections, but no longer names a plan,
+package, helper runner, execution error, or raw worker event at the integration
+seam.
+
+**Signalman first behavior:**
+
+- Minimize remains normal window behavior; the install worker continues and
+  wakes the app only when it has a message.
+- While a transfer or verification is active, Close asks Signalman. The first
+  safe disposition is **Keep visible** with an accessible explanation that
+  installation is still active. Do not offer Cancel.
+- Hiding to a tray/widget is deferred until a real product needs it and can
+  surface completion or recovery through an accessible notification and a
+  reliable reopen path. A future `cambium-winit-tray` or equivalent may consume
+  the lifecycle/wake seam as a separate platform extension; it must not become
+  a dependency of the core host.
+- After a terminal receipt or explicit recovery state, normal close may exit.
+
+An updater follows the same split: its product update engine owns download,
+signature verification, staging, restart consent, and recovery; Cambium merely
+wakes the view and asks the application how to handle close while the work is
+active.
+
+**Receipts:**
+
+- a desktop test proves a nonterminal install vetoes both native and in-app
+  close, with a named alert; a terminal receipt permits exit;
+- an owned-install test proves `signalman-desktop` has no direct Linkboy
+  execution dependency and cannot obtain an executable plan outside Signalman;
+- a headed minimize-and-restore run proves progress or recovery reaches the
+  restored view without a permanent redraw loop;
+- a physical G4 receipt begins only after this close behavior is in place.
+
+#### G5.3. Reproducible consumer revisions
+
+Signalman currently pins the host stack to Genet `398e4af60`, which contains
+the earlier G1 fixes and later accessible-label repair. Update the G2 receipt
+and this plan's historical pin wording from `e4920aad6` to that tested
+revision. Woodshed must replace its moving `branch = "main"` host dependency
+with an explicit tested revision, or a recorded revision matrix must name the
+two exact commits used by its receipts. A branch is a development convenience,
+not a reproducible consumer contract.
+
+**Implementation 2026-08-12:** Woodshed's Genet-family dependencies now all
+pin `398e4af60`, matching Signalman's current host matrix. Once the G5 host
+change has its own immutable Genet revision, both consumer manifests and their
+lock receipts must advance together; a local checkout change is not a consumer
+revision receipt. Signalman's full 16-test desktop receipt passed only through
+a command-local source override for this checkout, which is intentionally not
+a substitute for that future immutable pin.
+
 ## Non-goals
 
 - No GUI in `apps/linkboy`.
 - No Pelt, browser-content, tile, or docking dependency in Signalman.
 - No generic multi-window, task, navigation, persistence, or command framework.
+- No background worker may survive only by an unexamined process lifetime.
+- No tray, widget, updater, or notification subsystem in the core desktop host.
 - No custom paint leaf or reusable stepper/progress component without a second
   demonstrated consumer.
 - No relocation of Linkboy policy, package parsing, helper invocation, or
@@ -500,12 +648,14 @@ better consumer one and it can be migrated before Signalman rather than after.
 5. ~~Produce the headless, semantic, headed, and accessibility receipts.~~
    **Done**, except the manual screen-reader and keyboard pass, which needs a
    person and is a G4 prerequisite.
-6. Run the manual accessibility pass, then G4 on V4, then T114 when hardware
+6. Complete G5.1 through G5.3: host wake and close disposition, Signalman-owned
+   installation, and immutable consumer revisions.
+7. Run the manual accessibility pass, then G4 on V4, then T114 when hardware
    is available.
-7. With both consumers proven, decide the host's stable API and release story —
+8. With both consumers proven, decide the host's stable API and release story —
    application trait or published package. It cannot publish while it rides
    `genet-layout` and `genet-winit-host`.
-8. *Optional, whenever it suits:* migrate Pelt, cleromancy, isometry, and
+9. *Optional, whenever it suits:* migrate Pelt, cleromancy, isometry, and
    turnstone's panes off their hand-rolled hosts. Each is a deletion, not a
    proof, and none of them gates anything above.
 

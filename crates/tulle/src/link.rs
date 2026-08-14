@@ -29,6 +29,8 @@ pub enum SendOutcome {
     /// The duty-cycle budget is full; the earliest time this frame would fit is `retry_at_ms`.
     /// `None` means it can never fit (its airtime exceeds the whole window allowance).
     DutyCycleBlocked { retry_at_ms: Option<u64> },
+    /// The shared duty budget is available, but the announce-only pacing cap has not elapsed.
+    AnnouncePaced { retry_at_ms: Option<u64> },
     /// The modem refused the frame (half-duplex busy, too long, hardware fault).
     Failed(ModemError),
 }
@@ -60,15 +62,34 @@ impl<M: Modem> RadioLink<M> {
     /// a pump can schedule rather than busy-wait. This is the one place air is committed, so it
     /// is the one place the duty cycle is enforced.
     pub fn send(&mut self, frame: &[u8], now_ms: u64) -> SendOutcome {
+        self.send_inner(frame, now_ms, false)
+    }
+
+    /// Attempt to transmit an announce through both the shared airtime gate and
+    /// the configured announce-specific pacing cap.
+    pub fn send_announcement(&mut self, frame: &[u8], now_ms: u64) -> SendOutcome {
+        self.send_inner(frame, now_ms, true)
+    }
+
+    fn send_inner(&mut self, frame: &[u8], now_ms: u64, announce: bool) -> SendOutcome {
         let airtime_ms = self.modem.params().time_on_air_ms(frame.len());
         if !self.budget.may_transmit(now_ms, airtime_ms) {
             return SendOutcome::DutyCycleBlocked {
                 retry_at_ms: self.budget.next_slot(now_ms, airtime_ms),
             };
         }
+        if announce && !self.budget.may_transmit_announce(now_ms, airtime_ms) {
+            return SendOutcome::AnnouncePaced {
+                retry_at_ms: self.budget.next_announce_slot(now_ms, airtime_ms),
+            };
+        }
         match self.modem.enqueue(frame) {
             Ok(airtime) => {
-                self.budget.record(now_ms, airtime_ms);
+                if announce {
+                    self.budget.record_announce(now_ms, airtime_ms);
+                } else {
+                    self.budget.record(now_ms, airtime_ms);
+                }
                 SendOutcome::Sent { airtime }
             }
             Err(e) => SendOutcome::Failed(e),
@@ -219,5 +240,29 @@ mod tests {
             SendOutcome::DutyCycleBlocked { retry_at_ms: None } => {}
             other => panic!("expected never-fits, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn announce_pacing_uses_the_same_shared_airtime_budget() {
+        let mut link = RadioLink::new(
+            Echo::new(),
+            AirtimeBudget::new(1_000, 1_000).with_announce_pacing(
+                crate::airtime::AnnouncePacing::Limited { cap_per_mille: 500 },
+            ),
+        );
+        let frame = vec![0xAA; 12];
+        assert!(matches!(
+            link.send_announcement(&frame, 0),
+            SendOutcome::Sent { .. }
+        ));
+        match link.send_announcement(&frame, 1) {
+            SendOutcome::AnnouncePaced {
+                retry_at_ms: Some(retry),
+            } => assert!(retry > 1),
+            other => panic!("expected announcement pacing, got {other:?}"),
+        }
+        // Ordinary traffic remains subject only to the shared budget, not to the
+        // announce cooldown.
+        assert!(matches!(link.send(b"data", 1), SendOutcome::Sent { .. }));
     }
 }

@@ -175,11 +175,21 @@ fn choose_device(state: &DesktopState) -> Child {
         ),
         SurveyState::Surveyed => Box::new(el("div", ()).attr("class", "empty-none")),
     };
-    // A recognized board can offer its printed revision as an explicit choice.
-    // It is deliberately not a default: the board, not the USB banner, is the
-    // authority for this claim. Free text remains available for every board.
-    let known_revision: Child = match state.device().and_then(|device| device.board.as_deref()) {
-        Some("HeltecV4") => Box::new(
+    // A recognized board can offer a package-compatible revision as an explicit choice.
+    // It is deliberately not a default: the carrier's printing, not the USB banner, is the
+    // authority for this claim. A silent foreign T114 needs the owner's explicit family
+    // declaration plus its captured loader record.
+    let family = state
+        .device()
+        .and_then(|device| match device.board.as_deref() {
+            Some("HeltecV4") => Some(linkboy::BoardFamily::HeltecV4),
+            Some("T114") => Some(linkboy::BoardFamily::T114),
+            _ => None,
+        })
+        .or_else(|| state.selected_board_family.clone());
+    let is_t114 = matches!(&family, Some(linkboy::BoardFamily::T114));
+    let known_revision: Child = match family {
+        Some(linkboy::BoardFamily::HeltecV4) => Box::new(
             button("Use V4 revision 4.2", |s: &mut DesktopState, _| {
                 s.select_board_revision("4.2")
             })
@@ -189,7 +199,109 @@ fn choose_device(state: &DesktopState) -> Child {
                 "Select only when 4.2 is printed on the Heltec V4 board.",
             ),
         ),
+        Some(linkboy::BoardFamily::T114) => Box::new(
+            button("Use T114 revision 2.x", |s: &mut DesktopState, _| {
+                s.select_board_revision("2.x")
+            })
+            .attr("class", "secondary")
+            .attr(
+                "aria-description",
+                "Select only when the T114 matches the package's 2.x profile.",
+            ),
+        ),
         _ => Box::new(el("div", ()).attr("class", "empty-none")),
+    };
+    // An owner declaration is an escape hatch for a silent serial port. A
+    // board that named itself has supplied the stronger fact already, so the
+    // declarations are neither useful nor keyboard stops on its chooser page.
+    // Selecting a family only permits the corresponding non-writing evidence
+    // path; it does not turn the COM location into hardware evidence.
+    let declare_silent_device: Child = if state
+        .device()
+        .is_some_and(|device| device.board.is_none())
+    {
+        Box::new(
+            el(
+                "div",
+                (
+                    button("This serial device is a V4", |s: &mut DesktopState, _| {
+                        s.select_board_family(linkboy::BoardFamily::HeltecV4)
+                    })
+                    .attr("class", "secondary")
+                    .attr(
+                        "aria-description",
+                        "Declare the selected silent serial device to be the V4 you own. Linkboy will still inspect its ESP ROM loader before planning.",
+                    ),
+                    button("This serial device is a T114", |s: &mut DesktopState, _| {
+                        s.select_board_family(linkboy::BoardFamily::T114)
+                    })
+                    .attr("class", "secondary")
+                    .attr(
+                        "aria-description",
+                        "Declare the selected silent serial device to be the T114 you own. A retained UF2 loader record is still required.",
+                    ),
+                ),
+            )
+            .attr("class", "actions"),
+        )
+    } else {
+        Box::new(el("div", ()).attr("class", "empty-none"))
+    };
+    let t114_uf2_route: Child = if is_t114 {
+        Box::new(
+            el(
+                "div",
+                (
+                    el("div", text("T114 UF2 route")).attr("class", "field-label"),
+                    el(
+                        "label",
+                        (
+                            el("div", text("Mounted UF2 volume")).attr("class", "field-label"),
+                            el(
+                                "div",
+                                cambium::lens(
+                                    |input: &mut cambium::TextInput| cambium::text_field(input),
+                                    |s: &mut DesktopState| &mut s.t114_uf2_volume,
+                                ),
+                            )
+                            .attr("class", "revision-wrap")
+                            .attr("data-text-field", "uf2-volume"),
+                        ),
+                    )
+                    .attr("class", "revision-label"),
+                    el(
+                        "label",
+                        (
+                            el("div", text("Loader record path")).attr("class", "field-label"),
+                            el(
+                                "div",
+                                cambium::lens(
+                                    |input: &mut cambium::TextInput| cambium::text_field(input),
+                                    |s: &mut DesktopState| &mut s.t114_loader_record,
+                                ),
+                            )
+                            .attr("class", "revision-wrap")
+                            .attr("data-text-field", "loader-record"),
+                        ),
+                    )
+                    .attr("class", "revision-label"),
+                    el(
+                        "div",
+                        text(
+                            "For an upstream T114 UF2 install, Linkboy reads this mounted volume and saves its own loader and SoftDevice record here for the later serial restore.",
+                        ),
+                    )
+                    .attr("class", "hint"),
+                    button("Use mounted T114 volume", |s: &mut DesktopState, _| {
+                        s.request(Request::ConfirmMountedT114)
+                    })
+                    .attr("class", "secondary"),
+                ),
+            )
+            .attr("class", "revision-row"),
+        )
+    } else {
+        Box::new(el("div", ()).attr("class", "empty-none"))
     };
     Box::new(el(
         "div",
@@ -222,7 +334,8 @@ fn choose_device(state: &DesktopState) -> Child {
                                     |s: &mut DesktopState| &mut s.board_revision,
                                 ),
                             )
-                            .attr("class", "revision-wrap"),
+                            .attr("class", "revision-wrap")
+                            .attr("data-text-field", "revision"),
                         ),
                     )
                     .attr("class", "revision-label"),
@@ -238,6 +351,8 @@ fn choose_device(state: &DesktopState) -> Child {
                 ),
             )
             .attr("class", "revision-row"),
+            declare_silent_device,
+            t114_uf2_route,
             el(
                 "div",
                 (
@@ -609,7 +724,7 @@ fn verify_or_recover(state: &DesktopState) -> Child {
             let instructions = state
                 .recovery_instructions
                 .as_ref()
-                .map(|i| i.after_failure.clone())
+                .cloned()
                 .or_else(|| {
                     view.review
                         .as_ref()

@@ -1,7 +1,14 @@
 # Retinue work lanes
 
 **Date:** 2026-08-09
-**Status:** cross-plan execution map
+**Status:** cross-plan execution map. **Ordering superseded 2026-08-12** by
+[program sequencing](2026-08-12_program_sequencing_and_deadline_order.md),
+which was built from a code-reading audit and found roughly twenty-five of
+this document's asserted dependencies unsupported (LE3 does not gate on
+LE1/LE2; FT5 does not gate on FT3/FT4; CV2 gates only on FT1's configuration
+surface; FS6 does not gate on the Prns H3 harvest). **The four-lane split
+below stands; its sequences do not.** That doc also orders the program against
+the 2026-09-01 ARDC intake, which this one walls off as external.
 
 This document splits Retinue's remaining work without replacing the plans that
 own each gate. It exists because the Prns harvest brief exposed work in four
@@ -103,6 +110,20 @@ translated CM2 through CM5; FS6.
 **Primary write surface:** `crates/tulle`, `crates/retinue`, `crates/radio-hand`,
 and board firmware.
 
+**Opening software status (2026-08-12):** AIR0's bounded profile registry,
+AIR1's Reticulum announce pacing path, and AIR2's attributed ingress admission
+are implemented and host-tested; see the
+[AIR0/AIR1 receipt](2026-08-12_air0_air1_software_receipt.md) and
+[AIR2 receipt](2026-08-12_air2_announce_ingress_receipt.md). Neither supplies
+the hardware measurements required to close LE3 or FT1, and AIR2 is not the
+bounded firmware-state proof required by FT2/FS6. AIR3 now supplies the
+native-node route/relay model, a true T114 heap-peak instrument, and an
+[on-air bounded-state receipt](2026-08-13_air3_t114_on_air_receipt.md): live
+route eviction, peer refusal, a stable 18,168-byte heap peak, and independently
+observed hop-one type-2 announce relays. The stronger link-request/proof relay
+transaction remains later transport coverage. See also the
+[AIR3 software receipt](2026-08-12_air3_bounded_transport_software_receipt.md).
+
 Sequence:
 
 1. **AIR0, profile model:** keep CAD detection separate from exact packet
@@ -113,12 +134,15 @@ Sequence:
    announce-specific pacing adapted from Prns's `AnnouncePacer`. Keep the
    existing shared transmission budget authoritative. Close FT1 with modeled
    versus measured airtime and an enforced announce cap on two interfaces.
-3. **AIR2, inbound pressure:** port the interface and destination announce
-   admission state machines with attribution and a separate flood receipt.
-4. **AIR3, bounded firmware state:** add route expiry and eviction, then extend
-   the existing T114 flood receipt with sustained memory high-water and
-   transport relay evidence. This completes the still-open firmware portion of
-   FT2/FS6 rather than repeating N0 through N6.
+3. **AIR2, inbound pressure (complete):** the Retinue-owned interface and
+   destination announce-admission state machines retain ingress attribution,
+   bound held work, and have a separate host flood receipt. This does not turn
+   the host receipt into a firmware high-water proof.
+4. **AIR3, bounded firmware state (software complete):** native-node routes
+   expire and evict inside a typed table, transit has bounded bridge and
+   de-duplication state, and the T114 exposes a peak heap counter. Run the
+   existing flood on the newly flashed board for sustained high-water and
+   transport-relay evidence before calling FT2/FS6 complete.
 5. **AIR4, executive boundary:** land LE1 and LE2 (adapter boundary, lease
    revocation) with an on-air receipt. Absorbs the old CM1 hot-switch gate.
 6. **AIR5, measured MAC work:** evaluate Prns's CCA, fairness, and diagnostics

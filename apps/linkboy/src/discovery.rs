@@ -1,10 +1,170 @@
 //! First-flash discovery and re-enumeration evidence.
 
 use std::collections::BTreeSet;
+use std::path::Path;
 
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::device::{BoardSelection, DeviceObservation, DeviceTransport, FirmwareState};
+use crate::device::{
+    BoardSelection, BootloaderObservation, DeviceObservation, DeviceTransport, FirmwareState,
+};
+use crate::package::ProcessorKind;
+
+pub const T114_LOADER_SNAPSHOT_SCHEMA: u32 = 1;
+
+/// Facts captured from the T114's own UF2 information file before moving to serial DFU.
+///
+/// The volume is a distinct bootloader interface, so its record is kept intact instead of
+/// pretending a silent application or its future serial port reported these facts.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct T114LoaderSnapshot {
+    pub schema: u32,
+    pub model: String,
+    pub uf2_bootloader: String,
+    pub softdevice: String,
+    pub processor: ProcessorKind,
+    pub flash_size: u32,
+}
+
+impl T114LoaderSnapshot {
+    pub fn from_uf2_info(info: &str) -> Result<Self, DiscoveryError> {
+        let uf2_bootloader = info
+            .lines()
+            .find_map(|line| line.trim().strip_prefix("UF2 Bootloader "))
+            .and_then(|description| description.split_whitespace().next())
+            .and_then(|version| version.split('-').next())
+            .filter(|version| !version.is_empty())
+            .ok_or_else(|| {
+                DiscoveryError::T114Info("missing Adafruit UF2 bootloader version".into())
+            })?;
+        let model = info
+            .lines()
+            .find_map(|line| {
+                line.trim()
+                    .strip_prefix("Model: ")
+                    .or_else(|| line.trim().strip_prefix("Board-ID: "))
+            })
+            .filter(|model| *model == "HT-n5262")
+            .ok_or_else(|| {
+                DiscoveryError::T114Info("the volume does not identify HT-n5262".into())
+            })?;
+        let softdevice = info
+            .lines()
+            .find_map(|line| line.trim().strip_prefix("SoftDevice: "))
+            .filter(|softdevice| softdevice.to_ascii_lowercase().starts_with("s140 6."))
+            .ok_or_else(|| DiscoveryError::T114Info("missing S140 v6 SoftDevice record".into()))?;
+        Ok(Self {
+            schema: T114_LOADER_SNAPSHOT_SCHEMA,
+            model: model.into(),
+            uf2_bootloader: uf2_bootloader.into(),
+            softdevice: softdevice.into(),
+            processor: ProcessorKind::Nrf52840,
+            flash_size: 1024 * 1024,
+        })
+    }
+
+    pub fn from_json(path: impl AsRef<Path>) -> Result<Self, DiscoveryError> {
+        let path = path.as_ref();
+        let text = std::fs::read_to_string(path).map_err(|error| {
+            DiscoveryError::Snapshot(format!("cannot read {}: {error}", path.display()))
+        })?;
+        let snapshot: Self = serde_json::from_str(&text).map_err(|error| {
+            DiscoveryError::Snapshot(format!("cannot parse {}: {error}", path.display()))
+        })?;
+        if snapshot.schema != T114_LOADER_SNAPSHOT_SCHEMA {
+            return Err(DiscoveryError::Snapshot(format!(
+                "{} has schema {}, expected {}",
+                path.display(),
+                snapshot.schema,
+                T114_LOADER_SNAPSHOT_SCHEMA
+            )));
+        }
+        if snapshot.model != "HT-n5262"
+            || snapshot.processor != ProcessorKind::Nrf52840
+            || snapshot.flash_size != 1024 * 1024
+            || !snapshot
+                .softdevice
+                .to_ascii_lowercase()
+                .starts_with("s140 6.")
+        {
+            return Err(DiscoveryError::Snapshot(format!(
+                "{} is not an HT-n5262 nRF52840 S140 v6 record",
+                path.display()
+            )));
+        }
+        Ok(snapshot)
+    }
+
+    pub fn save_json(&self, path: impl AsRef<Path>) -> Result<(), DiscoveryError> {
+        let path = path.as_ref();
+        let text = serde_json::to_string_pretty(self)
+            .map_err(|error| DiscoveryError::Snapshot(error.to_string()))?;
+        std::fs::write(path, text).map_err(|error| {
+            DiscoveryError::Snapshot(format!("cannot write {}: {error}", path.display()))
+        })
+    }
+
+    pub fn uf2_bootloader_observation(&self, volume: &str) -> BootloaderObservation {
+        BootloaderObservation {
+            identifier: Some(volume.into()),
+            descriptor: Some(format!("UF2 Bootloader v{}", self.uf2_bootloader)),
+            processor: Some(self.processor.clone()),
+            flash_size: Some(self.flash_size),
+            bootloader: Some(format!("adafruit-uf2-{}", self.uf2_bootloader)),
+            usb_vid: None,
+            usb_pid: None,
+        }
+    }
+
+    pub fn serial_dfu_observation(&self) -> BootloaderObservation {
+        BootloaderObservation {
+            identifier: Some(self.model.clone()),
+            descriptor: Some(format!("UF2 record; SoftDevice {}", self.softdevice)),
+            processor: Some(self.processor.clone()),
+            flash_size: Some(self.flash_size),
+            bootloader: Some("s140-v6".into()),
+            usb_vid: None,
+            usb_pid: None,
+        }
+    }
+}
+
+/// Read the T114's own bootloader record from its mounted UF2 volume.
+pub fn t114_loader_snapshot_from_volume(
+    volume: impl AsRef<Path>,
+) -> Result<T114LoaderSnapshot, DiscoveryError> {
+    let volume = volume.as_ref();
+    if !volume.is_dir() {
+        return Err(DiscoveryError::T114Info(format!(
+            "{} is not an accessible mounted volume",
+            volume.display()
+        )));
+    }
+    let info_path = volume.join("INFO_UF2.TXT");
+    let info = std::fs::read_to_string(&info_path).map_err(|error| {
+        DiscoveryError::T114Info(format!("cannot read {}: {error}", info_path.display()))
+    })?;
+    T114LoaderSnapshot::from_uf2_info(&info)
+}
+
+/// Build a Linkboy observation for a mounted, self-identifying T114 UF2 loader.
+///
+/// The returned snapshot is deliberately separate so a later serial-DFU recovery can retain
+/// the bootloader's physical record rather than borrowing facts from a foreign application.
+pub fn t114_uf2_observation(
+    volume: impl AsRef<Path>,
+) -> Result<(DeviceObservation, T114LoaderSnapshot), DiscoveryError> {
+    let volume = volume.as_ref();
+    let snapshot = t114_loader_snapshot_from_volume(volume)?;
+    let transport = volume.to_string_lossy().into_owned();
+    let observation = DeviceObservation::from_bootloader(
+        DeviceTransport::MountedVolume(transport.clone()),
+        snapshot.uf2_bootloader_observation(&transport),
+    );
+    Ok((observation, snapshot))
+}
 
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub enum DiscoveryError {
@@ -16,6 +176,10 @@ pub enum DiscoveryError {
     Contradiction(String),
     #[error("loader output did not contain enough hardware facts: {0}")]
     IncompleteFacts(String),
+    #[error("invalid T114 UF2 information: {0}")]
+    T114Info(String),
+    #[error("invalid T114 loader snapshot: {0}")]
+    Snapshot(String),
 }
 
 /// Pick a single newly enumerated port. A COM number is useful as a location observation only;
@@ -132,6 +296,36 @@ mod tests {
         )
         .unwrap();
         assert!(is_first_flash(&observation));
+    }
+
+    #[test]
+    fn t114_loader_snapshot_preserves_the_uf2_and_serial_dfu_facts() {
+        let snapshot = T114LoaderSnapshot::from_uf2_info(
+            "UF2 Bootloader 0.9.0-2-g1234567\nModel: HT-n5262\nSoftDevice: S140 6.1.1\n",
+        )
+        .expect("the board's own INFO_UF2.TXT record is sufficient");
+        assert_eq!(snapshot.model, "HT-n5262");
+        assert_eq!(snapshot.uf2_bootloader, "0.9.0");
+        assert_eq!(snapshot.softdevice, "S140 6.1.1");
+        assert_eq!(snapshot.flash_size, 1024 * 1024);
+        assert_eq!(
+            snapshot.serial_dfu_observation().bootloader.as_deref(),
+            Some("s140-v6")
+        );
+        assert_eq!(
+            snapshot
+                .uf2_bootloader_observation("D:\\")
+                .bootloader
+                .as_deref(),
+            Some("adafruit-uf2-0.9.0")
+        );
+    }
+
+    #[test]
+    fn t114_loader_snapshot_refuses_an_incomplete_uf2_record() {
+        let error = T114LoaderSnapshot::from_uf2_info("UF2 Bootloader 0.9.0\nModel: HT-n5262\n")
+            .expect_err("SoftDevice evidence must not be invented");
+        assert!(matches!(error, DiscoveryError::T114Info(_)));
     }
 
     #[test]

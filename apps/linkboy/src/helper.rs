@@ -11,6 +11,9 @@ pub fn version_args(route: &FlashRoute) -> Vec<String> {
     match route {
         FlashRoute::EspRom => vec!["--version".into()],
         FlashRoute::AdafruitDfu => vec!["version".into()],
+        FlashRoute::Uf2MassStorage => {
+            unreachable!("the built-in UF2 writer has no external helper version command")
+        }
     }
 }
 

@@ -58,6 +58,16 @@ pub async fn serve_status_only<'d, D: Driver<'d>>(
 }
 
 impl<'d, D: Driver<'d>> HostLink for UsbHost<'d, D> {
+    fn is_attached(&self) -> bool {
+        self.class.dtr()
+    }
+
+    async fn detached(&mut self) {
+        while self.class.dtr() {
+            embassy_time::Timer::after_millis(50).await;
+        }
+    }
+
     /// Wait for a terminal, not merely for USB.
     ///
     /// `wait_connection()` alone is `wait_enabled()`: it completes as soon as the *device*

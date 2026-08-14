@@ -1,0 +1,52 @@
+{
+  "schema": 3,
+  "package_id": "prns.hopspot.heltec-v4",
+  "package_parts": [
+    {
+      "kind": "bootloader",
+      "offset": 0,
+      "byte_length": 21056,
+      "sha256": "8a516bf82000501f129eb8bf7cd04ec6a33edb09487890beefe90989d806990d"
+    },
+    {
+      "kind": "partition-table",
+      "offset": 32768,
+      "byte_length": 3072,
+      "sha256": "e187b5a94e4423b42a5d41a02fd39ce1d89dd65c6c2241c14e9ec9786247a9a4"
+    },
+    {
+      "kind": "application",
+      "offset": 65536,
+      "byte_length": 1703312,
+      "sha256": "c029b78248c3bd05bde79b82e31160736cddb7f8e1d88ea6b0fdf374c39762b9"
+    }
+  ],
+  "publisher_signature": {
+    "format": "minisign",
+    "key_id": "1BF5C4D8B140811A",
+    "signed_manifest_url": "https://reticulum.rs/releases/0.3.4/flash-manifest.json",
+    "signed_manifest_sha256": "e954ed3a5c94990f5ee2c074d7521e41cec803718d3dafaf123cdf14f0abcf0a",
+    "signature": "untrusted comment: signature from minisign secret key\nRUQagUCx2MT1GwasUQqN6ytkY0Oj7Q/6G5LKu7YUHECHV/0h63PqNImq1rrIAazfTiQgwWEIN9y8z+MLN1+S9agFICaHLutV3wg=\ntrusted comment: prns-release-sha256:e954ed3a5c94990f5ee2c074d7521e41cec803718d3dafaf123cdf14f0abcf0a\n1Rrh8hMHhK0x4BtAJBtyo+vtUcXYULksT37lqFfzMFHcTsP4pE4qN3EMZx1o9EBMa0fqr/oXJsjwegvRHqP2DA==\n"
+  },
+  "board": "heltec-v4",
+  "board_revision": "4.2",
+  "route": "esp-rom",
+  "helper": {
+    "program": "espflash",
+    "version": "4.5.0",
+    "binary_sha256": "768f0adfc71629a1e2e690923dd63d267cbfcd2828c26ac1315f664bca1dffc7"
+  },
+  "transport": "serial:COM7",
+  "processor": "esp32-s3",
+  "flash_size": 16777216,
+  "bootloader": "esp-rom",
+  "stages": [
+    {
+      "name": "manual-check-required",
+      "detail": "Every package part transferred and verified by the helper."
+    }
+  ],
+  "result": "manual-check-required",
+  "application": null,
+  "manual_check": "Open the serial console at 115200 baud and confirm HOPSPOT_HELTECV4 boot version=0.3.4, OLED initialized, and RNS_ESPNOW interface up. This release may report network_stack=false without configured Wi-Fi; do not claim a SoftAP unless it is separately observed."
+}

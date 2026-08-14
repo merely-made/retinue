@@ -16,9 +16,37 @@ use std::io::{BufRead, Write};
 use std::time::Duration;
 
 use postilion::{Event, Radio, Sent, Station, StationConfig};
+use retinue::identity::{IDENTITY_LEN, PrivateIdentity};
+use zeroize::Zeroize;
 
 /// How long a send waits for a recipient who has not announced yet.
 const PATIENCE: Duration = Duration::from_secs(75);
+
+/// The bench example receives its identity from the authority that invokes it.
+/// It intentionally does not mint or write a station account file.
+fn station_identity_from_env() -> Result<PrivateIdentity, Box<dyn std::error::Error>> {
+    let encoded = std::env::var("SIGNALMAN_STATION_SECRET_HEX").map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "SIGNALMAN_STATION_SECRET_HEX is required; use the Mere Signalman port for managed credentials",
+        )
+    })?;
+    let mut bytes = hex::decode(encoded)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
+    let mut secret: [u8; IDENTITY_LEN] = bytes.as_slice().try_into().map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!(
+                "SIGNALMAN_STATION_SECRET_HEX decoded to {} bytes, need {IDENTITY_LEN}",
+                bytes.len()
+            ),
+        )
+    })?;
+    bytes.zeroize();
+    let identity = PrivateIdentity::from_secret_bytes(&secret);
+    secret.zeroize();
+    Ok(identity)
+}
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -39,15 +67,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .ok_or_else(|| format!("unknown radio mode {mode}, want phy or rnode"))?,
     };
 
-    let mut station = Station::open(StationConfig {
-        identity_path: StationConfig::identity_for(&name),
-        port: port.clone(),
-        name: name.clone(),
-        bandwidth_hz,
-        radio,
-        ..StationConfig::default()
-    })
-    .await?;
+    let mut config = StationConfig::new(port.clone(), name.clone(), station_identity_from_env()?);
+    config.bandwidth_hz = bandwidth_hz;
+    config.radio = radio;
+    let mut station = Station::open(config).await?;
 
     println!("radio: {port} online ({radio:?})");
     println!("you are {}  ({name})", station.address());

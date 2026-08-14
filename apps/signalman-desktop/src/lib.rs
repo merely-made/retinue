@@ -28,31 +28,59 @@ pub use state::{DesktopState, Request, SurveyState};
 pub use theme::SHEET;
 pub use views::{Child, Logic, root};
 
-/// The text seam: the board-revision field, when it has focus.
+/// The text seam: the device-route fields, when one has focus.
 ///
 /// The host owns the caret, selection, IME, drag selection, and visual caret
 /// movement; it cannot know where an application keeps its text. This is the
-/// application's half — there is exactly one editable field in the whole flow,
-/// so recognizing the focused `<input>` is the whole job.
+/// application's half — an ancestor tags each editable field, so the host can
+/// reach the corresponding state without treating every input as a revision.
 pub fn focused_revision_field(
     runner: &cambium_genet_winit_host::Runner<DesktopState, Logic, Child>,
 ) -> Option<cambium_genet_winit_host::FocusedTextSlot<DesktopState>> {
     use layout_dom_api::LayoutDom as _;
     let node = runner.focus()?;
     let dom = runner.dom();
-    let is_input = {
+    let field = {
         let dom = dom.borrow();
-        dom.element_name(node)
+        if !dom
+            .element_name(node)
             .is_some_and(|name| name.local.as_ref() == "input")
+        {
+            return None;
+        }
+        let mut cursor = Some(node);
+        let mut field = None;
+        while let Some(current) = cursor {
+            field = dom
+                .attributes(current)
+                .find(|attribute| attribute.name.local.as_ref() == "data-text-field")
+                .map(|attribute| attribute.value.to_string())
+                .or(field);
+            if field.is_some() {
+                break;
+            }
+            cursor = dom.parent(current);
+        }
+        field
     };
-    if !is_input {
-        return None;
+    match field.as_deref() {
+        Some("revision") => Some(cambium_genet_winit_host::FocusedTextSlot {
+            node,
+            get: Box::new(|s: &DesktopState| &s.board_revision),
+            get_mut: Box::new(|s: &mut DesktopState| &mut s.board_revision),
+        }),
+        Some("uf2-volume") => Some(cambium_genet_winit_host::FocusedTextSlot {
+            node,
+            get: Box::new(|s: &DesktopState| &s.t114_uf2_volume),
+            get_mut: Box::new(|s: &mut DesktopState| &mut s.t114_uf2_volume),
+        }),
+        Some("loader-record") => Some(cambium_genet_winit_host::FocusedTextSlot {
+            node,
+            get: Box::new(|s: &DesktopState| &s.t114_loader_record),
+            get_mut: Box::new(|s: &mut DesktopState| &mut s.t114_loader_record),
+        }),
+        _ => None,
     }
-    Some(cambium_genet_winit_host::FocusedTextSlot {
-        node,
-        get: Box::new(|s: &DesktopState| &s.board_revision),
-        get_mut: Box::new(|s: &mut DesktopState| &mut s.board_revision),
-    })
 }
 
 /// Where the packaged firmware catalog lives, relative to this crate.

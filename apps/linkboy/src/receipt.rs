@@ -113,6 +113,11 @@ impl FlashReceipt {
         let json = self.to_json()?;
         std::fs::write(path, json).map_err(ReceiptError::Io)
     }
+
+    pub fn load_json(path: impl AsRef<Path>) -> Result<Self, ReceiptError> {
+        let json = std::fs::read_to_string(path).map_err(ReceiptError::Io)?;
+        serde_json::from_str(&json).map_err(ReceiptError::Deserialize)
+    }
 }
 
 pub fn transport_label(transport: &DeviceTransport) -> String {
@@ -128,6 +133,8 @@ pub enum ReceiptError {
     Serialize(#[from] serde_json::Error),
     #[error("could not write receipt: {0}")]
     Io(std::io::Error),
+    #[error("could not read receipt: {0}")]
+    Deserialize(serde_json::Error),
 }
 
 /// The receipt intentionally copies only public observation facts. In particular, it does not
@@ -218,5 +225,26 @@ mod tests {
         assert!(json.contains("package_parts"));
         assert!(!json.contains("private-key-material"));
         assert!(!json.contains("status_reply"));
+    }
+
+    #[test]
+    fn receipt_json_round_trips_through_the_loader() {
+        let receipt = FlashReceipt::complete(
+            &plan(),
+            ApplicationVerification {
+                board: BoardFamily::HeltecV4,
+                version: "0.0.1".into(),
+                region: Some("US915".into()),
+                channel: Some("rnode".into()),
+            },
+            Vec::new(),
+        );
+        let path = std::env::temp_dir().join(format!(
+            "linkboy-receipt-round-trip-{}.json",
+            std::process::id()
+        ));
+        receipt.save_json(&path).unwrap();
+        assert_eq!(FlashReceipt::load_json(&path).unwrap(), receipt);
+        std::fs::remove_file(path).unwrap();
     }
 }

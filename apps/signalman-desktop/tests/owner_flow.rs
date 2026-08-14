@@ -10,7 +10,7 @@
 //! on it — is the one thing not exercised, because there is nothing to ask. Its
 //! refusals are, since those are decided before any port is opened.
 
-use cambium_genet_winit_host::{Harness, HostHooks, Init, inert_hooks};
+use cambium_genet_winit_host::{CloseRequest, Harness, HostHooks, Init, inert_hooks};
 use genet_probe::Selector;
 use linkboy::device::{BoardSelection, DeviceTransport, EvidenceConfidence, FirmwareState};
 use linkboy::executor::{ExecutionStage, RecoveryFacts};
@@ -46,11 +46,31 @@ fn state() -> DesktopState {
     state
 }
 
+fn silent_state() -> DesktopState {
+    let mut state = DesktopState::new(&default_catalog_path());
+    assert!(state.catalog_error.is_none());
+    state.adopt_survey(vec![signalman::DeviceCandidate {
+        port: "COM9".into(),
+        board: None,
+        banner: String::new(),
+        region: None,
+        channel: None,
+        known: false,
+    }]);
+    state
+}
+
 /// A harness with the app's own text seam wired, so caret behaviour is the
 /// binary's rather than a stub's.
 fn harness(state: DesktopState) -> App {
     let hooks: HostHooks<DesktopState, Logic, Child> = HostHooks {
         focused_text: Box::new(signalman_desktop::focused_revision_field),
+        close_request: Box::new(|ctx, _| {
+            let mut disposition = None;
+            ctx.runner
+                .update(|state| disposition = Some(state.close_disposition()));
+            disposition.expect("runner updates close disposition")
+        }),
         ..inert_hooks()
     };
     let mut h = Harness::with_hooks(
@@ -91,12 +111,14 @@ fn v4_observation() -> DeviceObservation {
 }
 
 /// Perform whatever the last click asked for, as the binary's `after_dispatch`
-/// hook does. A worker is created but never started: no test starts a flash.
+/// hook does. A worker slot is supplied but never started: no test starts a
+/// flash.
 fn settle(h: &mut App) {
-    let mut worker = signalman_desktop::worker::Worker::new();
+    let mut worker = None;
+    let wake: signalman::InstallerWake = std::sync::Arc::new(|| {});
     h.update(|state| {
         if let Some(request) = state.take_request() {
-            signalman_desktop::flow::perform(state, request, &mut worker);
+            signalman_desktop::flow::perform(state, request, &mut worker, wake.clone());
         }
     });
 }
@@ -366,6 +388,44 @@ fn controls_activate_by_role_and_label() {
     );
 }
 
+/// A silent port carries no board identity. The owner may name the physical
+/// board they are holding, after which the page offers only that family's
+/// revision and evidence path. Neither family is chosen by selecting COM9.
+#[test]
+fn a_silent_device_offers_explicit_v4_and_t114_declarations() {
+    let mut h = harness(silent_state());
+    assert!(
+        h.click_on(&Selector::role("button").containing("COM9")),
+        "the silent serial location remains selectable"
+    );
+    assert_eq!(h.state().selected_board_family, None);
+    h.with_surfaces(|surfaces| {
+        assert!(genet_probe::text_present(
+            surfaces,
+            "This serial device is a V4"
+        ));
+        assert!(genet_probe::text_present(
+            surfaces,
+            "This serial device is a T114"
+        ));
+    });
+
+    assert!(h.click_on(&Selector::role("button").containing("This serial device is a V4")));
+    assert_eq!(h.state().selected_board_family, Some(BoardFamily::HeltecV4));
+    assert!(h.click_on(&Selector::role("button").containing("Use V4 revision 4.2")));
+    assert_eq!(h.state().board_revision.text(), "4.2");
+
+    let mut h = harness(silent_state());
+    assert!(h.click_on(&Selector::role("button").containing("COM9")));
+    assert!(h.click_on(&Selector::role("button").containing("This serial device is a T114")));
+    assert_eq!(h.state().selected_board_family, Some(BoardFamily::T114));
+    h.with_surfaces(|surfaces| {
+        assert!(genet_probe::text_present(surfaces, "T114 UF2 route"));
+        assert!(genet_probe::text_present(surfaces, "Mounted UF2 volume"));
+        assert!(genet_probe::text_present(surfaces, "Loader record path"));
+    });
+}
+
 /// Keyboard order: Tab reaches every control on the device page, in the order
 /// the page reads, and Enter activates the focused one. Nothing here uses the
 /// pointer.
@@ -440,9 +500,39 @@ fn the_revision_field_takes_typing_through_the_text_seam() {
     assert_eq!(revision, "4.2");
 }
 
+/// An active worker owns an unfinished physical operation, so both native and
+/// in-app close keep the window available and explain why. Once that operation
+/// is terminal, ordinary close is allowed again.
+#[test]
+fn active_install_vetoes_native_and_command_close_until_terminal() {
+    let mut h = harness(state());
+    h.update(|state| state.install_running = true);
+
+    h.request_close(CloseRequest::Native);
+    assert!(
+        !h.close_requested(),
+        "native close stays in the app while writing"
+    );
+    h.layout_at(SIZE.0, SIZE.1);
+    h.with_surfaces(|s| {
+        assert!(genet_probe::text_present(s, "Installation is still active"));
+    });
+
+    h.commands().close();
+    h.after_dispatch();
+    assert!(
+        !h.close_requested(),
+        "application close shares the active-install policy"
+    );
+
+    h.update(|state| state.install_running = false);
+    h.request_close(CloseRequest::Native);
+    assert!(h.close_requested(), "terminal install permits close");
+}
+
 /// The face cannot execute. There is no path from a view handler to
 /// `execute_plan`: the only plan it can obtain comes from the flow's own
-/// `begin_install` gate, and it is handed straight to the worker.
+/// `start_install` gate, and the face supplies only a host wake callback.
 #[test]
 fn the_application_cannot_execute_a_plan_it_did_not_get_from_the_flow() {
     let mut h = harness(state());

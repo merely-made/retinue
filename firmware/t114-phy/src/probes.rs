@@ -140,17 +140,17 @@ where
         }
         return Outcome::Served;
     }
-    // Live allocation. The boot line reports it once, when it is zero by
-    // construction; this reports it whenever asked, which is what the heltec
-    // doc's heap high-water done condition actually needs now that the node
-    // channel allocates.
+    // Live and peak allocation. The boot line is only a starting point; this preserves the
+    // largest live allocation across a sustained replay flood after individual packet
+    // buffers have been released.
     if at_boundary && (packet == b"heap\n" || packet == b"heap\r\n") {
-        let mut reply = radio_face::Text::<48>::empty();
+        let mut reply = radio_face::Text::<64>::empty();
         let _ = write!(
             &mut reply,
-            "heap={}/{} free={}\r\n",
+            "heap={}/{} highwater={} free={}\r\n",
             heap::used(),
             heap::HEAP_SIZE,
+            heap::high_water(),
             heap::free(),
         );
         if host.write_all(reply.as_str().as_bytes()).await.is_err() {

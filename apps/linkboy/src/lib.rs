@@ -37,9 +37,12 @@ pub mod route;
 pub mod verify;
 
 pub use catalog::{CatalogError, CatalogPackage, CatalogState, PackageIndex};
-pub use device::{BoardSelection, DeviceObservation, DeviceTransport, HardwareFacts};
+pub use device::{
+    BoardSelection, BootloaderObservation, DeviceObservation, DeviceTransport, HardwareFacts,
+};
 pub use discovery::{
-    DiscoveryError, is_first_flash, needs_esp_rom_probe, stock_device, unique_new_port,
+    DiscoveryError, T114LoaderSnapshot, is_first_flash, needs_esp_rom_probe, stock_device,
+    t114_loader_snapshot_from_volume, t114_uf2_observation, unique_new_port,
 };
 pub use executor::{
     DeviceFailure, DeviceRunner, ExecutionError, ExecutionStage, FlashEvent, LiveDeviceRunner,
@@ -53,7 +56,7 @@ pub use package::{
     VerifiedPackagePart,
 };
 pub use plan::{FlashPlan, PackagePartIdentity, Refusal, RefusalReason, plan_flash};
-pub use receipt::{ApplicationVerification, FlashReceipt, ReceiptResult};
+pub use receipt::{ApplicationVerification, FlashReceipt, ReceiptResult, ReceiptStage};
 pub use verify::{VerificationFailure, verify_application};
 
 /// The host baud rate every retinue image's text probe answers at.

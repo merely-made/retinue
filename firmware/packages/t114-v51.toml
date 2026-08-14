@@ -1,0 +1,56 @@
+schema = 2
+package_id = "retinue.t114"
+display_name = "Retinue for Heltec T114"
+version = "0.0.1-v51"
+publisher = "Merely Made"
+regions = ["US915", "EU868", "EU433", "ANZ915", "JP920"]
+channel_capabilities = ["modem", "node", "rnode"]
+state_impact = "preserved"
+license = "MPL-2.0"
+notices = "See apps/linkboy/NOTICES.md; Retinue workspace notices and the repository MPL-2.0 license apply."
+source_revision = "AIR3 bounded transport and non-starving native-node USB attach v51"
+source_url = "https://github.com/merely-made/retinue/tree/main/firmware/t114-phy"
+origin_url = "https://github.com/merely-made/retinue"
+
+[[helpers]]
+route = "adafruit-dfu"
+program = "adafruit-nrfutil"
+version = "0.5.3.post16"
+license = "Nordic Semiconductor proprietary license"
+source_url = "https://github.com/adafruit/Adafruit_nRF52_nrfutil"
+notice = "See apps/linkboy/NOTICES.md. The helper is external and redistribution requires a separate license review."
+
+[payload]
+path = "../t114-phy/tulle-t114-phy-v51.zip"
+format = "nrf-dfu-zip"
+byte_length = 276270
+sha256 = "f40319be88937315c9f8e7db47d264da869d205f08e2d84ecfc975d749eb5a56"
+write_bytes = 275394
+
+[[targets]]
+family = "t114"
+revision = "2.x"
+processor = "nrf52840"
+flash_size = 1048576
+bootloader = "s140-v6"
+route = "adafruit-dfu"
+
+[[write_ranges]]
+start = 0x26000
+length = 275394
+
+[[preserved_ranges]]
+start = 0xea000
+length = 0x2000
+
+[[preserved_ranges]]
+start = 0xec000
+length = 0x14000
+
+[expected_application]
+board = "t114"
+version = "0.0.1"
+
+[recovery]
+before_write = "Keep the USB cable attached. If the application does not return, use the T114 reset or 1200-baud bootloader entry and select the newly appeared DFU port."
+after_failure = "Reset or touch the original port at 1200 baud, wait for the new DFU port, then retry this package. The S140 bootloader and persisted settings range are outside the application write range."

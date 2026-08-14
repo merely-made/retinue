@@ -71,6 +71,7 @@ pub enum TransmitError {
     TooLong { max: usize },
     Unsupported,
     DutyCycleImpossible,
+    AnnouncementDisabled,
     Transport(String),
     Stopped,
 }
@@ -82,6 +83,12 @@ impl fmt::Display for TransmitError {
             Self::Unsupported => write!(f, "radio parameters are unsupported"),
             Self::DutyCycleImpossible => {
                 write!(f, "frame cannot fit the configured airtime budget")
+            }
+            Self::AnnouncementDisabled => {
+                write!(
+                    f,
+                    "announce egress is disabled by this interface's pacing policy"
+                )
             }
             Self::Transport(message) => write!(f, "serial transport error: {message}"),
             Self::Stopped => write!(f, "serial pump stopped"),
@@ -129,6 +136,7 @@ impl From<io::Error> for PumpError {
 
 struct TxRequest {
     frame: Vec<u8>,
+    announce: bool,
     done: oneshot::Sender<Result<Duration, TransmitError>>,
 }
 
@@ -243,10 +251,24 @@ impl RNodeSerialLink {
     /// Queue one complete RF frame and wait until it has passed the shared airtime gate and
     /// its serial bytes have been written to the RNode.
     pub async fn send(&self, frame: impl Into<Vec<u8>>) -> Result<Duration, TransmitError> {
+        self.queue(frame.into(), false).await
+    }
+
+    /// Queue a Reticulum announce through the same duty gate plus this interface's
+    /// announce-specific pacing cap.
+    pub async fn send_announcement(
+        &self,
+        frame: impl Into<Vec<u8>>,
+    ) -> Result<Duration, TransmitError> {
+        self.queue(frame.into(), true).await
+    }
+
+    async fn queue(&self, frame: Vec<u8>, announce: bool) -> Result<Duration, TransmitError> {
         let (done, result) = oneshot::channel();
         self.tx
             .send(TxRequest {
-                frame: frame.into(),
+                frame,
+                announce,
                 done,
             })
             .await
@@ -365,7 +387,12 @@ where
         if pending.is_some() && link.modem().is_online() && now >= next_tx {
             let request = pending.take().expect("checked above");
             let now_ms = epoch.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
-            match link.send(&request.frame, now_ms) {
+            let outcome = if request.announce {
+                link.send_announcement(&request.frame, now_ms)
+            } else {
+                link.send(&request.frame, now_ms)
+            };
+            match outcome {
                 SendOutcome::Sent { airtime } => {
                     if let Err(error) = flush_modem(&mut io, &mut link).await {
                         let _ = request
@@ -384,6 +411,15 @@ where
                 }
                 SendOutcome::DutyCycleBlocked { retry_at_ms: None } => {
                     let _ = request.done.send(Err(TransmitError::DutyCycleImpossible));
+                }
+                SendOutcome::AnnouncePaced {
+                    retry_at_ms: Some(retry_at_ms),
+                } => {
+                    next_tx = epoch + Duration::from_millis(retry_at_ms);
+                    pending = Some(request);
+                }
+                SendOutcome::AnnouncePaced { retry_at_ms: None } => {
+                    let _ = request.done.send(Err(TransmitError::AnnouncementDisabled));
                 }
                 SendOutcome::Failed(ModemError::Busy) => {
                     next_tx = Instant::now() + config.busy_retry;
@@ -556,5 +592,26 @@ mod tests {
         );
         pump.shutdown().await.unwrap();
         assert!(emulator.await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn announce_cap_spaces_rnode_egress_from_the_modeled_airtime() {
+        let (host, device) = tokio::io::duplex(4096);
+        let emulator = tokio::spawn(emulate_rnode(device));
+        let budget = AirtimeBudget::new(60_000, 1_000)
+            .with_announce_pacing(crate::airtime::AnnouncePacing::Limited { cap_per_mille: 250 });
+        let mut pump = RNodeSerialLink::spawn_io(host, params(), budget, config());
+        pump.wait_online().await.unwrap();
+
+        let airtime = pump.send_announcement(b"one".to_vec()).await.unwrap();
+        pump.send_announcement(b"two".to_vec()).await.unwrap();
+
+        pump.shutdown().await.unwrap();
+        let times = emulator.await.unwrap();
+        assert_eq!(times.len(), 2);
+        assert!(
+            times[1].duration_since(times[0]) >= airtime * 4,
+            "a 25% cap must keep the second modeled-airtime-sized announce four airtimes away"
+        );
     }
 }

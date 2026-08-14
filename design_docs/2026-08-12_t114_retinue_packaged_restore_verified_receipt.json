@@ -1,0 +1,34 @@
+{
+  "schema": 3,
+  "package_id": "retinue.t114",
+  "package_parts": [
+    {
+      "kind": "application",
+      "offset": null,
+      "byte_length": 271694,
+      "sha256": "e730dcdbfd8c5139dd8754faa2f1b0fb3a34dfbad9fc356fe4cd81e2bc80f268"
+    }
+  ],
+  "publisher_signature": null,
+  "board": "t114",
+  "board_revision": "2.x",
+  "route": "adafruit-dfu",
+  "helper": {
+    "program": "adafruit-nrfutil",
+    "version": "0.5.3.post16",
+    "binary_sha256": null
+  },
+  "transport": "serial:COM10",
+  "processor": "nrf52840",
+  "flash_size": 1048576,
+  "bootloader": "s140-v6",
+  "stages": [
+    {
+      "name": "recovery-EnteringBootloader",
+      "detail": "bootloader did not appear within 12s"
+    }
+  ],
+  "result": "recovery-required",
+  "application": null,
+  "manual_check": null
+}

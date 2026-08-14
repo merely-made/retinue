@@ -24,7 +24,7 @@
 //! session rather than about handing the radio to a successor.
 
 use embassy_futures::select::{Either3, select3};
-use embassy_time::Duration;
+use embassy_time::{Duration, Timer};
 use lora_phy::DelayNs;
 use lora_phy::mod_traits::RadioKind;
 
@@ -265,14 +265,29 @@ pub async fn await_host<C, L, RK, DLY>(
     }
 
     loop {
+        // A continuously busy receiver can win an asynchronous attachment future before it
+        // reaches its next DTR poll. Check the immediate state on every turn instead; the
+        // short timer below gives a newly asserted DTR a bounded path back here even when
+        // radio interrupts are constant.
+        if host.is_attached() {
+            return;
+        }
         let _ = exec.ensure_rx().await;
         let mut frame = [0_u8; selvage::MAX_RADIO_FRAME_LEN];
         // Only the interrupt wait is raced; see `Executive::wait_rx_irq`. Racing a whole
         // receive cancels it wherever it stands, and after its interrupt has fired that
         // means abandoning a frame midway out of the chip, silently.
-        let woken = select3(host.attached(), exec.wait_rx_irq(), heartbeat.next()).await;
+        let woken = select3(
+            Timer::after_millis(50),
+            exec.wait_rx_irq(),
+            heartbeat.next(),
+        )
+        .await;
         match woken {
-            Either3::First(()) => return,
+            // DTR is checked at the top of the next turn. This is deliberately a timer,
+            // not `host.attached()`: selecting a future that internally waits to poll DTR
+            // lets every RX interrupt cancel its progress.
+            Either3::First(()) => {}
             Either3::Second(Ok(())) => {
                 exec.note_wait(true);
                 // Not raced: the frame lives in the radio until it is read out.

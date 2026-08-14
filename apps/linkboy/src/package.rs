@@ -69,6 +69,7 @@ impl fmt::Display for ProcessorKind {
 pub enum FlashRoute {
     AdafruitDfu,
     EspRom,
+    Uf2MassStorage,
 }
 
 impl FlashRoute {
@@ -76,13 +77,20 @@ impl FlashRoute {
         match self {
             Self::AdafruitDfu => "adafruit-nrfutil",
             Self::EspRom => "espflash",
+            Self::Uf2MassStorage => "linkboy UF2 volume writer",
         }
+    }
+
+    /// UF2 is a file-copy protocol implemented here, not an unpinned shell helper.
+    pub fn uses_builtin_writer(&self) -> bool {
+        matches!(self, Self::Uf2MassStorage)
     }
 
     pub fn label(&self) -> &'static str {
         match self {
             Self::AdafruitDfu => "serial DFU (adafruit-nrfutil)",
             Self::EspRom => "ESP ROM loader (espflash)",
+            Self::Uf2MassStorage => "UF2 mass-storage bootloader",
         }
     }
 }
@@ -98,6 +106,7 @@ impl fmt::Display for FlashRoute {
 pub enum PayloadFormat {
     NrfDfuZip,
     EspflashElf,
+    Uf2,
     RawBinary,
 }
 
@@ -437,6 +446,7 @@ impl FlashPackage {
                 })
             })
             .collect::<Result<Vec<_>, PackageError>>()?;
+        validate_uf2_layout(&manifest, &parts)?;
         Ok(Self {
             manifest,
             manifest_path: manifest_path.into(),
@@ -727,6 +737,14 @@ fn validate_parts_for_route(parts: &[PackagePart], route: &FlashRoute) -> Result
                 offset: None,
                 ..
             }]
+        ) | (
+            FlashRoute::Uf2MassStorage,
+            [PackagePart {
+                kind: FirmwarePartKind::Application,
+                format: PayloadFormat::Uf2,
+                offset: None,
+                ..
+            }]
         )
     );
     let sparse_esp = matches!(
@@ -776,6 +794,111 @@ fn validate_parts_for_route(parts: &[PackagePart], route: &FlashRoute) -> Result
     if paths.windows(2).any(|pair| pair[0] == pair[1]) {
         return Err(PackageError::InvalidField(
             "package parts cannot repeat a path".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+const UF2_BLOCK_SIZE: usize = 512;
+const UF2_MAGIC_START0: u32 = 0x0A32_4655;
+const UF2_MAGIC_START1: u32 = 0x9E5D_5157;
+const UF2_MAGIC_END: u32 = 0x0AB1_6F30;
+
+/// UF2 carries target addresses inside its fixed-size blocks. Checking them here keeps a
+/// one-file package's declared write ranges real rather than an optimistic side note beside
+/// an opaque blob.
+fn validate_uf2_layout(
+    manifest: &FlashPackageManifest,
+    parts: &[VerifiedPackagePart],
+) -> Result<(), PackageError> {
+    let is_uf2 = manifest
+        .targets
+        .iter()
+        .any(|target| target.route == FlashRoute::Uf2MassStorage);
+    if !is_uf2 {
+        return Ok(());
+    }
+    let [part] = parts else {
+        return Err(PackageError::InvalidField(
+            "UF2 package needs exactly one verified part".into(),
+        ));
+    };
+    let bytes = part.bytes();
+    if bytes.is_empty() || bytes.len() % UF2_BLOCK_SIZE != 0 {
+        return Err(PackageError::InvalidField(
+            "UF2 payload is not a non-empty sequence of 512-byte blocks".into(),
+        ));
+    }
+
+    let mut blocks = Vec::with_capacity(bytes.len() / UF2_BLOCK_SIZE);
+    let mut seen_block_numbers = vec![false; bytes.len() / UF2_BLOCK_SIZE];
+    let mut total_payload = 0_u64;
+    for (index, block) in bytes.chunks_exact(UF2_BLOCK_SIZE).enumerate() {
+        let word = |offset| u32::from_le_bytes(block[offset..offset + 4].try_into().unwrap());
+        if word(0) != UF2_MAGIC_START0 || word(4) != UF2_MAGIC_START1 || word(508) != UF2_MAGIC_END
+        {
+            return Err(PackageError::InvalidField(format!(
+                "UF2 block {index} has invalid magic"
+            )));
+        }
+        let address = word(12);
+        let payload_size = word(16);
+        let block_number = word(20);
+        let block_total = word(24);
+        if payload_size == 0 || payload_size > 476 {
+            return Err(PackageError::InvalidField(format!(
+                "UF2 block {index} has invalid payload size {payload_size}"
+            )));
+        }
+        if block_total as usize != seen_block_numbers.len()
+            || block_number as usize >= seen_block_numbers.len()
+            || seen_block_numbers[block_number as usize]
+        {
+            return Err(PackageError::InvalidField(format!(
+                "UF2 block {index} has an inconsistent block number or count"
+            )));
+        }
+        seen_block_numbers[block_number as usize] = true;
+        let end = address.checked_add(payload_size).ok_or_else(|| {
+            PackageError::InvalidField(format!("UF2 block {index} address overflows"))
+        })?;
+        total_payload += u64::from(payload_size);
+        blocks.push(FlashRange {
+            start: address,
+            length: end - address,
+        });
+    }
+    if seen_block_numbers.iter().any(|seen| !seen) {
+        return Err(PackageError::InvalidField(
+            "UF2 block numbers are not a complete sequence".into(),
+        ));
+    }
+    if total_payload != part.declaration().write_bytes {
+        return Err(PackageError::InvalidField(format!(
+            "UF2 write_bytes is {}, but blocks carry {total_payload}",
+            part.declaration().write_bytes
+        )));
+    }
+
+    blocks.sort_by_key(|range| range.start);
+    let mut merged = Vec::<FlashRange>::new();
+    for block in blocks {
+        if let Some(previous) = merged.last_mut() {
+            if previous.end() == Some(block.start) {
+                previous.length += block.length;
+                continue;
+            }
+            if previous.overlaps(&block) {
+                return Err(PackageError::InvalidField(
+                    "UF2 target blocks overlap".into(),
+                ));
+            }
+        }
+        merged.push(block);
+    }
+    if merged != manifest.write_ranges {
+        return Err(PackageError::InvalidField(
+            "UF2 target ranges do not match package write_ranges".into(),
         ));
     }
     Ok(())

@@ -44,6 +44,7 @@ hex = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time"] }
+zeroize = "1"
 
 [[example]]
 name = "direct_phy_delivery"

@@ -17,6 +17,9 @@ name = "signalman"
 path = "src/main.rs"
 
 [dependencies]
+hex = "0.4"
 linkboy = { version = "0.0.1", path = "../linkboy" }
 postilion = { version = "0.0.1", path = "../../crates/postilion" }
+retinue = { version = "0.0.2", path = "../../crates/retinue", features = ["tulle-radio"] }
 tokio = { version = "1.53.1", features = ["macros", "rt", "signal", "sync", "time"] }
+zeroize = "1"

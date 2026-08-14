@@ -1,50 +1,67 @@
 # Retinue — the radio family
 
-One workspace for the Merely radio stack: mesh protocols, the shared radio
-interface layer, and the firmware that runs on real hardware. Each crate keeps
-its own README; this file is the map.
+One workspace for the Merely LoRa radio stack: mesh protocols, the shared
+radio interface layer, operator apps, and the firmware that runs on real
+hardware. Each crate keeps its own README; this file is the map.
 
-## Crates
+## Status (2026-08-12)
 
-| Crate | What it is |
-|---|---|
-| [`retinue`](crates/retinue) | A Rust implementation of the Reticulum protocol: identity, announces, links, resources, and routing. The protocol is public domain; this is not the reference implementation ([reticulum.network](https://reticulum.network)). |
-| [`tulle`](crates/tulle) | Shared radio interface layer for LoRa mesh stacks: serial modem control, direct PHY, and medium access. |
-| [`selvage`](crates/selvage) | The PHY parameter profile shared by the host stacks and the firmware. |
-| [`sennet`](crates/sennet) | Independent, permissively licensed mesh radio protocol implementation, Meshtastic-compatible on the wire. |
-| [`tucket`](crates/tucket) | MeshCore interop: node management, routing, and text interop over LoRa mesh. |
-| [`outrider`](crates/outrider) | LXMF boundary crate: byte-exact message codec, ratcheted opportunistic and stamped direct delivery, and propagation client/server interoperability against LXMF 0.9.6. |
+- Host crates: `retinue` (independent Reticulum protocol implementation:
+  identity, announces, links, resources, routing), `tulle` (radio interface
+  layer), `selvage` (shared PHY profiles), `sennet` (Meshtastic-compatible
+  mesh), `tucket` (MeshCore interop), `outrider` (LXMF messages, byte-exact
+  against LXMF 0.9.6), `postilion` (shared host library), and the
+  `radio-face` / `radio-hand` firmware-support crates. Published crates are
+  at 0.0.x on crates.io; MSRV 1.88, held by CI.
+- Apps: `linkboy` (inspects, plans, and flashes firmware packages over
+  serial DFU; restored a T114 from stock Meshtastic firmware 2026-08-12) and
+  `signalman` (runs a household radio from a serial port). A desktop GUI,
+  `apps/signalman-desktop`, roots its own workspace and is deliberately
+  excluded from this one.
+- Firmware images for Heltec V4 and Heltec T114 boards live in `firmware/`.
+  The T114 image gained a bounded transport profile for the channel-node
+  role on 2026-08-12 (~275 KB flash); its on-metal RF receipt is still open.
+- On-air Reticulum-over-LoRa milestones landed July 2026; interop is
+  receipt-driven against reference Reticulum (RNS 1.4.2) and Prns.
+- Validation inventory: `python validation/run.py verify` (12 suites).
 
-## Firmware
+Current plans live in `design_docs/`: close the on-metal receipts for the new
+T114 image, then build out the resident listener-executive boundary in which
+protocol modes are bounded radio leases.
 
-`firmware/` holds the embedded targets, which are workspace members but not
-default members — build them by name:
+## Use
 
 ```sh
-cargo build -p tulle-t114-phy --release --target thumbv7em-none-eabihf
-```
+cargo test -p retinue      # or any host crate by name
 
-`vendor/lora-phy` is a vendored fork of the `lora-phy` driver and keeps its own
-MIT/Apache-2.0 licensing.
+# Flashing tool
+cargo run -p linkboy -- list
+cargo run -p linkboy -- flash <device> <package>
+
+# Radio host app
+cargo run -p signalman -- <port> [name] [bw_khz] [phy|rnode]
+
+# Firmware (workspace member, not a default member)
+cargo build -p tulle-t114-phy --release --target thumbv7em-none-eabihf
+
+# Desktop GUI (own workspace root)
+cargo build --manifest-path apps/signalman-desktop/Cargo.toml
+```
 
 ## License
 
-Mozilla Public License 2.0 ([LICENSE](LICENSE)), including the firmware. The one
-exception is `vendor/lora-phy`, a vendored third-party fork that keeps its own
-MIT/Apache-2.0 terms.
-
-MPL-2.0 is file-level copyleft: these crates may be used in a larger work under
-any license, including a proprietary one, but modifications to *these files*
-must be published under the MPL. It is GPL-compatible, so this code combines
-into the GPLv3 firmware images the product ships.
-
-[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) aggregates what this
-repository derives from. `crates/tucket/NOTICE` records the MIT-licensed
-MeshCore portions it derives from, `crates/retinue/NOTICE` records the
-MIT-licensed Prns portions of the signed-artifact seam, and
-`crates/sennet/PROVENANCE.md` records how that implementation was built.
+Mozilla Public License 2.0 ([LICENSE](LICENSE)), including the firmware.
+Vendored third-party forks under `vendor/` (lora-phy, embedded-graphics,
+embedded-graphics-core) keep their own MIT/Apache-2.0 terms.
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) aggregates derivations;
+per-crate NOTICE and PROVENANCE files record specifics.
 
 ## History
 
-`tulle`, `sennet`, and `tucket` were merged into this workspace on 2026-07-23,
-with their histories preserved. Their standalone repositories are archived.
+`tulle`, `sennet`, and `tucket` merged into this workspace on 2026-07-23 with
+history preserved; their standalone repositories are archived.
+
+---
+
+*This README was generated by AI and will be edited by the author upon
+release.*

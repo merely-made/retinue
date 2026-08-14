@@ -1976,6 +1976,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tulle",
+ "zeroize",
 ]
 
 [[package]]
@@ -2466,9 +2467,12 @@ dependencies = [
 name = "signalman"
 version = "0.0.1"
 dependencies = [
+ "hex",
  "linkboy",
  "postilion",
+ "retinue",
  "tokio",
+ "zeroize",
 ]
 
 [[package]]

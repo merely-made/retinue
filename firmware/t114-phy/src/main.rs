@@ -64,13 +64,14 @@ fn describe_node(node: Option<&retinue::node::Node<32, 8, 4>>, out: &mut [u8; 64
             let bytes = dest.as_slice();
             let _ = write!(
                 &mut text,
-                "node={:02x}{:02x}{:02x}{:02x} heap={}/{}\r\n",
+                "node={:02x}{:02x}{:02x}{:02x} heap={}/{} highwater={}\r\n",
                 bytes[0],
                 bytes[1],
                 bytes[2],
                 bytes[3],
                 heap::used(),
                 heap::HEAP_SIZE,
+                heap::high_water(),
             );
         }
         None => {
@@ -203,6 +204,10 @@ async fn main(spawner: Spawner) {
             retinue::identity::PrivateIdentity::from_secret_bytes(&settings.identity),
             retinue::destination::DestinationName::new("retinue", ["node"]).name_hash(),
         )
+        // The native-node personality is this board's standalone mesh participant, so it
+        // carries its bounded transport policy. Modem and RNode remain host-driven and do
+        // not acquire routing state.
+        .with_transport_config(retinue::node::TransportConfig::transit())
     });
     let mut node_line = [0_u8; 64];
     let node_line_len = describe_node(node.as_ref(), &mut node_line);
@@ -554,6 +559,10 @@ async fn main(spawner: Spawner) {
             }
         }
         channel.stop(&mut exec, &mut host).await;
+        // The CDC control line falls slightly after the failed read or write that ended the
+        // session. Wait for that edge before the outer loop considers another attach, or a
+        // still-latched DTR can make the next banner write wait forever on a vanished host.
+        host.detached().await;
         exec.status_mut().host = radio_face::HostState::Detached;
         exec.publish(radio_face::LedSignal::Idle);
     }

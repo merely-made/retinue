@@ -1023,6 +1023,12 @@ node live, and **zero** in ordinary node operation — N1's bounded tables are a
 inline, so nothing persists on the heap until a replay node or a payload-carrying
 action exists.
 
+**Superseded for AIR3, 2026-08-12.** That probe reported a live sample, not a
+peak: a released packet buffer could make a post-flood reading smaller than the
+actual maximum. The T114 allocator now retains a real `highwater` counter. The
+old figures remain historical samples; the AIR3 on-metal receipt must report the
+new peak field.
+
 **A design point that earned its keep.** The node channel now assembles host
 lines, because a replay line is several hundred bytes arriving across many
 64-byte host reads. `ChannelInfo::at_boundary` — added a commit earlier for the

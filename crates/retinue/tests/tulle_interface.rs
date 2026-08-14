@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 use std::future::Future;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -18,6 +19,7 @@ struct MemoryRadio {
     peer: mpsc::UnboundedSender<Vec<u8>>,
     inbound: mpsc::UnboundedReceiver<Vec<u8>>,
     sent: Arc<Mutex<VecDeque<Vec<u8>>>>,
+    announcement_sends: Arc<AtomicUsize>,
     notify: Arc<Notify>,
     max_frame_len: usize,
 }
@@ -26,12 +28,14 @@ fn radio_pair(max_frame_len: usize) -> (MemoryRadio, MemoryRadio) {
     let (a_tx, a_rx) = mpsc::unbounded_channel();
     let (b_tx, b_rx) = mpsc::unbounded_channel();
     let sent = Arc::new(Mutex::new(VecDeque::new()));
+    let announcement_sends = Arc::new(AtomicUsize::new(0));
     let notify = Arc::new(Notify::new());
     (
         MemoryRadio {
             peer: b_tx,
             inbound: a_rx,
             sent: Arc::clone(&sent),
+            announcement_sends: Arc::clone(&announcement_sends),
             notify: Arc::clone(&notify),
             max_frame_len,
         },
@@ -39,6 +43,7 @@ fn radio_pair(max_frame_len: usize) -> (MemoryRadio, MemoryRadio) {
             peer: a_tx,
             inbound: b_rx,
             sent,
+            announcement_sends,
             notify,
             max_frame_len,
         },
@@ -67,6 +72,23 @@ impl PacketRadio for MemoryRadio {
         }
     }
 
+    fn send_announcement(
+        &self,
+        frame: Vec<u8>,
+    ) -> impl Future<Output = Result<Duration, TransmitError>> + Send {
+        let peer = self.peer.clone();
+        let sent = Arc::clone(&self.sent);
+        let announcement_sends = Arc::clone(&self.announcement_sends);
+        let notify = Arc::clone(&self.notify);
+        async move {
+            announcement_sends.fetch_add(1, Ordering::Relaxed);
+            sent.lock().unwrap().push_back(frame.clone());
+            notify.notify_waiters();
+            peer.send(frame).map_err(|_| TransmitError::Stopped)?;
+            Ok(Duration::from_millis(1))
+        }
+    }
+
     fn recv_frame(&mut self) -> impl Future<Output = Option<Received>> + Send {
         async move {
             self.inbound.recv().await.map(|frame| Received {
@@ -84,6 +106,7 @@ async fn endpoint_announces_cross_the_tulle_packet_boundary() {
     let bob_id = PrivateIdentity::from_secret_bytes(&[0x22; 64]);
     let bob = Endpoint::new(bob_id.clone());
     let (alice_radio, bob_radio) = radio_pair(500);
+    let bob_announcement_sends = Arc::clone(&bob_radio.announcement_sends);
 
     let alice_task = tokio::spawn(drive(alice.attach_interface(), alice_radio));
     let bob_task = tokio::spawn(drive(bob.attach_interface(), bob_radio));
@@ -98,6 +121,11 @@ async fn endpoint_announces_cross_the_tulle_packet_boundary() {
         .expect("endpoint remains live");
     assert_eq!(announce.destination, destination);
     assert_eq!(announce.app_data, b"tulle interface");
+    assert_eq!(
+        bob_announcement_sends.load(Ordering::Relaxed),
+        1,
+        "the Retinue bridge routed the packet through Tulle's announce path"
+    );
 
     alice_task.abort();
     bob_task.abort();

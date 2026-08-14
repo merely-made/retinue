@@ -33,18 +33,37 @@ SX1262 speaks one PHY profile at a time. That conflated two timescales: the
 chip enforces one profile per *transaction*, at millisecond granularity, not
 one citizenship per boot. The channel model froze a per-transaction hardware
 constraint into a board identity, and everything downstream (switch-by-reboot,
-teardown correctness as a gate, visits as special machinery) was the cost of
-handing protocols the event loop through `Channel::serve`. The murmuration doc
-half-knew: `ChannelInfo::at_boundary` exists precisely because the executive
-needed to claw the radio back from a channel that owned it.
+teardown correctness as a gate, visits as special machinery) followed from it.
+
+**Correction, 2026-08-12, from a code audit.** An earlier draft of this section
+blamed "handing protocols the event loop through `Channel::serve`". That is
+wrong, and `channel.rs:8-19` says so in a section titled *Why serve takes an
+event rather than owning a loop*: `serve` handles one event. No adapter ever
+owned the loop. What LE1 actually collapses is **three loops that already live
+outside any adapter**: `channel.rs:251-306` `await_host` (its own select3 over
+host attach, RX IRQ, and heartbeat), `firmware/t114-phy/src/main.rs:458-560`
+(the session loop, which does run through the Executive), and
+`firmware/heltec-v4-phy/src/main.rs:380-504`, which bypasses the Executive
+entirely and drives `lora` directly because, per `channels.rs:1-7`, the V4
+keeps its own hand on the radio for the low-power work. The V4 half is a
+low-power rewrite rather than a refactor, and LE1's sizing must carry that.
+An `Executive` type already exists (`executive.rs:219-632`) but is a borrowed
+hardware view with no loop of its own; it is the TX chokepoint and regulatory
+floor, not yet the arbiter this doc describes.
 
 ## The boundary
 
 **Executive owns:** the radio, the scan plan, RX, airtime and dwell
 accounting, dispatch, leases, and the mandatory return to listening. It runs
-the only loop. The [receive-future cancellation
-findings](2026-08-08_receive_future_cancellation.md) bind this loop; they no
-longer bind N per-channel loops.
+the only loop.
+
+The [receive-future cancellation findings](2026-08-08_receive_future_cancellation.md)
+bind this loop, but read that doc with care: its status line still says
+"deliberately not fixed yet" and its prescribed per-task Embassy restructure
+was **superseded the same day** by the arm/collect split (5b95ee2, then
+1dd95a9 and 2a2a245, both recorded as proven on RF). The restructure is not a
+prerequisite for LE1. The constraint that actually binds is narrower: arm
+continuous RX once, race only `wait_for_irq`, never race the collect.
 
 **Adapters own:** protocol knowledge and bounded protocol state: decoding,
 encoding, retry/session state, and pending actions. They never own the radio,

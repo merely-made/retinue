@@ -45,6 +45,33 @@ fn harness() -> App {
     h
 }
 
+fn silent_harness() -> App {
+    let mut state = DesktopState::new(&default_catalog_path());
+    state.adopt_survey(vec![signalman::DeviceCandidate {
+        port: "COM9".into(),
+        board: None,
+        banner: String::new(),
+        region: None,
+        channel: None,
+        known: false,
+    }]);
+    state.select_device(0);
+    let hooks: HostHooks<DesktopState, Logic, Child> = HostHooks {
+        focused_text: Box::new(signalman_desktop::focused_revision_field),
+        ..inert_hooks()
+    };
+    let mut h = Harness::with_hooks(
+        Init {
+            state,
+            logic: root as Logic,
+            sheet: SHEET.to_string(),
+        },
+        hooks,
+    );
+    h.layout_at(1100.0, 800.0);
+    h
+}
+
 /// Every projected node's role and accessible name.
 fn announced(h: &mut App) -> Vec<(Role, String)> {
     let (tree, _) = h.a11y_tree();
@@ -91,6 +118,20 @@ fn every_control_on_the_device_page_has_a_name() {
     );
 }
 
+#[test]
+fn silent_device_declarations_are_separate_named_controls() {
+    let mut h = silent_harness();
+    let nodes = announced(&mut h);
+    assert!(
+        has_named_button(&nodes, "This serial device is a V4"),
+        "{nodes:?}"
+    );
+    assert!(
+        has_named_button(&nodes, "This serial device is a T114"),
+        "{nodes:?}"
+    );
+}
+
 /// Focus is reported to the reader, so its virtual cursor lands where the
 /// keyboard is rather than on the root.
 #[test]
@@ -117,10 +158,11 @@ fn the_review_page_and_a_refusal_are_both_announced() {
         state.select_device(0);
         state.request(Request::ConfirmDevice);
     });
-    let mut worker = signalman_desktop::worker::Worker::new();
+    let mut worker = None;
+    let wake: signalman::InstallerWake = std::sync::Arc::new(|| {});
     h.update(|state| {
         if let Some(request) = state.take_request() {
-            signalman_desktop::flow::perform(state, request, &mut worker);
+            signalman_desktop::flow::perform(state, request, &mut worker, wake.clone());
         }
     });
     let (tree, _) = h.a11y_tree();
@@ -142,7 +184,7 @@ fn the_review_page_and_a_refusal_are_both_announced() {
     });
     h.update(|state| {
         if let Some(request) = state.take_request() {
-            signalman_desktop::flow::perform(state, request, &mut worker);
+            signalman_desktop::flow::perform(state, request, &mut worker, wake.clone());
         }
     });
     let review = h.state().view().review.expect("a review exists");
@@ -176,7 +218,8 @@ fn the_review_page_and_a_refusal_are_both_announced() {
 #[test]
 fn the_transfer_bar_reports_a_value() {
     let mut h = harness();
-    let mut worker = signalman_desktop::worker::Worker::new();
+    let mut worker = None;
+    let wake: signalman::InstallerWake = std::sync::Arc::new(|| {});
     h.update(|state| {
         state.installer.choose_device(observation()).unwrap();
         state.select_package(0);
@@ -184,7 +227,7 @@ fn the_transfer_bar_reports_a_value() {
     });
     h.update(|state| {
         if let Some(request) = state.take_request() {
-            signalman_desktop::flow::perform(state, request, &mut worker);
+            signalman_desktop::flow::perform(state, request, &mut worker, wake.clone());
         }
     });
     h.update(|state| {

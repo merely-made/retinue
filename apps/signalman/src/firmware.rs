@@ -5,6 +5,9 @@
 //! execution events.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::mpsc::{Receiver, TryRecvError};
+use std::thread::JoinHandle;
 
 use linkboy::{
     CatalogError, CatalogPackage, DeviceObservation, FlashEvent, FlashPackage, FlashPlan,
@@ -108,10 +111,39 @@ pub fn observe_device(
     port: &str,
     selection: Option<(linkboy::BoardFamily, String)>,
 ) -> Result<DeviceObservation, FirmwareError> {
+    observe_device_with_t114_loader_snapshot(port, selection, None)
+}
+
+/// Observe a serial application port with an optional T114 loader record captured from that
+/// same board's mounted UF2 interface. The record is required for a silent foreign T114:
+/// serial DFU does not report the processor, capacity, or SoftDevice facts on its own.
+pub fn observe_device_with_t114_loader_snapshot(
+    port: &str,
+    selection: Option<(linkboy::BoardFamily, String)>,
+    loader_snapshot: Option<&linkboy::T114LoaderSnapshot>,
+) -> Result<DeviceObservation, FirmwareError> {
     let found = linkboy::identify(port);
     let mut observation = DeviceObservation::from_found(&found);
-    if let Some((family, revision)) = selection {
+    if let Some((family, revision)) = selection.clone() {
         observation = observation.confirm_board(family, revision);
+    }
+    if let Some(snapshot) = loader_snapshot {
+        if !matches!(
+            selection.as_ref().map(|(family, _)| family),
+            Some(linkboy::BoardFamily::T114)
+        ) {
+            return Err(FirmwareError::LoaderSnapshot(
+                "a T114 loader record requires an explicit t114@revision selection".into(),
+            ));
+        }
+        let facts = snapshot.serial_dfu_observation();
+        observation = observation.with_hardware(linkboy::HardwareFacts {
+            processor: facts.processor.clone(),
+            flash_size: facts.flash_size,
+            bootloader: facts.bootloader.clone(),
+            loader_route: Some("captured-t114-loader-snapshot".into()),
+            bootloader_usb: Some(facts),
+        });
     }
     if linkboy::needs_esp_rom_probe(&observation) {
         let mut process = linkboy::SystemProcessRunner::default();
@@ -125,6 +157,36 @@ pub fn observe_device(
             bootloader_usb: Some(facts),
         });
     }
+    Ok(observation)
+}
+
+/// Observe an explicitly named mounted T114 UF2 volume, retaining the record needed for a
+/// later serial-DFU restore. The owner still supplies the board revision; the mounted volume
+/// proves the loader profile but not a revision printed on the carrier.
+pub fn observe_t114_uf2_volume(
+    volume: &str,
+    revision: String,
+) -> Result<(DeviceObservation, linkboy::T114LoaderSnapshot), FirmwareError> {
+    let (observation, snapshot) =
+        linkboy::t114_uf2_observation(volume).map_err(FirmwareError::Discovery)?;
+    Ok((
+        observation.confirm_board(linkboy::BoardFamily::T114, revision),
+        snapshot,
+    ))
+}
+
+/// Capture the mounted bootloader record at the owner-selected path, then return the immutable
+/// observation for the UF2 package plan. The desktop face asks Signalman to do this instead of
+/// serializing Linkboy evidence itself.
+pub fn capture_t114_uf2_volume(
+    volume: &str,
+    revision: String,
+    record_path: impl AsRef<Path>,
+) -> Result<DeviceObservation, FirmwareError> {
+    let (observation, snapshot) = observe_t114_uf2_volume(volume, revision)?;
+    snapshot
+        .save_json(record_path)
+        .map_err(|error| FirmwareError::LoaderSnapshot(error.to_string()))?;
     Ok(observation)
 }
 
@@ -238,6 +300,167 @@ pub struct FirmwareCatalog {
     index: PackageIndex,
 }
 
+/// A host-neutral request to drain a product-owned worker. This is the same
+/// callback shape Armillary actors use, without making Signalman depend on a
+/// particular GUI or actor runtime.
+pub type InstallerWake = Arc<dyn Fn() + Send + Sync>;
+
+enum WorkerMessage {
+    Event(FlashEvent),
+    Failed(String),
+    Finished,
+}
+
+/// An update delivered by Signalman's approved-install worker.
+///
+/// Its Linkboy executor message is intentionally private. A face gives it
+/// back to [`FirmwareInstaller::apply_install_update`], which advances the
+/// owner flow and returns an owner-facing [`FirmwareInstallNotice`].
+pub struct FirmwareInstallUpdate(WorkerMessage);
+
+/// The public execution stage a recovery reports.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FirmwareInstallStage {
+    Preparing,
+    EnteringBootloader,
+    Transfer,
+    Rebooting,
+    VerifyingApplication,
+}
+
+/// Recovery facts a face needs without exposing Linkboy's executor record.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FirmwareInstallRecovery {
+    pub stage: FirmwareInstallStage,
+    pub last_known_port: Option<String>,
+    pub write_started: bool,
+    pub after_failure: String,
+}
+
+/// A face-facing result of applying an installer worker update.
+#[derive(Clone, Debug, PartialEq)]
+pub enum FirmwareInstallNotice {
+    /// A nonterminal status line, with write progress where the executor has
+    /// one. `replaces_previous_progress` keeps a face's event log compact.
+    Activity {
+        line: Option<String>,
+        progress: Option<f32>,
+        replaces_previous_progress: bool,
+    },
+    /// The flow now owns a verified completion receipt.
+    Complete,
+    /// The package transferred, but its own interface requires a manual check.
+    ManualCheckRequired,
+    /// The run reached a recovery boundary with owner-readable next steps.
+    RecoveryRequired { recovery: FirmwareInstallRecovery },
+    /// Linkboy refused the approved run before a write could continue.
+    Refused { reasons: Vec<String> },
+    /// The worker stopped with an error that had no structured terminal event.
+    Failed(String),
+    /// The worker thread ended. A terminal receipt should have arrived first.
+    Finished,
+}
+
+/// The UI-thread handle to one blocking Linkboy installation.
+///
+/// The worker owns only copies of Linkboy's already-approved inputs. The
+/// caller owns the receiver and drains it after its own host wakes, so no DOM,
+/// renderer, or application state crosses the thread boundary.
+pub struct FirmwareInstallWorker {
+    channel: Option<Receiver<WorkerMessage>>,
+    handle: Option<JoinHandle<()>>,
+}
+
+impl FirmwareInstallWorker {
+    fn start(plan: FlashPlan, package: FlashPackage, wake: InstallerWake) -> Result<Self, String> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let handle = std::thread::Builder::new()
+            .name("signalman-installer".into())
+            .spawn(move || {
+                let mut process = linkboy::SystemProcessRunner::default();
+                let mut device = linkboy::LiveDeviceRunner;
+                let emit_tx = tx.clone();
+                let emit_wake = wake.clone();
+                let mut emit = move |event: FlashEvent| {
+                    if emit_tx.send(WorkerMessage::Event(event)).is_ok() {
+                        (emit_wake)();
+                    }
+                };
+                let result = linkboy::execute_plan(
+                    &plan,
+                    &package,
+                    &mut process,
+                    &mut device,
+                    linkboy::executor::DEFAULT_PATIENCE,
+                    &mut emit,
+                );
+                if let Err(error) = result {
+                    // Recovery emits its own terminal event with the facts the
+                    // owner needs. Reporting it again would make a face show a
+                    // duplicate failure.
+                    if !matches!(error, linkboy::ExecutionError::RecoveryRequired { .. })
+                        && tx.send(WorkerMessage::Failed(error.to_string())).is_ok()
+                    {
+                        (wake)();
+                    }
+                }
+                if tx.send(WorkerMessage::Finished).is_ok() {
+                    (wake)();
+                }
+            })
+            .map_err(|error| error.to_string())?;
+        Ok(Self {
+            channel: Some(rx),
+            handle: Some(handle),
+        })
+    }
+
+    /// Take every update currently available. Never blocks the host thread.
+    pub fn drain(&mut self) -> Vec<FirmwareInstallUpdate> {
+        let mut updates = Vec::new();
+        let Some(channel) = self.channel.as_ref() else {
+            return updates;
+        };
+        loop {
+            match channel.try_recv() {
+                Ok(message @ WorkerMessage::Event(_)) => {
+                    updates.push(FirmwareInstallUpdate(message));
+                }
+                Ok(message @ WorkerMessage::Failed(_)) => {
+                    updates.push(FirmwareInstallUpdate(message));
+                }
+                Ok(WorkerMessage::Finished) => {
+                    updates.push(FirmwareInstallUpdate(WorkerMessage::Finished));
+                    self.channel = None;
+                    break;
+                }
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    updates.push(FirmwareInstallUpdate(WorkerMessage::Finished));
+                    self.channel = None;
+                    break;
+                }
+            }
+        }
+        if self.channel.is_none()
+            && self
+                .handle
+                .as_ref()
+                .is_some_and(|handle| handle.is_finished())
+        {
+            if let Some(handle) = self.handle.take() {
+                let _ = handle.join();
+            }
+        }
+        updates
+    }
+
+    /// Whether the install has not yet emitted its terminal worker message.
+    pub fn running(&self) -> bool {
+        self.channel.is_some()
+    }
+}
+
 impl FirmwareCatalog {
     pub fn load(path: impl AsRef<Path>) -> Result<Self, CatalogError> {
         let index_path = path.as_ref().to_path_buf();
@@ -265,6 +488,9 @@ pub enum FirmwareError {
     Flow(FlowError),
     /// A loader run that could not produce the facts a plan needs.
     Execution(linkboy::ExecutionError),
+    Discovery(linkboy::DiscoveryError),
+    LoaderSnapshot(String),
+    Worker(String),
 }
 
 impl std::fmt::Display for FirmwareError {
@@ -273,6 +499,9 @@ impl std::fmt::Display for FirmwareError {
             Self::Catalog(error) => error.fmt(formatter),
             Self::Flow(error) => error.fmt(formatter),
             Self::Execution(error) => error.fmt(formatter),
+            Self::Discovery(error) => error.fmt(formatter),
+            Self::LoaderSnapshot(error) => formatter.write_str(error),
+            Self::Worker(error) => formatter.write_str(error),
         }
     }
 }
@@ -283,6 +512,9 @@ impl std::error::Error for FirmwareError {
             Self::Catalog(error) => Some(error),
             Self::Flow(error) => Some(error),
             Self::Execution(error) => Some(error),
+            Self::Discovery(error) => Some(error),
+            Self::LoaderSnapshot(_) => None,
+            Self::Worker(_) => None,
         }
     }
 }
@@ -371,6 +603,58 @@ impl FirmwareInstaller {
         self.flow.begin_install()
     }
 
+    /// Start exactly the plan the owner flow approved. The desktop or another
+    /// face supplies only a wake callback; Signalman owns the helper runners,
+    /// blocking thread, and executor call.
+    pub fn start_install(
+        &mut self,
+        wake: InstallerWake,
+    ) -> Result<FirmwareInstallWorker, FirmwareError> {
+        let (plan, package) = self.flow.begin_install()?;
+        FirmwareInstallWorker::start(plan.clone(), package.clone(), wake)
+            .map_err(FirmwareError::Worker)
+    }
+
+    /// Apply one private worker update to the owning flow and return only the
+    /// presentation facts a face needs. This is the execution boundary: a GUI
+    /// does not match Linkboy's executor protocol or manufacture a receipt.
+    pub fn apply_install_update(&mut self, update: FirmwareInstallUpdate) -> FirmwareInstallNotice {
+        match update.0 {
+            WorkerMessage::Event(event) => {
+                let notice = match &event {
+                    FlashEvent::Complete { .. } => FirmwareInstallNotice::Complete,
+                    FlashEvent::ManualCheckRequired { .. } => {
+                        FirmwareInstallNotice::ManualCheckRequired
+                    }
+                    FlashEvent::RecoveryRequired {
+                        facts,
+                        instructions,
+                        ..
+                    } => FirmwareInstallNotice::RecoveryRequired {
+                        recovery: FirmwareInstallRecovery {
+                            stage: install_stage(&facts.stage),
+                            last_known_port: facts.last_known_port.clone(),
+                            write_started: facts.write_started,
+                            after_failure: instructions.after_failure.clone(),
+                        },
+                    },
+                    FlashEvent::Refused { reasons } => FirmwareInstallNotice::Refused {
+                        reasons: reasons.iter().map(ToString::to_string).collect(),
+                    },
+                    _ => FirmwareInstallNotice::Activity {
+                        line: describe_event(&event),
+                        progress: event_progress(&event),
+                        replaces_previous_progress: matches!(&event, FlashEvent::Writing { .. }),
+                    },
+                };
+                self.flow.apply_event(&event);
+                notice
+            }
+            WorkerMessage::Failed(message) => FirmwareInstallNotice::Failed(message),
+            WorkerMessage::Finished => FirmwareInstallNotice::Finished,
+        }
+    }
+
     pub fn apply_event(&mut self, event: &FlashEvent) {
         self.flow.apply_event(event);
     }
@@ -393,6 +677,16 @@ impl FirmwareInstaller {
     /// The chosen package, once one exists.
     pub fn chosen_package(&self) -> Option<&FlashPackage> {
         self.flow.package()
+    }
+}
+
+fn install_stage(stage: &linkboy::ExecutionStage) -> FirmwareInstallStage {
+    match stage {
+        linkboy::ExecutionStage::Preparing => FirmwareInstallStage::Preparing,
+        linkboy::ExecutionStage::EnteringBootloader => FirmwareInstallStage::EnteringBootloader,
+        linkboy::ExecutionStage::Transfer => FirmwareInstallStage::Transfer,
+        linkboy::ExecutionStage::Rebooting => FirmwareInstallStage::Rebooting,
+        linkboy::ExecutionStage::VerifyingApplication => FirmwareInstallStage::VerifyingApplication,
     }
 }
 
@@ -461,7 +755,10 @@ mod tests {
         let index_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../firmware/packages/index.toml");
         let catalog = FirmwareCatalog::load(index_path).expect("package catalog should load");
-        assert_eq!(catalog.packages().len(), 2);
+        assert!(
+            catalog.packages().len() >= 2,
+            "the Retinue V4 and T114 packages remain present alongside any added packages"
+        );
         assert_eq!(
             catalog
                 .package("retinue.heltec-v4")

@@ -59,6 +59,23 @@ impl Flow {
 /// `Send` bound would buy nothing and would exclude the HAL types that implement this.
 #[allow(async_fn_in_trait)]
 pub trait HostLink {
+    /// Whether a peer is attached right now.
+    ///
+    /// Most links have no attachment state, so they are available immediately. A native USB
+    /// host overrides this with its control-line state. The unattended node wait checks this
+    /// before arming its radio race: otherwise a busy receiver can keep cancelling the
+    /// asynchronous attachment future before it observes a newly asserted DTR.
+    fn is_attached(&self) -> bool {
+        true
+    }
+
+    /// Wait until the peer that ended a session has actually detached.
+    ///
+    /// A link without an attachment signal has nothing to wait for. Native USB overrides
+    /// this so a node cannot begin its next session while the preceding terminal's DTR is
+    /// still latched, which would turn the next banner write into an unbounded wait.
+    async fn detached(&mut self) {}
+
     /// Wait until a peer is attached.
     ///
     /// A transport with no attachment concept — a bare UART with nothing on the other end

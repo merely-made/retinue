@@ -9,6 +9,56 @@ exercised, and restored a signed Prns V4 package, while the graphical
 cross-firmware restore and a T114 upstream package remain open. Sidequests
 remain unstarted unless a later receipt says otherwise.
 
+## Execution list, 2026-08-12
+
+### Active: F3a first-flash preflight
+
+- [x] Keep package parsing, compatibility, planning, execution, and receipts in
+  Linkboy.
+- [x] Let an owner-selected silent V4 enter the non-writing ESP ROM inspection
+  path; require processor, flash-size, and bootloader facts before planning.
+- [x] Capture a mounted T114's `INFO_UF2.TXT` facts and retain them for a later
+  serial-DFU restore.
+- [x] Restore Retinue to the physical T114 through the immutable Linkboy
+  package and verify the returned application. This is terminal/package
+  evidence, not graphical evidence.
+- [x] Offer explicit V4 and T114 family declarations for a selected silent
+  serial device in Signalman desktop. The declaration remains owner input, not
+  observed hardware evidence.
+- [x] Add owner-flow and accessibility coverage for both declarations through
+  the real desktop view without opening hardware in the tests.
+- [x] Run the Linkboy and Signalman suites.
+- [ ] Produce a fresh Signalman desktop suite receipt. The 2026-08-12 run stayed
+  in Cargo's fixed-lock dependency resolver for more than eight minutes without
+  reaching compilation, so this remains open rather than inferred from the
+  previously green desktop suite.
+- [ ] Take the remaining physical Signalman receipts: V4 recovery; T114
+  preflight, install, and recovery; and a manual screen-reader pass.
+
+F3a stops after those receipts. It does not absorb helper distribution, BLE,
+OTA, browser flashing, fleet updates, or catalog promotion.
+
+### Next trunk work
+
+1. **F5, helper delivery.** Choose and prove the supported-library, bundled
+   helper, or native route for each board; finish redistribution review; remove
+   public `PATH` setup; take Windows, macOS, and Linux flash/recovery receipts.
+2. **F6, graphical acceptance.** Package the Signalman face, preserve the
+   standalone Linkboy recovery door, finish keyboard and manual assistive-tech
+   acceptance, and prove reconnect/recovery context survives the whole flow.
+3. **F7, firmware choice.** Finish graphical cross-firmware installation and
+   restoration for the admitted V4 and T114 packages, then publish only the
+   verified availability into the Mer3ly catalog.
+
+### Sidequest queue after the trunk
+
+1. Local Bluetooth flashing.
+2. Authenticated over-link update with verified staging and rollback.
+3. Browser installation as a convenience face over the same package and plan
+   authority.
+4. Additional board families and printed form factors.
+5. Fleet campaigns after one-device recovery is routine.
+
 ## Outcome
 
 Turn Linkboy's proven bench flasher into the safe owner-flashing engine beneath

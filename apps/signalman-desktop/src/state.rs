@@ -9,11 +9,10 @@
 //! elsewhere and hand their results in, which is what lets the whole six-page
 //! flow be driven in a headless test with no board plugged in.
 
-use linkboy::executor::{ExecutionStage, RecoveryFacts};
-use linkboy::package::RecoveryInstructions;
-use linkboy::{FlashEvent, FlashReceipt, OwnerStage, ReceiptResult};
+use linkboy::{BoardFamily, FlashEvent, FlashReceipt, OwnerStage, ReceiptResult};
 use signalman::{
-    DeviceCandidate, FirmwareCatalog, FirmwareInstaller, FirmwareView, describe_event,
+    DeviceCandidate, FirmwareCatalog, FirmwareInstallNotice, FirmwareInstallRecovery,
+    FirmwareInstallStage, FirmwareInstallUpdate, FirmwareInstaller, FirmwareView, describe_event,
     event_progress, refusal_lines,
 };
 
@@ -28,6 +27,8 @@ pub enum Request {
     Rescan,
     /// Take the selected port into the flow.
     ConfirmDevice,
+    /// Take an explicitly named T114 UF2 volume into the flow.
+    ConfirmMountedT114,
     /// Take the selected package into the flow (this is where a refusal comes
     /// from).
     ConfirmFirmware,
@@ -58,9 +59,19 @@ pub struct DesktopState {
     pub survey: SurveyState,
     pub selected_device: Option<usize>,
     pub selected_package: Option<usize>,
+    /// An owner declaration for a silent serial device. A discovered Retinue
+    /// banner remains Linkboy evidence; this is only the escape hatch for a
+    /// foreign application that cannot name itself.
+    pub selected_board_family: Option<BoardFamily>,
     /// The board revision the owner types. A plan is refused without it, and
     /// that refusal is shown rather than hidden behind a disabled control.
     pub board_revision: cambium::TextInput,
+    /// A mounted `HT-n5262` UF2 volume, entered explicitly because a drive
+    /// letter is a transport location rather than an inferred board identity.
+    pub t114_uf2_volume: cambium::TextInput,
+    /// Where the GUI retains the mounted bootloader record for a later serial
+    /// DFU recovery. This is required for a silent foreign T114 plan.
+    pub t114_loader_record: cambium::TextInput,
 
     /// The current refusal, as separate visible lines. Cleared when the owner
     /// changes something that could resolve it.
@@ -69,17 +80,15 @@ pub struct DesktopState {
     pub notes: Vec<String>,
     /// Transfer progress, `0.0..=1.0`, while one is running.
     pub progress: Option<f32>,
-    /// The last execution stage a recovery reported.
-    pub recovery: Option<RecoveryFacts>,
-    pub recovery_instructions: Option<RecoveryInstructions>,
+    /// The last Signalman-owned execution stage a recovery reported.
+    pub recovery: Option<FirmwareInstallRecovery>,
+    pub recovery_instructions: Option<String>,
     /// Set once the plan has been handed to the worker, so it is handed over
     /// once and the Install page can say it is running.
     pub install_running: bool,
 
     /// What the view asked the application loop to do.
     pub pending: Option<Request>,
-    /// Set by the close control.
-    pub close_requested: bool,
 }
 
 impl DesktopState {
@@ -99,7 +108,10 @@ impl DesktopState {
             survey: SurveyState::default(),
             selected_device: None,
             selected_package: None,
+            selected_board_family: None,
             board_revision: cambium::TextInput::default(),
+            t114_uf2_volume: cambium::TextInput::default(),
+            t114_loader_record: cambium::TextInput::default(),
             refusal: Vec::new(),
             notes: Vec::new(),
             progress: None,
@@ -107,7 +119,6 @@ impl DesktopState {
             recovery_instructions: None,
             install_running: false,
             pending: None,
-            close_requested: false,
         }
     }
 
@@ -162,8 +173,17 @@ impl DesktopState {
     pub fn select_device(&mut self, index: usize) {
         if index < self.devices.len() {
             self.selected_device = Some(index);
+            self.selected_board_family = None;
             self.refusal.clear();
         }
+    }
+
+    /// Record the owner's board-family declaration for a silent port. This is
+    /// deliberately separate from `select_device`: selecting a COM location
+    /// never silently selects a board family.
+    pub fn select_board_family(&mut self, family: BoardFamily) {
+        self.selected_board_family = Some(family);
+        self.refusal.clear();
     }
 
     /// Adopt a board revision the owner selected from a visible, board-specific
@@ -232,8 +252,13 @@ impl DesktopState {
                 ..
             } => {
                 self.install_running = false;
-                self.recovery = Some(facts.clone());
-                self.recovery_instructions = Some(instructions.clone());
+                self.recovery = Some(FirmwareInstallRecovery {
+                    stage: stage_from_linkboy(&facts.stage),
+                    last_known_port: facts.last_known_port.clone(),
+                    write_started: facts.write_started,
+                    after_failure: instructions.after_failure.clone(),
+                });
+                self.recovery_instructions = Some(instructions.after_failure.clone());
             }
             FlashEvent::Refused { reasons } => {
                 self.install_running = false;
@@ -243,12 +268,74 @@ impl DesktopState {
         }
     }
 
+    /// Apply an update from Signalman's owned installer worker. Its raw Linkboy
+    /// event remains inside Signalman; this face receives just the owner-facing
+    /// message, progress, terminal result, and recovery stage it projects.
+    pub fn apply_install_update(&mut self, update: FirmwareInstallUpdate) {
+        match self.installer.apply_install_update(update) {
+            FirmwareInstallNotice::Activity {
+                line,
+                progress,
+                replaces_previous_progress,
+            } => {
+                if replaces_previous_progress
+                    && self
+                        .notes
+                        .last()
+                        .is_some_and(|last| last.starts_with("Writing "))
+                {
+                    self.notes.pop();
+                }
+                if let Some(line) = line {
+                    self.notes.push(line);
+                }
+                if let Some(progress) = progress {
+                    self.progress = Some(progress);
+                }
+            }
+            FirmwareInstallNotice::Complete | FirmwareInstallNotice::ManualCheckRequired => {
+                self.progress = Some(1.0);
+                self.install_running = false;
+                self.recovery = None;
+                self.recovery_instructions = None;
+            }
+            FirmwareInstallNotice::RecoveryRequired { recovery } => {
+                self.install_running = false;
+                self.recovery_instructions = Some(recovery.after_failure.clone());
+                self.recovery = Some(recovery);
+            }
+            FirmwareInstallNotice::Refused { reasons } => {
+                self.install_running = false;
+                self.refusal = reasons;
+            }
+            FirmwareInstallNotice::Failed(why) => self.worker_lost(&why),
+            FirmwareInstallNotice::Finished if self.install_running => {
+                self.worker_lost("the installer ended without a final receipt");
+            }
+            FirmwareInstallNotice::Finished => {}
+        }
+    }
+
     /// The worker died without a terminal event. Said plainly, because a
     /// transfer that stopped for an unknown reason is a recovery situation and
     /// not a success.
     pub fn worker_lost(&mut self, why: &str) {
         self.install_running = false;
         self.notes.push(format!("The installer stopped: {why}"));
+    }
+
+    /// Decide whether the root window may close. A worker that is writing or
+    /// verifying must stay attached to its process and device observation until
+    /// it reaches a receipt or structured recovery state.
+    pub fn close_disposition(&mut self) -> cambium_genet_winit_host::CloseDisposition {
+        if self.install_running {
+            self.refuse_with(vec![
+                "Installation is still active. Keep Signalman open until it completes or shows recovery instructions.".into(),
+            ]);
+            cambium_genet_winit_host::CloseDisposition::KeepVisible
+        } else {
+            cambium_genet_winit_host::CloseDisposition::Exit
+        }
     }
 
     /// Whether the flow reached a finished receipt.
@@ -270,11 +357,21 @@ impl DesktopState {
     /// The stage a recovery stopped at, in owner words.
     pub fn recovery_stage(&self) -> Option<&'static str> {
         Some(match self.recovery.as_ref()?.stage {
-            ExecutionStage::Preparing => "while preparing",
-            ExecutionStage::EnteringBootloader => "while entering the bootloader",
-            ExecutionStage::Transfer => "during the transfer",
-            ExecutionStage::Rebooting => "while rebooting",
-            ExecutionStage::VerifyingApplication => "while verifying the application",
+            FirmwareInstallStage::Preparing => "while preparing",
+            FirmwareInstallStage::EnteringBootloader => "while entering the bootloader",
+            FirmwareInstallStage::Transfer => "during the transfer",
+            FirmwareInstallStage::Rebooting => "while rebooting",
+            FirmwareInstallStage::VerifyingApplication => "while verifying the application",
         })
+    }
+}
+
+fn stage_from_linkboy(stage: &linkboy::ExecutionStage) -> FirmwareInstallStage {
+    match stage {
+        linkboy::ExecutionStage::Preparing => FirmwareInstallStage::Preparing,
+        linkboy::ExecutionStage::EnteringBootloader => FirmwareInstallStage::EnteringBootloader,
+        linkboy::ExecutionStage::Transfer => FirmwareInstallStage::Transfer,
+        linkboy::ExecutionStage::Rebooting => FirmwareInstallStage::Rebooting,
+        linkboy::ExecutionStage::VerifyingApplication => FirmwareInstallStage::VerifyingApplication,
     }
 }

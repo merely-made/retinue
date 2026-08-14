@@ -129,6 +129,43 @@ verifies, and validates RNS's announce on the same connection.
 Either direction failing means we are not wire-compatible, whatever the unit tests say.
 This is a **local gate**, not CI: CI replays the committed fixtures instead.
 
+## Peer matrix (H8)
+
+`peer_matrix.py` adds the three-corner peer receipt from the work-lane map. It
+launches a **clean detached** Prns worktree as an external `prnsd` process;
+Retinue has no Prns dependency and the driver reads no Prns library API. Each
+case uses a localhost recording relay, preserving both directional TCP byte
+streams under `validation/results/` with SHA-256 digests.
+
+The matrix covers:
+
+- Retinue ↔ stock RNS 1.4.2, as the control pairing;
+- Retinue ↔ Prns at the pinned H8 commit;
+- Prns ↔ stock RNS 1.4.2; and
+- stock RNS and Prns transport forwarding, independently, so O-10 compares
+  their forwarded hop byte rather than relying on donor-source interpretation.
+
+Create a clean peer worktree, build only its daemon, then run the matrix. On
+this checkout Cargo uses `C:\t\graphshell-target`; prebuilt Retinue examples
+there are used when present so an unrelated workspace build cannot stall a
+receipt. Otherwise the driver falls back to `cargo run`.
+
+```powershell
+$peer = "$env:TEMP\retinue-peer-prns-72b6b30d"
+git -C C:\Users\mark_\Code\repos\Prns worktree add --detach $peer 72b6b30d27cac910ce20d370e1dc711fe9b95955
+$env:CARGO_TARGET_DIR = "$env:TEMP\retinue-peer-prns-target"
+cargo build --manifest-path "$peer\prnsd\Cargo.toml" -p prnsd --no-default-features --features tokio-host,observability
+
+.\.venv\Scripts\python.exe -u .\peer_matrix.py `
+  --prns-root $peer `
+  --prnsd "$env:CARGO_TARGET_DIR\debug\prnsd.exe"
+```
+
+The runner rejects a dirty or differently pinned Prns worktree. A pass is a
+local TCP interoperability receipt, not an RF or range receipt. Its result
+directory is intentionally ignored because it contains transient identities,
+ports, raw captures, and exact clean-commit state.
+
 ## Files
 
 | file | what |

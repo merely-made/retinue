@@ -22,6 +22,16 @@ pub trait PacketRadio {
         frame: Vec<u8>,
     ) -> impl Future<Output = Result<Duration, TransmitError>> + Send;
 
+    /// Send an announcement through an interface's announce-specific pacing
+    /// policy. Implementations without a separate cap may keep the default
+    /// and treat it as an ordinary frame.
+    fn send_announcement(
+        &self,
+        frame: Vec<u8>,
+    ) -> impl Future<Output = Result<Duration, TransmitError>> + Send {
+        self.send_frame(frame)
+    }
+
     fn recv_frame(&mut self) -> impl Future<Output = Option<Received>> + Send;
 }
 
@@ -41,6 +51,13 @@ impl PacketRadio for RNodeSerialLink {
         async move { self.send(frame).await }
     }
 
+    fn send_announcement(
+        &self,
+        frame: Vec<u8>,
+    ) -> impl Future<Output = Result<Duration, TransmitError>> + Send {
+        async move { self.send_announcement(frame).await }
+    }
+
     fn recv_frame(&mut self) -> impl Future<Output = Option<Received>> + Send {
         async move { self.recv().await }
     }
@@ -57,6 +74,13 @@ impl PacketRadio for DirectPhySerialLink {
         frame: Vec<u8>,
     ) -> impl Future<Output = Result<Duration, TransmitError>> + Send {
         async move { self.send(frame).await }
+    }
+
+    fn send_announcement(
+        &self,
+        frame: Vec<u8>,
+    ) -> impl Future<Output = Result<Duration, TransmitError>> + Send {
+        async move { self.send_announcement(frame).await }
     }
 
     fn recv_frame(&mut self) -> impl Future<Output = Option<Received>> + Send {

@@ -248,12 +248,15 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
     {
         if line == b"node" {
             let status = exec.status();
+            let transport = self.node.transport_counters();
+            let transport_on = self.node.transport_config().relay_packets;
             let mut out = radio_face::Text::<224>::empty();
             let _ = write!(
                 &mut out,
                 "node tx={} rx={} peers={} links={} refusedlinks={} refusedpeers={} \
-                 refusedoffers={} unsent={} unseeded={} undecoded={} echoes={} \
-                 echorefused={}\r\n",
+                 refusedoffers={} routes={} transport={} fwdannounce={} fwdpacket={} \
+                 routeexpired={} routeevicted={} hopdrop={} noroute={} unsent={} unseeded={} \
+                 undecoded={} echoes={} echorefused={}\r\n",
                 status.tx_frames,
                 status.rx_frames,
                 self.node.peers().len(),
@@ -261,6 +264,14 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
                 self.node.refused_links(),
                 self.node.refused_peers(),
                 self.node.refused_offers(),
+                self.node.route_count(),
+                u8::from(transport_on),
+                transport.forwarded_announces,
+                transport.forwarded_packets,
+                transport.expired_routes,
+                transport.evicted_routes,
+                transport.hop_limit_dropped,
+                transport.unroutable_packets,
                 self.unsent,
                 self.unseeded,
                 self.undecoded,

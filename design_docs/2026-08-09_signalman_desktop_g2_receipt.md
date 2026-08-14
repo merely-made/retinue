@@ -21,11 +21,11 @@ strictly: the default build, the lockfile, and CI are untouched.
 cargo test --manifest-path apps/signalman-desktop/Cargo.toml
 ```
 
-Genet comes in **at an exact revision, not a branch**: `e4920aad6`. That is the
-corrected post-G1 revision — `246f0f1e7` in the plan is the extraction commit,
-before the four routing gaps were closed. `ed7b85b26` closed those; `e4920aad6`
-adds the ARIA roles this application's accessibility receipt turned up. Bump it
-deliberately, with a receipt.
+Genet comes in **at an exact revision, not a branch**: `398e4af60`. The
+extraction commit `246f0f1e7` predates the four routing fixes; `e4920aad6`
+adds the ARIA roles this application's accessibility receipt turned up; and
+`398e4af60` also carries the accessible-label repair this face needs. Bump the
+pin deliberately, with a receipt.
 
 `signalman` and `linkboy` come in by relative path. That is not a cross-checkout
 dependency — they are in this repository.
@@ -95,7 +95,7 @@ about any of this — it is a `frame` hook that drains a channel.
 
 ## Receipts
 
-### Headless page-state tests — `tests/owner_flow.rs`, 10 cases, passing
+### Headless page-state tests — `tests/owner_flow.rs`, 11 cases, passing
 
 Driven through `cambium_genet_winit_host::Harness`: the same `Host` the binary
 uses, constructed without a window, so a click in a test goes through the same
@@ -107,8 +107,9 @@ against the flow's own projection, so a dropped field fails); approval reaches
 Prepare with the before-write instructions; events progress the install page,
 with the write line replacing its predecessor rather than stacking one entry
 per chunk; a recovery event ends on the recovery page with stage, instructions,
-and last known port; and the face cannot execute a plan the flow did not give
-it.
+and last known port; the active-install close policy refuses both native and
+app-command close with a visible alert; and the face cannot execute a plan the
+flow did not give it.
 
 ### Semantic keyboard tests — same file
 

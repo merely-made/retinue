@@ -37,6 +37,9 @@ impl CatalogState {
 pub struct CatalogPackage {
     pub package_id: String,
     pub manifest: String,
+    /// The package publisher, distinct from the catalog maintainer. A Merely Made catalog can
+    /// therefore admit a foreign firmware recipe without claiming that Merely Made published it.
+    pub firmware_publisher: String,
     pub state: CatalogState,
     pub instructions_url: String,
     pub recovery_url: String,
@@ -123,12 +126,12 @@ impl PackageIndex {
                     package.manifest().package_id
                 )));
             }
-            if package.manifest().publisher != self.publisher {
+            if package.manifest().publisher != entry.firmware_publisher {
                 return Err(CatalogError::Invalid(format!(
-                    "package {:?} has publisher {:?}, expected {:?}",
+                    "catalog package {:?} names firmware publisher {:?}, but its manifest says {:?}",
                     entry.package_id,
-                    package.manifest().publisher,
-                    self.publisher
+                    entry.firmware_publisher,
+                    package.manifest().publisher
                 )));
             }
         }
@@ -170,8 +173,9 @@ impl PackageIndex {
         );
         for package in &self.packages {
             output.push_str(&format!(
-                "- {} state={} installer_receipts={} recovery_receipts={}\n",
+                "- {} publisher={} state={} installer_receipts={} recovery_receipts={}\n",
                 package.package_id,
+                package.firmware_publisher,
                 package.state.label(),
                 package.installer_receipts.len(),
                 package.recovery_receipts.len()
@@ -185,6 +189,7 @@ fn validate_catalog_package(package: &CatalogPackage) -> Result<(), CatalogError
     for (name, value) in [
         ("package_id", package.package_id.as_str()),
         ("manifest", package.manifest.as_str()),
+        ("firmware_publisher", package.firmware_publisher.as_str()),
     ] {
         if value.trim().is_empty() {
             return Err(CatalogError::Invalid(format!(
@@ -297,6 +302,7 @@ mod tests {
         CatalogPackage {
             package_id: "retinue.test".into(),
             manifest: "test.toml".into(),
+            firmware_publisher: "Merely Made".into(),
             state,
             instructions_url: "https://example.com/install".into(),
             recovery_url: "https://example.com/recover".into(),

@@ -8,8 +8,14 @@
 //! linkboy catalog INDEX           verify a public package index
 //! linkboy plan DEVICE PACKAGE [BOARD@REVISION]
 //!                                      produce a refusal or immutable flash plan
-//! linkboy flash DEVICE PACKAGE [BOARD@REVISION] [--receipt PATH]
+//! linkboy flash DEVICE PACKAGE [BOARD@REVISION] [--loader-snapshot PATH] [--receipt PATH]
 //!                                      execute an accepted package plan
+//! linkboy flash-volume VOLUME PACKAGE BOARD@REVISION [--receipt PATH]
+//!                                      execute an admitted T114 UF2 package
+//! linkboy capture-t114-loader VOLUME PATH
+//!                                      capture the HT-n5262 UF2 and SoftDevice record
+//! linkboy verify-recovery PORT PACKAGE BOARD@REVISION RECOVERY --loader-snapshot PATH [--receipt PATH]
+//!                                      verify a completed post-write recovery without writing
 //! linkboy flash-raw PORT IMAGE [t114|v4]
 //!                                      expert-only bench route for a raw image
 //! linkboy bootloader PORT         send a T114 to its bootloader and name the new port
@@ -38,7 +44,10 @@ fn usage() -> &'static str {
      linkboy inspect PACKAGE\n  \
      linkboy catalog INDEX\n  \
      linkboy plan DEVICE PACKAGE [BOARD@REVISION]\n  \
-     linkboy flash DEVICE PACKAGE [BOARD@REVISION] [--receipt PATH]\n  \
+     linkboy flash DEVICE PACKAGE [BOARD@REVISION] [--loader-snapshot PATH] [--receipt PATH]\n  \
+     linkboy flash-volume VOLUME PACKAGE BOARD@REVISION [--receipt PATH]\n  \
+     linkboy capture-t114-loader VOLUME PATH\n  \
+     linkboy verify-recovery PORT PACKAGE BOARD@REVISION RECOVERY --loader-snapshot PATH [--receipt PATH]\n  \
      linkboy flash-raw PORT IMAGE [t114|v4]\n  \
      linkboy bootloader PORT"
 }
@@ -120,12 +129,18 @@ fn run_command() -> Result<(), Error> {
                 .next()
                 .ok_or_else(|| bad_usage("flash needs a PACKAGE"))?;
             let mut selection = None;
+            let mut loader_snapshot_path = None;
             let mut receipt_path = None;
             while let Some(value) = args.next() {
                 if value == "--receipt" {
                     receipt_path = Some(
                         args.next()
                             .ok_or_else(|| bad_usage("--receipt needs a PATH"))?,
+                    );
+                } else if value == "--loader-snapshot" {
+                    loader_snapshot_path = Some(
+                        args.next()
+                            .ok_or_else(|| bad_usage("--loader-snapshot needs a PATH"))?,
                     );
                 } else if selection.is_none() {
                     selection = Some(parse_board_selection(&value)?);
@@ -141,6 +156,30 @@ fn run_command() -> Result<(), Error> {
             let mut process = SystemProcessRunner::default();
             if let Some((family, revision)) = selection {
                 observation = observation.confirm_board(family, revision);
+            }
+            if let Some(path) = loader_snapshot_path {
+                let selected = observation.selected_board.as_ref().ok_or_else(|| {
+                    bad_usage("--loader-snapshot requires an explicit t114@REVISION selection")
+                })?;
+                if selected.family != BoardFamily::T114 {
+                    return Err(bad_usage(
+                        "--loader-snapshot is only valid for t114@REVISION",
+                    ));
+                }
+                let snapshot = linkboy::T114LoaderSnapshot::from_json(&path).map_err(|error| {
+                    Error::ToolFailed {
+                        tool: "linkboy",
+                        message: error.to_string(),
+                    }
+                })?;
+                let facts = snapshot.serial_dfu_observation();
+                observation = observation.with_hardware(linkboy::HardwareFacts {
+                    processor: facts.processor.clone(),
+                    flash_size: facts.flash_size,
+                    bootloader: facts.bootloader.clone(),
+                    loader_route: Some("captured-t114-loader-snapshot".into()),
+                    bootloader_usb: Some(facts),
+                });
             }
             if linkboy::needs_esp_rom_probe(&observation) {
                 let facts = linkboy::route::esp_rom::discover(&mut process, &device)
@@ -188,6 +227,199 @@ fn run_command() -> Result<(), Error> {
                     Err(error.into())
                 }
             }
+        }
+        Some("flash-volume") => {
+            let volume = args
+                .next()
+                .ok_or_else(|| bad_usage("flash-volume needs a VOLUME"))?;
+            let package_path = args
+                .next()
+                .ok_or_else(|| bad_usage("flash-volume needs a PACKAGE"))?;
+            let selection = args
+                .next()
+                .ok_or_else(|| bad_usage("flash-volume needs BOARD@REVISION"))
+                .and_then(|value| parse_board_selection(&value))?;
+            if selection.0 != BoardFamily::T114 {
+                return Err(bad_usage(
+                    "flash-volume currently admits only a T114 UF2 bootloader volume",
+                ));
+            }
+            let mut receipt_path = None;
+            while let Some(value) = args.next() {
+                if value == "--receipt" {
+                    receipt_path = Some(
+                        args.next()
+                            .ok_or_else(|| bad_usage("--receipt needs a PATH"))?,
+                    );
+                } else {
+                    return Err(bad_usage(
+                        "flash-volume accepts VOLUME PACKAGE BOARD@REVISION [--receipt PATH]",
+                    ));
+                }
+            }
+            let package = FlashPackage::load(package_path)?;
+            let observation =
+                uf2_volume_observation(&volume)?.confirm_board(selection.0, selection.1);
+            let plan = match plan_flash(&observation, &package) {
+                Ok(plan) => plan,
+                Err(refusal) => {
+                    render_event(FlashEvent::Refused {
+                        reasons: refusal.reasons.clone(),
+                    });
+                    return Err(Error::Refused(refusal));
+                }
+            };
+            let mut process = SystemProcessRunner::default();
+            let mut runner = LiveDeviceRunner;
+            let mut render = render_event;
+            let result = execute_plan(
+                &plan,
+                &package,
+                &mut process,
+                &mut runner,
+                linkboy::executor::DEFAULT_PATIENCE,
+                &mut render,
+            );
+            match result {
+                Ok(receipt) => {
+                    if let Some(path) = receipt_path {
+                        receipt.save_json(path)?;
+                    }
+                    Ok(())
+                }
+                Err(error) => {
+                    if let Some(path) = receipt_path {
+                        if let linkboy::ExecutionError::RecoveryRequired { receipt, .. } = &error {
+                            receipt.save_json(path)?;
+                        }
+                    }
+                    Err(error.into())
+                }
+            }
+        }
+        Some("capture-t114-loader") => {
+            let volume = args
+                .next()
+                .ok_or_else(|| bad_usage("capture-t114-loader needs a VOLUME"))?;
+            let path = args
+                .next()
+                .ok_or_else(|| bad_usage("capture-t114-loader needs a PATH"))?;
+            if args.next().is_some() {
+                return Err(bad_usage("capture-t114-loader accepts VOLUME PATH"));
+            }
+            let snapshot = t114_loader_snapshot(&volume)?;
+            snapshot
+                .save_json(&path)
+                .map_err(|error| Error::ToolFailed {
+                    tool: "linkboy",
+                    message: error.to_string(),
+                })?;
+            println!("captured T114 loader record from {volume} into {path}");
+            Ok(())
+        }
+        Some("verify-recovery") => {
+            let port = args
+                .next()
+                .ok_or_else(|| bad_usage("verify-recovery needs a PORT"))?;
+            let package_path = args
+                .next()
+                .ok_or_else(|| bad_usage("verify-recovery needs a PACKAGE"))?;
+            let selection = args
+                .next()
+                .ok_or_else(|| bad_usage("verify-recovery needs BOARD@REVISION"))
+                .and_then(|value| parse_board_selection(&value))?;
+            let recovery_path = args
+                .next()
+                .ok_or_else(|| bad_usage("verify-recovery needs a RECOVERY receipt"))?;
+            let mut snapshot_path = None;
+            let mut receipt_path = None;
+            while let Some(value) = args.next() {
+                match value.as_str() {
+                    "--loader-snapshot" => {
+                        snapshot_path = Some(
+                            args.next()
+                                .ok_or_else(|| bad_usage("--loader-snapshot needs a PATH"))?,
+                        )
+                    }
+                    "--receipt" => {
+                        receipt_path = Some(
+                            args.next()
+                                .ok_or_else(|| bad_usage("--receipt needs a PATH"))?,
+                        )
+                    }
+                    _ => {
+                        return Err(bad_usage(
+                            "verify-recovery accepts PORT PACKAGE BOARD@REVISION RECOVERY --loader-snapshot PATH [--receipt PATH]",
+                        ));
+                    }
+                }
+            }
+            if selection.0 != BoardFamily::T114 {
+                return Err(bad_usage(
+                    "verify-recovery currently requires an explicit t114@REVISION selection",
+                ));
+            }
+            let snapshot_path = snapshot_path.ok_or_else(|| {
+                bad_usage("verify-recovery requires the captured --loader-snapshot PATH")
+            })?;
+            let package = FlashPackage::load(package_path)?;
+            let snapshot =
+                linkboy::T114LoaderSnapshot::from_json(snapshot_path).map_err(|error| {
+                    Error::ToolFailed {
+                        tool: "linkboy",
+                        message: error.to_string(),
+                    }
+                })?;
+            let facts = snapshot.serial_dfu_observation();
+            let observation = DeviceObservation::from_found(&identify(&port))
+                .confirm_board(selection.0, selection.1)
+                .with_hardware(linkboy::HardwareFacts {
+                    processor: facts.processor.clone(),
+                    flash_size: facts.flash_size,
+                    bootloader: facts.bootloader.clone(),
+                    loader_route: Some("captured-t114-loader-snapshot".into()),
+                    bootloader_usb: Some(facts),
+                });
+            let plan = plan_flash(&observation, &package).map_err(Error::Refused)?;
+            let recovery = linkboy::FlashReceipt::load_json(&recovery_path)?;
+            ensure_post_write_recovery_matches(&recovery, &plan)?;
+            let mut runner = LiveDeviceRunner;
+            let application = linkboy::DeviceRunner::verify_application(
+                &mut runner,
+                &port,
+                &package.manifest().expected_application,
+            )
+            .map_err(linkboy::ExecutionError::Device)?;
+            linkboy::verify_application(
+                &package.manifest().expected_application,
+                &application,
+                &package.manifest().regions,
+                &package.manifest().channel_capabilities,
+            )
+            .map_err(|error| Error::ToolFailed {
+                tool: "linkboy",
+                message: format!("recovered application did not match package: {error}"),
+            })?;
+            let receipt = linkboy::FlashReceipt::complete(
+                &plan,
+                application,
+                vec![linkboy::ReceiptStage {
+                    name: "recovery-application-verified".into(),
+                    detail: Some(format!(
+                        "Verified the returned application on {port} after the matching post-write recovery receipt {}.",
+                        recovery_path
+                    )),
+                }],
+            );
+            if let Some(path) = receipt_path {
+                receipt.save_json(path)?;
+            }
+            println!("complete");
+            println!(
+                "{}",
+                receipt.to_json().unwrap_or_else(|error| error.to_string())
+            );
+            Ok(())
         }
         Some("flash-raw") => {
             let port = args
@@ -268,6 +500,49 @@ fn list() -> Result<(), Error> {
         println!("{}", identify(&port).describe());
     }
     Ok(())
+}
+
+fn uf2_volume_observation(volume: &str) -> Result<DeviceObservation, Error> {
+    linkboy::t114_uf2_observation(volume)
+        .map(|(observation, _)| observation)
+        .map_err(|error| Error::ToolFailed {
+            tool: "linkboy",
+            message: error.to_string(),
+        })
+}
+
+fn t114_loader_snapshot(volume: &str) -> Result<linkboy::T114LoaderSnapshot, Error> {
+    linkboy::t114_loader_snapshot_from_volume(volume).map_err(|error| Error::ToolFailed {
+        tool: "linkboy",
+        message: error.to_string(),
+    })
+}
+
+fn ensure_post_write_recovery_matches(
+    recovery: &linkboy::FlashReceipt,
+    plan: &linkboy::FlashPlan,
+) -> Result<(), Error> {
+    let post_write_verification =
+        matches!(&recovery.result, linkboy::ReceiptResult::RecoveryRequired)
+            && recovery
+                .stages
+                .iter()
+                .any(|stage| stage.name == "recovery-VerifyingApplication");
+    let matches_plan = recovery.package_id == plan.package().package_id
+        && recovery.package_parts == plan.package().parts
+        && recovery.board == plan.board().family
+        && recovery.board_revision == plan.board().revision
+        && recovery.route == *plan.route();
+    if post_write_verification && matches_plan {
+        Ok(())
+    } else {
+        Err(Error::ToolFailed {
+            tool: "linkboy",
+            message:
+                "recovery receipt is not a matching post-write application-verification recovery"
+                    .into(),
+        })
+    }
 }
 
 fn render_event(event: FlashEvent) {

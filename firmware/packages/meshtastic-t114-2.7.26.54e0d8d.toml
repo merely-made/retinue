@@ -1,0 +1,57 @@
+schema = 2
+package_id = "meshtastic.heltec-mesh-node-t114"
+display_name = "Meshtastic for Heltec Mesh Node T114"
+version = "2.7.26.54e0d8d"
+publisher = "Meshtastic"
+regions = []
+channel_capabilities = []
+state_impact = "unknown"
+license = "GPL-3.0"
+notices = "External Meshtastic firmware. It owns its own device identity, keys, region, channel, and phone application; Linkboy makes no Retinue capability claim for this package."
+source_revision = "54e0d8d0ab2ff56b3a9ce967e53f79e49af560fb"
+source_url = "https://github.com/meshtastic/firmware/tree/54e0d8d0ab2ff56b3a9ce967e53f79e49af560fb"
+origin_url = "https://github.com/meshtastic/firmware/releases/tag/v2.7.26.54e0d8d"
+
+[[helpers]]
+route = "uf2-mass-storage"
+program = "linkboy UF2 volume writer"
+version = "0.0.1"
+license = "MPL-2.0"
+source_url = "https://github.com/merely-made/retinue/tree/main/apps/linkboy"
+notice = "This route is built into Linkboy. It writes the already hash-verified UF2 file to an explicitly selected, readable UF2 bootloader volume and never shells out to an unpinned flasher."
+
+[payload]
+path = "meshtastic-t114-2.7.26.54e0d8d/firmware-heltec-mesh-node-t114-2.7.26.54e0d8d.uf2"
+format = "uf2"
+byte_length = 1467392
+sha256 = "e038b1067b6fa12ed77853337e0e416425f30a7589a907f8ac1600f21b8d02b9"
+write_bytes = 733696
+
+[[targets]]
+family = "t114"
+revision = "2.x"
+processor = "nrf52840"
+flash_size = 1048576
+bootloader = "adafruit-uf2-0.9.0"
+route = "uf2-mass-storage"
+
+[[write_ranges]]
+start = 0x26000
+length = 0xb3200
+
+[[preserved_ranges]]
+start = 0xea000
+length = 0x2000
+
+[[preserved_ranges]]
+start = 0xec000
+length = 0x14000
+
+[expected_application]
+board = "t114"
+version = "2.7.26.54e0d8d"
+manual_check = "After the board leaves the UF2 bootloader, use Meshtastic's own display, serial console, or mobile app to confirm version 2.7.26.54e0d8d and retain the observed interface fact. This is foreign-firmware evidence; do not claim a Retinue status, BLE, region, or channel capability from it."
+
+[recovery]
+before_write = "Enter the T114's stock UF2 bootloader, select the newly mounted volume explicitly, and keep its root clear of a same-named UF2 file. Linkboy will not infer a board from a drive letter or overwrite an existing file."
+after_failure = "Disconnect and re-enter the stock UF2 bootloader, then retry this verified package on the newly selected volume. To restore Retinue, use the separate serial-DFU T114 package and record its own receipt; this package does not replace that route."

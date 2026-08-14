@@ -6,13 +6,16 @@
 //!
 //! ```text
 //! node_stress MODEM_PORT fuzz     — 40 undecodable frames, then an exchange
-//! node_stress MODEM_PORT flood    — 40 valid announces from 40 identities, then an exchange
+//! node_stress MODEM_PORT flood [N] — 40 valid announces from identities N through N+39
+//! node_stress MODEM_PORT flood-series [N] [WAVES] [PAUSE_SECS]
+//!     — consecutive 40-announce waves in one source session
 //! node_stress MODEM_PORT links    — open 6 links; the board holds 4 and refuses the rest
 //! node_stress MODEM_PORT bigoffer — offer a resource past the part ceiling, then an exchange
 //! ```
 //!
 //! The board is NOT rebooted inside a leg: surviving the abuse in one boot is the point.
 
+use std::io::Write as _;
 use std::time::Duration;
 
 use retinue::announce::{self, RAND_HASH_LEN};
@@ -20,6 +23,7 @@ use retinue::destination::DestinationName;
 use retinue::endpoint::{Endpoint, PeerAnnounce, ResourceTransferConfig};
 use retinue::identity::PrivateIdentity;
 use retinue::iface::tulle::drive;
+use retinue::packet::{HeaderType, Packet};
 use tulle::PhyProfile;
 use tulle::airtime::AirtimeBudget;
 use tulle::direct_phy_serial::{DirectPhySerialConfig, DirectPhySerialLink};
@@ -62,11 +66,71 @@ fn garbage(index: u32) -> Vec<u8> {
         .collect()
 }
 
+/// Send one fresh forty-identity flood and report what this independent radio heard back.
+async fn flood_wave(
+    radio: &mut DirectPhySerialLink,
+    flood_start: u16,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let flood_end = flood_start
+        .checked_add(39)
+        .ok_or("flood start must leave room for 40 identities")?;
+    for index in 0..40u16 {
+        let ordinal = flood_start + index;
+        let mut seed = [0x50_u8; 64];
+        // Byte 1, not byte 0: x25519 clamping rewrites byte 0, and an index there
+        // collapses forty identities into five. The board caught this.
+        seed[1..3].copy_from_slice(&ordinal.to_le_bytes());
+        let identity = PrivateIdentity::from_secret_bytes(&seed);
+        let name = DestinationName::new("retinue", ["floodpeer"]);
+        let mut rand_hash = [0_u8; RAND_HASH_LEN];
+        rand_hash[..4].copy_from_slice(&u32::from(ordinal).to_le_bytes());
+        let packet = announce::build(&identity, name.name_hash(), &rand_hash, None, &[]);
+        radio.send_frame(packet.encode()).await?;
+    }
+    // This board is also the independent RF witness. The direct-PHY pump has kept receiving
+    // while each source transmit completed; drain those observations and distinguish the
+    // relay form from the type-1, zero-hop announces it originated itself.
+    let mut received = 0_u16;
+    let mut type2_hop_one = 0_u16;
+    while let Ok(Some(observation)) =
+        tokio::time::timeout(Duration::from_millis(250), radio.recv()).await
+    {
+        received = received.saturating_add(1);
+        if let Ok(packet) = Packet::decode(&observation.frame)
+            && packet.header_type == HeaderType::Type2
+            && packet.hops == 1
+            && packet.transport.is_some()
+        {
+            type2_hop_one = type2_hop_one.saturating_add(1);
+        }
+    }
+    println!(
+        "flood: 40 valid announces from identities {flood_start} through {flood_end} on the air"
+    );
+    println!("receiver: frames={received} relay_type2_hop1={type2_hop_one}");
+    Ok(())
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
     let modem_port = args.next().unwrap_or_else(|| "COM7".into());
     let leg = args.next().unwrap_or_else(|| "fuzz".into());
+    let flood_start = args
+        .next()
+        .map(|value| value.parse::<u16>())
+        .transpose()?
+        .unwrap_or(0);
+    let flood_waves = args
+        .next()
+        .map(|value| value.parse::<u16>())
+        .transpose()?
+        .unwrap_or(1);
+    let between_waves = args
+        .next()
+        .map(|value| value.parse::<u64>())
+        .transpose()?
+        .unwrap_or(0);
     let timeout = Duration::from_secs(120);
 
     let expected_name = DestinationName::new("retinue", ["node"]);
@@ -95,24 +159,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("fuzz: 40 undecodable frames on the air");
         }
         "flood" => {
-            // Valid, signed announces from 40 distinct identities: every one of them
-            // genuine, and eight more than the board's address book holds. TX-only, so
-            // this can run from the second modem WHILE an exchange runs on the first —
-            // the strongest form of the receipt: the book fills under live traffic.
-            for index in 0..40u8 {
-                let mut seed = [0x50_u8; 64];
-                // Byte 1, not byte 0: x25519 clamping rewrites byte 0, and an index there
-                // collapses forty identities into five. The board caught this.
-                seed[1] = index;
-                let identity = PrivateIdentity::from_secret_bytes(&seed);
-                let name = DestinationName::new("retinue", ["floodpeer"]);
-                let mut rand_hash = [0_u8; RAND_HASH_LEN];
-                rand_hash[..4].copy_from_slice(&u32::from(index).to_le_bytes());
-                let packet = announce::build(&identity, name.name_hash(), &rand_hash, None, &[]);
-                radio.send_frame(packet.encode()).await?;
-            }
-            println!("flood: 40 valid announces from 40 identities on the air");
+            flood_wave(&mut radio, flood_start).await?;
             println!("LEG DONE flood");
+            // Do not abort the serial pump on the way out. An ESP32 direct-PHY board keeps
+            // its USB endpoint live across bench legs; an orderly shutdown lets the next
+            // controlled flood reopen and reconfigure it instead of leaving that endpoint
+            // stalled after the desktop process exits.
+            radio.shutdown().await?;
+            return Ok(());
+        }
+        "flood-series" => {
+            if flood_waves == 0 {
+                return Err("flood series needs at least one wave".into());
+            }
+            for wave in 0..flood_waves {
+                let start = flood_start
+                    .checked_add(wave.checked_mul(40).ok_or("flood wave index overflow")?)
+                    .ok_or("flood series identity range overflows u16")?;
+                flood_wave(&mut radio, start).await?;
+                println!("WAVE DONE {}/{}", wave + 1, flood_waves);
+                std::io::stdout().flush()?;
+                if wave + 1 < flood_waves && between_waves > 0 {
+                    tokio::time::sleep(Duration::from_secs(between_waves)).await;
+                }
+            }
+            println!("LEG DONE flood-series");
+            radio.shutdown().await?;
             return Ok(());
         }
         "links" | "bigoffer" => {

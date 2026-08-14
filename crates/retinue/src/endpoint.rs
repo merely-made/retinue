@@ -34,6 +34,10 @@ use tokio::sync::{Mutex as AsyncMutex, mpsc, oneshot};
 
 use crate::address_book::AddressBook;
 use crate::announce::{self, Announce, RAND_HASH_LEN};
+use crate::announce_admission::{
+    AnnounceAdmission, AnnounceIngressCounters, AnnounceIngressPolicy, DestinationVerdict,
+    InterfaceVerdict,
+};
 use crate::destination::DestinationName;
 use crate::hash::{AddressHash, NameHash};
 use crate::identity::{Identity, KEY_LEN, PrivateIdentity};
@@ -199,11 +203,6 @@ const PATH_TTL: Duration = Duration::from_millis(60);
 const PATH_TABLE_CAPACITY: usize = 4096;
 #[cfg(test)]
 const PATH_TABLE_CAPACITY: usize = 4;
-
-/// The least time between announces we will accept for the same destination. A re-announce
-/// arriving sooner is dropped (not ingested, not re-forwarded), rate-limiting an announce
-/// flood. The first announce for a destination is always accepted.
-const ANNOUNCE_MIN_INTERVAL: Duration = Duration::from_secs(1);
 
 /// The least time between path requests we will broadcast for the same destination.
 ///
@@ -1026,6 +1025,13 @@ pub struct RoutingCounters {
     /// published either. Climbing means the book is at capacity, which is worth knowing:
     /// past that point this endpoint is deaf to peers it has not already met.
     pub refused_announces: u64,
+    /// Verified unknown-route announces retained during an ingress interface burst.
+    pub held_announces: u64,
+    /// Verified announces dropped because the bounded ingress hold queue was full.
+    pub held_announces_dropped: u64,
+    /// Valid announces learned locally but not relayed because their destination was rate
+    /// blocked on this incoming interface.
+    pub relay_rate_limited_announces: u64,
     /// Routes dropped to make room in a full path table. Climbing means this endpoint knows
     /// more destinations than it can hold, and is forgetting the quietest to keep the rest.
     pub paths_evicted: u64,
@@ -1039,6 +1045,9 @@ struct RoutingStats {
     policy_rejected: AtomicU64,
     hop_limit_dropped: AtomicU64,
     refused_announces: AtomicU64,
+    held_announces: AtomicU64,
+    held_announces_dropped: AtomicU64,
+    relay_rate_limited_announces: AtomicU64,
     paths_evicted: AtomicU64,
 }
 
@@ -1050,6 +1059,9 @@ impl RoutingStats {
             policy_rejected: self.policy_rejected.load(Ordering::Relaxed),
             hop_limit_dropped: self.hop_limit_dropped.load(Ordering::Relaxed),
             refused_announces: self.refused_announces.load(Ordering::Relaxed),
+            held_announces: self.held_announces.load(Ordering::Relaxed),
+            held_announces_dropped: self.held_announces_dropped.load(Ordering::Relaxed),
+            relay_rate_limited_announces: self.relay_rate_limited_announces.load(Ordering::Relaxed),
             paths_evicted: self.paths_evicted.load(Ordering::Relaxed),
         }
     }
@@ -1609,6 +1621,14 @@ enum RegistrationKind {
     Resource,
 }
 
+/// A verified announce deferred by a noisy interface. It retains the ingress fact through
+/// release so a later route cannot be accidentally attributed to a different bearer.
+struct HeldAnnounce {
+    interface: InterfaceId,
+    packet: Packet,
+    announce: Announce,
+}
+
 /// Shared router state.
 struct Shared {
     lifecycle: Mutex<Lifecycle>,
@@ -1662,11 +1682,17 @@ struct Shared {
     /// Recently-seen announce packet hashes, for de-duplication (a ring of the last
     /// [`SEEN_ANNOUNCES`]).
     seen_announces: Mutex<(HashSet<AddressHash>, VecDeque<AddressHash>)>,
-    /// Last time an announce was accepted per destination, for rate-limiting. A fresh
-    /// re-announce (new packet hash, so past the dedup ring) arriving within
-    /// [`ANNOUNCE_MIN_INTERVAL`] is dropped, so a peer cannot make us re-ingest and re-forward
-    /// announces without bound.
-    announce_budget: Mutex<HashMap<AddressHash, Instant>>,
+    /// The bounded interface and destination announce-admission state machines. Their clock
+    /// is relative to this endpoint so the verdicts are deterministic under a supplied time.
+    announce_admission: Mutex<AnnounceAdmission>,
+    announce_admission_started: Instant,
+    /// Verified unknown-route announces held until their ingress burst has subsided.
+    held_announces: Mutex<VecDeque<HeldAnnounce>>,
+    /// At most one release task runs for each interface, however many announces it is holding.
+    held_release_tasks: Mutex<HashSet<InterfaceId>>,
+    /// Wakes deferred-release tasks when a carrier is detached, so a removed interface never
+    /// leaves a full burst penalty's worth of sleeping tasks behind.
+    held_release_wake: tokio::sync::Notify,
     /// Last time a path request went out per destination, for the same reason: see
     /// [`PATH_REQUEST_MIN_INTERVAL`].
     path_request_budget: Mutex<HashMap<AddressHash, Instant>>,
@@ -1745,7 +1771,12 @@ impl Shared {
         if *state != Lifecycle::Running {
             return false;
         }
+        let id = iface.id;
         self.interfaces.lock().unwrap().push(iface);
+        self.announce_admission
+            .lock()
+            .unwrap()
+            .attach_interface(id, self.announce_admission_now_ms());
         true
     }
 
@@ -1761,6 +1792,41 @@ impl Shared {
             let iface = interfaces.swap_remove(index);
             iface.outbound.close();
         }
+        self.announce_admission.lock().unwrap().forget_interface(id);
+        self.held_announces
+            .lock()
+            .unwrap()
+            .retain(|announce| announce.interface != id);
+        self.held_release_wake.notify_waiters();
+    }
+
+    fn announce_admission_now_ms(&self) -> u64 {
+        self.announce_admission_started
+            .elapsed()
+            .as_millis()
+            .min(u128::from(u64::MAX)) as u64
+    }
+
+    fn hold_announce(&self, held: HeldAnnounce) -> bool {
+        let capacity = self
+            .announce_admission
+            .lock()
+            .unwrap()
+            .policy()
+            .held_capacity;
+        let mut queue = self.held_announces.lock().unwrap();
+        if let Some(existing) = queue.iter_mut().find(|existing| {
+            existing.interface == held.interface
+                && existing.announce.destination == held.announce.destination
+        }) {
+            *existing = held;
+            return true;
+        }
+        if queue.len() >= capacity {
+            return false;
+        }
+        queue.push_back(held);
+        true
     }
 
     fn begin_resource(&self) -> bool {
@@ -2005,26 +2071,8 @@ impl Shared {
         }
     }
 
-    /// Whether an announce for `dest` is within budget (accept and record it) or is arriving
-    /// too soon after the last accepted one (drop it). Prunes stale entries when the map grows
-    /// past [`SEEN_ANNOUNCES`], so it stays bounded under a many-destination flood.
-    fn announce_within_budget(&self, dest: AddressHash) -> bool {
-        let mut budget = self.announce_budget.lock().unwrap();
-        let now = Instant::now();
-        if let Some(&last) = budget.get(&dest)
-            && now.duration_since(last) < ANNOUNCE_MIN_INTERVAL
-        {
-            return false;
-        }
-        if budget.len() > SEEN_ANNOUNCES {
-            budget.retain(|_, t| now.duration_since(*t) < ANNOUNCE_MIN_INTERVAL);
-        }
-        budget.insert(dest, now);
-        true
-    }
-
     /// Whether a path request for `dest` may go out now. Same shape and same reasoning as
-    /// [`Shared::announce_within_budget`] on the outbound side, plus the global cap: the
+    /// announce-admission destination ledger on the outbound side, plus the global cap: the
     /// per-destination floor cannot be the whole answer, because the peer that provokes a
     /// path request also chooses the destination it names.
     ///
@@ -2160,7 +2208,13 @@ impl Endpoint {
             inbound_link_proofs: Mutex::new(HashMap::new()),
             path_table: Mutex::new(HashMap::new()),
             seen_announces: Mutex::new((HashSet::new(), VecDeque::new())),
-            announce_budget: Mutex::new(HashMap::new()),
+            announce_admission: Mutex::new(
+                AnnounceAdmission::new(AnnounceIngressPolicy::default()),
+            ),
+            announce_admission_started: Instant::now(),
+            held_announces: Mutex::new(VecDeque::new()),
+            held_release_tasks: Mutex::new(HashSet::new()),
+            held_release_wake: tokio::sync::Notify::new(),
             path_request_budget: Mutex::new(HashMap::new()),
             path_request_stamps: Mutex::new(VecDeque::new()),
             link_transport: Mutex::new(HashMap::new()),
@@ -2353,6 +2407,31 @@ impl Endpoint {
     /// Number of interfaces currently attached.
     pub fn interface_count(&self) -> usize {
         self.shared.interfaces.lock().unwrap().len()
+    }
+
+    /// Configure bounded announce ingress control for subsequently observed packets. Existing
+    /// histories remain, trimmed to the new capacities, so changing a setting cannot turn an
+    /// unbounded backlog into a hidden one.
+    pub fn set_announce_ingress_policy(&self, policy: AnnounceIngressPolicy) {
+        self.shared
+            .announce_admission
+            .lock()
+            .unwrap()
+            .set_policy(policy);
+    }
+
+    /// The active announce-ingress policy.
+    pub fn announce_ingress_policy(&self) -> AnnounceIngressPolicy {
+        self.shared.announce_admission.lock().unwrap().policy()
+    }
+
+    /// Per-interface ingress accounting. This is carrier attribution, not an on-air receipt.
+    pub fn announce_ingress_counters(&self, interface: InterfaceId) -> AnnounceIngressCounters {
+        self.shared
+            .announce_admission
+            .lock()
+            .unwrap()
+            .counters(interface)
     }
 
     /// Act as a transport node: forward announces (hops+1, de-duplicated, never back the way
@@ -3224,6 +3303,166 @@ fn deliver_single(shared: &Arc<Shared>, iface: InterfaceId, pkt: &Packet) {
     }
 }
 
+/// Release verified unknown-route announces one at a time after their ingress interface has
+/// calmed. The task is per interface, not per packet, so a burst cannot turn into a timer
+/// storm. It is tracked with the endpoint's other tasks and is aborted on close.
+fn start_held_announce_release(shared: &Arc<Shared>, iface: InterfaceId, first_due_ms: u64) {
+    if !shared.held_release_tasks.lock().unwrap().insert(iface) {
+        return;
+    }
+    let owner = Arc::clone(shared);
+    if !track(shared, async move {
+        let mut due_ms = first_due_ms;
+        loop {
+            let now_ms = owner.announce_admission_now_ms();
+            if due_ms > now_ms {
+                tokio::select! {
+                    _ = tokio::time::sleep(Duration::from_millis(due_ms - now_ms)) => {}
+                    _ = owner.held_release_wake.notified() => {}
+                }
+            }
+            if !owner.is_running() {
+                break;
+            }
+
+            let now_ms = owner.announce_admission_now_ms();
+            let has_held = owner
+                .held_announces
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|announce| announce.interface == iface);
+            if !has_held {
+                break;
+            }
+            let Some(next_due_ms) = owner
+                .announce_admission
+                .lock()
+                .unwrap()
+                .release_due(iface, now_ms)
+            else {
+                break;
+            };
+            if next_due_ms > now_ms {
+                due_ms = next_due_ms;
+                continue;
+            }
+
+            let held = {
+                let mut queue = owner.held_announces.lock().unwrap();
+                queue
+                    .iter()
+                    .position(|announce| announce.interface == iface)
+                    .and_then(|index| queue.remove(index))
+            };
+            let Some(held) = held else {
+                due_ms = next_due_ms;
+                continue;
+            };
+            owner
+                .announce_admission
+                .lock()
+                .unwrap()
+                .note_released(iface);
+            let policy = owner.routing.lock().unwrap().clone();
+            process_verified_announce(&owner, iface, held.packet, held.announce, &policy);
+            due_ms = next_due_ms;
+        }
+
+        owner.held_release_tasks.lock().unwrap().remove(&iface);
+        let next_due_ms = owner.announce_admission_now_ms();
+        if owner
+            .held_announces
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|announce| announce.interface == iface)
+        {
+            start_held_announce_release(&owner, iface, next_due_ms);
+        }
+    }) {
+        shared.held_release_tasks.lock().unwrap().remove(&iface);
+    }
+}
+
+/// Continue a verified announce after interface admission. A destination-rate block keeps
+/// learning and local publication intact, but stops the expensive mesh-wide rebroadcast.
+fn process_verified_announce(
+    shared: &Arc<Shared>,
+    iface: InterfaceId,
+    pkt: Packet,
+    announce: Announce,
+    policy: &RoutingPolicy,
+) {
+    // The book's answer is the cap, and ignoring it made the cap decorative: a refused peer
+    // still got a path-table entry, still went out the announce channel, and still relayed
+    // onward, so the only bounded structure was the one thing that did not grow.
+    if shared.address_book.lock().unwrap().ingest(&announce)
+        == crate::address_book::Ingested::Refused
+    {
+        shared
+            .routing_stats
+            .refused_announces
+            .fetch_add(1, Ordering::Relaxed);
+        return;
+    }
+    let destination = announce.destination;
+    // A header-type-2 announce names the transport node forwarding it. It belongs to this
+    // destination's route, not to the interface: the same radio routinely reaches different
+    // destinations through different nodes.
+    shared.learn_path(destination, iface, pkt.hops, pkt.transport);
+    let _ = shared.announce_tx.send(PeerAnnounce {
+        destination,
+        identity: announce.identity,
+        app_data: announce.app_data,
+    });
+
+    // As a transport node, propagate the announce onward: hops+1, stamped with our identity
+    // as the transport node so downstream peers address replies through us, out every
+    // permitted interface but the one it came in on, de-duplicated by packet hash.
+    if !policy.relays_announce_from(iface) || !shared.announce_is_new(pkt.hash()) {
+        return;
+    }
+    if shared
+        .announce_admission
+        .lock()
+        .unwrap()
+        .observe_destination(destination, shared.announce_admission_now_ms())
+        == DestinationVerdict::BlockRelay
+    {
+        shared
+            .routing_stats
+            .relay_rate_limited_announces
+            .fetch_add(1, Ordering::Relaxed);
+        return;
+    }
+    if pkt.hops >= policy.max_hops {
+        shared
+            .routing_stats
+            .hop_limit_dropped
+            .fetch_add(1, Ordering::Relaxed);
+        return;
+    }
+    let mut fwd = pkt;
+    fwd.hops += 1;
+    fwd.header_type = crate::packet::HeaderType::Type2;
+    fwd.transport = Some(shared.identity.public().hash());
+    // Every neighbour that heard this announce is about to relay it. If they all relay the
+    // instant the router hands it over, they transmit on top of each other and the flood partly
+    // destroys itself. A short random delay spreads the relays out.
+    let jitter = shared.relay_jitter();
+    if jitter.is_zero() {
+        relay_announce(shared, iface, fwd, &policy.allowed_egress);
+    } else {
+        let shared = Arc::clone(shared);
+        let egress = policy.allowed_egress.clone();
+        track(&Arc::clone(&shared), async move {
+            tokio::time::sleep(jitter).await;
+            relay_announce(&shared, iface, fwd, &egress);
+        });
+    }
+}
+
 /// Dispatch one inbound packet that arrived on `iface`.
 fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
     // A path request for a destination we own: answer it with a path response (an announce
@@ -3284,65 +3523,43 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
     match pkt.packet_type {
         PacketType::Announce => {
             if let Ok(a) = Announce::decode(&pkt) {
-                // Rate-limit: a fresh re-announce arriving too soon after the last accepted
-                // one for this destination is dropped, so it neither re-populates our tables
-                // nor gets re-forwarded.
-                if !shared.announce_within_budget(a.destination) {
-                    return;
-                }
-                // The book's answer is the cap, and ignoring it made the cap decorative:
-                // a refused peer still got a path-table entry, still went out the announce
-                // channel, and still relayed onward, so the only bounded structure was the
-                // one thing that did not grow. Unique signed announces could then grow
-                // memory without limit, which is a cheap thing for a stranger to arrange.
-                if shared.address_book.lock().unwrap().ingest(&a)
-                    == crate::address_book::Ingested::Refused
-                {
-                    shared
-                        .routing_stats
-                        .refused_announces
-                        .fetch_add(1, Ordering::Relaxed);
-                    return;
-                }
-                // A header-type-2 announce names the transport node forwarding it. It
-                // belongs to this destination's route, not to the interface: the same radio
-                // routinely reaches different destinations through different nodes.
-                shared.learn_path(a.destination, iface, pkt.hops, pkt.transport);
-                let _ = shared.announce_tx.send(PeerAnnounce {
-                    destination: a.destination,
-                    identity: a.identity,
-                    app_data: a.app_data,
-                });
-                // As a transport node, propagate the announce onward: hops+1, stamped with
-                // our identity as the transport node so downstream peers address replies
-                // through us, out every permitted interface but the one it came in on,
-                // de-duplicated by packet hash.
-                if policy.relays_announce_from(iface) && shared.announce_is_new(pkt.hash()) {
-                    if pkt.hops >= policy.max_hops {
-                        shared
-                            .routing_stats
-                            .hop_limit_dropped
-                            .fetch_add(1, Ordering::Relaxed);
-                    } else {
-                        let mut fwd = pkt;
-                        fwd.hops += 1;
-                        fwd.header_type = crate::packet::HeaderType::Type2;
-                        fwd.transport = Some(shared.identity.public().hash());
-                        // Every neighbour that heard this announce is about to relay it. If
-                        // they all relay the instant the router hands it over, they transmit
-                        // on top of each other and the flood partly destroys itself. A short
-                        // random delay spreads the relays out. This is local timing only: it
-                        // changes nothing on the wire and needs nothing of the radio.
-                        let jitter = shared.relay_jitter();
-                        if jitter.is_zero() {
-                            relay_announce(shared, iface, fwd, &policy.allowed_egress);
+                let route_is_known = shared
+                    .path_table
+                    .lock()
+                    .unwrap()
+                    .contains_key(&a.destination);
+                let verdict = shared.announce_admission.lock().unwrap().observe_interface(
+                    iface,
+                    route_is_known,
+                    shared.announce_admission_now_ms(),
+                );
+                match verdict {
+                    InterfaceVerdict::Process => {
+                        process_verified_announce(shared, iface, pkt, a, &policy);
+                    }
+                    InterfaceVerdict::Hold { release_at_ms } => {
+                        let held = HeldAnnounce {
+                            interface: iface,
+                            packet: pkt,
+                            announce: a,
+                        };
+                        if shared.hold_announce(held) {
+                            shared.announce_admission.lock().unwrap().note_held(iface);
+                            shared
+                                .routing_stats
+                                .held_announces
+                                .fetch_add(1, Ordering::Relaxed);
+                            start_held_announce_release(shared, iface, release_at_ms);
                         } else {
-                            let shared = Arc::clone(shared);
-                            let egress = policy.allowed_egress.clone();
-                            track(&Arc::clone(&shared), async move {
-                                tokio::time::sleep(jitter).await;
-                                relay_announce(&shared, iface, fwd, &egress);
-                            });
+                            shared
+                                .announce_admission
+                                .lock()
+                                .unwrap()
+                                .note_held_dropped(iface);
+                            shared
+                                .routing_stats
+                                .held_announces_dropped
+                                .fetch_add(1, Ordering::Relaxed);
                         }
                     }
                 }
@@ -4222,28 +4439,28 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn announces_are_rate_limited_per_destination() {
-        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[2u8; 64]));
+    #[test]
+    fn destination_admission_preserves_the_one_second_default_floor() {
+        let mut admission = AnnounceAdmission::new(AnnounceIngressPolicy::default());
         let a = AddressHash::from_bytes([0x01; 16]);
         let b = AddressHash::from_bytes([0x02; 16]);
-        // The first announce for a destination is accepted.
-        assert!(ep.shared.announce_within_budget(a), "first for a accepted");
-        assert!(ep.shared.announce_within_budget(b), "first for b accepted");
-        // An immediate re-announce for the same destination is dropped.
-        assert!(
-            !ep.shared.announce_within_budget(a),
-            "a re-announce rate-limited"
+        assert_eq!(
+            admission.observe_destination(a, 0),
+            DestinationVerdict::Relay
         );
-        assert!(
-            !ep.shared.announce_within_budget(b),
-            "b re-announce rate-limited"
+        assert_eq!(
+            admission.observe_destination(b, 0),
+            DestinationVerdict::Relay
         );
-        // A different, unseen destination is still accepted.
+        assert_eq!(
+            admission.observe_destination(a, 1),
+            DestinationVerdict::BlockRelay,
+            "a fresh re-announce is not rebroadcast"
+        );
         let c = AddressHash::from_bytes([0x03; 16]);
-        assert!(
-            ep.shared.announce_within_budget(c),
-            "a new destination is accepted"
+        assert_eq!(
+            admission.observe_destination(c, 1),
+            DestinationVerdict::Relay
         );
     }
 

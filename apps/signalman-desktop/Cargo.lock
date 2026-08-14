@@ -209,9 +209,9 @@ checksum = "fc7eb209b1518d6bb87b283c20095f5228ecda460da70b44f0802523dea6da04"
 
 [[package]]
 name = "android_system_properties"
-version = "0.1.6"
+version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae221649c9976a6f6c56ae1facf410f3ddb33cc661c4b7b61020a912d4237fbc"
+checksum = "819e7219dbd41043ac279b19830f2efc897156490d7fd6ea916720117ee66311"
 dependencies = [
  "libc",
 ]
@@ -723,7 +723,6 @@ dependencies = [
 [[package]]
 name = "cambium"
 version = "0.3.3"
-source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "genet-host-api",
  "genet-scripted-dom",
@@ -736,7 +735,6 @@ dependencies = [
 [[package]]
 name = "cambium-genet-winit-host"
 version = "0.1.0"
-source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "accesskit",
  "cambium",
@@ -759,7 +757,6 @@ dependencies = [
 [[package]]
 name = "cambium-winit"
 version = "0.3.0"
-source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "cambium",
  "winit",
@@ -768,7 +765,6 @@ dependencies = [
 [[package]]
 name = "cambium-winit-a11y"
 version = "0.3.0"
-source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "accesskit",
  "genet-layout",
@@ -1350,7 +1346,6 @@ checksum = "66b7e2430c6dff6a955451e2cfc438f09cea1965a9d6f87f7e3b90decc014099"
 [[package]]
 name = "engine-observables-api"
 version = "0.1.1"
-source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "genet-paint-types",
  "malloc_size_of_derive",
@@ -1423,7 +1418,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1706,7 +1701,6 @@ dependencies = [
 [[package]]
 name = "genet-document-resources"
 version = "0.2.0"
-source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "genet-host-api",
  "layout-dom-api",
@@ -1715,12 +1709,10 @@ dependencies = [
 [[package]]
 name = "genet-host-api"
 version = "0.1.0"
-source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 
 [[package]]
 name = "genet-layout"
 version = "0.2.0"
-source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "accesskit",
  "app_units",
@@ -1764,7 +1756,6 @@ dependencies = [
 [[package]]
 name = "genet-paint-types"
 version = "0.1.0"
-source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "app_units",
  "euclid",
@@ -1776,7 +1767,6 @@ dependencies = [
 [[package]]
 name = "genet-probe"
 version = "0.1.0"
-source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "genet-layout",
  "genet-scripted-dom",
@@ -1786,7 +1776,6 @@ dependencies = [
 [[package]]
 name = "genet-render-host"
 version = "0.2.0"
-source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "netrender",
  "tracing",
@@ -1796,7 +1785,6 @@ dependencies = [
 [[package]]
 name = "genet-scripted-dom"
 version = "0.1.0"
-source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "engine-observables-api",
  "genet-static-dom",
@@ -1808,7 +1796,6 @@ dependencies = [
 [[package]]
 name = "genet-static-dom"
 version = "0.1.0"
-source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "html5ever",
  "layout-dom-api",
@@ -1926,7 +1913,6 @@ dependencies = [
 [[package]]
 name = "genet-winit-host"
 version = "0.2.0"
-source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "accesskit",
  "accesskit_macos",
@@ -2547,9 +2533,9 @@ dependencies = [
 
 [[package]]
 name = "js-sys"
-version = "0.3.104"
+version = "0.3.103"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e0c1080212aad755ea003d18543e8768dd432c48819efd73a7bf1e39b7a5a3a"
+checksum = "53b44bfcdb3f8d5837a46dae1ca9660a837176eee74a28b229bc626816589102"
 dependencies = [
  "cfg-if",
  "futures-util",
@@ -2599,7 +2585,6 @@ dependencies = [
 [[package]]
 name = "layout-dom-api"
 version = "0.1.0"
-source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "markup5ever",
  "serde",
@@ -2793,10 +2778,8 @@ dependencies = [
 [[package]]
 name = "meristem"
 version = "0.1.1"
-source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "anymore",
- "hashbrown 0.17.1",
  "tracing",
 ]
 
@@ -2901,8 +2884,7 @@ dependencies = [
 
 [[package]]
 name = "netrender"
-version = "0.1.0"
-source = "git+https://github.com/merely-made/netrender.git?branch=main#c7cedd2a5d492f80faa35fd5ff3c0f99bfa819fb"
+version = "0.1.1"
 dependencies = [
  "log",
  "netrender_device",
@@ -2915,8 +2897,7 @@ dependencies = [
 
 [[package]]
 name = "netrender_device"
-version = "0.1.0"
-source = "git+https://github.com/merely-made/netrender.git?branch=main#c7cedd2a5d492f80faa35fd5ff3c0f99bfa819fb"
+version = "0.1.1"
 dependencies = [
  "log",
  "pollster",
@@ -3389,8 +3370,7 @@ dependencies = [
 
 [[package]]
 name = "paint_list_api"
-version = "0.1.0"
-source = "git+https://github.com/merely-made/netrender.git?branch=main#c7cedd2a5d492f80faa35fd5ff3c0f99bfa819fb"
+version = "0.1.1"
 dependencies = [
  "euclid",
  "serde",
@@ -3398,8 +3378,7 @@ dependencies = [
 
 [[package]]
 name = "paint_list_render"
-version = "0.1.0"
-source = "git+https://github.com/merely-made/netrender.git?branch=main#c7cedd2a5d492f80faa35fd5ff3c0f99bfa819fb"
+version = "0.1.1"
 dependencies = [
  "log",
  "netrender",
@@ -4171,7 +4150,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4361,7 +4340,6 @@ dependencies = [
 [[package]]
 name = "servo-allocator"
 version = "0.2.0"
-source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "libc",
  "tikv-jemalloc-sys",
@@ -4372,7 +4350,6 @@ dependencies = [
 [[package]]
 name = "servo-base"
 version = "0.2.0"
-source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "accesskit",
  "crossbeam-channel",
@@ -4397,7 +4374,6 @@ dependencies = [
 [[package]]
 name = "servo-config"
 version = "0.2.0"
-source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "genet-stylo-static-prefs",
  "serde",
@@ -4409,7 +4385,6 @@ dependencies = [
 [[package]]
 name = "servo-config-macro"
 version = "0.2.0"
-source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4420,7 +4395,6 @@ dependencies = [
 [[package]]
 name = "servo-malloc-size-of"
 version = "0.2.0"
-source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "app_units",
  "atomic_refcell",
@@ -4459,7 +4433,6 @@ dependencies = [
 [[package]]
 name = "servo-pixels"
 version = "0.2.0"
-source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "euclid",
  "genet-paint-types",
@@ -4474,7 +4447,6 @@ dependencies = [
 [[package]]
 name = "servo-url"
 version = "0.2.0"
-source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "encoding_rs",
  "malloc_size_of_derive",
@@ -4543,9 +4515,12 @@ dependencies = [
 name = "signalman"
 version = "0.0.1"
 dependencies = [
+ "hex",
  "linkboy",
  "postilion",
+ "retinue",
  "tokio",
+ "zeroize",
 ]
 
 [[package]]
@@ -4711,7 +4686,6 @@ dependencies = [
 [[package]]
 name = "sprigging"
 version = "0.2.1"
-source = "git+https://github.com/merely-made/genet.git?rev=398e4af60#398e4af60d7df637c3fc20d5105b8ff2b094fc3a"
 dependencies = [
  "accesskit",
  "paint_list_api",
@@ -4914,7 +4888,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.4",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5594,9 +5568,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen"
-version = "0.2.127"
+version = "0.2.126"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b70935747edd64d89de3efa29d73789b806c15798f8e7dca4d8ac356b50ce70"
+checksum = "4b067c0c11094aef6b7a801c1e34a26affafdf3d051dba08456b868789aaf9a4"
 dependencies = [
  "cfg-if",
  "once_cell",
@@ -5607,9 +5581,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-futures"
-version = "0.4.77"
+version = "0.4.76"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b7777d5cc23d0e91404e53ce2d5e8ec7acae3026b16233dba62cd3246457950"
+checksum = "c62df1340f32221cb9c54d6a27b030e3dba64361d4a95bed55f9aacb44da291d"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
@@ -5617,9 +5591,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-macro"
-version = "0.2.127"
+version = "0.2.126"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77775f8f3f7217702089053b94958f8f54061a3f663417df76e19cbdcca29bc1"
+checksum = "167ce5e579f6bcf889c4f7175a8a5a585de84e8ff93976ce393efa5f2837aab1"
 dependencies = [
  "quote",
  "wasm-bindgen-macro-support",
@@ -5627,9 +5601,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-macro-support"
-version = "0.2.127"
+version = "0.2.126"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e11d33f857dc2fb11b8bc75aee111aa9cbeb12cd9f25efd3d4c2a3dd4e235284"
+checksum = "f3997c7839262f4ef12cf90b818d6340c18e80f263f1a94bf157d0ec4420380e"
 dependencies = [
  "bumpalo",
  "proc-macro2",
@@ -5640,9 +5614,9 @@ dependencies = [
 
 [[package]]
 name = "wasm-bindgen-shared"
-version = "0.2.127"
+version = "0.2.126"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ef64dbcc55df09c7e5a46182d181c2cfa3e925f3da937ea764728b4bbb9dcbf"
+checksum = "dc1b4cb0cc549fcf58d7dfc081778139b3d283a081644e833e84682ad71cea24"
 dependencies = [
  "unicode-ident",
 ]
@@ -5758,9 +5732,9 @@ dependencies = [
 
 [[package]]
 name = "web-sys"
-version = "0.3.104"
+version = "0.3.103"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c435338968042f4f59a557f690a253676d47ce13ceb55d70100e7facf6620a30"
+checksum = "8622dcb61c0bcc9fffa6938bed81210af2da9a7e4a1a834b2e37a59b6dfb6141"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
@@ -5968,7 +5942,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

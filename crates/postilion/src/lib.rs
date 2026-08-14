@@ -7,23 +7,20 @@
 //! alongside. This crate is that riding position: the host-side work every radio-driving
 //! application repeats, held once so a face does not have to reimplement it.
 //!
-//! A [`Station`] is one operator on one radio: an identity that survives restarts, a board on
-//! a serial port in either personality, an announce cadence, a table of peers heard, and a
-//! stream of [`Event`]s. What it deliberately does **not** have is a user interface. It
-//! prints nothing, prompts for nothing, and decides no policy about how a person is shown a
-//! message; that is the application's business, and keeping it out is what lets a terminal,
-//! a GUI and a test harness share one implementation.
+//! A [`Station`] is one operator on one radio: a caller-supplied identity, a board on a serial
+//! port in either personality, an announce cadence, a table of peers heard, and a stream of
+//! [`Event`]s. What it deliberately does **not** have is a user interface or an identity
+//! store. It prints nothing, prompts for nothing, reads no private-key files, and decides no
+//! policy about how a person is shown a message; those are the application's business, and
+//! keeping them out is what lets a terminal, a GUI and a test harness share one implementation.
 //!
 //! ```no_run
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! use postilion::{Event, Radio, Station, StationConfig};
+//! use retinue::identity::PrivateIdentity;
 //!
-//! let mut station = Station::open(StationConfig {
-//!     port: "COM6".into(),
-//!     name: "alice".into(),
-//!     radio: Radio::Phy,
-//!     ..StationConfig::default()
-//! })
+//! let identity = PrivateIdentity::from_secret_bytes(&[0x42; 64]);
+//! let mut station = Station::open(StationConfig::new("COM6", "alice", identity))
 //! .await?;
 //!
 //! println!("you are {}", station.address());
@@ -35,7 +32,6 @@
 //! # Ok(()) }
 //! ```
 
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -104,27 +100,30 @@ pub struct StationConfig {
     /// announced. Thirty seconds is chatty for a shared band and right for a handful of
     /// people in a park; a real deployment wants far less.
     pub announce_interval: Duration,
-    /// Where the operator's private identity lives. The file is the account.
-    pub identity_path: PathBuf,
-}
-
-impl Default for StationConfig {
-    fn default() -> Self {
-        Self {
-            port: String::new(),
-            name: "me".into(),
-            bandwidth_hz: 250_000,
-            radio: Radio::Phy,
-            announce_interval: Duration::from_secs(30),
-            identity_path: PathBuf::from("station.id"),
-        }
-    }
+    /// The station's Reticulum identity.
+    ///
+    /// This is supplied by the host. Postilion deliberately neither persists
+    /// it nor creates one: a radio application must obtain a scoped credential
+    /// from its own authority boundary rather than treating a local file as an
+    /// account.
+    pub identity: PrivateIdentity,
 }
 
 impl StationConfig {
-    /// The identity file this family's tools use for `name`, beside the working directory.
-    pub fn identity_for(name: &str) -> PathBuf {
-        PathBuf::from(format!("park-{name}.id"))
+    /// Build a station configuration with this family's ordinary radio defaults.
+    pub fn new(
+        port: impl Into<String>,
+        name: impl Into<String>,
+        identity: PrivateIdentity,
+    ) -> Self {
+        Self {
+            port: port.into(),
+            name: name.into(),
+            bandwidth_hz: 250_000,
+            radio: Radio::Phy,
+            announce_interval: Duration::from_secs(30),
+            identity,
+        }
     }
 }
 
@@ -205,9 +204,9 @@ pub struct Station {
 }
 
 impl Station {
-    /// Bring up a station: load or mint the identity, open the radio, register and announce.
+    /// Bring up a station with its supplied identity, open the radio, register and announce.
     pub async fn open(config: StationConfig) -> Result<Self, Error> {
-        let identity = load_identity(&config.identity_path)?;
+        let identity = config.identity.clone();
         let profile = profile(config.bandwidth_hz);
         let params = tulle::lora::LoRaParams::try_from(profile).map_err(|_| Error::Profile)?;
 
@@ -394,6 +393,22 @@ impl Station {
         body: &str,
         patience: Duration,
     ) -> Result<Sent, Error> {
+        self.send_bytes(prefix, self.name.as_bytes(), body.as_bytes(), patience)
+            .await
+    }
+
+    /// Send one arbitrary LXMF title and byte body to a known peer.
+    ///
+    /// Text chat is one consumer of this primitive. Other host applications
+    /// can carry their own bounded, authenticated application frames without
+    /// teaching this radio boundary their message semantics.
+    pub async fn send_bytes(
+        &self,
+        prefix: &str,
+        title: &[u8],
+        body: &[u8],
+        patience: Duration,
+    ) -> Result<Sent, Error> {
         let deadline = std::time::Instant::now() + patience;
         let peer = loop {
             if let Some(peer) = self.find(prefix) {
@@ -405,7 +420,7 @@ impl Station {
             tokio::time::sleep(Duration::from_secs(1)).await;
         };
 
-        let payload = LxmfPayload::text(now_secs(), self.name.as_bytes(), body.as_bytes().to_vec());
+        let payload = LxmfPayload::text(now_secs(), title, body);
         // A budget, not zero. Zero meant a peer that advertises any stamp cost was
         // unreachable: the search was asked for no attempts and failed on the first one, so
         // the only peers this station could talk to were the ones asking nothing. Stamp
@@ -468,55 +483,6 @@ pub fn profile(bandwidth_hz: u32) -> PhyProfile {
     }
 }
 
-/// Load an operator's identity, or mint and save one.
-///
-/// A file rather than a keyring because the point is that the address is stable and its owner
-/// can see where it lives. It is a private key: the file is the account, and losing it means
-/// becoming a stranger to everyone who knew you.
-pub fn load_identity(path: &std::path::Path) -> std::io::Result<PrivateIdentity> {
-    match std::fs::read(path) {
-        Ok(bytes) if bytes.len() == 64 => {
-            let mut seed = [0_u8; 64];
-            seed.copy_from_slice(&bytes);
-            return Ok(PrivateIdentity::from_secret_bytes(&seed));
-        }
-        // A file that exists but is the wrong size used to be quietly replaced with a fresh
-        // identity. That is the worst available outcome: this is a private key, the address
-        // everyone knows this station by is derived from it, and a truncated write or a
-        // half-copied file would silently become a new station with no way back. Refuse and
-        // say so; renaming it is a decision for whoever owns it.
-        Ok(bytes) => {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                format!(
-                    "{} holds {} bytes, not the 64 an identity needs. Refusing to overwrite \
-                     it: this is a private key and replacing it silently would mint a new \
-                     station under a new address. Move it aside to start fresh.",
-                    path.display(),
-                    bytes.len(),
-                ),
-            ));
-        }
-        Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error),
-        Err(_) => {}
-    }
-
-    let mut seed = [0_u8; 64];
-    getrandom::fill(&mut seed).expect("system entropy");
-
-    // Write beside the target and rename into place. A direct write that is interrupted --
-    // power loss on a solar node, a full disk -- leaves a partial key, which the read above
-    // would then refuse forever. Rename is atomic on every platform this runs on, so the
-    // file either is the old identity or is the whole new one.
-    let temporary = path.with_extension("id.new");
-    std::fs::write(&temporary, seed)?;
-    if let Err(error) = std::fs::rename(&temporary, path) {
-        let _ = std::fs::remove_file(&temporary);
-        return Err(error);
-    }
-    Ok(PrivateIdentity::from_secret_bytes(&seed))
-}
-
 fn now_secs() -> f64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -526,48 +492,17 @@ fn now_secs() -> f64 {
 
 #[cfg(test)]
 mod tests {
-    /// A station's address is derived from this key. Replacing a damaged one silently would
-    /// mint a new station under a new address, and nobody would learn why their peers
-    /// stopped answering.
-    #[test]
-    fn a_damaged_identity_is_refused_rather_than_replaced() {
-        let dir = std::env::temp_dir().join("postilion-identity-test");
-        let _ = std::fs::create_dir_all(&dir);
-        let path = dir.join("short.id");
-        std::fs::write(&path, [0x41_u8; 17]).unwrap();
-
-        let error = load_identity(&path).expect_err("a 17-byte identity must be refused");
-        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
-        assert_eq!(
-            std::fs::read(&path).unwrap().len(),
-            17,
-            "and the file left exactly as it was found",
-        );
-        let _ = std::fs::remove_file(&path);
-    }
-
-    /// Minting is idempotent: the second call must load what the first wrote, or every
-    /// restart would be a new station.
-    #[test]
-    fn a_minted_identity_is_loaded_again_next_time() {
-        let dir = std::env::temp_dir().join("postilion-identity-test");
-        let _ = std::fs::create_dir_all(&dir);
-        let path = dir.join("mint.id");
-        let _ = std::fs::remove_file(&path);
-
-        let first = load_identity(&path).unwrap();
-        let again = load_identity(&path).unwrap();
-        assert_eq!(
-            first.public().hash(),
-            again.public().hash(),
-            "the same station across restarts",
-        );
-        // No debris from the atomic write.
-        assert!(!path.with_extension("id.new").exists(), "temporary removed");
-        let _ = std::fs::remove_file(&path);
-    }
-
     use super::*;
+
+    #[test]
+    fn station_config_requires_a_caller_supplied_identity() {
+        let identity = PrivateIdentity::from_secret_bytes(&[0x41; 64]);
+        let config = StationConfig::new("COM6", "bench", identity.clone());
+
+        assert_eq!(config.port, "COM6");
+        assert_eq!(config.name, "bench");
+        assert_eq!(config.identity.public().hash(), identity.public().hash());
+    }
 
     #[test]
     fn radio_modes_parse_and_default_to_the_family_protocol() {
@@ -587,31 +522,5 @@ mod tests {
         assert_eq!(profile.spreading_factor, 8);
         assert_eq!(profile.coding_rate_denominator, 5);
         assert!(profile.explicit_header && profile.crc && !profile.invert_iq);
-    }
-
-    /// An identity survives a restart, because the address is the account.
-    #[test]
-    fn an_identity_is_minted_once_and_reloaded_after() {
-        let dir = std::env::temp_dir().join(format!("postilion-test-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("station.id");
-        let _ = std::fs::remove_file(&path);
-
-        let first = load_identity(&path).unwrap();
-        let again = load_identity(&path).unwrap();
-        assert_eq!(
-            delivery_destination(first.public()),
-            delivery_destination(again.public()),
-            "a reloaded identity must keep its address",
-        );
-
-        std::fs::remove_file(&path).unwrap();
-        let fresh = load_identity(&path).unwrap();
-        assert_ne!(
-            delivery_destination(first.public()),
-            delivery_destination(fresh.public()),
-            "and a lost file really does make a stranger",
-        );
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }

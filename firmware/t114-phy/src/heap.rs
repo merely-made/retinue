@@ -12,17 +12,75 @@
 //!   anything else, and the linker accounts for it as ordinary static storage.
 //! - **Every table above it is already bounded** by N1's capacity work, so the number of
 //!   live allocations has a ceiling rather than depending on what a peer sends.
-//! - **Usage is measurable** through [`used`] and [`free`], so a receipt can state the real
-//!   high-water mark instead of asserting one.
+//! - **Usage is measurable** through [`used`], [`free`], and [`high_water`], so a receipt can
+//!   state the real peak rather than mistaking a post-flood live allocation for one.
 //!
 //! A linked-list-first-fit allocator is chosen over TLSF because this workload is a small
 //! number of short-lived buffers rather than a churn of many sizes, and LLFF is the simpler
 //! thing to reason about when it goes wrong.
 
+use core::alloc::{GlobalAlloc, Layout};
+use core::sync::atomic::{AtomicUsize, Ordering};
+
 use embedded_alloc::LlffHeap;
 
 #[global_allocator]
-static HEAP: LlffHeap = LlffHeap::empty();
+static HEAP: TrackingHeap = TrackingHeap::empty();
+
+/// The firmware cannot reconstruct a peak from a current allocation after a packet buffer
+/// has been released. Keep the peak beside the fixed allocator instead, updating it only
+/// after a successful allocation. This is a measurement aid, not a second allocator.
+struct TrackingHeap {
+    inner: LlffHeap,
+    high_water: AtomicUsize,
+}
+
+impl TrackingHeap {
+    const fn empty() -> Self {
+        Self {
+            inner: LlffHeap::empty(),
+            high_water: AtomicUsize::new(0),
+        }
+    }
+
+    unsafe fn init(&self, start_addr: usize, size: usize) {
+        // SAFETY: forwarded from this module's one-shot `init` contract.
+        unsafe { self.inner.init(start_addr, size) };
+    }
+
+    fn note_high_water(&self) {
+        let used = self.inner.used();
+        let mut known = self.high_water.load(Ordering::Relaxed);
+        while used > known {
+            match self.high_water.compare_exchange_weak(
+                known,
+                used,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => break,
+                Err(current) => known = current,
+            }
+        }
+    }
+}
+
+unsafe impl GlobalAlloc for TrackingHeap {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        // SAFETY: `GlobalAlloc` receives a valid layout from the allocation runtime; the
+        // wrapped allocator owns the fixed region initialised before any allocation.
+        let allocation = unsafe { self.inner.alloc(layout) };
+        if !allocation.is_null() {
+            self.note_high_water();
+        }
+        allocation
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        // SAFETY: allocations passed back by the runtime came from `alloc` above.
+        unsafe { self.inner.dealloc(ptr, layout) };
+    }
+}
 
 /// Bytes reserved for the heap.
 ///
@@ -48,10 +106,18 @@ pub unsafe fn init() {
 
 /// Bytes currently allocated. The figure a receipt reports.
 pub fn used() -> usize {
-    HEAP.used()
+    HEAP.inner.used()
 }
 
 /// Bytes still available.
 pub fn free() -> usize {
-    HEAP.free()
+    HEAP.inner.free()
+}
+
+/// Largest live allocation observed since boot.
+///
+/// Unlike [`used`], this survives packet-buffer release and is the figure a sustained flood
+/// receipt needs. It resets only on reboot, alongside every other board counter.
+pub fn high_water() -> usize {
+    HEAP.high_water.load(Ordering::Relaxed)
 }

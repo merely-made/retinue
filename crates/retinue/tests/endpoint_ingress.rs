@@ -8,9 +8,27 @@
 
 use std::time::Duration;
 
+use retinue::announce_admission::AnnounceIngressPolicy;
 use retinue::destination::DestinationName;
 use retinue::endpoint::Endpoint;
 use retinue::identity::PrivateIdentity;
+
+async fn signed_announce(
+    seed: u8,
+    aspect: &'static str,
+) -> (retinue::hash::AddressHash, retinue::Packet) {
+    let identity = PrivateIdentity::from_secret_bytes(&[seed; 64]);
+    let sender = Endpoint::new(identity.clone());
+    let mut wire = sender.attach_interface();
+    let name = DestinationName::new("flood", [aspect]);
+    let destination = name.destination_hash(identity.public());
+    sender.announce(&name, b"ingress receipt");
+    let packet = tokio::time::timeout(Duration::from_secs(1), wire.next_outbound())
+        .await
+        .expect("sender queues an announce")
+        .expect("sender remains live");
+    (destination, packet)
+}
 
 /// Wait until `ep` can resolve `dest`, pumping announcements.
 async fn await_resolve(ep: &Endpoint, dest: retinue::hash::AddressHash) {
@@ -215,5 +233,114 @@ async fn outbound_stream_reports_its_interface() {
         stream.interface(),
         iface,
         "an outbound stream reports the interface it was opened over"
+    );
+}
+
+/// A verified multi-destination burst on one bearer is bounded and released later; another
+/// bearer remains admissible, and a repeat destination is learned locally but not relayed.
+/// This is a host ingress receipt, not a radio-airtime or firmware-memory measurement.
+#[tokio::test]
+async fn announce_ingress_burst_is_bounded_attributed_and_does_not_silence_a_neighbor() {
+    let hub = Endpoint::new(PrivateIdentity::from_secret_bytes(&[71u8; 64]));
+    hub.enable_routing();
+    let noisy = hub.attach_interface();
+    let noisy_id = noisy.id();
+    let noisy_sink = noisy.sink();
+    let quiet = hub.attach_interface();
+    let quiet_id = quiet.id();
+    let quiet_sink = quiet.sink();
+    let _egress = hub.attach_interface();
+
+    let mut policy = AnnounceIngressPolicy::default();
+    policy.held_capacity = 4;
+    policy.burst_hold = Duration::from_millis(20);
+    policy.burst_penalty = Duration::from_millis(20);
+    policy.held_release_interval = Duration::from_millis(5);
+    // Keep the production 3/10 Hz defaults in the policy tests. This accelerated receipt
+    // preserves the same burst/release relationship without waiting several real seconds.
+    policy.new_interface_hz = 50;
+    policy.established_interface_hz = 50;
+    hub.set_announce_ingress_policy(policy);
+
+    let mut burst_destinations = Vec::new();
+    for (seed, aspect) in [
+        (81, "one"),
+        (82, "two"),
+        (83, "three"),
+        (84, "four"),
+        (85, "five"),
+        (86, "six"),
+        (87, "seven"),
+        (88, "eight"),
+        (89, "nine"),
+        (90, "ten"),
+    ] {
+        let (destination, packet) = signed_announce(seed, aspect).await;
+        burst_destinations.push(destination);
+        assert!(noisy_sink.deliver(packet));
+        // The state machine measures frequency rather than packet-loop iterations. Advancing
+        // the scheduler here gives every verified arrival a distinct monotonic observation.
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+
+    let (quiet_destination, quiet_packet) = signed_announce(91, "quiet").await;
+    assert!(quiet_sink.deliver(quiet_packet));
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
+    while tokio::time::Instant::now() < deadline {
+        let noisy_counters = hub.announce_ingress_counters(noisy_id);
+        if noisy_counters.released >= 1 && hub.resolve(quiet_destination).is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(2)).await;
+    }
+
+    let noisy_counters = hub.announce_ingress_counters(noisy_id);
+    assert!(
+        noisy_counters.held >= 4,
+        "the burst must enter the bounded hold queue"
+    );
+    assert!(
+        noisy_counters.held_dropped >= 1,
+        "the queue ceiling must reject excess verified announces"
+    );
+    assert!(
+        noisy_counters.released >= 1,
+        "at least one held announce must return after the burst penalty"
+    );
+    assert!(
+        hub.resolve(quiet_destination).is_some(),
+        "a quiet neighboring bearer must remain admissible"
+    );
+    assert_eq!(
+        hub.announce_ingress_counters(quiet_id).held,
+        0,
+        "the noisy bearer must not attribute its burst to the quiet neighbor"
+    );
+    assert!(
+        burst_destinations
+            .iter()
+            .any(|destination| hub.resolve(*destination).is_some()),
+        "the receipt must include a released burst destination, not only the quiet neighbor"
+    );
+
+    let (repeat_destination, first) = signed_announce(99, "repeat").await;
+    let (_, second) = signed_announce(99, "repeat").await;
+    assert!(quiet_sink.deliver(first));
+    tokio::time::sleep(Duration::from_millis(3)).await;
+    assert!(quiet_sink.deliver(second));
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
+    while tokio::time::Instant::now() < deadline
+        && hub.routing_counters().relay_rate_limited_announces == 0
+    {
+        tokio::time::sleep(Duration::from_millis(2)).await;
+    }
+    assert!(
+        hub.resolve(repeat_destination).is_some(),
+        "destination rate pressure never suppresses a valid local learn"
+    );
+    assert!(
+        hub.routing_counters().relay_rate_limited_announces >= 1,
+        "the fresh repeat is not re-broadcast after its destination rate block"
     );
 }

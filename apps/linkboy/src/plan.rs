@@ -427,14 +427,25 @@ pub fn plan_flash(
     }
     let fact_source = if running_identity_is_authoritative {
         "running Retinue identity; checked against package"
+    } else if target.route == FlashRoute::Uf2MassStorage {
+        "owner selection, checked against UF2 bootloader record"
+    } else if hardware.loader_route.as_deref() == Some("captured-t114-loader-snapshot") {
+        "captured HT-n5262 UF2 and SoftDevice record"
     } else {
         "supported loader"
+    };
+    let family_source = if running_identity_is_authoritative {
+        "owner selection, checked against running status"
+    } else if hardware.loader_route.as_deref() == Some("captured-t114-loader-snapshot") {
+        "owner-selected current board, checked against captured HT-n5262 loader record"
+    } else {
+        "owner selection"
     };
     let compatibility = vec![
         CompatibilityFact {
             name: "board family".into(),
             value: board.family.to_string(),
-            source: "owner selection, checked against running status".into(),
+            source: family_source.into(),
         },
         CompatibilityFact {
             name: "board revision".into(),
@@ -795,6 +806,35 @@ mod tests {
             fact.name == "board family"
                 || fact.name == "board revision"
                 || fact.source == "running Retinue identity; checked against package"
+        }));
+    }
+
+    #[test]
+    fn captured_t114_loader_record_can_plan_a_silent_foreign_application() {
+        let observation = DeviceObservation {
+            transport: DeviceTransport::SerialPort("COM10".into()),
+            status_reply: None,
+            hardware: HardwareFacts {
+                processor: Some(ProcessorKind::Nrf52840),
+                flash_size: Some(1024 * 1024),
+                bootloader: Some("s140-v6".into()),
+                loader_route: Some("captured-t114-loader-snapshot".into()),
+                bootloader_usb: None,
+            },
+            selected_board: Some(BoardSelection::owner_confirmed(BoardFamily::T114, "2.x")),
+            firmware: FirmwareState::Unknown,
+            confidence: crate::device::EvidenceConfidence::OwnerConfirmed,
+            contradictions: Vec::new(),
+        };
+        let plan = plan_flash(&observation, &t114_package())
+            .expect("a captured loader record can support the owner-selected current T114");
+        assert!(plan.compatibility().iter().any(|fact| {
+            fact.name == "processor" && fact.source == "captured HT-n5262 UF2 and SoftDevice record"
+        }));
+        assert!(plan.compatibility().iter().any(|fact| {
+            fact.name == "board family"
+                && fact.source
+                    == "owner-selected current board, checked against captured HT-n5262 loader record"
         }));
     }
 

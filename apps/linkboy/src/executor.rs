@@ -1,7 +1,9 @@
 //! Structured execution beneath CLI and graphical faces.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
@@ -120,6 +122,7 @@ pub trait DeviceRunner {
         &mut self,
         original_port: &str,
         bootloader_port: &str,
+        expected: &ExpectedApplication,
         patience: Duration,
     ) -> Result<String, DeviceFailure>;
 
@@ -146,6 +149,7 @@ impl DeviceRunner for LiveDeviceRunner {
         &mut self,
         original_port: &str,
         bootloader_port: &str,
+        expected: &ExpectedApplication,
         patience: Duration,
     ) -> Result<String, DeviceFailure> {
         let deadline = std::time::Instant::now() + patience;
@@ -158,18 +162,19 @@ impl DeviceRunner for LiveDeviceRunner {
             // The original path is only a location candidate. Re-identify it before accepting
             // it, because a cable reset or a user reconnect may have put another device there.
             if ports.iter().any(|port| port == original_port)
-                && crate::identify(original_port).board.is_some()
+                && identifies_expected_family(original_port, expected)
             {
                 return Ok(original_port.to_string());
             }
 
             // Some boards return on a new application port after leaving their loader. Probe
-            // each candidate and accept exactly one responsive Retinue board. A COM number is
-            // never carried over as identity, and two responsive candidates are ambiguous.
+            // each candidate and accept exactly one responsive board of the family the immutable
+            // package expects. A COM number is never carried over as identity, and an unrelated
+            // Retinue board must not turn a successful transfer into a false recovery event.
             let responsive: Vec<_> = ports
                 .into_iter()
                 .filter(|port| port != bootloader_port && port != original_port)
-                .filter(|port| crate::identify(port).board.is_some())
+                .filter(|port| identifies_expected_family(port, expected))
                 .collect();
             match responsive.as_slice() {
                 [application_port] => return Ok(application_port.clone()),
@@ -225,6 +230,19 @@ impl DeviceRunner for LiveDeviceRunner {
             channel: found.channel,
         })
     }
+}
+
+fn identifies_expected_family(port: &str, expected: &ExpectedApplication) -> bool {
+    matches_expected_family(&crate::identify(port), expected)
+}
+
+fn matches_expected_family(found: &crate::Found, expected: &ExpectedApplication) -> bool {
+    found
+        .board
+        .as_ref()
+        .and_then(crate::package::BoardFamily::from_board)
+        .as_ref()
+        == Some(&expected.board)
 }
 
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
@@ -341,6 +359,8 @@ pub enum FlashEvent {
 pub enum ExecutionError {
     #[error("execution requires a serial device")]
     UnsupportedTransport,
+    #[error("cannot write UF2 volume {volume}: {detail}")]
+    VolumeWrite { volume: String, detail: String },
     #[error(
         "this executor cannot write the approved multi-part package; no device was opened or changed"
     )]
@@ -369,12 +389,11 @@ pub fn execute_plan<P: ProcessRunner, D: DeviceRunner>(
     emit: &mut dyn FnMut(FlashEvent),
 ) -> Result<FlashReceipt, ExecutionError> {
     let executable = executable_layout(plan, package)?;
-    let port = match &plan.observation().transport {
-        DeviceTransport::SerialPort(port) => port.clone(),
-        DeviceTransport::MountedVolume(_) => return Err(ExecutionError::UnsupportedTransport),
+    let location = match &plan.observation().transport {
+        DeviceTransport::SerialPort(port) | DeviceTransport::MountedVolume(port) => port.clone(),
     };
     emit(FlashEvent::Inspecting {
-        device: port.clone(),
+        device: location.clone(),
         package_id: plan.package().package_id.clone(),
     });
     for warning in plan.warnings() {
@@ -384,6 +403,13 @@ pub fn execute_plan<P: ProcessRunner, D: DeviceRunner>(
             });
         }
     }
+    if plan.route().uses_builtin_writer() {
+        return execute_uf2_volume(plan, package, executable, &location, emit);
+    }
+    let port = match &plan.observation().transport {
+        DeviceTransport::SerialPort(port) => port.clone(),
+        DeviceTransport::MountedVolume(_) => return Err(ExecutionError::UnsupportedTransport),
+    };
     let helper = package.manifest().helper_for(plan.route()).ok_or_else(|| {
         ExecutionError::Process(ProcessFailure::Failed {
             program: plan.helper().into(),
@@ -436,6 +462,7 @@ pub fn execute_plan<P: ProcessRunner, D: DeviceRunner>(
     let route_progress = match plan.route() {
         FlashRoute::AdafruitDfu => adafruit_dfu::progress,
         FlashRoute::EspRom => esp_rom::progress,
+        FlashRoute::Uf2MassStorage => unreachable!("handled before external helper execution"),
     };
     for (arguments, part_write_bytes) in commands.iter().zip(command_bytes.iter().copied()) {
         let mut part_progress = false;
@@ -499,7 +526,12 @@ pub fn execute_plan<P: ProcessRunner, D: DeviceRunner>(
         return Ok(receipt);
     }
     let application_port = device
-        .rediscover_application(&port, &bootloader_port, patience)
+        .rediscover_application(
+            &port,
+            &bootloader_port,
+            &package.manifest().expected_application,
+            patience,
+        )
         .map_err(|error| {
             recover(
                 plan,
@@ -556,6 +588,7 @@ pub fn execute_plan<P: ProcessRunner, D: DeviceRunner>(
 enum ExecutableLayout<'a> {
     Container(&'a VerifiedPackagePart),
     SparseEsp(&'a [VerifiedPackagePart]),
+    Uf2(&'a VerifiedPackagePart),
 }
 
 fn executable_layout<'a>(
@@ -573,6 +606,11 @@ fn executable_layout<'a>(
         {
             Ok(ExecutableLayout::Container(part))
         }
+        (FlashRoute::Uf2MassStorage, [part])
+            if matches!(part.declaration().format, PayloadFormat::Uf2) =>
+        {
+            Ok(ExecutableLayout::Uf2(part))
+        }
         (FlashRoute::EspRom, parts)
             if parts.len() == 3
                 && parts[0].declaration().kind == FirmwarePartKind::Bootloader
@@ -587,6 +625,148 @@ fn executable_layout<'a>(
         }
         _ => Err(ExecutionError::UnsupportedPackageLayout),
     }
+}
+
+fn execute_uf2_volume(
+    plan: &FlashPlan,
+    package: &FlashPackage,
+    executable: ExecutableLayout<'_>,
+    location: &str,
+    emit: &mut dyn FnMut(FlashEvent),
+) -> Result<FlashReceipt, ExecutionError> {
+    let DeviceTransport::MountedVolume(volume) = &plan.observation().transport else {
+        return Err(ExecutionError::UnsupportedTransport);
+    };
+    let ExecutableLayout::Uf2(part) = executable else {
+        return Err(ExecutionError::UnsupportedPackageLayout);
+    };
+    let destination =
+        uf2_destination(volume, part).map_err(|detail| ExecutionError::VolumeWrite {
+            volume: volume.clone(),
+            detail,
+        })?;
+
+    let write = write_uf2_file(&destination, part.bytes()).map_err(|error| {
+        recover(
+            plan,
+            emit,
+            ExecutionStage::Transfer,
+            location,
+            true,
+            format!("could not write {}: {error}", destination.display()),
+        )
+    })?;
+    if write.bytes != part.declaration().byte_length {
+        return Err(recover(
+            plan,
+            emit,
+            ExecutionStage::Transfer,
+            location,
+            true,
+            format!(
+                "wrote {} bytes to {}, package requires {}",
+                write.bytes,
+                destination.display(),
+                part.declaration().byte_length
+            ),
+        ));
+    }
+    emit(FlashEvent::Writing {
+        written: part.declaration().write_bytes,
+        total: part.declaration().write_bytes,
+    });
+    emit(FlashEvent::VerifyingTransfer);
+    emit(FlashEvent::Rebooting);
+    let instruction = package
+        .manifest()
+        .expected_application
+        .manual_check
+        .clone()
+        .ok_or(ExecutionError::UnsupportedPackageLayout)?;
+    let receipt = FlashReceipt::manual_check_required(
+        plan,
+        instruction,
+        vec![ReceiptStage {
+            name: "manual-check-required".into(),
+            detail: Some(if write.ejected_after_write {
+                format!(
+                    "The UF2 volume ejected after Linkboy wrote all {} verified package bytes to {}; that is the bootloader's transfer acknowledgement. The upstream application check remains required.",
+                    part.declaration().byte_length,
+                    destination.display()
+                )
+            } else {
+                format!(
+                    "The built-in UF2 volume writer created {} with {} verified package bytes.",
+                    destination.display(),
+                    part.declaration().byte_length
+                )
+            }),
+        }],
+    );
+    emit(FlashEvent::ManualCheckRequired {
+        receipt: receipt.clone(),
+    });
+    Ok(receipt)
+}
+
+fn uf2_destination(volume: &str, part: &VerifiedPackagePart) -> Result<PathBuf, String> {
+    let root = Path::new(volume);
+    if !root.is_dir() {
+        return Err("mounted volume is not an accessible directory".into());
+    }
+    let file_name = part
+        .path()
+        .file_name()
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| "package UF2 has no file name".to_string())?;
+    if !file_name
+        .to_string_lossy()
+        .to_ascii_lowercase()
+        .ends_with(".uf2")
+    {
+        return Err("package UF2 file name must end in .uf2".into());
+    }
+    let destination = root.join(file_name);
+    if destination.exists() {
+        return Err(format!(
+            "refusing to overwrite existing {}",
+            destination.display()
+        ));
+    }
+    Ok(destination)
+}
+
+struct Uf2Write {
+    bytes: u64,
+    ejected_after_write: bool,
+}
+
+fn write_uf2_file(destination: &Path, bytes: &[u8]) -> std::io::Result<Uf2Write> {
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(destination)?;
+    file.write_all(bytes)?;
+    match file.sync_all() {
+        Ok(()) => Ok(Uf2Write {
+            bytes: bytes.len() as u64,
+            ejected_after_write: false,
+        }),
+        // Adafruit UF2 bootloaders deliberately leave the mass-storage bus after a complete
+        // file write, to apply the image and reboot. Windows has reported that normal
+        // acknowledgement as both ERROR_DEV_NOT_EXIST (55) and ERROR_DEVICE_DOES_NOT_EXIST
+        // (433) while flushing the just-written file.
+        Err(error) if uf2_volume_ejected_after_write(destination, &error) => Ok(Uf2Write {
+            bytes: bytes.len() as u64,
+            ejected_after_write: true,
+        }),
+        Err(error) => Err(error),
+    }
+}
+
+fn uf2_volume_ejected_after_write(destination: &Path, error: &std::io::Error) -> bool {
+    matches!(error.raw_os_error(), Some(55 | 433))
+        || destination.parent().is_some_and(|root| !root.is_dir())
 }
 
 fn scale_progress(
@@ -722,6 +902,7 @@ mod tests {
             &mut self,
             _original_port: &str,
             _bootloader_port: &str,
+            _expected: &ExpectedApplication,
             _patience: Duration,
         ) -> Result<String, DeviceFailure> {
             self.application.clone()
@@ -737,7 +918,10 @@ mod tests {
     }
 
     fn package(route: FlashRoute) -> FlashPackage {
-        let bytes = b"payload".to_vec();
+        let bytes = match route {
+            FlashRoute::Uf2MassStorage => test_uf2_bytes(),
+            FlashRoute::AdafruitDfu | FlashRoute::EspRom => b"payload".to_vec(),
+        };
         let (family, processor, bootloader, format, revision) = match route {
             FlashRoute::AdafruitDfu => (
                 BoardFamily::T114,
@@ -753,6 +937,13 @@ mod tests {
                 PayloadFormat::EspflashElf,
                 "4.2",
             ),
+            FlashRoute::Uf2MassStorage => (
+                BoardFamily::T114,
+                crate::package::ProcessorKind::Nrf52840,
+                "adafruit-uf2-0.9.0",
+                PayloadFormat::Uf2,
+                "2.x",
+            ),
         };
         let manifest = FlashPackageManifest {
             schema: PACKAGE_SCHEMA,
@@ -766,6 +957,7 @@ mod tests {
                 version: match route {
                     FlashRoute::AdafruitDfu => "0.5.3.post16",
                     FlashRoute::EspRom => "4.5.0",
+                    FlashRoute::Uf2MassStorage => "0.0.1",
                 }
                 .into(),
                 binary_sha256: None,
@@ -774,36 +966,59 @@ mod tests {
                 notice: "Test helper notice".into(),
             }],
             payload: Some(PackagePayload {
-                path: "payload".into(),
+                path: match route {
+                    FlashRoute::Uf2MassStorage => "payload.uf2",
+                    FlashRoute::AdafruitDfu | FlashRoute::EspRom => "payload",
+                }
+                .into(),
                 format,
                 byte_length: bytes.len() as u64,
                 sha256: crate::package::sha256_hex(&bytes),
-                write_bytes: bytes.len() as u64,
+                write_bytes: match route {
+                    FlashRoute::Uf2MassStorage => 4,
+                    FlashRoute::AdafruitDfu | FlashRoute::EspRom => bytes.len() as u64,
+                },
             }),
             parts: Vec::new(),
             targets: vec![PackageTarget {
                 family: family.clone(),
                 revision: revision.into(),
                 processor,
-                flash_size: 4 * 1024 * 1024,
+                flash_size: match route {
+                    FlashRoute::Uf2MassStorage => 1024 * 1024,
+                    FlashRoute::AdafruitDfu | FlashRoute::EspRom => 4 * 1024 * 1024,
+                },
                 bootloader: bootloader.into(),
                 route: route.clone(),
             }],
-            write_ranges: vec![FlashRange {
-                start: 0,
-                length: 1,
-            }],
-            preserved_ranges: vec![FlashRange {
-                start: 1,
-                length: 1,
-            }],
+            write_ranges: match route {
+                FlashRoute::Uf2MassStorage => vec![FlashRange {
+                    start: 0x26000,
+                    length: 4,
+                }],
+                FlashRoute::AdafruitDfu | FlashRoute::EspRom => vec![FlashRange {
+                    start: 0,
+                    length: 1,
+                }],
+            },
+            preserved_ranges: match route {
+                FlashRoute::Uf2MassStorage => vec![FlashRange {
+                    start: 0x26004,
+                    length: 1,
+                }],
+                FlashRoute::AdafruitDfu | FlashRoute::EspRom => vec![FlashRange {
+                    start: 1,
+                    length: 1,
+                }],
+            },
             regions: vec!["US915".into()],
             channel_capabilities: vec!["modem".into(), "node".into(), "rnode".into()],
             state_impact: StateImpact::Preserved,
             expected_application: ExpectedApplication {
                 board: family,
                 version: "0.0.1".into(),
-                manual_check: None,
+                manual_check: matches!(route, FlashRoute::Uf2MassStorage)
+                    .then(|| "Exercise the upstream interface.".into()),
             },
             license: "MPL-2.0".into(),
             notices: "Notices".into(),
@@ -816,7 +1031,27 @@ mod tests {
                 after_failure: "Use bootloader recovery.".into(),
             },
         };
-        FlashPackage::from_parts(manifest, "manifest", "payload", bytes).unwrap()
+        let payload_path = match route {
+            FlashRoute::Uf2MassStorage => "payload.uf2",
+            FlashRoute::AdafruitDfu | FlashRoute::EspRom => "payload",
+        };
+        FlashPackage::from_parts(manifest, "manifest", payload_path, bytes).unwrap()
+    }
+
+    fn test_uf2_bytes() -> Vec<u8> {
+        let mut block = vec![0_u8; 512];
+        let word = |block: &mut [u8], offset: usize, value: u32| {
+            block[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+        };
+        word(&mut block, 0, 0x0A32_4655_u32);
+        word(&mut block, 4, 0x9E5D_5157_u32);
+        word(&mut block, 12, 0x26000_u32);
+        word(&mut block, 16, 4_u32);
+        word(&mut block, 20, 0_u32);
+        word(&mut block, 24, 1_u32);
+        block[32..36].copy_from_slice(b"UF2!");
+        word(&mut block, 508, 0x0AB1_6F30_u32);
+        block
     }
 
     fn sparse_esp_package() -> FlashPackage {
@@ -928,6 +1163,12 @@ mod tests {
                 "esp-rom",
                 "4.2",
             ),
+            FlashRoute::Uf2MassStorage => (
+                BoardFamily::T114,
+                crate::package::ProcessorKind::Nrf52840,
+                "adafruit-uf2-0.9.0",
+                "2.x",
+            ),
         };
         FlashPlan::for_test(
             DeviceObservation {
@@ -973,6 +1214,57 @@ mod tests {
                 message: "warning".into(),
                 requires_confirmation: false,
             }],
+            "before".into(),
+            "after".into(),
+        )
+    }
+
+    fn uf2_volume_plan(volume: String) -> FlashPlan {
+        FlashPlan::for_test(
+            DeviceObservation {
+                transport: DeviceTransport::MountedVolume(volume),
+                status_reply: None,
+                hardware: HardwareFacts {
+                    processor: Some(crate::package::ProcessorKind::Nrf52840),
+                    flash_size: Some(1024 * 1024),
+                    bootloader: Some("adafruit-uf2-0.9.0".into()),
+                    loader_route: Some("uf2-mass-storage".into()),
+                    bootloader_usb: None,
+                },
+                selected_board: Some(BoardSelection::owner_confirmed(BoardFamily::T114, "2.x")),
+                firmware: FirmwareState::Bootloader,
+                confidence: EvidenceConfidence::OwnerConfirmed,
+                contradictions: Vec::new(),
+            },
+            PackageIdentity {
+                package_id: "test".into(),
+                display_name: "Test".into(),
+                version: "1".into(),
+                parts: vec![crate::PackagePartIdentity {
+                    kind: crate::FirmwarePartKind::Application,
+                    offset: None,
+                    byte_length: 512,
+                    sha256: crate::package::sha256_hex(&test_uf2_bytes()),
+                }],
+                publisher_signature: None,
+            },
+            BoardSelection::owner_confirmed(BoardFamily::T114, "2.x"),
+            FlashRoute::Uf2MassStorage,
+            vec![FlashRange {
+                start: 0x26000,
+                length: 4,
+            }],
+            vec![FlashRange {
+                start: 0x26004,
+                length: 1,
+            }],
+            StateImpact::Unknown,
+            vec![CompatibilityFact {
+                name: "bootloader".into(),
+                value: "UF2".into(),
+                source: "test".into(),
+            }],
+            Vec::new(),
             "before".into(),
             "after".into(),
         )
@@ -1265,6 +1557,31 @@ mod tests {
     }
 
     #[test]
+    fn rediscovery_rejects_an_unrelated_retinue_family() {
+        let expected = ExpectedApplication {
+            board: BoardFamily::T114,
+            version: "0.0.1".into(),
+            manual_check: None,
+        };
+        let v4 = crate::Found {
+            port: "COM6".into(),
+            board: Some(crate::Board::HeltecV4),
+            banner: "tulle/heltec-v4 phy online".into(),
+            region: None,
+            channel: None,
+        };
+        let t114 = crate::Found {
+            port: "COM10".into(),
+            board: Some(crate::Board::T114),
+            banner: "tulle/t114 phy online".into(),
+            region: None,
+            channel: None,
+        };
+        assert!(!matches_expected_family(&v4, &expected));
+        assert!(matches_expected_family(&t114, &expected));
+    }
+
+    #[test]
     fn sparse_esp_package_writes_every_part_then_requires_its_own_manual_check() {
         let plan = plan(FlashRoute::EspRom);
         let package = sparse_esp_package();
@@ -1310,5 +1627,52 @@ mod tests {
                 .iter()
                 .any(|event| matches!(event, FlashEvent::VerifyingApplication))
         );
+    }
+
+    #[test]
+    fn uf2_volume_writer_copies_the_verified_file_without_an_external_helper() {
+        let volume =
+            std::env::temp_dir().join(format!("linkboy-uf2-volume-{}", std::process::id()));
+        std::fs::create_dir(&volume).unwrap();
+        let package = package(FlashRoute::Uf2MassStorage);
+        let plan = uf2_volume_plan(volume.to_string_lossy().into_owned());
+        let mut process = MockProcess {
+            result: Err(ProcessFailure::MissingHelper {
+                program: "must not run".into(),
+            }),
+            progress: Vec::new(),
+        };
+        let mut device = success_device();
+        let mut events = Vec::new();
+        let receipt = execute_plan(
+            &plan,
+            &package,
+            &mut process,
+            &mut device,
+            Duration::from_secs(1),
+            &mut |event| events.push(event),
+        )
+        .expect("built-in writer should not need an external helper");
+        let copied = std::fs::read(volume.join("payload.uf2")).unwrap();
+        assert_eq!(copied, package.parts()[0].bytes());
+        assert_eq!(
+            receipt.result,
+            crate::receipt::ReceiptResult::ManualCheckRequired
+        );
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, FlashEvent::ManualCheckRequired { .. }))
+        );
+        std::fs::remove_dir_all(volume).unwrap();
+    }
+
+    #[test]
+    fn uf2_disconnect_after_full_write_is_a_bootloader_acknowledgement() {
+        let destination = std::env::temp_dir().join("payload.uf2");
+        for code in [55, 433] {
+            let error = std::io::Error::from_raw_os_error(code);
+            assert!(uf2_volume_ejected_after_write(&destination, &error));
+        }
     }
 }

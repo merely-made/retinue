@@ -116,6 +116,7 @@ async fn write_command<W: AsyncWrite + Unpin>(
 
 struct TxRequest {
     frame: Vec<u8>,
+    announce: bool,
     done: oneshot::Sender<Result<Duration, TransmitError>>,
 }
 
@@ -220,6 +221,33 @@ impl DirectPhySerialLink {
         Ok(Self::spawn_io(port, profile, params, budget, config))
     }
 
+    /// Queue an ordinary packet through the shared airtime gate.
+    pub async fn send(&self, frame: impl Into<Vec<u8>>) -> Result<Duration, TransmitError> {
+        self.queue(frame.into(), false).await
+    }
+
+    /// Queue a Reticulum announce through the same duty gate plus this interface's
+    /// announce-specific pacing cap.
+    pub async fn send_announcement(
+        &self,
+        frame: impl Into<Vec<u8>>,
+    ) -> Result<Duration, TransmitError> {
+        self.queue(frame.into(), true).await
+    }
+
+    async fn queue(&self, frame: Vec<u8>, announce: bool) -> Result<Duration, TransmitError> {
+        let (done, result) = oneshot::channel();
+        self.tx
+            .send(TxRequest {
+                frame,
+                announce,
+                done,
+            })
+            .await
+            .map_err(|_| TransmitError::Stopped)?;
+        result.await.unwrap_or(Err(TransmitError::Stopped))
+    }
+
     fn spawn_io<T>(
         io: T,
         profile: PhyProfile,
@@ -288,18 +316,6 @@ impl DirectPhySerialLink {
                 .await
                 .map_err(|_| PumpError::Stopped)?;
         }
-    }
-
-    pub async fn send(&self, frame: impl Into<Vec<u8>>) -> Result<Duration, TransmitError> {
-        let (done, result) = oneshot::channel();
-        self.tx
-            .send(TxRequest {
-                frame: frame.into(),
-                done,
-            })
-            .await
-            .map_err(|_| TransmitError::Stopped)?;
-        result.await.unwrap_or(Err(TransmitError::Stopped))
     }
 
     /// Obtain the UI-only control lane before moving this link into a packet
@@ -516,7 +532,12 @@ where
             }
             let now_ms = epoch.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
             let airtime_ms = params.time_on_air_ms(request.frame.len());
-            if budget.may_transmit(now_ms, airtime_ms) {
+            let may_transmit = if request.announce {
+                budget.may_transmit_announce(now_ms, airtime_ms)
+            } else {
+                budget.may_transmit(now_ms, airtime_ms)
+            };
+            if may_transmit {
                 let command = direct_phy::encode_transmit(&request.frame)
                     .expect("frame length checked above");
                 if resync_before_command {
@@ -527,7 +548,11 @@ where
                     resync_before_command = false;
                 }
                 write_command(&mut io, config.wake.as_ref(), &command).await?;
-                budget.record(now_ms, airtime_ms);
+                if request.announce {
+                    budget.record_announce(now_ms, airtime_ms);
+                } else {
+                    budget.record(now_ms, airtime_ms);
+                }
                 let airtime = params.time_on_air(request.frame.len());
                 in_flight = Some(InFlight {
                     frame_len: request.frame.len(),
@@ -536,11 +561,25 @@ where
                     deadline: Instant::now() + config.transmit_timeout,
                 });
                 retry_at = None;
-            } else if let Some(next_ms) = budget.next_slot(now_ms, airtime_ms) {
+            } else if let Some(next_ms) = if request.announce {
+                budget.next_announce_slot(now_ms, airtime_ms)
+            } else {
+                budget.next_slot(now_ms, airtime_ms)
+            } {
                 pending = Some(request);
                 retry_at = Some(epoch + Duration::from_millis(next_ms));
             } else {
-                let _ = request.done.send(Err(TransmitError::DutyCycleImpossible));
+                let error = if request.announce
+                    && budget
+                        .announce_pacing()
+                        .cooldown_after_send_ms(airtime_ms)
+                        .is_none()
+                {
+                    TransmitError::AnnouncementDisabled
+                } else {
+                    TransmitError::DutyCycleImpossible
+                };
+                let _ = request.done.send(Err(error));
                 retry_at = None;
             }
         }
@@ -962,6 +1001,60 @@ mod tests {
         assert_eq!(received.snr_db, 9.0);
         link.shutdown().await.unwrap();
         firmware_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn announce_cap_spaces_direct_phy_egress_from_the_modeled_airtime() {
+        let (host, mut firmware) = tokio::io::duplex(2048);
+        let config = DirectPhySerialConfig {
+            open_settle: Duration::ZERO,
+            transmit_timeout: Duration::from_secs(1),
+            ..Default::default()
+        };
+        let budget = AirtimeBudget::new(60_000, 1_000)
+            .with_announce_pacing(crate::airtime::AnnouncePacing::Limited { cap_per_mille: 250 });
+        let mut link = DirectPhySerialLink::spawn_io(host, profile(), params(), budget, config);
+
+        let firmware_task = tokio::spawn(async move {
+            let mut status = [0_u8; 7];
+            firmware.read_exact(&mut status).await.unwrap();
+            firmware
+                .write_all(b"tulle/test phy online\r\n")
+                .await
+                .unwrap();
+            let mut configure = [0_u8; selvage::CONFIG_COMMAND_LEN];
+            firmware.read_exact(&mut configure).await.unwrap();
+            firmware
+                .write_all(&[direct_phy::EVENT_CONFIG, 0])
+                .await
+                .unwrap();
+
+            let mut sent_at = Vec::new();
+            for expected in [b"one", b"two"] {
+                let mut command = [0_u8; 6];
+                firmware.read_exact(&mut command).await.unwrap();
+                assert_eq!(command[0], direct_phy::CMD_TX);
+                assert_eq!(&command[3..], expected);
+                sent_at.push(Instant::now());
+                firmware
+                    .write_all(&[direct_phy::EVENT_TX, 0, 3, 0])
+                    .await
+                    .unwrap();
+            }
+            // Keep the device end open until the host's orderly shutdown.
+            sleep(Duration::from_millis(200)).await;
+            sent_at
+        });
+
+        link.wait_online().await.unwrap();
+        let airtime = link.send_announcement(b"one".to_vec()).await.unwrap();
+        link.send_announcement(b"two".to_vec()).await.unwrap();
+        link.shutdown().await.unwrap();
+        let times = firmware_task.await.unwrap();
+        assert!(
+            times[1].duration_since(times[0]) >= airtime * 4,
+            "a 25% cap must keep the second modeled-airtime-sized announce four airtimes away"
+        );
     }
 
     #[tokio::test]
