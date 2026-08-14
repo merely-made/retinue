@@ -1,9 +1,11 @@
 # Outrider cannot publish until Retinue does
 
 **Date:** 2026-08-13
-**Status:** Blocker record. Outrider is bumped to 0.1.0 in-tree and is
-otherwise ready; `cargo publish` is blocked on a dependency, not on
-Outrider's own code.
+**Status:** RESOLVED the same day. Mark's call was to publish retinue 0.1.0
+and then outrider, which is what happened: `retinue` 0.1.0 and `outrider`
+0.1.0 are both on crates.io. Kept because the diagnosis is the useful part,
+and because the same trap will recur the next time a workspace crate is
+published from a tree that has outrun its last release.
 
 ## What was attempted
 
@@ -54,11 +56,27 @@ Until then, `retinue` stays a path-only dependency in Outrider's manifest.
 Adding `version = "0.0.2"` there would assert a compatibility that does not
 exist, which is worse than being unpublishable.
 
-## State left behind
+## How it was resolved
 
-- Outrider is `0.1.0` in-tree, Postilion requires it as such, and the
-  workspace builds and tests clean.
-- radio-face is a dev-dependency, which is the fix worth keeping whatever is
-  decided about publishing.
-- No crate was published. The publish is one `cargo publish` away once a
-  suitable Retinue release exists.
+Retinue 0.1.0 was published first, then outrider 0.1.0 against it. The
+version was not a formality: the endpoint surface had grown enough that a
+0.0.3 would have undersold it, and the release carries the workspace state
+including other agents' checkpointed in-flight work.
+
+One more stale pin surfaced on the way and is worth noting, because the
+earlier survey missed it: `apps/signalman` required `retinue = "0.0.2"`.
+The survey had only looked at `crates/*/Cargo.toml`, and the apps directory
+is outside that glob. Cargo found it immediately; a grep across every
+manifest in the repository would have found it a step sooner.
+
+With retinue published, outrider compiled against the registry copy rather
+than the path, which is the check that had been failing, and both uploads
+went through.
+
+## State
+
+- `retinue` 0.1.0 and `outrider` 0.1.0 on crates.io.
+- radio-face stays a dev-dependency, which was the right placement
+  independent of publishing.
+- Postilion still requires outrider 0.1.0 by path and is itself unreleased
+  at 0.0.1; its own release is a separate decision.
