@@ -21,11 +21,16 @@ std = [
     "thiserror/std",
 ]
 tulle-radio = ["std", "retinue/tulle-radio", "dep:radio-face", "dep:tulle"]
+# Voice clips as message fields. Opt-in: a boundary crate should not carry a speech
+# codec for consumers who only send text.
+voice = ["std", "dep:pipit"]
 
 [dependencies]
 # Held level with retinue's hkdf/sha2/digest majors on purpose: a board that links both
 # crates otherwise carries two SHA-256 implementations and two block buffers.
 hkdf = "0.13"
+# The clip format for voice messages. MIT/Apache, no_std, no dependencies of its own.
+pipit = { version = "0.1", optional = true }
 radio-face = { path = "../radio-face", optional = true }
 retinue = { path = "../retinue", default-features = false }
 rmpv = { version = "1.3.1", optional = true }

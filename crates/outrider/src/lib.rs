@@ -63,6 +63,9 @@ pub mod direct;
 pub mod opportunistic;
 #[cfg(feature = "std")]
 pub mod propagation;
+/// Voice clips as message fields. Needs the `voice` feature.
+#[cfg(feature = "voice")]
+pub mod voice;
 
 #[cfg(not(feature = "std"))]
 pub use portable::{CodecError, DESTINATION_LEN, HEADER_LEN, SIGNATURE_LEN, SOURCE_LEN};

@@ -10,8 +10,10 @@ live voice calls kept in scope.
 ed2024, zero dependencies, `no_std`, `forbid(unsafe_code)`) with framed IMA
 ADPCM, the 2,489 bps LPC vocoder, and the clip container. 38 tests plus a
 doctest green; clippy clean; compiles for `thumbv7em-none-eabihf`
-(nRF52840/T114) and `riscv32imac-unknown-none-elf` as well as the host. Not
-committed, not published: both are Mark's step.
+(nRF52840/T114) and `riscv32imac-unknown-none-elf` as well as the host.
+Published as `pipit` 0.1.0 and public at
+[merely-made/pipit](https://github.com/merely-made/pipit). Carriage into
+outrider landed the same day; see the seam section below.
 
 Rung 0 measured 34.8 dB steady-state SNR, converging within 10 ms from a cold
 start, with an isolated frame decoding within 0.5 dB of the same frame in a
@@ -164,12 +166,46 @@ family cannot decode one.
 - **The envelope stays retinue's.** Sender, recipient, timestamp, signature,
   and routing never enter a clip. Outrider or a resource transfer wraps it.
 
-One open interop question deliberately left undecided: which LXMF field
-carries a clip. LXMF has a field registry with numeric keys, and outrider's
-discipline is to implement from the public specification rather than from
-guesses, so that binding is a spec-reading task rather than a number invented
-here. Nothing in Rung 0 depends on it; a clip is equally carriable as a
-resource or a file today.
+### Carriage landed 2026-08-13, and the field-number question answered
+
+`outrider::voice`, behind an opt-in `voice` feature, attaches a clip to an
+LXMF message and takes it back out. A boundary crate should not carry a speech
+codec for consumers who only send text, hence the feature; with it on, outrider
+takes a `pipit` dependency (MIT/Apache into MPL, no dependencies of its own,
+and the license gate passes with it). Ten unit tests, including an end-to-end
+one: attach, sign, encode, decode, recover the clip byte for byte, and decode
+it back to audio that still has energy in it.
+
+**The open question above was which LXMF field carries a clip. It turns out
+not to be answerable from public prose, which changes the answer rather than
+delaying it.** LXMF's README states that full protocol documentation is still
+planned, and the audio field's mode list is published only as source, which
+outrider does not read. The v1 scope in the
+[outrider founding doc](2026-07-25_outrider_lxmf_founding.md) already rules
+that fields enter "from captures and public prose" only, so there is no
+legitimate route to that number today short of a black-box capture against the
+pinned LXMF 0.9.6 oracle.
+
+Two things follow, and the second matters more than the first:
+
+1. `voice::FieldKey` is supplied by the caller and no default is offered.
+   Choosing the number is a protocol decision, not an implementation detail.
+2. **FIELD_AUDIO is probably the wrong home for a clip regardless.** Its mode
+   enumeration is LXMF's own, covering Codec2 and Opus; Pipit's codecs are not
+   in it and will not be. A stock client that recognised the number would hand
+   a Pipit clip to a decoder expecting a different codec and render noise.
+   That is the same parasitism the
+   [mesh household doc](2026-07-20_mesh_household_tulle_tucket_sennet.md)
+   forbids for undecodable frames on a foreign mesh, and the argument against
+   it does not depend on knowing the number.
+
+So `voice::find_clip` locates a clip by its own self-describing header rather
+than by field number, which means two Retinue peers exchange voice without
+having agreed a number at all, and a stock client sees a field it does not
+recognise and carries it opaquely, which is behaviour outrider's codec already
+guarantees. Whether to additionally emit into the stock audio field is a
+deliberate interop decision, and it needs the capture plus a mode value that
+does not lie about the codec.
 
 ## Deployment shapes
 
