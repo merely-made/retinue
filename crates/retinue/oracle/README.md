@@ -31,7 +31,8 @@ py -m venv .venv
 ./.venv/Scripts/python.exe -m pip install -r requirements.txt
 ```
 
-`requirements.txt` pins `rns==1.4.2`, Retinue's current compatibility target. Re-pin
+`requirements.txt` pins `rns==1.4.2`, Retinue's current compatibility target, and
+`lxmf==0.9.6`, which the Outrider oracle drives. Re-pin
 deliberately, not on every upstream release. Re-pinned 2026-08-06 from 1.4.0 (which carried
 the 1.3.9 `rnsh` security fix); the twelve live gates pass on it, and re-capturing
 `ifac_packet.bin` produced bytes identical to the 1.3.8 original, so the IFAC wire has not

@@ -12,7 +12,6 @@ carries audio, and what an audio field's value looks like.
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 
 import LXMF
