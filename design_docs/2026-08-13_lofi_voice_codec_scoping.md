@@ -137,9 +137,18 @@ amateur ecosystem (FreeDV, M17 uses Codec2 modes). But there is no formal
 spec, so compatibility means either an LGPL-derived translation (dead inside
 the workspace by deny.toml; possible only as a forever-external component) or
 an independent implementation from Rowe's publications verified black-box
-against the reference, which is a genuinely large DSP project. This rung gets
-its own decision doc if and when drop quality or M17 interop demands it. Do
-not start it by default.
+against the reference, which is a genuinely large DSP project. **That decision doc now exists and closes this rung as
+framed: see
+[Rung 2 decision](2026-08-13_rung2_codec2_class_decision.md).** In short,
+Codec2's low modes quantize against trained codebooks shipped only in the
+LGPL tree, and a decoder cannot read the bitstream without the exact
+codebook the encoder searched, so an implementation from publications cannot
+reach compatibility at all. FFmpeg, which prefers native decoders, still
+requires libcodec2 for the same reason. Interop, if wanted, is an
+application-tier project linking the real library under GPL, where retinue's
+GPLv3 firmware images already make that legal. What replaces the rung is a
+half-rate superframe mode: 1,600 bps against the present 2,489, no trained
+data required.
 
 ## Seam
 
