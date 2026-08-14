@@ -10,26 +10,28 @@
 //! stack can decode a voice message; the envelope is Outrider's, and no
 //! sender, recipient, timestamp or signature ever enters a clip.
 //!
-//! # Why there is no field constant here
+//! # Which field, and why the mode matters
 //!
-//! LXMF carries its fields in a MessagePack map keyed by number, and the
-//! stock ecosystem has assigned numbers for telemetry, images, audio and so
-//! on. Outrider takes a field number **only from a capture or from public
-//! prose**, per the v1 scope in
-//! `design_docs/2026-07-25_outrider_lxmf_founding.md`, and the LXMF audio
-//! field's number is documented in neither: the project README states that
-//! full protocol documentation is still planned, and the audio mode list is
-//! published only as source, which this crate does not read.
+//! LXMF carries its fields in a MessagePack map keyed by number. Those
+//! numbers are not in any public prose, so they were taken the way
+//! outrider's v1 scope requires, from a capture: see
+//! `oracle/capture_fields.py`, which reads the stock client's public
+//! constants at runtime and then confirms the number on the wire by packing
+//! a real message. Audio is field 7, and its value is a two-element list of
+//! an audio mode and the encoded bytes.
 //!
-//! So [`FieldKey`] is supplied by the caller and no default is offered.
-//! Choosing one is a protocol decision, not an implementation detail, and
-//! guessing it wrong is worse than leaving it open: a stock client that
-//! recognised the number would hand a Pipit clip to a decoder expecting a
-//! different codec entirely and render noise.
+//! The mode is the part that decides whether riding that field is honest.
+//! The stock list is Codec2 and Opus, and Pipit is neither, so claiming one
+//! of those would hand a decoder something it would render as noise. But the
+//! same capture found **`AM_CUSTOM`**, a mode that means exactly "audio in a
+//! codec outside this list". That is what a Pipit clip is, so [`attach`]
+//! writes it: the message reads as voice to any client, no client is invited
+//! to misdecode it, and the clip's own header says which codec it actually
+//! is.
 //!
-//! [`find_clip`] exists for the same reason. Because a clip is
-//! self-describing, a receiver can locate one without either side having
-//! agreed a number at all.
+//! [`find_clip`] still locates a clip by its own header rather than by field
+//! number, so two Retinue peers interoperate even if they never agree on a
+//! field at all.
 
 use pipit::{ClipHeader, Codec};
 use rmpv::Value;
@@ -42,11 +44,22 @@ use crate::codec::LxmfPayload;
 pub const DEFAULT_MAX_CLIP_BYTES: usize = 256 * 1024;
 
 /// The MessagePack field number a clip travels under.
-///
-/// Deliberately not a constant. See the module documentation: the number is
-/// the caller's protocol decision until a capture settles it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FieldKey(pub u64);
+
+impl FieldKey {
+    /// The field stock LXMF carries audio in, observed as 7 against
+    /// LXMF 0.9.6 by `oracle/capture_fields.py`.
+    pub const AUDIO: Self = Self(7);
+}
+
+/// The audio mode meaning "a codec outside the standard list", observed as
+/// 255 in the same capture.
+///
+/// Pipit clips are sent under this rather than under a Codec2 or Opus mode,
+/// because they are not those and a client should not try to decode them as
+/// though they were.
+pub const AM_CUSTOM: u8 = 255;
 
 /// What a clip says about itself, read from its header without decoding any
 /// audio.
@@ -128,8 +141,12 @@ pub fn attach_bounded(
         return Err(VoiceError::FieldsNotAMap);
     };
     // Carry exactly the bytes the header accounts for: trailing slack is not
-    // part of the clip and has no business travelling.
-    let carried = Value::Binary(clip[..info.bytes].to_vec());
+    // part of the clip and has no business travelling. The two-element
+    // [mode, bytes] shape is what stock LXMF puts in an audio field.
+    let carried = Value::Array(vec![
+        Value::from(AM_CUSTOM),
+        Value::Binary(clip[..info.bytes].to_vec()),
+    ]);
     match entries.iter_mut().find(|(k, _)| key_of(k) == Some(key)) {
         Some((_, slot)) => *slot = carried,
         None => entries.push((Value::from(key.0), carried)),
@@ -137,13 +154,35 @@ pub fn attach_bounded(
     Ok(info)
 }
 
-/// The clip at `key`, if there is a well-formed one there.
-pub fn clip_at(payload: &LxmfPayload, key: FieldKey) -> Option<(&[u8], ClipInfo)> {
+/// The audio at `key`, whatever codec it is in.
+///
+/// Returns the declared mode and the raw bytes, so a caller can tell a
+/// Codec2 message it cannot decode from one of ours rather than showing
+/// nothing at all. Accepts the stock two-element shape and a bare binary
+/// alike; the latter is not what this module writes, but a reader has no
+/// reason to be strict about it.
+pub fn audio_at(payload: &LxmfPayload, key: FieldKey) -> Option<(u8, &[u8])> {
     let Value::Map(entries) = &payload.fields else {
         return None;
     };
     let (_, value) = entries.iter().find(|(k, _)| key_of(k) == Some(key))?;
-    let bytes = value.as_slice()?;
+    audio_value(value)
+}
+
+/// The stock `[mode, bytes]` pair, or a bare binary with no mode declared.
+fn audio_value(value: &Value) -> Option<(u8, &[u8])> {
+    match value {
+        Value::Array(items) if items.len() == 2 => {
+            let mode = u8::try_from(items[0].as_u64()?).ok()?;
+            Some((mode, items[1].as_slice()?))
+        },
+        other => Some((AM_CUSTOM, other.as_slice()?)),
+    }
+}
+
+/// The clip at `key`, if there is a well-formed one there.
+pub fn clip_at(payload: &LxmfPayload, key: FieldKey) -> Option<(&[u8], ClipInfo)> {
+    let (_, bytes) = audio_at(payload, key)?;
     let info = describe(bytes).ok()?;
     Some((&bytes[..info.bytes], info))
 }
@@ -161,7 +200,7 @@ pub fn find_clip(payload: &LxmfPayload) -> Option<(FieldKey, &[u8], ClipInfo)> {
     };
     entries.iter().find_map(|(k, v)| {
         let key = key_of(k)?;
-        let bytes = v.as_slice()?;
+        let (_, bytes) = audio_value(v)?;
         let info = describe(bytes).ok()?;
         Some((key, &bytes[..info.bytes], info))
     })
@@ -316,6 +355,65 @@ mod tests {
         // A third of the airtime of the full-rate vocoder, over the air.
         let full = pipit::encode_clip(&pcm, pipit::ClipParams::lpc10()).unwrap();
         assert!(clip.len() < full.len() * 7 / 10, "{} vs {}", clip.len(), full.len());
+    }
+
+
+    #[test]
+    fn a_clip_travels_in_the_stock_audio_shape() {
+        // Field 7 with a two-element [mode, bytes] value, which is what the
+        // capture observed stock LXMF writing.
+        let clip = clip();
+        let mut payload = payload();
+        attach(&mut payload, FieldKey::AUDIO, &clip).unwrap();
+
+        let Value::Map(entries) = &payload.fields else {
+            unreachable!()
+        };
+        let (key, value) = entries.iter().find(|(k, _)| key_of(k) == Some(FieldKey::AUDIO)).unwrap();
+        assert_eq!(key.as_u64(), Some(7));
+        let Value::Array(items) = value else {
+            panic!("audio must be a two-element list, got {value:?}")
+        };
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].as_u64(), Some(AM_CUSTOM as u64));
+        assert_eq!(items[1].as_slice(), Some(&clip[..]));
+    }
+
+    #[test]
+    fn a_stock_codec2_message_is_seen_but_not_claimed() {
+        // The case that decides whether riding field 7 is honest. A stock
+        // audio message must be recognisable as audio, so a client can say
+        // what it is, while never being mistaken for a clip we can decode.
+        let mut payload = payload();
+        if let Value::Map(entries) = &mut payload.fields {
+            // AM_CODEC2_2400 is mode 8 per the capture.
+            entries.push((
+                Value::from(7u64),
+                Value::Array(vec![Value::from(8u8), Value::Binary(vec![0xAB; 64])]),
+            ));
+        }
+
+        let (mode, bytes) = audio_at(&payload, FieldKey::AUDIO).unwrap();
+        assert_eq!(mode, 8, "the codec2 mode is readable");
+        assert_eq!(bytes.len(), 64);
+
+        assert!(
+            find_clip(&payload).is_none(),
+            "a codec we cannot decode must not be taken for one we can"
+        );
+        assert!(clip_at(&payload, FieldKey::AUDIO).is_none());
+    }
+
+    #[test]
+    fn a_bare_binary_is_still_readable() {
+        // Written by nothing here, but a reader has no reason to refuse it.
+        let clip = clip();
+        let mut payload = payload();
+        if let Value::Map(entries) = &mut payload.fields {
+            entries.push((Value::from(7u64), Value::Binary(clip.clone())));
+        }
+        let (recovered, _) = clip_at(&payload, FieldKey::AUDIO).unwrap();
+        assert_eq!(recovered, &clip[..]);
     }
 
     #[test]

@@ -195,6 +195,15 @@ that fields enter "from captures and public prose" only, so there is no
 legitimate route to that number today short of a black-box capture against the
 pinned LXMF 0.9.6 oracle.
 
+**Both points below were superseded on the same day by an actual capture:
+see the [LXMF field registry capture](2026-08-13_lxmf_field_registry_capture.md).
+Audio is field 7, and the mode enumeration is not closed: `AM_CUSTOM` means
+"a codec outside this list", so a clip rides the stock audio field honestly
+after all. Point 2 was careful reasoning about a registry nobody had looked
+at, and it reached the wrong conclusion.** The original text is kept below
+because the reasoning is still the right shape, and because it is a fair
+warning about deducing the contents of something one could simply measure.
+
 Two things follow, and the second matters more than the first:
 
 1. `voice::FieldKey` is supplied by the caller and no default is offered.
