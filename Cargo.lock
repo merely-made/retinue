@@ -1710,7 +1710,7 @@ checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
 
 [[package]]
 name = "linkboy"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "minisign-verify",
  "serde",
@@ -2472,7 +2472,7 @@ dependencies = [
 
 [[package]]
 name = "signalman"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "hex",
  "linkboy",
