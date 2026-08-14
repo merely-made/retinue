@@ -1,6 +1,6 @@
 [package]
 name = "postilion"
-version = "0.0.1"
+version = "0.1.0"
 edition = "2024"
 rust-version.workspace = true
 license = "MPL-2.0"
@@ -14,8 +14,8 @@ path = "src/lib.rs"
 
 [dependencies]
 getrandom = "0.3"
-outrider = { version = "0.1.0", path = "../outrider", features = ["tulle-radio"] }
-retinue = { path = "../retinue", features = ["tulle-radio"] }
+outrider = { version = "0.1.1", path = "../outrider", features = ["tulle-radio"] }
+retinue = { version = "0.1.1", path = "../retinue", features = ["tulle-radio"] }
 thiserror = "2"
 tokio = { version = "1.53.1", features = ["macros", "rt", "sync", "time"] }
-tulle = { version = "0.0.2", path = "../tulle", features = ["serial-async"] }
+tulle = { version = "0.1.0", path = "../tulle", features = ["serial-async"] }

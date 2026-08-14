@@ -1,6 +1,6 @@
 [package]
 name = "tulle"
-version = "0.0.2"
+version = "0.1.0"
 edition = "2024"
 rust-version.workspace = true
 description = "Shared radio interface layer for LoRa mesh stacks: serial modem control, direct PHY, and medium access."
@@ -26,7 +26,7 @@ tokio = { version = "1.53.1", features = [
     "sync",
     "time",
 ], optional = true }
-selvage = { version = "0.0.1", path = "../selvage" }
+selvage = { version = "0.1.0", path = "../selvage" }
 
 [dev-dependencies]
 serde_json = "1.0.151"

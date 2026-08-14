@@ -73,9 +73,49 @@ With retinue published, outrider compiled against the registry copy rather
 than the path, which is the check that had been failing, and both uploads
 went through.
 
+## The cascade went deeper, and one release was defective
+
+Publishing postilion exposed the rest of the chain, and a real defect.
+
+**retinue 0.1.0 was broken for `tulle-radio` consumers.** Its
+`iface/tulle.rs` calls `send_announcement` and
+`TransmitError::AnnouncementDisabled`, neither of which exists in the
+published tulle 0.0.2. `cargo publish` did not catch it, because it verifies
+the package with **default features only**, and `tulle-radio` is not a
+default. The default build was fine; anyone enabling that feature from
+crates.io got a compile error. Postilion was simply the first thing to
+exercise the path.
+
+That is the lesson worth keeping from this whole exercise: **a green publish
+proves the default feature set and nothing else.** A crate whose interesting
+capability sits behind a non-default feature is published unverified in that
+configuration unless someone checks it deliberately. The check that works is
+to drop `path` from the dependency so cargo must resolve from the registry,
+then build the feature. That was run before retinue 0.1.1 went out, and it
+compiled `tulle v0.1.0` from the registry rather than the path.
+
+The full chain turned out to be five deep, each level needing the one below
+published first:
+
+`selvage` 0.1.0, `tulle` 0.1.0, `retinue` 0.1.1, `outrider` 0.1.1,
+`postilion` 0.1.0.
+
+selvage was needed because published 0.0.1 lacked the `kiss` module and the
+UI-snapshot surface that local tulle imports.
+
+**A dev-dependency cycle blocked the last two.** Outrider dev-depends on
+postilion, and postilion depends on outrider, so with a version named on
+both neither could publish first. Outrider's postilion dev-dependency is now
+path-only, which cargo strips from the published manifest. That is the right
+shape permanently, not a workaround: a versioned dev-dependency on a crate
+that depends back is a cycle waiting to recur.
+
 ## State
 
-- `retinue` 0.1.0 and `outrider` 0.1.0 on crates.io.
+- `selvage` 0.1.0, `tulle` 0.1.0, `retinue` 0.1.1, `outrider` 0.1.1 and
+  `postilion` 0.1.0 on crates.io. retinue 0.1.0 is superseded rather than
+  yanked; it is sound on default features and only its `tulle-radio`
+  configuration was broken.
 - radio-face stays a dev-dependency, which was the right placement
   independent of publishing.
 - Postilion still requires outrider 0.1.0 by path and is itself unreleased
