@@ -83,11 +83,26 @@ pub fn focused_revision_field(
     }
 }
 
-/// Where the packaged firmware catalog lives, relative to this crate.
+/// Where the packaged firmware catalog lives.
 ///
-/// A shipped build will resolve this from an installed data directory; for now
-/// it is the repository's own package index, which is what the physical
-/// acceptance runs flash from.
+/// An installed application carries `firmware/packages` beside its executable.
+/// `SIGNALMAN_CATALOG_PATH` is an explicit staging override. Falling back to
+/// this checkout's package index keeps developer builds usable, but is never a
+/// public-install requirement.
 pub fn default_catalog_path() -> std::path::PathBuf {
+    if let Some(path) = std::env::var_os("SIGNALMAN_CATALOG_PATH") {
+        return std::path::PathBuf::from(path);
+    }
+    if let Some(path) = installed_catalog_path() {
+        return path;
+    }
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../firmware/packages/index.toml")
+}
+
+fn installed_catalog_path() -> Option<std::path::PathBuf> {
+    let path = std::env::current_exe()
+        .ok()?
+        .parent()?
+        .join("firmware/packages/index.toml");
+    path.is_file().then_some(path)
 }

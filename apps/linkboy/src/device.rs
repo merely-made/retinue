@@ -12,6 +12,10 @@ use crate::package::{BoardFamily, ProcessorKind};
 #[serde(rename_all = "kebab-case")]
 pub enum DeviceTransport {
     SerialPort(String),
+    /// An owner-selected serial path already running the captured board's DFU loader.
+    /// This is distinct from an application port because execution must not try to enter the
+    /// bootloader again before invoking the serial-DFU helper.
+    SerialDfuPort(String),
     MountedVolume(String),
 }
 
@@ -39,6 +43,40 @@ pub struct BoardSelection {
     pub family: BoardFamily,
     pub revision: String,
     pub confirmed_by_owner: bool,
+    /// Why the owner may make this otherwise-unobservable carrier revision claim.
+    ///
+    /// This is deliberately recorded with the immutable plan: a USB identifier, COM port, or
+    /// processor fact remains insufficient to establish a carrier revision.
+    #[serde(default)]
+    pub evidence: BoardSelectionEvidence,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum BoardSelectionEvidence {
+    /// The owner read the revision from the carrier itself.
+    #[default]
+    CarrierMarking,
+    /// The owner identified a documented product profile whose manufacturer documentation names
+    /// the carrier revision. This is narrower than a family-wide compatibility claim.
+    DocumentedProductProfile {
+        product: String,
+        documentation_url: String,
+    },
+}
+
+impl BoardSelectionEvidence {
+    pub fn describe(&self) -> String {
+        match self {
+            Self::CarrierMarking => "owner confirmation from carrier marking".into(),
+            Self::DocumentedProductProfile {
+                product,
+                documentation_url,
+            } => format!(
+                "owner confirmation from documented {product} profile ({documentation_url})"
+            ),
+        }
+    }
 }
 
 impl BoardSelection {
@@ -47,6 +85,24 @@ impl BoardSelection {
             family,
             revision: revision.into(),
             confirmed_by_owner: true,
+            evidence: BoardSelectionEvidence::CarrierMarking,
+        }
+    }
+
+    pub fn documented_product_profile(
+        family: BoardFamily,
+        revision: impl Into<String>,
+        product: impl Into<String>,
+        documentation_url: impl Into<String>,
+    ) -> Self {
+        Self {
+            family,
+            revision: revision.into(),
+            confirmed_by_owner: true,
+            evidence: BoardSelectionEvidence::DocumentedProductProfile {
+                product: product.into(),
+                documentation_url: documentation_url.into(),
+            },
         }
     }
 }
@@ -126,8 +182,16 @@ impl DeviceObservation {
         }
     }
 
-    pub fn confirm_board(mut self, family: BoardFamily, revision: impl Into<String>) -> Self {
-        self.selected_board = Some(BoardSelection::owner_confirmed(family.clone(), revision));
+    pub fn confirm_board(self, family: BoardFamily, revision: impl Into<String>) -> Self {
+        self.confirm_board_selection(BoardSelection::owner_confirmed(family, revision))
+    }
+
+    /// Attach a board selection that the owner has affirmatively made from either a carrier
+    /// marking or a named product profile. Hardware facts can still contradict it and planning
+    /// will still refuse them.
+    pub fn confirm_board_selection(mut self, selection: BoardSelection) -> Self {
+        let family = selection.family.clone();
+        self.selected_board = Some(selection);
         self.confidence = EvidenceConfidence::OwnerConfirmed;
         if let Some(expected_processor) = expected_processor(&family) {
             if self.hardware.processor.as_ref() != Some(&expected_processor) {

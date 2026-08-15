@@ -7,6 +7,14 @@ use std::path::{Path, PathBuf};
 use crate::executor::{ProcessFailure, ProcessRunner};
 use crate::package::{FlashRoute, HelperRequirement, sha256_hex};
 
+/// A release assembles helpers beside the executable, under this platform-name
+/// directory. It is deliberately a release layout rather than a repository
+/// path: the public program must not ask an owner to install Cargo or amend
+/// `PATH` before it can flash a verified package.
+pub fn bundled_platform_directory() -> String {
+    format!("{}-{}", env::consts::OS, env::consts::ARCH)
+}
+
 pub fn version_args(route: &FlashRoute) -> Vec<String> {
     match route {
         FlashRoute::EspRom => vec!["--version".into()],
@@ -43,35 +51,66 @@ pub fn verify_installed<P: ProcessRunner>(
     Ok(())
 }
 
-/// Resolve a helper from an explicit path or the current process PATH once, before an install
-/// begins. The system runner retains the resulting path for its later write command.
+/// Resolve one package helper before an install begins.
+///
+/// Installed applications use `<executable-dir>/helpers/<os>-<arch>/`. A
+/// staging or CI invocation may supply `LINKBOY_HELPER_DIR`; ambient `PATH` is
+/// deliberately unavailable unless a developer explicitly sets
+/// `LINKBOY_ALLOW_PATH_HELPERS=1`. The system runner retains the resulting path
+/// for every later helper command in the same install.
 pub fn resolve_program(program: &str) -> Result<PathBuf, ProcessFailure> {
     let direct = Path::new(program);
     if direct.is_file() {
         return Ok(fs::canonicalize(direct).unwrap_or_else(|_| direct.to_path_buf()));
     }
 
-    let Some(paths) = env::var_os("PATH") else {
-        return Err(ProcessFailure::MissingHelper {
-            program: program.into(),
-        });
-    };
-    for directory in env::split_paths(&paths) {
-        let candidate = directory.join(program);
-        if candidate.is_file() {
-            return Ok(fs::canonicalize(&candidate).unwrap_or(candidate));
-        }
-        #[cfg(windows)]
-        if Path::new(program).extension().is_none() {
-            let executable = candidate.with_extension("exe");
-            if executable.is_file() {
-                return Ok(fs::canonicalize(&executable).unwrap_or(executable));
-            }
+    let mut directories = Vec::new();
+    if let Some(directory) = env::var_os("LINKBOY_HELPER_DIR") {
+        directories.push(PathBuf::from(directory));
+    }
+    if let Some(directory) = installed_helper_directory() {
+        directories.push(directory);
+    }
+    if let Some(executable) = resolve_from_directories(&directories, program) {
+        return Ok(executable);
+    }
+
+    if env::var_os("LINKBOY_ALLOW_PATH_HELPERS").is_some() {
+        let paths = env::var_os("PATH").unwrap_or_default();
+        if let Some(executable) =
+            resolve_from_directories(&env::split_paths(&paths).collect::<Vec<_>>(), program)
+        {
+            return Ok(executable);
         }
     }
     Err(ProcessFailure::MissingHelper {
         program: program.into(),
     })
+}
+
+/// The helper directory in an installed Linkboy or Signalman application.
+pub fn installed_helper_directory() -> Option<PathBuf> {
+    env::current_exe()
+        .ok()?
+        .parent()
+        .map(|directory| directory.join("helpers").join(bundled_platform_directory()))
+}
+
+fn resolve_from_directories(directories: &[PathBuf], program: &str) -> Option<PathBuf> {
+    for directory in directories {
+        let candidate = directory.join(program);
+        if candidate.is_file() {
+            return Some(fs::canonicalize(&candidate).unwrap_or(candidate));
+        }
+        #[cfg(windows)]
+        if Path::new(program).extension().is_none() {
+            let executable = candidate.with_extension("exe");
+            if executable.is_file() {
+                return Some(fs::canonicalize(&executable).unwrap_or(executable));
+            }
+        }
+    }
+    None
 }
 
 pub fn verify_file_digest(
@@ -214,5 +253,26 @@ mod tests {
             Err(ProcessFailure::HelperDigestMismatch { .. })
         ));
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn packaged_helper_directory_uses_the_platform_executable_name() {
+        let directory =
+            std::env::temp_dir().join(format!("linkboy-packaged-helper-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let helper = if cfg!(windows) {
+            directory.join("espflash.exe")
+        } else {
+            directory.join("espflash")
+        };
+        std::fs::write(&helper, b"packaged helper").unwrap();
+
+        let found = resolve_from_directories(&[directory.clone()], "espflash")
+            .expect("packaged helper is resolved without PATH");
+        assert_eq!(found, std::fs::canonicalize(&helper).unwrap());
+        assert!(bundled_platform_directory().contains(env::consts::OS));
+
+        std::fs::remove_file(helper).unwrap();
+        std::fs::remove_dir(directory).unwrap();
     }
 }

@@ -25,7 +25,9 @@ pub use firmware::{
     DeviceCandidate, FirmwareCatalog, FirmwareError, FirmwareInstallNotice,
     FirmwareInstallRecovery, FirmwareInstallStage, FirmwareInstallUpdate, FirmwareInstallWorker,
     FirmwareInstaller, FirmwareReview, FirmwareView, InstallerWake, capture_t114_uf2_volume,
-    describe_event, event_progress, observe_device, observe_device_with_t114_loader_snapshot,
+    describe_event, event_progress, observe_device,
+    observe_device_with_board_selection_and_t114_loader_snapshot,
+    observe_device_with_t114_loader_snapshot, observe_t114_serial_dfu_port,
     observe_t114_uf2_volume, refusal_lines, survey_devices, survey_ports,
 };
 

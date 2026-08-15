@@ -61,7 +61,11 @@ impl ProcessRunner for SystemProcessRunner {
             .verified_helpers
             .get(program)
             .cloned()
-            .unwrap_or_else(|| PathBuf::from(program));
+            // A non-writing loader probe happens before package planning, so it
+            // cannot yet have a manifest requirement to verify. It must still
+            // use the same installed helper location as the later write rather
+            // than silently falling back to PATH.
+            .unwrap_or(crate::helper::resolve_program(program)?);
         let output = Command::new(executable)
             .args(args)
             .stdout(Stdio::piped())
@@ -153,42 +157,30 @@ impl DeviceRunner for LiveDeviceRunner {
         patience: Duration,
     ) -> Result<String, DeviceFailure> {
         let deadline = std::time::Instant::now() + patience;
+
+        // A serial port can enumerate before the application behind it is ready to answer.
+        // Probing during that window asserts DTR against a half-started T114 and can strand
+        // its first CDC session before the board reaches the host loop. Give the verified
+        // application image one bounded startup window before opening any returned port.
+        std::thread::sleep(APPLICATION_STARTUP_GRACE.min(patience));
         while std::time::Instant::now() < deadline {
             let Ok(ports) = crate::ports() else {
                 std::thread::sleep(Duration::from_millis(200));
                 continue;
             };
 
-            // The original path is only a location candidate. Re-identify it before accepting
-            // it, because a cable reset or a user reconnect may have put another device there.
-            if ports.iter().any(|port| port == original_port)
-                && identifies_expected_family(original_port, expected)
-            {
-                return Ok(original_port.to_string());
-            }
-
-            // Some boards return on a new application port after leaving their loader. Probe
-            // each candidate and accept exactly one responsive board of the family the immutable
-            // package expects. A COM number is never carried over as identity, and an unrelated
-            // Retinue board must not turn a successful transfer into a false recovery event.
-            let responsive: Vec<_> = ports
-                .into_iter()
-                .filter(|port| port != bootloader_port && port != original_port)
-                .filter(|port| identifies_expected_family(port, expected))
-                .collect();
-            match responsive.as_slice() {
-                [application_port] => return Ok(application_port.clone()),
-                [] => {}
-                ports => {
-                    return Err(DeviceFailure::UnexpectedPort {
-                        expected: original_port.into(),
-                        found: ports.join(", "),
-                    });
-                }
+            if let Some(application_port) = select_application_port(
+                &ports,
+                original_port,
+                bootloader_port,
+                expected,
+                identifies_expected_family,
+            )? {
+                return Ok(application_port);
             }
             std::thread::sleep(Duration::from_millis(200));
         }
-        Err(DeviceFailure::Timeout(patience))
+        Err(DeviceFailure::ApplicationTimeout(patience))
     }
 
     fn verify_application(
@@ -236,6 +228,48 @@ fn identifies_expected_family(port: &str, expected: &ExpectedApplication) -> boo
     matches_expected_family(&crate::identify(port), expected)
 }
 
+fn select_application_port(
+    ports: &[String],
+    original_port: &str,
+    bootloader_port: &str,
+    expected: &ExpectedApplication,
+    mut identifies: impl FnMut(&str, &ExpectedApplication) -> bool,
+) -> Result<Option<String>, DeviceFailure> {
+    // Every path remains only a location candidate. Re-identify it before accepting it,
+    // because a cable reset or reconnect may have put another device there.
+    if ports.iter().any(|port| port == original_port) && identifies(original_port, expected) {
+        return Ok(Some(original_port.to_string()));
+    }
+
+    // A T114 can leave its bootloader and return as the application without changing its COM
+    // number. The old rediscovery filter excluded that path unconditionally, turning a
+    // successful restore into a timeout even while Retinue was already answering there.
+    if bootloader_port != original_port
+        && ports.iter().any(|port| port == bootloader_port)
+        && identifies(bootloader_port, expected)
+    {
+        return Ok(Some(bootloader_port.to_string()));
+    }
+
+    // Some boards return on an entirely new application port. Accept exactly one responsive
+    // board of the family the immutable package expects. A COM number is never carried over as
+    // identity, and an unrelated Retinue board must not turn a transfer into false success.
+    let responsive: Vec<_> = ports
+        .iter()
+        .filter(|port| port.as_str() != bootloader_port && port.as_str() != original_port)
+        .filter(|port| identifies(port, expected))
+        .cloned()
+        .collect();
+    match responsive.as_slice() {
+        [application_port] => Ok(Some(application_port.clone())),
+        [] => Ok(None),
+        ports => Err(DeviceFailure::UnexpectedPort {
+            expected: original_port.into(),
+            found: ports.join(", "),
+        }),
+    }
+}
+
 fn matches_expected_family(found: &crate::Found, expected: &ExpectedApplication) -> bool {
     found
         .board
@@ -278,6 +312,8 @@ pub enum ProcessFailure {
 pub enum DeviceFailure {
     #[error("bootloader did not appear within {0:?}")]
     Timeout(Duration),
+    #[error("application did not answer within {0:?}")]
+    ApplicationTimeout(Duration),
     #[error("device disappeared from {0}")]
     Disappeared(String),
     #[error("unexpected new port: expected {expected}, found {found}")]
@@ -379,6 +415,7 @@ pub enum ExecutionError {
 }
 
 pub const DEFAULT_PATIENCE: Duration = Duration::from_secs(12);
+const APPLICATION_STARTUP_GRACE: Duration = Duration::from_secs(2);
 
 pub fn execute_plan<P: ProcessRunner, D: DeviceRunner>(
     plan: &FlashPlan,
@@ -390,7 +427,9 @@ pub fn execute_plan<P: ProcessRunner, D: DeviceRunner>(
 ) -> Result<FlashReceipt, ExecutionError> {
     let executable = executable_layout(plan, package)?;
     let location = match &plan.observation().transport {
-        DeviceTransport::SerialPort(port) | DeviceTransport::MountedVolume(port) => port.clone(),
+        DeviceTransport::SerialPort(port)
+        | DeviceTransport::SerialDfuPort(port)
+        | DeviceTransport::MountedVolume(port) => port.clone(),
     };
     emit(FlashEvent::Inspecting {
         device: location.clone(),
@@ -407,7 +446,7 @@ pub fn execute_plan<P: ProcessRunner, D: DeviceRunner>(
         return execute_uf2_volume(plan, package, executable, &location, emit);
     }
     let port = match &plan.observation().transport {
-        DeviceTransport::SerialPort(port) => port.clone(),
+        DeviceTransport::SerialPort(port) | DeviceTransport::SerialDfuPort(port) => port.clone(),
         DeviceTransport::MountedVolume(_) => return Err(ExecutionError::UnsupportedTransport),
     };
     let helper = package.manifest().helper_for(plan.route()).ok_or_else(|| {
@@ -420,18 +459,26 @@ pub fn execute_plan<P: ProcessRunner, D: DeviceRunner>(
 
     let (bootloader_port, commands, command_bytes) = match (plan.route(), executable) {
         (FlashRoute::AdafruitDfu, ExecutableLayout::Container(part)) => {
-            emit(FlashEvent::EnteringBootloader);
-            let dfu = device.enter_bootloader(&port, patience).map_err(|error| {
-                recover(
-                    plan,
-                    emit,
-                    ExecutionStage::EnteringBootloader,
-                    &port,
-                    false,
-                    error.to_string(),
-                )
-            })?;
-            emit(FlashEvent::Rediscovering);
+            let dfu = if matches!(
+                &plan.observation().transport,
+                DeviceTransport::SerialDfuPort(_)
+            ) {
+                port.clone()
+            } else {
+                emit(FlashEvent::EnteringBootloader);
+                let dfu = device.enter_bootloader(&port, patience).map_err(|error| {
+                    recover(
+                        plan,
+                        emit,
+                        ExecutionStage::EnteringBootloader,
+                        &port,
+                        false,
+                        error.to_string(),
+                    )
+                })?;
+                emit(FlashEvent::Rediscovering);
+                dfu
+            };
             (
                 dfu.clone(),
                 vec![adafruit_dfu::command(&dfu, part.path())],
@@ -799,6 +846,7 @@ fn recover(
         stage: stage.clone(),
         transport: match &plan.observation().transport {
             DeviceTransport::SerialPort(port) => format!("serial:{port}"),
+            DeviceTransport::SerialDfuPort(port) => format!("serial-dfu:{port}"),
             DeviceTransport::MountedVolume(volume) => format!("volume:{volume}"),
         },
         last_known_port: Some(port.to_string()),
@@ -1150,6 +1198,10 @@ mod tests {
     }
 
     fn plan(route: FlashRoute) -> FlashPlan {
+        plan_with_transport(route, DeviceTransport::SerialPort("COM7".into()))
+    }
+
+    fn plan_with_transport(route: FlashRoute, transport: DeviceTransport) -> FlashPlan {
         let (family, processor, bootloader, revision) = match route {
             FlashRoute::AdafruitDfu => (
                 BoardFamily::T114,
@@ -1172,7 +1224,7 @@ mod tests {
         };
         FlashPlan::for_test(
             DeviceObservation {
-                transport: DeviceTransport::SerialPort("COM7".into()),
+                transport,
                 status_reply: None,
                 hardware: HardwareFacts {
                     processor: Some(processor),
@@ -1317,6 +1369,47 @@ mod tests {
             .position(|event| matches!(event, FlashEvent::VerifyingApplication))
             .unwrap();
         assert!(verify < complete);
+    }
+
+    #[test]
+    fn an_explicit_t114_dfu_port_skips_bootloader_entry() {
+        let plan = plan_with_transport(
+            FlashRoute::AdafruitDfu,
+            DeviceTransport::SerialDfuPort("COM10".into()),
+        );
+        let package = package(FlashRoute::AdafruitDfu);
+        let mut process = RecordingProcess::default();
+        let mut device = MockDevice {
+            bootloader: Err(DeviceFailure::Other(
+                "an already-DFU route must not enter the bootloader".into(),
+            )),
+            application: Ok("COM10".into()),
+            verification: Ok(ApplicationVerification {
+                board: BoardFamily::T114,
+                version: "0.0.1".into(),
+                region: Some("US915".into()),
+                channel: Some("modem".into()),
+            }),
+        };
+        let mut events = Vec::new();
+
+        let receipt = execute_plan(
+            &plan,
+            &package,
+            &mut process,
+            &mut device,
+            Duration::from_secs(1),
+            &mut |event| events.push(event),
+        )
+        .expect("the selected DFU port should execute directly");
+
+        assert_eq!(receipt.result, crate::ReceiptResult::Complete);
+        assert_eq!(process.calls.len(), 1);
+        assert_eq!(process.calls[0][5], "COM10");
+        assert!(!events.iter().any(|event| matches!(
+            event,
+            FlashEvent::EnteringBootloader | FlashEvent::Rediscovering
+        )));
     }
 
     #[test]
@@ -1579,6 +1672,22 @@ mod tests {
         };
         assert!(!matches_expected_family(&v4, &expected));
         assert!(matches_expected_family(&t114, &expected));
+    }
+
+    #[test]
+    fn rediscovery_accepts_application_on_former_bootloader_port() {
+        let expected = ExpectedApplication {
+            board: BoardFamily::T114,
+            version: "0.0.1".into(),
+            manual_check: None,
+        };
+        let ports = vec!["COM10".to_string()];
+        let application = select_application_port(&ports, "COM3", "COM10", &expected, |port, _| {
+            port == "COM10"
+        })
+        .expect("one expected application port is unambiguous");
+
+        assert_eq!(application.as_deref(), Some("COM10"));
     }
 
     #[test]

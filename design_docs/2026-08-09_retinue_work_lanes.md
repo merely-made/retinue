@@ -37,9 +37,9 @@ current plan set sorts as follows.
 | [Retinue Small plan](2026-07-31_retinue_small_plan.md) | Current native-node authority. Software gates N0 through N6 are substantially closed. The unplug leg, current measurements, and the cheaper carrier-sense question remain owner or research work. |
 | [Smolweb over Reticulum](2026-08-04_smolweb_over_reticulum_plan.md) | Active independent application bridge. R-A, R-B, and R-C remain serial within that program. |
 | [Signalman founding](2026-08-06_signalman_founding.md) | Historical founding note. Execution authority moved to the Cambium desktop scope and receipts. |
-| [Linkboy public flashing plan](2026-08-08_linkboy_public_flashing_plan.md) | Active installer authority. F1 through F4 have landed software, but their physical/public acceptance remains open where required. F5 is open. F7 has a signed Prns V4 Linkboy install, interface, and restore receipt; its graphical cross-firmware and T114 halves remain open. |
-| [Linkboy F5 spike](2026-08-08_linkboy_public_flashing_f5_spike.md) | Current evidence for the helper-packaging decision. PATH dependencies remain; the T114 helper is not yet a public bundling candidate. |
-| [Signalman Cambium desktop scope](2026-08-09_signalman_cambium_desktop_scope.md) | Active GUI authority. G0 through G3 are complete. G4 has a keyboard-operated physical V4 install receipt; recovery, T114, and manual screen-reader judgment remain. |
+| [Linkboy public flashing plan](2026-08-08_linkboy_public_flashing_plan.md) | Active installer authority. F1 through F4 have landed software, but their physical/public acceptance remains open where required. The Windows V4 stage has a bundled-helper flash/recovery receipt, while F5 remains open for T114 helper policy and macOS/Linux real-device receipts. F7's graphical Prns V4 and Meshtastic T114 install-and-Retinue-restore receipts are complete; catalog promotion remains blocked on public helper custody. |
+| [Linkboy F5 spike](2026-08-08_linkboy_public_flashing_f5_spike.md) | Current helper-packaging evidence. The Windows V4 stage resolves a pinned bundled `espflash`; ambient PATH is development-only. The T114 helper is not yet a public bundling candidate. |
+| [Signalman Cambium desktop scope](2026-08-09_signalman_cambium_desktop_scope.md) | Active GUI authority. G0 through G3 are complete. G4 has physical V4 and T114 cross-firmware-and-recovery receipts; manual screen-reader judgement remains. |
 | [Signalman G2 receipt](2026-08-09_signalman_desktop_g2_receipt.md) | Evidence, not a work queue. It proves the headed shell and automated accessibility surface, not a board flash. |
 | [Mesh scaling and asymmetric routing](2026-08-09_mesh_scaling_and_asymmetric_routing.md) | Active network-scaling authority. FT1 through FT5 own airtime, expiry, bidirectionality, ETX, and scope policy. |
 | [Channel murmuration](2026-08-09_channel_murmuration.md) | Framing superseded 2026-08-10 by the listener-executive doc; its rules and CM2 through CM5 survive translated and stay serial, consuming FT1, FT3, and FT5 facts. CM1 is absorbed into LE2. |
@@ -201,13 +201,16 @@ continues to authorize installable packages.
 installer and recovery receipts.
 
 Current ground truth: Linkboy's F1 through F4 software slices and sparse-package
-extension are present; 50 library tests and the retained Prns signature test
-pass. Signalman G0 through G3 have receipts and the V4 keyboard route ran on
-hardware. Linkboy installed, exercised, and restored official Hopspot on V4.
-Official Meshtastic ran on the T114 through a manual UF2 demo, but no admitted
-Linkboy package or graphical restore receipt exists. Public helper policy,
-graphical recovery, the T114 G4 path, manual screen-reader judgment, and the
-T114 second-publisher package remain open.
+extension are present. Signalman G0 through G3 have receipts. On Windows,
+Signalman installed Prns Hopspot 0.3.4 on the N39 V4.2, recorded the package's
+required serial self-check, and restored Retinue to terminal `Complete`.
+Signalman also installed the admitted Meshtastic T114 package and restored
+Retinue through its graphical flow. F7's first interoperability proof is now
+complete. The Windows V4 stage bundles and resolves its pinned ESP helper,
+flashes Hopspot, and recovers Retinue without helper or catalog environment
+overrides. Public T114 helper policy, macOS/Linux physical helper receipts, and
+the manual screen-reader judgement remain open; the T114 repeated-CDC-session
+fault is a separate reliability defect.
 
 Sequence:
 
@@ -217,21 +220,20 @@ Sequence:
    open where its physical claim has not run.
 2. **DIST1, package shape: landed.** Ordered sparse parts, per-part offsets and
    hashes, preserved ranges, and publisher-signature evidence are present.
-3. **DIST2, helper custody:** finish F5 for public installation. Record the
-   helper version and digest in every plan and receipt; do not promote the
-   current T114 helper until its distribution and recovery policy is settled.
-4. **DIST3, owner route:** rerun G4 on physical V4 and T114 paths, including
-   recovery and the manual accessibility judgment.
-5. **DIST4, V4 second publisher:** Linkboy install/interface/restore is proven.
-   Repeat the cross-firmware restore through Signalman's graphical flow and
-   retain the complete terminal receipt. Record an actual Retichat pairing if
-   the BLE demo is claimed; boot readiness alone is not a phone receipt.
-6. **DIST5, T114 second publisher:** admit the already-observed official
-   Meshtastic T114 UF2 as a signed package, then install and restore Retinue
-   through the graphical flow. The manual demo is candidate evidence, not F7.
-7. **DIST6, optional product consumer:** only after the install and restore
-   receipts, decide whether the V4 field gateway should expose browser
-   rendezvous to Turnstone.
+3. **DIST2, helper custody:** the Windows V4 staging build has a physical
+   bundled-helper receipt. Finish F5 for public installation by recording
+   helper version and digest in every plan and receipt, taking macOS/Linux
+   flash-and-recovery receipts, and settling T114 distribution and recovery
+   policy before promotion.
+4. **DIST3, owner route:** graphical V4 and T114 recovery receipts are complete.
+   The manual accessibility judgement remains open.
+5. **DIST4, V4 second publisher: complete.** Signalman installed Hopspot,
+   recorded its required interface check, and restored Retinue to a complete
+   terminal result. No Retichat pairing is claimed.
+6. **DIST5, T114 second publisher: complete.** Signalman installed the admitted
+   Meshtastic UF2 and restored Retinue through the graphical flow.
+7. **DIST6, optional product consumer:** deferred. No browser-rendezvous
+   exposure is authorized by these installer receipts; it is not an F7 gate.
 
 Linkboy owns package policy, immutable plans, execution, recovery, and
 receipts. Signalman is its Cambium face. Turnstone may consume a field gateway;

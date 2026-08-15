@@ -1,7 +1,9 @@
 # Linkboy notices
 
-The current public flashing slice invokes these helpers from `PATH`. Package manifests pin the
-versions they were measured against and carry the corresponding source and license facts.
+An installed build resolves a package helper from its own
+`helpers/<os>-<arch>` directory and verifies its version and manifest-pinned digest before any
+write. A developer may set `LINKBOY_HELPER_DIR` for a staging run or explicitly opt into ambient
+`PATH` with `LINKBOY_ALLOW_PATH_HELPERS=1`; neither is a public-install instruction.
 
 | Helper | Pinned version | License reported by the installed distribution | Source |
 | --- | --- | --- | --- |
@@ -10,7 +12,8 @@ versions they were measured against and carry the corresponding source and licen
 
 `adafruit-nrfutil` is not bundled by this repository. Its reported license requires a separate
 redistribution review before a packaged public build can ship it. `espflash` has a permissive
-license, but bundling and the resulting Windows, macOS, and Linux receipts remain unmeasured.
+license, but its release bundle and the resulting Windows, macOS, and Linux receipts are separate
+evidence from this notice.
 
 The Linkboy and Retinue workspace code remains under the repository's MPL-2.0 terms. This file
 does not grant redistribution rights for either helper.

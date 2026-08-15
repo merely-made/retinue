@@ -38,7 +38,8 @@ pub mod verify;
 
 pub use catalog::{CatalogError, CatalogPackage, CatalogState, PackageIndex};
 pub use device::{
-    BoardSelection, BootloaderObservation, DeviceObservation, DeviceTransport, HardwareFacts,
+    BoardSelection, BoardSelectionEvidence, BootloaderObservation, DeviceObservation,
+    DeviceTransport, HardwareFacts,
 };
 pub use discovery::{
     DiscoveryError, T114LoaderSnapshot, is_first_flash, needs_esp_rom_probe, stock_device,
@@ -261,6 +262,22 @@ pub fn converse(port: &str, lines: &[&str]) -> Result<Vec<String>, Error> {
     let _ = serial.set_dtr(true);
     std::thread::sleep(Duration::from_millis(900));
 
+    let result = converse_open(&mut serial, lines);
+
+    // Closing a Windows CDC handle does not reliably give the device a visible DTR edge.
+    // The T114 waits for that edge before it will accept another host, so make the session
+    // boundary explicit even after a failed or unanswered probe. This is especially important
+    // during post-flash rediscovery, where the first probe may reach USB before the radio-side
+    // application has finished starting.
+    let _ = serial.set_dtr(false);
+    // The firmware samples DTR every 50 ms. Hold the low state across several samples so
+    // Windows cannot close the handle and let the next survey reopen it before the board has
+    // observed the session boundary.
+    std::thread::sleep(Duration::from_millis(250));
+    result
+}
+
+fn converse_open(serial: &mut SerialPort, lines: &[&str]) -> Result<Vec<String>, Error> {
     let mut buffer = [0_u8; 512];
     // Whatever the board volunteered on attach. The T114 writes a banner here and the V4
     // writes nothing, so this is kept and folded into the first answer rather than
@@ -304,10 +321,9 @@ pub fn converse(port: &str, lines: &[&str]) -> Result<Vec<String>, Error> {
 
 /// Put a T114 into its serial bootloader and wait for the port it comes back on.
 ///
-/// The board reboots into DFU and re-enumerates as a *different* port, which is the part of
-/// this dance that is easy to get wrong by hand: the port you were talking to vanishes, and
-/// the one you must flash did not exist a moment ago. Watching the set of ports change is
-/// what identifies it, rather than guessing a name.
+/// The board reboots into DFU and re-enumerates. It may receive a different port name, or the
+/// operating system may reuse the original name after an observed disappearance. Watching the
+/// transition is what identifies it, rather than treating a persistent COM number as identity.
 pub fn enter_bootloader(port: &str, patience: Duration) -> Result<String, Error> {
     let before: std::collections::BTreeSet<String> = ports()?.into_iter().collect();
 
@@ -325,17 +341,40 @@ pub fn enter_bootloader(port: &str, patience: Duration) -> Result<String, Error>
     let _ = touch_1200(port);
 
     let deadline = Instant::now() + patience;
+    let mut original_disappeared = false;
     while Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(400));
         let now: std::collections::BTreeSet<String> = match ports() {
             Ok(ports) => ports.into_iter().collect(),
-            Err(_) => continue,
+            Err(_) => {
+                std::thread::sleep(Duration::from_millis(100));
+                continue;
+            }
         };
-        if let Some(fresh) = now.difference(&before).next() {
-            return Ok(fresh.clone());
+        if let Some(bootloader_port) =
+            bootloader_port_after_transition(&before, &now, port, &mut original_disappeared)
+        {
+            return Ok(bootloader_port);
         }
+        std::thread::sleep(Duration::from_millis(100));
     }
     Err(Error::NoBootloader(patience))
+}
+
+fn bootloader_port_after_transition(
+    before: &std::collections::BTreeSet<String>,
+    now: &std::collections::BTreeSet<String>,
+    original_port: &str,
+    original_disappeared: &mut bool,
+) -> Option<String> {
+    if !now.contains(original_port) {
+        *original_disappeared = true;
+    }
+
+    if *original_disappeared && now.contains(original_port) {
+        return Some(original_port.to_string());
+    }
+
+    now.difference(before).next().cloned()
 }
 
 /// Ask a board to reset into its bootloader by opening its port at 1200 baud.
@@ -470,5 +509,42 @@ mod tests {
             channel: None,
         };
         assert!(silent.describe().contains("silent"));
+    }
+
+    #[test]
+    fn bootloader_entry_accepts_a_new_port_number() {
+        let before = ["COM3".to_string()].into_iter().collect();
+        let now = ["COM10".to_string()].into_iter().collect();
+        let mut original_disappeared = false;
+
+        assert_eq!(
+            bootloader_port_after_transition(&before, &now, "COM3", &mut original_disappeared,)
+                .as_deref(),
+            Some("COM10")
+        );
+    }
+
+    #[test]
+    fn bootloader_entry_accepts_a_disappeared_and_reused_port_number() {
+        let before = ["COM10".to_string()].into_iter().collect();
+        let absent = std::collections::BTreeSet::new();
+        let returned = ["COM10".to_string()].into_iter().collect();
+        let mut original_disappeared = false;
+
+        assert_eq!(
+            bootloader_port_after_transition(&before, &absent, "COM10", &mut original_disappeared,),
+            None
+        );
+        assert!(original_disappeared);
+        assert_eq!(
+            bootloader_port_after_transition(
+                &before,
+                &returned,
+                "COM10",
+                &mut original_disappeared,
+            )
+            .as_deref(),
+            Some("COM10")
+        );
     }
 }

@@ -162,6 +162,7 @@ impl FlashPlan {
     pub fn describe(&self) -> String {
         let device = match &self.observation.transport {
             crate::device::DeviceTransport::SerialPort(port) => port.as_str(),
+            crate::device::DeviceTransport::SerialDfuPort(port) => port.as_str(),
             crate::device::DeviceTransport::MountedVolume(volume) => volume.as_str(),
         };
         let facts = self
@@ -450,7 +451,7 @@ pub fn plan_flash(
         CompatibilityFact {
             name: "board revision".into(),
             value: board.revision.clone(),
-            source: "owner confirmation".into(),
+            source: board.evidence.describe(),
         },
         CompatibilityFact {
             name: "processor".into(),
@@ -781,6 +782,26 @@ mod tests {
     }
 
     #[test]
+    fn documented_product_profile_is_retained_as_revision_evidence() {
+        let mut observation = observation();
+        observation.selected_board = Some(BoardSelection::documented_product_profile(
+            BoardFamily::HeltecV4,
+            "4.2",
+            "Meshnology N39 WiFi LoRa 32 V4 kit",
+            "https://wiki.meshnology.com/N39/Meshnology%20N39/",
+        ));
+
+        let plan = plan_flash(&observation, &package())
+            .expect("a documented exact product profile remains a compatible selection");
+        assert!(plan.compatibility().iter().any(|fact| {
+            fact.name == "board revision"
+                && fact.value == "4.2"
+                && fact.source.contains("Meshnology N39")
+                && fact.source.contains("wiki.meshnology.com")
+        }));
+    }
+
+    #[test]
     fn sparse_package_plan_preserves_every_artifact_and_offset() {
         let plan = plan_flash(&observation(), &sparse_package()).expect("sparse package plans");
         assert_eq!(plan.helper(), "esptool");
@@ -896,6 +917,7 @@ mod tests {
             family: BoardFamily::HeltecV4,
             revision: "4.1".into(),
             confirmed_by_owner: true,
+            evidence: crate::device::BoardSelectionEvidence::CarrierMarking,
         });
         let refusal =
             plan_flash(&observation, &package()).expect_err("unsupported revision must refuse");

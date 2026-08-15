@@ -2,12 +2,20 @@
 
 **Date:** 2026-08-08  
 **Status:** F1-F4 software slices landed; physical/public acceptance remains
-open where each gate requires it. F5 is open. Signalman G0-G3 landed and G4 has
-a physical keyboard-operated V4 install receipt; V4 recovery, T114, and manual
-screen-reader acceptance remain open. F7 is in progress: Linkboy installed,
-exercised, and restored a signed Prns V4 package, while the graphical
-cross-firmware restore and a T114 upstream package remain open. Sidequests
-remain unstarted unless a later receipt says otherwise.
+open where each gate requires it. F5 is open. On 2026-08-14 Signalman installed
+the admitted Prns Hopspot V4 package, completed its required 115200-baud
+self-check, and restored Retinue to terminal `Complete` on the same N39 V4.2.
+The graphical T114 path also installed the admitted Meshtastic UF2 package and
+restored Retinue. F7's physical cross-firmware proof is therefore complete on
+both supported board families; public catalog promotion remains gated by F5.
+On 2026-08-15 a Windows V4 staging build resolved its pinned `espflash` helper
+from its own `helpers/windows-x86_64` directory, without helper or catalog
+environment overrides, installed Hopspot, and restored Retinue on COM6. This is
+not a public F5 completion: the stage deliberately excludes T114 and macOS and
+Linux still lack physical receipts. Narrator traversal reached the non-writing
+review boundary, but the spoken-quality judgement remains owner evidence.
+Repeated T114 CDC sessions still expose a separate Windows semaphore-timeout
+defect. Sidequests remain unstarted unless a later receipt says otherwise.
 
 ## Execution list, 2026-08-12
 
@@ -28,12 +36,19 @@ remain unstarted unless a later receipt says otherwise.
 - [x] Add owner-flow and accessibility coverage for both declarations through
   the real desktop view without opening hardware in the tests.
 - [x] Run the Linkboy and Signalman suites.
-- [ ] Produce a fresh Signalman desktop suite receipt. The 2026-08-12 run stayed
-  in Cargo's fixed-lock dependency resolver for more than eight minutes without
-  reaching compilation, so this remains open rather than inferred from the
-  previously green desktop suite.
-- [ ] Take the remaining physical Signalman receipts: V4 recovery; T114
-  preflight, install, and recovery; and a manual screen-reader pass.
+- [x] Produce a fresh Signalman desktop suite receipt. On 2026-08-14 the
+  ordinary locked, offline standalone suite passed 18 tests: one library test,
+  five accessibility tests, and twelve owner-flow tests.
+- [x] Take the final post-fix T114 recovery receipt. The T114 preflight,
+  Meshtastic UF2 transfer, Retinue restore, and terminal graphical `Complete`
+  result are recorded in
+  `2026-08-14_signalman_t114_graphical_receipt.md`.
+- [x] Take the V4 graphical cross-firmware install, required Hopspot
+  self-check, and Retinue restore receipt. See
+  `2026-08-14_com6_n39_hopspot_signalman_graphical_receipt.md` and
+  `2026-08-14_com6_n39_hopspot_retinue_signalman_restore_receipt.md`.
+- [ ] Take the manual screen-reader pass. Repeated T114 CDC-session reliability
+  is tracked separately from the completed recovery receipt.
 
 F3a stops after those receipts. It does not absorb helper distribution, BLE,
 OTA, browser flashing, fleet updates, or catalog promotion.
@@ -46,9 +61,10 @@ OTA, browser flashing, fleet updates, or catalog promotion.
 2. **F6, graphical acceptance.** Package the Signalman face, preserve the
    standalone Linkboy recovery door, finish keyboard and manual assistive-tech
    acceptance, and prove reconnect/recovery context survives the whole flow.
-3. **F7, firmware choice.** Finish graphical cross-firmware installation and
-   restoration for the admitted V4 and T114 packages, then publish only the
-   verified availability into the Mer3ly catalog.
+3. **F7, firmware choice.** The graphical cross-firmware installation and
+   restoration proof is complete for the admitted V4 and T114 packages. Publish
+   only verified availability into the Mer3ly catalog after F5's public
+   installer and recovery receipts exist.
 
 ### Sidequest queue after the trunk
 
@@ -366,6 +382,14 @@ Done conditions:
 The structured routes deliberately land before packaging policy. Then one
 measured spike chooses, per route, between a supported library API, a pinned
 bundled helper, or a simpler native operating-system path such as UF2.
+`2026-08-14_linkboy_f5_windows_custody_receipt.md` records the present local
+Windows executables and digests without promoting them to shipped custody.
+`2026-08-15_signalman_windows_v4_staged_helper_receipt.md` adds a physical
+Windows V4 stage: its executable resolved `espflash` from the adjacent,
+digest-checked helper directory, then flashed and recovered the physical N39.
+Ambient `PATH` lookup now requires the explicit development-only
+`LINKBOY_ALLOW_PATH_HELPERS=1` setting. The staged catalog excludes the T114
+route until its helper policy is settled.
 
 Decision criteria:
 

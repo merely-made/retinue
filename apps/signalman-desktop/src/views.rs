@@ -3,7 +3,7 @@
 //! Everything a page shows comes from the flow's own projection. The review
 //! page in particular renders `FirmwareReview` field by field: package identity
 //! and version, publisher, every artifact hash and address, license and source, origin, board
-//! revision, route and helper provenance, write and preserved ranges, state
+//! revision and its evidence, route and helper provenance, write and preserved ranges, state
 //! impact, and recovery instructions. None of it is summarized away, because
 //! the whole point of a review page is that the owner can check it.
 //!
@@ -14,7 +14,7 @@
 use cambium::{AnyView, GenetCtx, GenetElement, button, el, text};
 use linkboy::{OwnerStage, ReceiptResult, StateImpact};
 
-use crate::state::{DesktopState, Request, SurveyState};
+use crate::state::{DesktopState, MESHNOLOGY_N39_DOCUMENTATION_URL, Request, SurveyState};
 
 pub type Child = Box<dyn AnyView<DesktopState, (), GenetCtx, GenetElement>>;
 pub type Logic = fn(&DesktopState) -> Child;
@@ -188,17 +188,32 @@ fn choose_device(state: &DesktopState) -> Child {
         })
         .or_else(|| state.selected_board_family.clone());
     let is_t114 = matches!(&family, Some(linkboy::BoardFamily::T114));
+    let selected_device_is_silent = state.device().is_some_and(|device| device.board.is_none());
     let known_revision: Child = match family {
-        Some(linkboy::BoardFamily::HeltecV4) => Box::new(
-            button("Use V4 revision 4.2", |s: &mut DesktopState, _| {
-                s.select_board_revision("4.2")
-            })
-            .attr("class", "secondary")
-            .attr(
-                "aria-description",
-                "Select only when 4.2 is printed on the Heltec V4 board.",
+        Some(linkboy::BoardFamily::HeltecV4) => Box::new(el(
+            "div",
+            (
+                button("Use V4 revision 4.2", |s: &mut DesktopState, _| {
+                    s.select_board_revision("4.2")
+                })
+                .attr("class", "secondary")
+                .attr(
+                    "aria-description",
+                    "Select only when 4.2 is printed on the Heltec V4 board.",
+                ),
+                button(
+                    "Use Meshnology N39 V4.2 profile",
+                    |s: &mut DesktopState, _| s.select_meshnology_n39_v4_2_profile(),
+                )
+                .attr("class", "secondary")
+                .attr(
+                    "aria-description",
+                    format!(
+                        "Select only for the Meshnology N39 kit. Its published product documentation names the V4.2 schematic: {MESHNOLOGY_N39_DOCUMENTATION_URL}"
+                    ),
+                ),
             ),
-        ),
+        )),
         Some(linkboy::BoardFamily::T114) => Box::new(
             button("Use T114 revision 2.x", |s: &mut DesktopState, _| {
                 s.select_board_revision("2.x")
@@ -216,10 +231,7 @@ fn choose_device(state: &DesktopState) -> Child {
     // declarations are neither useful nor keyboard stops on its chooser page.
     // Selecting a family only permits the corresponding non-writing evidence
     // path; it does not turn the COM location into hardware evidence.
-    let declare_silent_device: Child = if state
-        .device()
-        .is_some_and(|device| device.board.is_none())
-    {
+    let declare_silent_device: Child = if selected_device_is_silent {
         Box::new(
             el(
                 "div",
@@ -243,6 +255,34 @@ fn choose_device(state: &DesktopState) -> Child {
                 ),
             )
             .attr("class", "actions"),
+        )
+    } else {
+        Box::new(el("div", ()).attr("class", "empty-none"))
+    };
+    let t114_dfu_recovery: Child = if is_t114 && selected_device_is_silent {
+        Box::new(
+            el(
+                "div",
+                (
+                    el("div", text("T114 DFU recovery")).attr("class", "field-label"),
+                    el(
+                        "div",
+                        text(
+                            "Use this only after the selected silent port is already in the T114 serial-DFU loader. Linkboy will use the retained loader record and will not ask an absent application to enter DFU again.",
+                        ),
+                    )
+                    .attr("class", "hint"),
+                    button("Use selected T114 DFU port", |s: &mut DesktopState, _| {
+                        s.request(Request::ConfirmT114Dfu)
+                    })
+                    .attr("class", "secondary")
+                    .attr(
+                        "aria-description",
+                        "Confirm that the selected silent port is already the DFU loader captured in the retained T114 loader record.",
+                    ),
+                ),
+            )
+            .attr("class", "revision-row"),
         )
     } else {
         Box::new(el("div", ()).attr("class", "empty-none"))
@@ -342,8 +382,9 @@ fn choose_device(state: &DesktopState) -> Child {
                     el(
                         "div",
                         text(
-                            "As printed on the board. Nothing on the wire says which \
-                             revision this is, so a plan is refused without it.",
+                            "As printed on the board, or from a named documented product \
+                             profile. Nothing on the wire identifies a revision, so Linkboy \
+                             records the source before it plans a flash.",
                         ),
                     )
                     .attr("class", "hint"),
@@ -353,6 +394,7 @@ fn choose_device(state: &DesktopState) -> Child {
             .attr("class", "revision-row"),
             declare_silent_device,
             t114_uf2_route,
+            t114_dfu_recovery,
             el(
                 "div",
                 (
@@ -525,6 +567,10 @@ fn review_changes(state: &DesktopState) -> Child {
                 (
                     field("Board", review.board.clone()),
                     field("Board revision", review.board_revision.clone()),
+                    field(
+                        "Board revision evidence",
+                        review.board_revision_evidence.clone(),
+                    ),
                     field("Route", review.route.clone()),
                     field(
                         "Helper",
@@ -686,6 +732,13 @@ fn verify_or_recover(state: &DesktopState) -> Child {
                         receipt
                             .as_ref()
                             .map(|r| format!("{:?} {}", r.board, r.board_revision))
+                            .unwrap_or_default(),
+                    ),
+                    field(
+                        "Board revision evidence",
+                        receipt
+                            .as_ref()
+                            .map(|r| r.board_selection_evidence.clone())
                             .unwrap_or_default(),
                     ),
                 ),

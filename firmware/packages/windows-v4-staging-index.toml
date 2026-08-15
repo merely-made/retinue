@@ -1,0 +1,28 @@
+# Windows V4-only staging catalog.
+#
+# This is a packaging fixture, not the public catalog. It deliberately excludes
+# T114 packages because the serial-DFU helper has not passed redistribution
+# review. The regular index remains the source of catalog policy.
+schema = "retinue.package-index/v1"
+publisher = "Merely Made"
+version = "1"
+
+[[packages]]
+package_id = "retinue.heltec-v4"
+manifest = "heltec-v4-current.toml"
+firmware_publisher = "Merely Made"
+state = "partial"
+instructions_url = "https://github.com/merely-made/retinue/blob/main/firmware/packages/README.md"
+recovery_url = "https://github.com/merely-made/retinue/blob/main/firmware/packages/heltec-v4-current-recovery.md"
+installer_receipts = []
+recovery_receipts = []
+
+[[packages]]
+package_id = "prns.hopspot.heltec-v4"
+manifest = "hopspot-v4-0.3.4.toml"
+firmware_publisher = "Prns"
+state = "partial"
+instructions_url = "https://github.com/merely-made/retinue/blob/main/firmware/packages/README.md"
+recovery_url = "https://github.com/merely-made/retinue/blob/main/firmware/packages/heltec-v4-current-recovery.md"
+installer_receipts = []
+recovery_receipts = []

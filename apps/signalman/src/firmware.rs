@@ -122,14 +122,32 @@ pub fn observe_device_with_t114_loader_snapshot(
     selection: Option<(linkboy::BoardFamily, String)>,
     loader_snapshot: Option<&linkboy::T114LoaderSnapshot>,
 ) -> Result<DeviceObservation, FirmwareError> {
+    observe_device_with_board_selection_and_t114_loader_snapshot(
+        port,
+        selection
+            .map(|(family, revision)| linkboy::BoardSelection::owner_confirmed(family, revision)),
+        loader_snapshot,
+    )
+}
+
+/// Observe a serial application port with a complete owner-confirmed board selection.
+///
+/// This preserves the basis for a revision claim in the immutable plan. A documented product
+/// profile is accepted only as that named profile, never as permission to treat every board in
+/// the same family as interchangeable.
+pub fn observe_device_with_board_selection_and_t114_loader_snapshot(
+    port: &str,
+    selection: Option<linkboy::BoardSelection>,
+    loader_snapshot: Option<&linkboy::T114LoaderSnapshot>,
+) -> Result<DeviceObservation, FirmwareError> {
     let found = linkboy::identify(port);
     let mut observation = DeviceObservation::from_found(&found);
-    if let Some((family, revision)) = selection.clone() {
-        observation = observation.confirm_board(family, revision);
+    if let Some(selection) = selection.clone() {
+        observation = observation.confirm_board_selection(selection);
     }
     if let Some(snapshot) = loader_snapshot {
         if !matches!(
-            selection.as_ref().map(|(family, _)| family),
+            selection.as_ref().map(|selection| &selection.family),
             Some(linkboy::BoardFamily::T114)
         ) {
             return Err(FirmwareError::LoaderSnapshot(
@@ -158,6 +176,31 @@ pub fn observe_device_with_t114_loader_snapshot(
         });
     }
     Ok(observation)
+}
+
+/// Observe an owner-selected port that is already running the T114 serial-DFU loader.
+///
+/// The retained loader record supplies the hardware facts, while the explicit transport state
+/// tells Linkboy to invoke the DFU helper directly instead of asking an absent application to
+/// enter the bootloader again.
+pub fn observe_t114_serial_dfu_port(
+    port: &str,
+    revision: String,
+    loader_snapshot: &linkboy::T114LoaderSnapshot,
+) -> DeviceObservation {
+    let facts = loader_snapshot.serial_dfu_observation();
+    DeviceObservation::from_bootloader(
+        linkboy::DeviceTransport::SerialDfuPort(port.to_string()),
+        facts.clone(),
+    )
+    .confirm_board(linkboy::BoardFamily::T114, revision)
+    .with_hardware(linkboy::HardwareFacts {
+        processor: facts.processor.clone(),
+        flash_size: facts.flash_size,
+        bootloader: facts.bootloader.clone(),
+        loader_route: Some("captured-t114-loader-snapshot".into()),
+        bootloader_usb: Some(facts),
+    })
 }
 
 /// Observe an explicitly named mounted T114 UF2 volume, retaining the record needed for a
@@ -266,6 +309,8 @@ pub struct FirmwareReview {
     pub origin_url: String,
     pub board: String,
     pub board_revision: String,
+    /// Why Linkboy accepts the otherwise-unobservable carrier revision.
+    pub board_revision_evidence: String,
     pub route: String,
     pub helper: String,
     pub helper_version: String,
@@ -552,6 +597,9 @@ impl FirmwareInstaller {
             .observation()
             .map(|observation| match &observation.transport {
                 linkboy::DeviceTransport::SerialPort(port) => format!("serial:{port}"),
+                linkboy::DeviceTransport::SerialDfuPort(port) => {
+                    format!("serial-dfu:{port}")
+                }
                 linkboy::DeviceTransport::MountedVolume(volume) => format!("volume:{volume}"),
             });
         let package = self.flow.package().map(|package| {
@@ -705,6 +753,7 @@ fn review(plan: &FlashPlan, package: &FlashPackage) -> FirmwareReview {
         origin_url: manifest.origin_url.clone(),
         board: plan.board().family.to_string(),
         board_revision: plan.board().revision.clone(),
+        board_revision_evidence: plan.board().evidence.describe(),
         route: plan.route().to_string(),
         helper: plan.helper().to_string(),
         helper_version: helper
@@ -770,5 +819,39 @@ mod tests {
             .load_package("retinue.t114")
             .expect("T114 manifest should resolve");
         assert_eq!(package.manifest().package_id, "retinue.t114");
+    }
+
+    #[test]
+    fn an_owner_confirmed_t114_dfu_port_keeps_loader_evidence_and_transport_state() {
+        let snapshot = linkboy::T114LoaderSnapshot {
+            schema: linkboy::discovery::T114_LOADER_SNAPSHOT_SCHEMA,
+            model: "HT-n5262".into(),
+            uf2_bootloader: "0.9.0".into(),
+            softdevice: "S140 6.1.1".into(),
+            processor: linkboy::ProcessorKind::Nrf52840,
+            flash_size: 1024 * 1024,
+        };
+
+        let observation = observe_t114_serial_dfu_port("COM10", "2.x".into(), &snapshot);
+
+        assert_eq!(
+            observation.transport,
+            linkboy::DeviceTransport::SerialDfuPort("COM10".into())
+        );
+        assert_eq!(
+            observation.firmware,
+            linkboy::device::FirmwareState::Bootloader
+        );
+        assert_eq!(
+            observation.hardware.loader_route.as_deref(),
+            Some("captured-t114-loader-snapshot")
+        );
+        assert_eq!(
+            observation
+                .selected_board
+                .as_ref()
+                .map(|board| &board.family),
+            Some(&linkboy::BoardFamily::T114)
+        );
     }
 }

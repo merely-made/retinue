@@ -79,7 +79,12 @@ AIR3's required on-air bounded-state receipt is met:
 
 This does **not** yet provide the stronger three-part transaction: a link
 request forwarded to a destination and its returned proof. That is transport
-coverage beyond AIR3's announce-relay/firmware-state gate. The final post-wave
+coverage beyond AIR3's announce-relay/firmware-state gate. It is specified in
+[the transit link receipt spec](2026-08-14_transit_link_receipt_spec.md),
+which found the tooling gap smaller than expected (`node_link` already drives
+a direct-PHY link, `link_peer` already has the responder role) and the
+topology requirement larger: three radios in one room hear each other, so the
+claim needs a relay-off control, not just a completed link. The final post-wave
 three T114 serial read is also absent because the CDC endpoint stopped accepting
 writes after the source session; it does not alter the measured bounded state
 above, but it remains a T114 host-reliability follow-up.

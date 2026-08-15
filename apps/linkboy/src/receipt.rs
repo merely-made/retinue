@@ -8,7 +8,11 @@ use crate::device::{DeviceObservation, DeviceTransport};
 use crate::package::{BoardFamily, FlashRoute, ProcessorKind, PublisherSignature};
 use crate::plan::{FlashPlan, HelperIdentity, PackagePartIdentity};
 
-pub const RECEIPT_SCHEMA: u32 = 3;
+pub const RECEIPT_SCHEMA: u32 = 4;
+
+fn default_board_selection_evidence() -> String {
+    "owner confirmation from carrier marking".into()
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -43,6 +47,10 @@ pub struct FlashReceipt {
     pub publisher_signature: Option<PublisherSignature>,
     pub board: BoardFamily,
     pub board_revision: String,
+    /// The explicit owner evidence for a carrier revision. Old receipts predate this field and
+    /// therefore retain the historical carrier-marking default when they are read.
+    #[serde(default = "default_board_selection_evidence")]
+    pub board_selection_evidence: String,
     pub route: FlashRoute,
     pub helper: HelperIdentity,
     pub transport: String,
@@ -92,6 +100,7 @@ impl FlashReceipt {
             publisher_signature: plan.package().publisher_signature.clone(),
             board: plan.board().family.clone(),
             board_revision: plan.board().revision.clone(),
+            board_selection_evidence: plan.board().evidence.describe(),
             route: plan.route().clone(),
             helper: plan.helper_identity().clone(),
             transport: transport_label(&observation.transport),
@@ -123,6 +132,7 @@ impl FlashReceipt {
 pub fn transport_label(transport: &DeviceTransport) -> String {
     match transport {
         DeviceTransport::SerialPort(port) => format!("serial:{port}"),
+        DeviceTransport::SerialDfuPort(port) => format!("serial-dfu:{port}"),
         DeviceTransport::MountedVolume(volume) => format!("volume:{volume}"),
     }
 }
@@ -223,6 +233,8 @@ mod tests {
         );
         let json = receipt.to_json().unwrap();
         assert!(json.contains("package_parts"));
+        assert!(json.contains("board_selection_evidence"));
+        assert!(json.contains("carrier marking"));
         assert!(!json.contains("private-key-material"));
         assert!(!json.contains("status_reply"));
     }
@@ -245,6 +257,39 @@ mod tests {
         ));
         receipt.save_json(&path).unwrap();
         assert_eq!(FlashReceipt::load_json(&path).unwrap(), receipt);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn schema_three_receipt_defaults_carrier_evidence_when_loaded() {
+        let receipt = FlashReceipt::complete(
+            &plan(),
+            ApplicationVerification {
+                board: BoardFamily::HeltecV4,
+                version: "0.0.1".into(),
+                region: Some("US915".into()),
+                channel: Some("rnode".into()),
+            },
+            Vec::new(),
+        );
+        let mut legacy_json: serde_json::Value =
+            serde_json::from_str(&receipt.to_json().unwrap()).unwrap();
+        let legacy = legacy_json.as_object_mut().unwrap();
+        legacy.insert("schema".into(), serde_json::Value::from(3));
+        legacy.remove("board_selection_evidence");
+
+        let path = std::env::temp_dir().join(format!(
+            "linkboy-schema-three-receipt-{}.json",
+            std::process::id()
+        ));
+        std::fs::write(&path, serde_json::to_vec(&legacy_json).unwrap()).unwrap();
+
+        let loaded = FlashReceipt::load_json(&path).unwrap();
+        assert_eq!(loaded.schema, 3);
+        assert_eq!(
+            loaded.board_selection_evidence,
+            "owner confirmation from carrier marking"
+        );
         std::fs::remove_file(path).unwrap();
     }
 }

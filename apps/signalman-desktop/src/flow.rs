@@ -5,7 +5,10 @@
 //! decides compatibility, or runs helpers: Signalman starts the exact approved
 //! install and owns its blocking worker.
 
-use signalman::{InstallerWake, capture_t114_uf2_volume, observe_device_with_t114_loader_snapshot};
+use signalman::{
+    InstallerWake, capture_t114_uf2_volume,
+    observe_device_with_board_selection_and_t114_loader_snapshot, observe_t114_serial_dfu_port,
+};
 
 use crate::state::{DesktopState, Request};
 use crate::worker::Worker;
@@ -24,6 +27,7 @@ pub fn perform(
         }
         Request::ConfirmDevice => confirm_device(state),
         Request::ConfirmMountedT114 => confirm_mounted_t114(state),
+        Request::ConfirmT114Dfu => confirm_t114_dfu(state),
         Request::ConfirmFirmware => confirm_firmware(state),
         Request::ApproveChanges => {
             if let Err(error) = state.installer.approve_changes() {
@@ -39,15 +43,15 @@ fn confirm_device(state: &mut DesktopState) {
         state.refuse_with(vec!["Choose a device first.".into()]);
         return;
     };
-    // The owner names the board revision. Linkboy refuses a plan without one,
-    // and it is right to: a revision is a claim only a person looking at the
-    // board can make.
+    // The owner supplies a carrier marking or intentionally chooses a documented product
+    // profile. Linkboy refuses a plan without a revision source; it must never infer one from a
+    // serial port or USB identity.
     let revision = state.board_revision.text().trim().to_string();
     if revision.is_empty() {
         state.refuse_with(vec![
-            "Enter the exact board revision printed on the board.".into(),
-            "Linkboy refuses to plan a flash without it, because nothing it can \
-             read off the wire tells it which revision this is."
+            "Enter the exact board revision or choose a documented product profile.".into(),
+            "Linkboy refuses to plan a flash without a source, because nothing it can \
+             read off the wire tells it which carrier revision this is."
                 .into(),
         ]);
         return;
@@ -60,6 +64,7 @@ fn confirm_device(state: &mut DesktopState) {
         )]);
         return;
     };
+    let selection = state.board_selection(family.clone(), revision);
     let loader_snapshot = if family == linkboy::BoardFamily::T114
         && !state.t114_loader_record.text().trim().is_empty()
     {
@@ -80,9 +85,9 @@ fn confirm_device(state: &mut DesktopState) {
         ]);
         return;
     }
-    match observe_device_with_t114_loader_snapshot(
+    match observe_device_with_board_selection_and_t114_loader_snapshot(
         &device.port,
-        Some((family, revision)),
+        Some(selection),
         loader_snapshot.as_ref(),
     ) {
         Ok(observation) => match state.installer.choose_device(observation) {
@@ -121,6 +126,49 @@ fn confirm_mounted_t114(state: &mut DesktopState) {
             Err(error) => state.refuse(&error),
         },
         Err(error) => state.refuse_with(vec![error.to_string()]),
+    }
+}
+
+fn confirm_t114_dfu(state: &mut DesktopState) {
+    let Some(device) = state.device().cloned() else {
+        state.refuse_with(vec!["Choose the T114 DFU port first.".into()]);
+        return;
+    };
+    if device.board.is_some() {
+        state.refuse_with(vec![
+            "This port answered as an application; use the ordinary device action instead.".into(),
+        ]);
+        return;
+    }
+    if state.selected_board_family.as_ref() != Some(&linkboy::BoardFamily::T114) {
+        state.refuse_with(vec![
+            "Declare the selected silent serial device as the T114 you own first.".into(),
+        ]);
+        return;
+    }
+    let revision = state.board_revision.text().trim().to_string();
+    if revision.is_empty() {
+        state.refuse_with(vec!["Enter the exact T114 board revision first.".into()]);
+        return;
+    }
+    let record_path = state.t114_loader_record.text().trim();
+    if record_path.is_empty() {
+        state.refuse_with(vec![
+            "Enter the loader-record path captured from this T114 first.".into(),
+        ]);
+        return;
+    }
+    let snapshot = match linkboy::T114LoaderSnapshot::from_json(record_path) {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            state.refuse_with(vec![error.to_string()]);
+            return;
+        }
+    };
+    let observation = observe_t114_serial_dfu_port(&device.port, revision, &snapshot);
+    match state.installer.choose_device(observation) {
+        Ok(()) => state.refusal.clear(),
+        Err(error) => state.refuse(&error),
     }
 }
 

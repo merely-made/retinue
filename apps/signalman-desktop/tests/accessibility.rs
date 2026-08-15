@@ -130,6 +130,20 @@ fn silent_device_declarations_are_separate_named_controls() {
         has_named_button(&nodes, "This serial device is a T114"),
         "{nodes:?}"
     );
+
+    h.update(|state| state.select_board_family(BoardFamily::HeltecV4));
+    let nodes = announced(&mut h);
+    assert!(
+        has_named_button(&nodes, "Use Meshnology N39 V4.2 profile"),
+        "the documented V4 profile is a named control: {nodes:?}"
+    );
+
+    h.update(|state| state.select_board_family(BoardFamily::T114));
+    let nodes = announced(&mut h);
+    assert!(
+        has_named_button(&nodes, "Use selected T114 DFU port"),
+        "the already-in-DFU recovery action is named: {nodes:?}"
+    );
 }
 
 /// Focus is reported to the reader, so its virtual cursor lands where the

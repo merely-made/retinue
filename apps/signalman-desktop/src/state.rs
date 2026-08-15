@@ -16,6 +16,17 @@ use signalman::{
     event_progress, refusal_lines,
 };
 
+/// An externally documented carrier profile, selected by the owner instead of inferred from a
+/// serial transport. Each variant is intentionally package-specific.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum V4ProductProfile {
+    MeshnologyN39V42,
+}
+
+pub const MESHNOLOGY_N39_NAME: &str = "Meshnology N39 WiFi LoRa 32 V4 kit";
+pub const MESHNOLOGY_N39_DOCUMENTATION_URL: &str =
+    "https://wiki.meshnology.com/N39/Meshnology%20N39/";
+
 /// A side-effecting step the view asks for and the application loop performs.
 ///
 /// Views never touch a serial port or start a thread: a handler records the
@@ -29,6 +40,8 @@ pub enum Request {
     ConfirmDevice,
     /// Take an explicitly named T114 UF2 volume into the flow.
     ConfirmMountedT114,
+    /// Take an owner-confirmed port already running the captured T114 DFU loader into the flow.
+    ConfirmT114Dfu,
     /// Take the selected package into the flow (this is where a refusal comes
     /// from).
     ConfirmFirmware,
@@ -66,6 +79,9 @@ pub struct DesktopState {
     /// The board revision the owner types. A plan is refused without it, and
     /// that refusal is shown rather than hidden behind a disabled control.
     pub board_revision: cambium::TextInput,
+    /// A narrowly named, externally documented source for a revision. This is distinct from a
+    /// typed carrier marking so the approved plan says why either claim is allowed.
+    pub v4_product_profile: Option<V4ProductProfile>,
     /// A mounted `HT-n5262` UF2 volume, entered explicitly because a drive
     /// letter is a transport location rather than an inferred board identity.
     pub t114_uf2_volume: cambium::TextInput,
@@ -110,6 +126,7 @@ impl DesktopState {
             selected_package: None,
             selected_board_family: None,
             board_revision: cambium::TextInput::default(),
+            v4_product_profile: None,
             t114_uf2_volume: cambium::TextInput::default(),
             t114_loader_record: cambium::TextInput::default(),
             refusal: Vec::new(),
@@ -174,6 +191,7 @@ impl DesktopState {
         if index < self.devices.len() {
             self.selected_device = Some(index);
             self.selected_board_family = None;
+            self.v4_product_profile = None;
             self.refusal.clear();
         }
     }
@@ -182,6 +200,9 @@ impl DesktopState {
     /// deliberately separate from `select_device`: selecting a COM location
     /// never silently selects a board family.
     pub fn select_board_family(&mut self, family: BoardFamily) {
+        if family != BoardFamily::HeltecV4 {
+            self.v4_product_profile = None;
+        }
         self.selected_board_family = Some(family);
         self.refusal.clear();
     }
@@ -191,7 +212,39 @@ impl DesktopState {
     /// asks Linkboy to infer a revision from device evidence.
     pub fn select_board_revision(&mut self, revision: &str) {
         self.board_revision = cambium::TextInput::new(revision);
+        self.v4_product_profile = None;
         self.refusal.clear();
+    }
+
+    /// Select the exact V4.2 schematic profile documented for the owner's Meshnology N39 kit.
+    /// This does not generalize to another V4 carrier, and Linkboy still has to prove the
+    /// ESP32-S3/16 MiB ROM-loader facts before it will make a plan.
+    pub fn select_meshnology_n39_v4_2_profile(&mut self) {
+        self.selected_board_family = Some(BoardFamily::HeltecV4);
+        self.board_revision = cambium::TextInput::new("4.2");
+        self.v4_product_profile = Some(V4ProductProfile::MeshnologyN39V42);
+        self.refusal.clear();
+    }
+
+    /// Make the owner-confirmed selection that Signalman asks Linkboy to validate against its
+    /// package and loader facts.
+    pub fn board_selection(
+        &self,
+        family: BoardFamily,
+        revision: impl Into<String>,
+    ) -> linkboy::BoardSelection {
+        let revision = revision.into();
+        match (family.clone(), revision.as_str(), self.v4_product_profile) {
+            (BoardFamily::HeltecV4, "4.2", Some(V4ProductProfile::MeshnologyN39V42)) => {
+                linkboy::BoardSelection::documented_product_profile(
+                    family,
+                    revision,
+                    MESHNOLOGY_N39_NAME,
+                    MESHNOLOGY_N39_DOCUMENTATION_URL,
+                )
+            }
+            _ => linkboy::BoardSelection::owner_confirmed(family, revision),
+        }
     }
 
     /// Select a catalog package by index.

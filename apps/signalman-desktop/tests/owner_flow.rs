@@ -18,7 +18,7 @@ use linkboy::package::{ProcessorKind, RecoveryInstructions};
 use linkboy::{
     BoardFamily, DeviceObservation, FlashEvent, HardwareFacts, OwnerStage, ReceiptResult,
 };
-use signalman_desktop::state::{DesktopState, Request};
+use signalman_desktop::state::{DesktopState, Request, V4ProductProfile};
 use signalman_desktop::views::{Child, Logic};
 use signalman_desktop::{SHEET, default_catalog_path, root};
 use winit::keyboard::NamedKey;
@@ -181,7 +181,7 @@ fn a_missing_board_revision_refuses_in_words() {
             "the refusal says what is missing",
         );
         assert!(
-            genet_probe::text_present(s, "refuses to plan a flash without it"),
+            genet_probe::text_present(s, "refuses to plan a flash without a source"),
             "and why it matters",
         );
     });
@@ -211,6 +211,10 @@ fn the_review_page_shows_every_plan_fact() {
             ("source url", review.source_url.as_str()),
             ("origin url", review.origin_url.as_str()),
             ("board revision", review.board_revision.as_str()),
+            (
+                "board revision evidence",
+                review.board_revision_evidence.as_str(),
+            ),
             ("helper", review.helper.as_str()),
             ("helper license", review.helper_license.as_str()),
             ("helper source", review.helper_source_url.as_str()),
@@ -240,6 +244,49 @@ fn the_review_page_shows_every_plan_fact() {
         assert!(genet_probe::text_present(s, "0x003f0000"));
         // And the state impact is spelled out rather than left as an enum.
         assert!(genet_probe::text_present(s, "Preserved"));
+    });
+}
+
+#[test]
+fn the_review_keeps_a_documented_v4_profile_as_revision_evidence() {
+    let mut h = harness(state());
+    let mut observation = v4_observation();
+    observation.selected_board = Some(BoardSelection::documented_product_profile(
+        BoardFamily::HeltecV4,
+        "4.2",
+        "Meshnology N39 WiFi LoRa 32 V4 kit",
+        "https://wiki.meshnology.com/N39/Meshnology%20N39/",
+    ));
+    h.update(|state| {
+        state
+            .installer
+            .choose_device(observation)
+            .expect("the documented profile has matching V4 facts");
+        state.select_package(0);
+        state.request(Request::ConfirmFirmware);
+    });
+    settle(&mut h);
+
+    let review = h
+        .state()
+        .view()
+        .review
+        .expect("the documented plan has a review");
+    assert!(review.board_revision_evidence.contains("Meshnology N39"));
+    assert!(
+        review
+            .board_revision_evidence
+            .contains("wiki.meshnology.com")
+    );
+    h.with_surfaces(|s| {
+        assert!(genet_probe::text_present(
+            s,
+            "Meshnology N39 WiFi LoRa 32 V4 kit"
+        ));
+        assert!(genet_probe::text_present(
+            s,
+            "https://wiki.meshnology.com/N39/Meshnology%20N39/"
+        ));
     });
 }
 
@@ -414,6 +461,19 @@ fn a_silent_device_offers_explicit_v4_and_t114_declarations() {
     assert_eq!(h.state().selected_board_family, Some(BoardFamily::HeltecV4));
     assert!(h.click_on(&Selector::role("button").containing("Use V4 revision 4.2")));
     assert_eq!(h.state().board_revision.text(), "4.2");
+    assert_eq!(h.state().v4_product_profile, None);
+
+    assert!(h.click_on(&Selector::role("button").containing("Use Meshnology N39 V4.2 profile")));
+    assert_eq!(h.state().board_revision.text(), "4.2");
+    assert_eq!(
+        h.state().v4_product_profile,
+        Some(V4ProductProfile::MeshnologyN39V42)
+    );
+    let selection = h.state().board_selection(BoardFamily::HeltecV4, "4.2");
+    assert!(matches!(
+        selection.evidence,
+        linkboy::BoardSelectionEvidence::DocumentedProductProfile { .. }
+    ));
 
     let mut h = harness(silent_state());
     assert!(h.click_on(&Selector::role("button").containing("COM9")));
@@ -423,7 +483,24 @@ fn a_silent_device_offers_explicit_v4_and_t114_declarations() {
         assert!(genet_probe::text_present(surfaces, "T114 UF2 route"));
         assert!(genet_probe::text_present(surfaces, "Mounted UF2 volume"));
         assert!(genet_probe::text_present(surfaces, "Loader record path"));
+        assert!(genet_probe::text_present(surfaces, "T114 DFU recovery"));
+        assert!(genet_probe::text_present(
+            surfaces,
+            "Use selected T114 DFU port"
+        ));
     });
+    assert!(h.click_on(&Selector::role("button").containing("Use T114 revision 2.x")));
+    let loader_record = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../design_docs/2026-08-12_t114_loader_snapshot.json");
+    h.update(|state| {
+        state.t114_loader_record =
+            cambium::TextInput::new(loader_record.to_string_lossy().into_owned());
+    });
+    assert!(h.click_on(&Selector::role("button").containing("Use selected T114 DFU port")));
+    assert_eq!(h.state().pending, Some(Request::ConfirmT114Dfu));
+    settle(&mut h);
+    assert_eq!(h.state().stage(), OwnerStage::ChooseFirmware);
+    assert_eq!(h.state().view().device.as_deref(), Some("serial-dfu:COM9"));
 }
 
 /// Keyboard order: Tab reaches every control on the device page, in the order
