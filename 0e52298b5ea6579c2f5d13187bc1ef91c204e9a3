@@ -1,0 +1,24 @@
+Correction: this commit's message describes only the transit link spec,
+which is 121 of its 1,549 inserted lines. It also carries another agent's
+Distribution lane work, which had landed between the previous clean status
+check and `git add -A`, and which the message should have named in its
+subject.
+
+Swept in, not written by that session:
+
+- signalman-desktop: flow, state, views, lib, accessibility and owner-flow
+  tests, Cargo manifests, and tools/assemble-windows-v4-stage.ps1
+- signalman: firmware and lib
+- linkboy: device, executor, helper, lib, plan, receipt, NOTICES
+- Distribution receipts dated 2026-08-14 and 2026-08-15: the COM6 N39
+  hopspot graphical and restore receipts, the N39 signalman graphical
+  receipt, the V4-2 prewrite probe, linkboy F5 Windows custody, meshnology
+  N39 V4-2 profile evidence, the signalman T114 graphical receipt and its
+  loader snapshot, and the Windows V4 staged helper receipt
+- firmware/packages/windows-v4-staging-index.toml
+- updates to the linkboy public flashing plan, the F5 spike, and the retinue
+  work lanes
+
+Cause, for the next time: the tree was clean minutes earlier, so `git add -A`
+ran without re-reading `git status`. The rule is to read status before
+writing the message, not only before staging.
