@@ -2476,6 +2476,7 @@ version = "0.1.0"
 dependencies = [
  "hex",
  "linkboy",
+ "outrider",
  "postilion",
  "retinue",
  "tokio",

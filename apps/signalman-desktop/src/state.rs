@@ -9,12 +9,76 @@
 //! elsewhere and hand their results in, which is what lets the whole six-page
 //! flow be driven in a headless test with no board plugged in.
 
+use std::collections::BTreeSet;
+use std::time::Duration;
+
 use linkboy::{BoardFamily, FlashEvent, FlashReceipt, OwnerStage, ReceiptResult};
+use seiche::{LayoutSnapshot, NodeKey};
+use signalman::management::{
+    ManagementMaterial, ManagementNodeId, ManagementPresence, ManagementRelationId, StalePolicy,
+};
 use signalman::{
     DeviceCandidate, FirmwareCatalog, FirmwareInstallNotice, FirmwareInstallRecovery,
     FirmwareInstallStage, FirmwareInstallUpdate, FirmwareInstaller, FirmwareView, describe_event,
     event_progress, refusal_lines,
 };
+
+use crate::device_mere::{DeviceMere, DeviceProjection, ReconcileReceipt};
+use crate::network::{
+    NetworkInput, NetworkLayout, NetworkPhysics, accept_layout, input_from_projection,
+    swatch_from_projection, world_from_normalized,
+};
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DesktopSection {
+    #[default]
+    Devices,
+    Network,
+    Messages,
+    Map,
+    Browse,
+}
+
+/// The pinned Cambium canvas has one honest label-density seam: labels shown
+/// or hidden. More density levels require an upstream component change.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LabelDensity {
+    Hidden,
+    #[default]
+    Shown,
+}
+
+/// Owner policy for the management surface. These defaults are initial values
+/// shown by the shell, not private constants that silently override a choice.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ManagementSettings {
+    pub stale_age_minutes: u32,
+    pub announce_history_bound: usize,
+    pub force_strength: f32,
+    pub layout_damping: f32,
+    pub label_density: LabelDensity,
+    pub show_last_known: bool,
+}
+
+impl Default for ManagementSettings {
+    fn default() -> Self {
+        Self {
+            stale_age_minutes: 15,
+            announce_history_bound: 256,
+            force_strength: 1.0,
+            layout_damping: 2.5,
+            label_density: LabelDensity::Shown,
+            show_last_known: true,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum NetworkRequest {
+    Reconcile(NetworkInput),
+    Pin(NodeKey, euclid::default::Point2D<f32>),
+    Unpin(NodeKey),
+}
 
 /// An externally documented carrier profile, selected by the owner instead of inferred from a
 /// serial transport. Each variant is intentionally package-specific.
@@ -62,6 +126,16 @@ pub enum SurveyState {
 }
 
 pub struct DesktopState {
+    pub section: DesktopSection,
+    pub management_settings: ManagementSettings,
+    pub device_mere: DeviceMere,
+    pub network_epoch: u64,
+    pub network_layout: Option<LayoutSnapshot>,
+    pub network_pan: (f32, f32),
+    pub network_zoom: f32,
+    pub selected_relation: Option<ManagementRelationId>,
+    pub pending_network: Option<NetworkRequest>,
+
     /// The owner flow. The only thing that can move a page.
     pub installer: FirmwareInstaller,
     /// The verified package catalog, or why it could not be loaded.
@@ -117,6 +191,15 @@ impl DesktopState {
             Err(error) => (None, Some(error.to_string())),
         };
         Self {
+            section: DesktopSection::Devices,
+            management_settings: ManagementSettings::default(),
+            device_mere: DeviceMere::new(),
+            network_epoch: 0,
+            network_layout: None,
+            network_pan: (0.0, 0.0),
+            network_zoom: 1.0,
+            selected_relation: None,
+            pending_network: None,
             installer: FirmwareInstaller::new(),
             catalog,
             catalog_error,
@@ -137,6 +220,267 @@ impl DesktopState {
             install_running: false,
             pending: None,
         }
+    }
+
+    pub fn show_section(&mut self, section: DesktopSection) {
+        self.section = section;
+    }
+
+    /// Apply one pure management projection to the app-owned Mere. Only a
+    /// topology change restarts physics; refreshed payload and stale markings
+    /// remain graph edits without disturbing the current layout.
+    pub fn apply_management_material(&mut self, material: &ManagementMaterial) -> ReconcileReceipt {
+        let previous_projection = self.network_projection();
+        let receipt = self.device_mere.reconcile(material);
+        let projection = self.network_projection();
+        if self.device_mere.selected().is_some_and(|selected| {
+            !projection
+                .nodes
+                .iter()
+                .any(|node| &node.fact.id == selected)
+        }) {
+            self.device_mere.select(None);
+        }
+        if self.selected_relation.as_ref().is_some_and(|selected| {
+            !projection
+                .relations
+                .iter()
+                .any(|relation| &relation.id == selected)
+        }) {
+            self.selected_relation = None;
+        }
+        if !same_visible_topology(&previous_projection, &projection) {
+            self.queue_network_reconcile(&projection);
+        }
+        receipt
+    }
+
+    pub fn network_projection(&self) -> DeviceProjection {
+        let mut projection = self.device_mere.projection();
+        if self.management_settings.show_last_known {
+            return projection;
+        }
+        projection
+            .nodes
+            .retain(|node| node.fact.presence == ManagementPresence::Live);
+        let visible = projection
+            .nodes
+            .iter()
+            .map(|node| node.key)
+            .collect::<BTreeSet<_>>();
+        projection
+            .relations
+            .retain(|relation| visible.contains(&relation.from) && visible.contains(&relation.to));
+        projection
+    }
+
+    pub fn network_swatch(
+        &self,
+    ) -> cambium::GraphCanvasSwatch<ManagementNodeId, signalman::management::ManagementPresence>
+    {
+        let projection = self.network_projection();
+        swatch_from_projection(
+            &projection,
+            self.network_layout.as_ref(),
+            self.device_mere.selected(),
+            self.network_pan,
+            self.network_zoom,
+            self.management_settings.label_density == LabelDensity::Shown,
+        )
+    }
+
+    pub fn take_network_request(&mut self) -> Option<NetworkRequest> {
+        self.pending_network.take()
+    }
+
+    pub fn adopt_network_layout(&mut self, layout: NetworkLayout) -> bool {
+        let Some(snapshot) = accept_layout(self.network_epoch, layout) else {
+            return false;
+        };
+        self.network_layout = Some(snapshot);
+        true
+    }
+
+    pub fn select_network_node(&mut self, id: ManagementNodeId) {
+        self.device_mere.select(Some(id));
+        self.selected_relation = None;
+    }
+
+    pub fn select_network_relation(&mut self, id: &str) {
+        let projection = self.network_projection();
+        self.selected_relation = projection
+            .relations
+            .iter()
+            .find(|relation| relation.id.as_str() == id)
+            .map(|relation| relation.id.clone());
+    }
+
+    pub fn drag_network_node(
+        &mut self,
+        id: &ManagementNodeId,
+        phase: cambium::PointerPhase,
+        normalized: (f32, f32),
+    ) {
+        let Some(key) = self
+            .network_projection()
+            .nodes
+            .iter()
+            .find(|node| &node.fact.id == id)
+            .map(|node| node.key)
+        else {
+            return;
+        };
+        self.pending_network = Some(match phase {
+            cambium::PointerPhase::Down | cambium::PointerPhase::Move => {
+                NetworkRequest::Pin(key, world_from_normalized(normalized))
+            }
+            cambium::PointerPhase::Up => NetworkRequest::Unpin(key),
+        });
+    }
+
+    pub fn pan_network(&mut self, dx: f32, dy: f32) {
+        self.network_pan.0 = (self.network_pan.0 + dx).clamp(-1.0, 1.0);
+        self.network_pan.1 = (self.network_pan.1 + dy).clamp(-1.0, 1.0);
+    }
+
+    pub fn zoom_network(&mut self, factor: f32) {
+        self.network_zoom = (self.network_zoom * factor).clamp(0.5, 3.0);
+    }
+
+    pub fn reset_network_view(&mut self) {
+        self.network_pan = (0.0, 0.0);
+        self.network_zoom = 1.0;
+    }
+
+    /// The stale policy a future station-snapshot lease must pass to
+    /// `project_management`. The current exact Mere pin exposes no such lease,
+    /// so this remains an explicit source-side seam rather than fake live data.
+    pub fn stale_policy(&self) -> StalePolicy {
+        StalePolicy {
+            after: Duration::from_secs(u64::from(self.management_settings.stale_age_minutes) * 60),
+        }
+    }
+
+    /// Postilion reads this bound when the station opens. It has no runtime
+    /// setter, so the shell labels this value as applying to the next connection.
+    pub fn announce_history_bound(&self) -> usize {
+        self.management_settings.announce_history_bound
+    }
+
+    pub fn shorten_stale_age(&mut self) {
+        self.management_settings.stale_age_minutes = self
+            .management_settings
+            .stale_age_minutes
+            .saturating_sub(5)
+            .max(1);
+    }
+
+    pub fn lengthen_stale_age(&mut self) {
+        self.management_settings.stale_age_minutes = self
+            .management_settings
+            .stale_age_minutes
+            .saturating_add(5)
+            .min(10_080);
+    }
+
+    pub fn reduce_history_bound(&mut self) {
+        self.management_settings.announce_history_bound =
+            (self.management_settings.announce_history_bound / 2).max(16);
+    }
+
+    pub fn increase_history_bound(&mut self) {
+        self.management_settings.announce_history_bound = self
+            .management_settings
+            .announce_history_bound
+            .saturating_mul(2)
+            .min(4096);
+    }
+
+    pub fn reduce_force_strength(&mut self) {
+        self.management_settings.force_strength =
+            (self.management_settings.force_strength * 0.8).max(0.25);
+        self.reconfigure_network_physics();
+    }
+
+    pub fn increase_force_strength(&mut self) {
+        self.management_settings.force_strength =
+            (self.management_settings.force_strength * 1.25).min(4.0);
+        self.reconfigure_network_physics();
+    }
+
+    pub fn reduce_layout_damping(&mut self) {
+        self.management_settings.layout_damping =
+            (self.management_settings.layout_damping - 0.5).max(0.5);
+        self.reconfigure_network_physics();
+    }
+
+    pub fn increase_layout_damping(&mut self) {
+        self.management_settings.layout_damping =
+            (self.management_settings.layout_damping + 0.5).min(8.0);
+        self.reconfigure_network_physics();
+    }
+
+    pub fn toggle_network_labels(&mut self) {
+        self.management_settings.label_density = match self.management_settings.label_density {
+            LabelDensity::Hidden => LabelDensity::Shown,
+            LabelDensity::Shown => LabelDensity::Hidden,
+        };
+    }
+
+    pub fn toggle_last_known(&mut self) {
+        self.management_settings.show_last_known = !self.management_settings.show_last_known;
+        if !self.management_settings.show_last_known {
+            let projection = self.network_projection();
+            if self.device_mere.selected().is_some_and(|selected| {
+                !projection
+                    .nodes
+                    .iter()
+                    .any(|node| &node.fact.id == selected)
+            }) {
+                self.device_mere.select(None);
+            }
+            if self.selected_relation.as_ref().is_some_and(|selected| {
+                !projection
+                    .relations
+                    .iter()
+                    .any(|relation| &relation.id == selected)
+            }) {
+                self.selected_relation = None;
+            }
+        }
+        let projection = self.network_projection();
+        self.queue_network_reconcile(&projection);
+    }
+
+    pub fn reset_management_settings(&mut self) {
+        let previous = self.management_settings;
+        self.management_settings = ManagementSettings::default();
+        if previous.force_strength != self.management_settings.force_strength
+            || previous.layout_damping != self.management_settings.layout_damping
+            || previous.show_last_known != self.management_settings.show_last_known
+        {
+            let projection = self.network_projection();
+            self.queue_network_reconcile(&projection);
+        }
+    }
+
+    fn reconfigure_network_physics(&mut self) {
+        let projection = self.network_projection();
+        self.queue_network_reconcile(&projection);
+    }
+
+    fn queue_network_reconcile(&mut self, projection: &DeviceProjection) {
+        self.network_epoch = self.network_epoch.saturating_add(1);
+        let physics = NetworkPhysics {
+            force_strength: self.management_settings.force_strength,
+            linear_damping: self.management_settings.layout_damping,
+        };
+        self.pending_network = Some(NetworkRequest::Reconcile(input_from_projection(
+            projection,
+            self.network_layout.as_ref(),
+            self.network_epoch,
+            physics,
+        )));
     }
 
     /// The flow's own projection: which page, and every field it carries.
@@ -427,4 +771,30 @@ fn stage_from_linkboy(stage: &linkboy::ExecutionStage) -> FirmwareInstallStage {
         linkboy::ExecutionStage::Rebooting => FirmwareInstallStage::Rebooting,
         linkboy::ExecutionStage::VerifyingApplication => FirmwareInstallStage::VerifyingApplication,
     }
+}
+
+fn same_visible_topology(left: &DeviceProjection, right: &DeviceProjection) -> bool {
+    left.nodes
+        .iter()
+        .map(|node| node.key)
+        .eq(right.nodes.iter().map(|node| node.key))
+        && left
+            .relations
+            .iter()
+            .map(|relation| {
+                (
+                    &relation.id,
+                    relation.from,
+                    relation.to,
+                    &relation.fact.kind,
+                )
+            })
+            .eq(right.relations.iter().map(|relation| {
+                (
+                    &relation.id,
+                    relation.from,
+                    relation.to,
+                    &relation.fact.kind,
+                )
+            }))
 }

@@ -33,7 +33,11 @@
 //! ```
 
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+pub mod management;
+
+use management::{DEFAULT_ANNOUNCE_HISTORY_BOUND, ManagementState};
 
 /// Nonces a stamp search may try before giving up.
 ///
@@ -100,6 +104,8 @@ pub struct StationConfig {
     /// announced. Thirty seconds is chatty for a shared band and right for a handful of
     /// people in a park; a real deployment wants far less.
     pub announce_interval: Duration,
+    /// Maximum announce observations retained for management history.
+    pub announce_history_bound: usize,
     /// The station's Reticulum identity.
     ///
     /// This is supplied by the host. Postilion deliberately neither persists
@@ -122,7 +128,30 @@ impl StationConfig {
             bandwidth_hz: 250_000,
             radio: Radio::Phy,
             announce_interval: Duration::from_secs(30),
+            announce_history_bound: DEFAULT_ANNOUNCE_HISTORY_BOUND,
             identity,
+        }
+    }
+}
+
+/// Non-secret radio configuration retained for management snapshots.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StationRadioConfig {
+    pub port: String,
+    pub bandwidth_hz: u32,
+    pub radio: Radio,
+    pub announce_interval: Duration,
+    pub announce_history_bound: usize,
+}
+
+impl From<&StationConfig> for StationRadioConfig {
+    fn from(config: &StationConfig) -> Self {
+        Self {
+            port: config.port.clone(),
+            bandwidth_hz: config.bandwidth_hz,
+            radio: config.radio,
+            announce_interval: config.announce_interval,
+            announce_history_bound: config.announce_history_bound,
         }
     }
 }
@@ -138,6 +167,20 @@ pub struct Peer {
     pub name: Option<String>,
     /// The whole announce, because that is what sending takes.
     pub announce: PeerAnnounce,
+}
+
+impl Peer {
+    fn from_announce(announce: PeerAnnounce) -> Self {
+        let decoded = DeliveryAnnounce::decode(&announce.app_data).ok();
+        Self {
+            destination: announce.destination,
+            stamp_cost: decoded.as_ref().and_then(|delivery| delivery.stamp_cost),
+            name: decoded
+                .and_then(|delivery| delivery.display_name)
+                .and_then(|bytes| String::from_utf8(bytes).ok()),
+            announce,
+        }
+    }
 }
 
 /// Something that happened, for an application to render however it likes.
@@ -197,7 +240,8 @@ pub struct Station {
     identity: PrivateIdentity,
     name: String,
     address: AddressHash,
-    peers: Arc<Mutex<Vec<Peer>>>,
+    management: Arc<Mutex<ManagementState>>,
+    radio_config: StationRadioConfig,
     events: mpsc::UnboundedReceiver<Event>,
     tasks: Vec<tokio::task::JoinHandle<()>>,
     driver: tokio::task::AbortHandle,
@@ -207,6 +251,7 @@ impl Station {
     /// Bring up a station with its supplied identity, open the radio, register and announce.
     pub async fn open(config: StationConfig) -> Result<Self, Error> {
         let identity = config.identity.clone();
+        let radio_config = StationRadioConfig::from(&config);
         let profile = profile(config.bandwidth_hz);
         let params = tulle::lora::LoRaParams::try_from(profile).map_err(|_| Error::Profile)?;
 
@@ -264,7 +309,9 @@ impl Station {
         let _ = announce_delivery(&endpoint, &announce);
 
         let (events_tx, events) = mpsc::unbounded_channel();
-        let peers: Arc<Mutex<Vec<Peer>>> = Arc::new(Mutex::new(Vec::new()));
+        let management = Arc::new(Mutex::new(ManagementState::new(
+            config.announce_history_bound,
+        )));
         let mut tasks = Vec::new();
 
         tasks.push(tokio::spawn({
@@ -281,28 +328,15 @@ impl Station {
 
         tasks.push(tokio::spawn({
             let endpoint = Arc::clone(&endpoint);
-            let peers = Arc::clone(&peers);
+            let management = Arc::clone(&management);
             let events_tx = events_tx.clone();
             async move {
                 while let Ok(heard) = endpoint.next_announcement().await {
-                    let decoded = DeliveryAnnounce::decode(&heard.app_data).ok();
-                    let peer = Peer {
-                        destination: heard.destination,
-                        stamp_cost: decoded.as_ref().and_then(|a| a.stamp_cost),
-                        name: decoded
-                            .and_then(|a| a.display_name)
-                            .and_then(|bytes| String::from_utf8(bytes).ok()),
-                        announce: heard,
-                    };
-                    let fresh = {
-                        let mut table = peers.lock().unwrap();
-                        if table.iter().any(|p| p.destination == peer.destination) {
-                            false
-                        } else {
-                            table.push(peer.clone());
-                            true
-                        }
-                    };
+                    let peer = Peer::from_announce(heard);
+                    let fresh = management
+                        .lock()
+                        .unwrap()
+                        .observe(peer.clone(), Instant::now());
                     if fresh && events_tx.send(Event::PeerAppeared(peer)).is_err() {
                         return;
                     }
@@ -344,7 +378,8 @@ impl Station {
             identity,
             name: config.name,
             address,
-            peers,
+            management,
+            radio_config,
             events,
             tasks,
             driver: driver.abort_handle(),
@@ -358,17 +393,17 @@ impl Station {
 
     /// Every peer heard so far.
     pub fn peers(&self) -> Vec<Peer> {
-        self.peers.lock().unwrap().clone()
+        self.management.lock().unwrap().peers()
     }
 
     /// The first known peer whose address starts with `prefix`.
     pub fn find(&self, prefix: &str) -> Option<Peer> {
-        self.peers
+        self.management
             .lock()
             .unwrap()
-            .iter()
+            .peers()
+            .into_iter()
             .find(|peer| peer.destination.to_string().starts_with(prefix))
-            .cloned()
     }
 
     /// Wait for the next thing worth telling a person about.
@@ -455,6 +490,26 @@ impl Station {
     /// The endpoint underneath, for work this library does not cover yet.
     pub fn endpoint(&self) -> &Arc<Endpoint> {
         &self.endpoint
+    }
+
+    /// Capture the management read model with one clock sample.
+    pub fn management_snapshot(&self) -> management::ManagementSnapshot {
+        self.management_snapshot_at(Instant::now())
+    }
+
+    /// Capture the management read model against a caller-supplied instant.
+    /// This is useful to make route and observation ages deterministic in tests.
+    /// Generation ordering assumes successive captures do not move this instant backwards.
+    pub fn management_snapshot_at(&self, captured_at: Instant) -> management::ManagementSnapshot {
+        management::ManagementSnapshot::capture(
+            &self.endpoint,
+            *self.identity.public(),
+            self.address,
+            &self.name,
+            &self.radio_config,
+            &self.management,
+            captured_at,
+        )
     }
 }
 

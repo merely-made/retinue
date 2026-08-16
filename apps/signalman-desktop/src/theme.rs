@@ -1,10 +1,8 @@
 //! The sheet.
 //!
-//! Plain CSS over Cambium's ordinary DOM. There is no Sprigging leaf, no
-//! workflow-stepper component, and no new general-purpose progress primitive
-//! here: nothing in this flow has a second demonstrated consumer, and the scope
-//! is explicit that a pattern earns promotion through the component catalog
-//! after one appears, not before.
+//! Plain CSS over Cambium's ordinary DOM. The Network face also installs
+//! Cambium's shared graph-canvas sheet; its paint and native hit targets remain
+//! one component rather than an app-local imitation.
 //!
 //! One rule is load-bearing rather than cosmetic. Genet's UA default makes
 //! `button` and `input` `inline-block`, and inline-level boxes share their
@@ -143,4 +141,66 @@ input:focus { border: 1px solid #a8c8ee; }
 
 .notes { display: block; width: 620px; margin: 0; }
 .note { display: block; padding: 3px 0; color: #c8ced8; }
+
+.app-shell { display: block; min-height: 100%; background: #12151b; color: #e8e6e1; }
+.section-tabs { display: flex; padding: 10px 16px; background: #0e1116; }
+.section-tab {
+    display: block;
+    width: 130px;
+    padding: 9px 12px;
+    margin-right: 6px;
+    color: #c8ced8;
+    background: #1c222c;
+    border: 1px solid #2b3441;
+}
+.section-tab.selected { color: #f2f5f9; background: #2f5b8c; }
+.unavailable-page { display: block; padding: 28px 32px; }
+.unavailable-gate {
+    display: block;
+    width: 620px;
+    padding: 14px 16px;
+    color: #c8ced8;
+    background: #171b23;
+    border: 1px solid #33405a;
+}
+.network-page { display: block; padding: 28px 32px; }
+.network-controls { display: flex; margin-bottom: 12px; }
+.network-controls button, .settings-controls button {
+    display: block;
+    padding: 7px 9px;
+    margin-right: 5px;
+    margin-bottom: 5px;
+    color: #e8e6e1;
+    background: #262e3a;
+    border: 1px solid #33405a;
+}
+.management-settings {
+    display: block;
+    width: 760px;
+    padding: 12px 14px;
+    margin-bottom: 18px;
+    background: #171b23;
+}
+.settings-controls { display: flex; margin-bottom: 10px; }
+.network-canvas { display: block; width: 760px; margin-bottom: 18px; }
+.network-heading { display: block; font-size: 16px; margin: 14px 0 7px 0; }
+.network-rows, .network-relations { display: block; width: 760px; }
+.network-row, .network-relation {
+    display: block;
+    width: 760px;
+    padding: 8px 10px;
+    margin-bottom: 3px;
+    color: #e8e6e1;
+    background: #1c222c;
+    border: 1px solid #2b3441;
+    text-align: left;
+}
+.network-row.selected, .network-relation.selected {
+    border-color: #a8c8ee;
+    background: #263548;
+}
 ";
+
+pub fn sheet() -> String {
+    format!("{SHEET}\n{}", cambium::GRAPH_CANVAS_SWATCH_CSS)
+}

@@ -24,7 +24,7 @@ use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
@@ -359,6 +359,22 @@ impl ResourceSession {
         self.iface
     }
 
+    fn retain_identified_peer(&self, identity: Identity) {
+        self.shared.write_diagnostic(|| {
+            let mut links = self.shared.links.lock().unwrap();
+            let Some(entry) = links.get_mut(&self.link.id()) else {
+                return ((), false);
+            };
+            let changed = if entry.remote.identity == Some(identity) {
+                false
+            } else {
+                entry.remote.identity = Some(identity);
+                true
+            };
+            ((), changed)
+        });
+    }
+
     /// Replace the retry and overall timeout policy for subsequent transfer work.
     pub fn set_config(&mut self, config: ResourceTransferConfig) {
         self.config = config;
@@ -558,6 +574,9 @@ impl ResourceSession {
             .await
             .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "payload receive timed out"))??;
         self.identified_peer = identified;
+        if let Some(identity) = identified {
+            self.retain_identified_peer(identity);
+        }
         Ok(payload)
     }
 
@@ -625,6 +644,9 @@ impl ResourceSession {
             .await
             .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "request receive timed out"))??;
         self.identified_peer = received.peer;
+        if let Some(identity) = received.peer {
+            self.retain_identified_peer(identity);
+        }
         Ok(received)
     }
 
@@ -783,23 +805,90 @@ impl ResourceSession {
 
 impl Drop for ResourceSession {
     fn drop(&mut self) {
-        self.shared.links.lock().unwrap().remove(&self.link.id());
+        self.shared.remove_link(self.link.id());
         self.shared
             .send_on(self.iface, self.link.close_packet(&next_iv()));
         self.shared.end_resource();
     }
 }
 
-/// A validated announce, surfaced to a consumer that needs the app_data binding (e.g. to
-/// map an application-level peer id to a retinue destination).
-#[derive(Clone, Debug)]
-pub struct PeerAnnounce {
+/// A validated announce observation, surfaced without exposing the endpoint's mutable
+/// address book or path table.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AnnounceFact {
     /// The destination hash announced.
     pub destination: AddressHash,
     /// The announcing identity.
     pub identity: Identity,
     /// The app data the announce carried (a host binds its own peer id here).
     pub app_data: Vec<u8>,
+    /// The interface on which this observation arrived.
+    pub interface: InterfaceId,
+    /// Hop count carried by this observation.
+    pub hops: u8,
+    /// Transport node named by a header-type-2 observation, when present.
+    pub transport: Option<AddressHash>,
+    /// Endpoint-local monotonic observation order.
+    pub sequence: u64,
+}
+
+/// Compatibility name for consumers that already treat an announce as a peer record.
+pub type PeerAnnounce = AnnounceFact;
+
+/// A current learned route captured at one caller-supplied instant.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RouteFact {
+    pub destination: AddressHash,
+    pub interface: InterfaceId,
+    pub transport: Option<AddressHash>,
+    pub hops: u8,
+    pub age: Duration,
+}
+
+/// Which side initiated a live link.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LinkDirection {
+    Inbound,
+    Outbound,
+}
+
+/// The endpoint discipline currently driving a live link.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LinkFactKind {
+    BestEffort,
+    Reliable,
+    Resource,
+}
+
+/// Remote facts authenticated by link setup or a later IDENTIFY.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LinkRemoteFact {
+    /// The remote application destination, known for an outbound link request.
+    pub destination: Option<AddressHash>,
+    /// The remote public identity, known outbound and after a valid inbound IDENTIFY.
+    pub identity: Option<Identity>,
+}
+
+/// A read-only live-link observation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LinkFact {
+    pub id: AddressHash,
+    pub interface: InterfaceId,
+    pub kind: LinkFactKind,
+    pub direction: LinkDirection,
+    pub remote: LinkRemoteFact,
+}
+
+/// Route and link facts captured against one stable interface-id set.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EndpointFacts {
+    /// Endpoint topology revision stable across this fact capture.
+    pub generation: u64,
+    pub interfaces: Vec<InterfaceId>,
+    pub routes: Vec<RouteFact>,
+    pub links: Vec<LinkFact>,
+    /// Routes omitted because their captured age reached the route lifetime.
+    pub expired_routes: u64,
 }
 
 /// One authenticated link-less asymmetric packet received by a registered destination.
@@ -1578,6 +1667,8 @@ struct LinkEntry {
     /// forwarded link's return traffic must go back the way it came.
     #[allow(dead_code)]
     iface: InterfaceId,
+    direction: LinkDirection,
+    remote: LinkRemoteFact,
 }
 
 /// The delivery discipline of a link's stream, chosen when the stream is registered.
@@ -1596,6 +1687,16 @@ enum LinkKind {
     Resource {
         packets: mpsc::UnboundedSender<Packet>,
     },
+}
+
+impl LinkKind {
+    fn fact_kind(&self) -> LinkFactKind {
+        match self {
+            Self::BestEffort { .. } => LinkFactKind::BestEffort,
+            Self::Reliable { .. } => LinkFactKind::Reliable,
+            Self::Resource { .. } => LinkFactKind::Resource,
+        }
+    }
 }
 
 type Links = Arc<Mutex<HashMap<AddressHash, LinkEntry>>>;
@@ -1651,6 +1752,8 @@ struct Shared {
     resource_accepted_tx: mpsc::UnboundedSender<AcceptedResource>,
     /// Validated announces, surfaced to `announcements`.
     announce_tx: mpsc::UnboundedSender<PeerAnnounce>,
+    /// Monotonic order assigned only after an announce passes validation and admission.
+    announce_sequence: AtomicU64,
     /// Decrypted link-less single packets, surfaced to `accept_single`.
     single_tx: mpsc::UnboundedSender<ReceivedSingle>,
     /// Pending outbound links awaiting a proof, keyed by destination: the waiter to wake
@@ -1662,6 +1765,10 @@ struct Shared {
     routing: Mutex<RoutingPolicy>,
     /// What routing has actually done, for diagnostics and policy proof.
     routing_stats: RoutingStats,
+    /// Revision of topology and observation facts consumed by host management projections.
+    diagnostic_generation: AtomicU64,
+    /// Serializes diagnostic fact mutation against a multi-table diagnostic capture.
+    diagnostic_barrier: RwLock<()>,
     /// Upper bound, in milliseconds, of the random delay before relaying an announce. Zero
     /// (the default) relays immediately. See [`Endpoint::set_relay_jitter`].
     relay_jitter_ms: AtomicU64,
@@ -1736,6 +1843,39 @@ struct PathEntry {
 }
 
 impl Shared {
+    /// Mutate diagnostic source state under the one required lock order: revision barrier,
+    /// then the owned fact lock(s). The revision advances before the barrier is released.
+    fn write_diagnostic<T>(&self, change: impl FnOnce() -> (T, bool)) -> T {
+        let _barrier = self.diagnostic_barrier.write().unwrap();
+        let (value, changed) = change();
+        if changed {
+            self.diagnostic_generation.fetch_add(1, Ordering::AcqRel);
+        }
+        value
+    }
+
+    /// Capture a value against one stable diagnostic revision. Writers take the barrier
+    /// first, mutate their owned fact state, and advance the revision before releasing it.
+    /// The repeated revision read is defensive and keeps the stamped-value contract explicit.
+    fn capture_diagnostic<T>(&self, mut capture: impl FnMut() -> T) -> (u64, T) {
+        loop {
+            let _barrier = self.diagnostic_barrier.read().unwrap();
+            let before = self.diagnostic_generation.load(Ordering::Acquire);
+            let value = capture();
+            let after = self.diagnostic_generation.load(Ordering::Acquire);
+            if before == after {
+                return (after, value);
+            }
+        }
+    }
+
+    fn remove_link(&self, id: AddressHash) {
+        self.write_diagnostic(|| {
+            let removed = self.links.lock().unwrap().remove(&id).is_some();
+            ((), removed)
+        });
+    }
+
     fn is_running(&self) -> bool {
         *self.lifecycle.lock().unwrap() == Lifecycle::Running
     }
@@ -1772,12 +1912,14 @@ impl Shared {
             return false;
         }
         let id = iface.id;
-        self.interfaces.lock().unwrap().push(iface);
-        self.announce_admission
-            .lock()
-            .unwrap()
-            .attach_interface(id, self.announce_admission_now_ms());
-        true
+        self.write_diagnostic(|| {
+            self.interfaces.lock().unwrap().push(iface);
+            self.announce_admission
+                .lock()
+                .unwrap()
+                .attach_interface(id, self.announce_admission_now_ms());
+            (true, true)
+        })
     }
 
     /// Forget an interface, closing its outbound queues.
@@ -1787,17 +1929,24 @@ impl Shared {
     /// still holding the matching [`Interface`] will see its queues closed and stop, which
     /// is the intended way to end a carrier.
     fn forget_interface(&self, id: InterfaceId) {
-        let mut interfaces = self.interfaces.lock().unwrap();
-        if let Some(index) = interfaces.iter().position(|iface| iface.id == id) {
-            let iface = interfaces.swap_remove(index);
-            iface.outbound.close();
-        }
-        self.announce_admission.lock().unwrap().forget_interface(id);
-        self.held_announces
-            .lock()
-            .unwrap()
-            .retain(|announce| announce.interface != id);
-        self.held_release_wake.notify_waiters();
+        self.write_diagnostic(|| {
+            let mut interfaces = self.interfaces.lock().unwrap();
+            let removed = if let Some(index) = interfaces.iter().position(|iface| iface.id == id) {
+                let iface = interfaces.swap_remove(index);
+                iface.outbound.close();
+                true
+            } else {
+                false
+            };
+            drop(interfaces);
+            self.announce_admission.lock().unwrap().forget_interface(id);
+            self.held_announces
+                .lock()
+                .unwrap()
+                .retain(|announce| announce.interface != id);
+            self.held_release_wake.notify_waiters();
+            ((), removed)
+        });
     }
 
     fn announce_admission_now_ms(&self) -> u64 {
@@ -2010,65 +2159,73 @@ impl Shared {
         hops: u8,
         transport: Option<AddressHash>,
     ) {
-        let mut t = self.path_table.lock().unwrap();
-        let now = Instant::now();
-        let keep_existing = t
-            .get(&dest)
-            .is_some_and(|e| e.hops <= hops && now.duration_since(e.learned) < PATH_TTL);
-        if keep_existing {
-            if let Some(e) = t.get_mut(&dest)
-                && e.iface == iface
-            {
-                // Only an announce arriving the way this route goes proves this route is
-                // alive. A worse alternate used to refresh it too, which meant a preferred
-                // path that had died never aged out as long as any second path kept
-                // announcing: failover could not happen, because the dead route stayed
-                // permanently fresh.
-                e.learned = now;
-                e.transport = transport;
-            }
-        } else {
-            if t.len() >= PATH_TABLE_CAPACITY && !t.contains_key(&dest) {
-                // The dead first: a table full of expired routes must never evict a live one.
-                t.retain(|_, e| now.duration_since(e.learned) < PATH_TTL);
-                // Still full means every route is live, so the quietest peer loses. Its
-                // `learned` is oldest precisely because it has stopped re-announcing.
-                if t.len() >= PATH_TABLE_CAPACITY
-                    && let Some(stalest) = t
-                        .iter()
-                        .min_by_key(|(_, e)| e.learned)
-                        .map(|(dest, _)| *dest)
+        self.write_diagnostic(|| {
+            let mut t = self.path_table.lock().unwrap();
+            let now = Instant::now();
+            let keep_existing = t
+                .get(&dest)
+                .is_some_and(|e| e.hops <= hops && now.duration_since(e.learned) < PATH_TTL);
+            let mut changed = false;
+            if keep_existing {
+                if let Some(e) = t.get_mut(&dest)
+                    && e.iface == iface
                 {
-                    t.remove(&stalest);
-                    self.routing_stats
-                        .paths_evicted
-                        .fetch_add(1, Ordering::Relaxed);
+                    // Only an announce arriving the way this route goes proves this route is
+                    // alive. A worse alternate used to refresh it too, which meant a preferred
+                    // path that had died never aged out as long as any second path kept
+                    // announcing: failover could not happen, because the dead route stayed
+                    // permanently fresh.
+                    e.learned = now;
+                    e.transport = transport;
+                    changed = true;
                 }
+            } else {
+                if t.len() >= PATH_TABLE_CAPACITY && !t.contains_key(&dest) {
+                    // The dead first: a table full of expired routes must never evict a live one.
+                    t.retain(|_, e| now.duration_since(e.learned) < PATH_TTL);
+                    // Still full means every route is live, so the quietest peer loses. Its
+                    // `learned` is oldest precisely because it has stopped re-announcing.
+                    if t.len() >= PATH_TABLE_CAPACITY
+                        && let Some(stalest) = t
+                            .iter()
+                            .min_by_key(|(_, e)| e.learned)
+                            .map(|(dest, _)| *dest)
+                    {
+                        t.remove(&stalest);
+                        self.routing_stats
+                            .paths_evicted
+                            .fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+                t.insert(
+                    dest,
+                    PathEntry {
+                        iface,
+                        transport,
+                        hops,
+                        learned: now,
+                    },
+                );
+                changed = true;
             }
-            t.insert(
-                dest,
-                PathEntry {
-                    iface,
-                    transport,
-                    hops,
-                    learned: now,
-                },
-            );
-        }
+            ((), changed)
+        });
     }
 
     /// The interface to reach `dest`, if a route is known and unexpired. Evicts an expired
     /// route as a side effect, so a stale path never lingers past a lookup.
     fn path_iface(&self, dest: AddressHash) -> Option<InterfaceId> {
-        let mut t = self.path_table.lock().unwrap();
-        match t.get(&dest) {
-            Some(e) if e.learned.elapsed() < PATH_TTL => Some(e.iface),
-            Some(_) => {
-                t.remove(&dest);
-                None
+        self.write_diagnostic(|| {
+            let mut t = self.path_table.lock().unwrap();
+            match t.get(&dest) {
+                Some(e) if e.learned.elapsed() < PATH_TTL => (Some(e.iface), false),
+                Some(_) => {
+                    t.remove(&dest);
+                    (None, true)
+                }
+                None => (None, false),
             }
-            None => None,
-        }
+        })
     }
 
     /// Whether a path request for `dest` may go out now. Same shape and same reasoning as
@@ -2194,12 +2351,15 @@ impl Endpoint {
             reliable_accepted_tx,
             resource_accepted_tx,
             announce_tx,
+            announce_sequence: AtomicU64::new(0),
             single_tx,
             pending: Mutex::new(HashMap::new()),
             pending_links: Mutex::new(HashMap::new()),
             next_iface_id: AtomicU32::new(0),
             routing: Mutex::new(RoutingPolicy::none()),
             routing_stats: RoutingStats::default(),
+            diagnostic_generation: AtomicU64::new(0),
+            diagnostic_barrier: RwLock::new(()),
             relay_jitter_ms: AtomicU64::new(0),
             reliable_initial_rtt_ms: AtomicU64::new(DEFAULT_RELIABLE_INITIAL_RTT_MS),
             reliable_max_window: AtomicU32::new(DEFAULT_RELIABLE_MAX_WINDOW),
@@ -2409,6 +2569,20 @@ impl Endpoint {
         self.shared.interfaces.lock().unwrap().len()
     }
 
+    /// Stable ordered identifiers for interfaces attached at capture time.
+    pub fn interface_ids(&self) -> Vec<InterfaceId> {
+        let mut interfaces: Vec<_> = self
+            .shared
+            .interfaces
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|interface| interface.id)
+            .collect();
+        interfaces.sort_unstable();
+        interfaces
+    }
+
     /// Configure bounded announce ingress control for subsequently observed packets. Existing
     /// histories remain, trimmed to the new capacities, so changing a setting cannot turn an
     /// unbounded backlog into a hidden one.
@@ -2556,15 +2730,109 @@ impl Endpoint {
     /// The interface a learned destination is reachable over, and its hop count. An expired
     /// route is not returned (and is evicted).
     pub fn route_to(&self, dest: AddressHash) -> Option<(InterfaceId, u8)> {
-        let mut t = self.shared.path_table.lock().unwrap();
-        match t.get(&dest) {
-            Some(e) if e.learned.elapsed() < PATH_TTL => Some((e.iface, e.hops)),
-            Some(_) => {
-                t.remove(&dest);
-                None
+        self.shared.write_diagnostic(|| {
+            let mut t = self.shared.path_table.lock().unwrap();
+            match t.get(&dest) {
+                Some(e) if e.learned.elapsed() < PATH_TTL => (Some((e.iface, e.hops)), false),
+                Some(_) => {
+                    t.remove(&dest);
+                    (None, true)
+                }
+                None => (None, false),
             }
-            None => None,
+        })
+    }
+
+    /// Current routes in deterministic destination order, aged against one instant supplied
+    /// by the caller. Unlike [`route_to`](Self::route_to), observation never evicts state.
+    pub fn route_facts_at(&self, captured_at: Instant) -> Vec<RouteFact> {
+        let interfaces = self.interface_ids();
+        self.route_facts_for_interfaces_at(captured_at, &interfaces)
+            .0
+    }
+
+    fn route_facts_for_interfaces_at(
+        &self,
+        captured_at: Instant,
+        interfaces: &[InterfaceId],
+    ) -> (Vec<RouteFact>, u64) {
+        let interfaces: HashSet<_> = interfaces.iter().copied().collect();
+        let table = self.shared.path_table.lock().unwrap();
+        let mut expired_routes = 0_u64;
+        let mut facts = Vec::new();
+        for (destination, entry) in table.iter() {
+            if !interfaces.contains(&entry.iface) {
+                continue;
+            }
+            let age = captured_at
+                .checked_duration_since(entry.learned)
+                .unwrap_or_default();
+            if age >= PATH_TTL {
+                expired_routes = expired_routes.saturating_add(1);
+                continue;
+            }
+            facts.push(RouteFact {
+                destination: *destination,
+                interface: entry.iface,
+                transport: entry.transport,
+                hops: entry.hops,
+                age,
+            });
         }
+        facts.sort_unstable_by_key(|fact| fact.destination);
+        (facts, expired_routes)
+    }
+
+    /// Live links in deterministic id order. Entries whose carrier was detached are omitted,
+    /// because a snapshot must never name an interface absent from the same capture.
+    pub fn link_facts(&self) -> Vec<LinkFact> {
+        let interfaces = self.interface_ids();
+        self.link_facts_for_interfaces(&interfaces)
+    }
+
+    fn link_facts_for_interfaces(&self, interfaces: &[InterfaceId]) -> Vec<LinkFact> {
+        let interfaces: HashSet<_> = interfaces.iter().copied().collect();
+        let links = self.shared.links.lock().unwrap();
+        let mut facts: Vec<_> = links
+            .iter()
+            .filter_map(|(id, entry)| {
+                interfaces.contains(&entry.iface).then_some(LinkFact {
+                    id: *id,
+                    interface: entry.iface,
+                    kind: entry.kind.fact_kind(),
+                    direction: entry.direction,
+                    remote: entry.remote,
+                })
+            })
+            .collect();
+        facts.sort_unstable_by_key(|fact| fact.id);
+        facts
+    }
+
+    /// Capture interface, route, and link facts with referential integrity. All route and
+    /// link interface ids occur in the returned `interfaces` list.
+    pub fn diagnostic_facts_at(&self, captured_at: Instant) -> EndpointFacts {
+        let (generation, (interfaces, routes, links, expired_routes)) =
+            self.shared.capture_diagnostic(|| {
+                let interfaces = self.interface_ids();
+                let (routes, expired_routes) =
+                    self.route_facts_for_interfaces_at(captured_at, &interfaces);
+                let links = self.link_facts_for_interfaces(&interfaces);
+                (interfaces, routes, links, expired_routes)
+            });
+        EndpointFacts {
+            generation,
+            routes,
+            links,
+            interfaces,
+            expired_routes,
+        }
+    }
+
+    /// Monotonic source revision for interface, route, link, and announce facts.
+    /// Point-in-time ages and traffic counters are sampled values, not revision sources.
+    pub fn diagnostic_generation(&self) -> u64 {
+        self.shared.diagnostic_generation.load(Ordering::Acquire)
     }
 
     /// This endpoint's public identity.
@@ -2794,7 +3062,17 @@ impl Endpoint {
     /// destination's identity (learned from an announce, e.g. via [`resolve`](Self::resolve)).
     pub async fn open(&self, dest: AddressHash, peer: Identity) -> io::Result<LinkStream> {
         let (link, iface) = self.establish(dest, peer).await?;
-        register_stream(&self.shared, link, iface).ok_or_else(endpoint_closed)
+        register_stream(
+            &self.shared,
+            link,
+            iface,
+            LinkDirection::Outbound,
+            LinkRemoteFact {
+                destination: Some(dest),
+                identity: Some(peer),
+            },
+        )
+        .ok_or_else(endpoint_closed)
     }
 
     /// Open a **reliable** link to a destination — the Channel/Buffer path with proof acks,
@@ -2804,7 +3082,18 @@ impl Endpoint {
     /// validate our proofs in turn.
     pub async fn open_reliable(&self, dest: AddressHash, peer: Identity) -> io::Result<LinkStream> {
         let (link, iface) = self.establish(dest, peer).await?;
-        register_reliable_stream(&self.shared, link, iface, Some(peer)).ok_or_else(endpoint_closed)
+        register_reliable_stream(
+            &self.shared,
+            link,
+            iface,
+            Some(peer),
+            LinkDirection::Outbound,
+            LinkRemoteFact {
+                destination: Some(dest),
+                identity: Some(peer),
+            },
+        )
+        .ok_or_else(endpoint_closed)
     }
 
     /// Open a link whose packets are driven by the resource transfer state machines.
@@ -2814,7 +3103,17 @@ impl Endpoint {
         peer: Identity,
     ) -> io::Result<ResourceSession> {
         let (link, iface) = self.establish(dest, peer).await?;
-        register_resource_session(&self.shared, link, iface).ok_or_else(endpoint_closed)
+        register_resource_session(
+            &self.shared,
+            link,
+            iface,
+            LinkDirection::Outbound,
+            LinkRemoteFact {
+                destination: Some(dest),
+                identity: Some(peer),
+            },
+        )
+        .ok_or_else(endpoint_closed)
     }
 
     /// Open a resource link and publish one payload over it.
@@ -2869,15 +3168,33 @@ impl Endpoint {
     ) -> io::Result<PayloadMode> {
         let (link, iface) = self.establish(dest, peer).await?;
         if data.len() <= write_chunk_for_mtu(link.mtu()) {
-            let mut stream =
-                register_stream(&self.shared, link, iface).ok_or_else(endpoint_closed)?;
+            let mut stream = register_stream(
+                &self.shared,
+                link,
+                iface,
+                LinkDirection::Outbound,
+                LinkRemoteFact {
+                    destination: Some(dest),
+                    identity: Some(peer),
+                },
+            )
+            .ok_or_else(endpoint_closed)?;
             stream.write_all(data).await?;
             stream.shutdown().await?;
             drop(stream);
             Ok(PayloadMode::Data)
         } else {
-            let mut session =
-                register_resource_session(&self.shared, link, iface).ok_or_else(endpoint_closed)?;
+            let mut session = register_resource_session(
+                &self.shared,
+                link,
+                iface,
+                LinkDirection::Outbound,
+                LinkRemoteFact {
+                    destination: Some(dest),
+                    identity: Some(peer),
+                },
+            )
+            .ok_or_else(endpoint_closed)?;
             session.set_config(config);
             session.publish(data).await?;
             Ok(PayloadMode::Resource)
@@ -3072,7 +3389,12 @@ impl Endpoint {
         }
         // Drop every link sender after aborting its driver. This releases best-effort,
         // reliable, and resource receivers even when the Endpoint itself remains alive.
-        self.shared.links.lock().unwrap().clear();
+        self.shared.write_diagnostic(|| {
+            let mut links = self.shared.links.lock().unwrap();
+            let had_links = !links.is_empty();
+            links.clear();
+            ((), had_links)
+        });
         // Close every interface's outbound scheduler so a caller-driven pump parked in
         // `next_outbound` wakes and sees the end, rather than waiting on a sender that will
         // never come. (The channel this replaced ended implicitly when its sender dropped.)
@@ -3411,10 +3733,15 @@ fn process_verified_announce(
     // destination's route, not to the interface: the same radio routinely reaches different
     // destinations through different nodes.
     shared.learn_path(destination, iface, pkt.hops, pkt.transport);
+    let sequence = shared.announce_sequence.fetch_add(1, Ordering::Relaxed) + 1;
     let _ = shared.announce_tx.send(PeerAnnounce {
         destination,
         identity: announce.identity,
         app_data: announce.app_data,
+        interface: iface,
+        hops: pkt.hops,
+        transport: pkt.transport,
+        sequence,
     });
 
     // As a transport node, propagate the announce onward: hops+1, stamped with our identity
@@ -3628,9 +3955,14 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                         RegistrationKind::Reliable => {
                             // Register eagerly with no peer yet: the driver learns the
                             // initiator's identity from the IDENTIFY it sends.
-                            if let Some(stream) =
-                                register_reliable_stream(shared, link, iface, None)
-                            {
+                            if let Some(stream) = register_reliable_stream(
+                                shared,
+                                link,
+                                iface,
+                                None,
+                                LinkDirection::Inbound,
+                                LinkRemoteFact::default(),
+                            ) {
                                 let _ = shared.reliable_accepted_tx.send(Accepted {
                                     stream,
                                     destination: dest,
@@ -3639,7 +3971,13 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                             }
                         }
                         RegistrationKind::Resource => {
-                            if let Some(session) = register_resource_session(shared, link, iface) {
+                            if let Some(session) = register_resource_session(
+                                shared,
+                                link,
+                                iface,
+                                LinkDirection::Inbound,
+                                LinkRemoteFact::default(),
+                            ) {
                                 let _ = shared.resource_accepted_tx.send(AcceptedResource {
                                     session,
                                     destination: dest,
@@ -3648,7 +3986,13 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                             }
                         }
                         RegistrationKind::BestEffort => {
-                            if let Some(stream) = register_stream(shared, link, iface) {
+                            if let Some(stream) = register_stream(
+                                shared,
+                                link,
+                                iface,
+                                LinkDirection::Inbound,
+                                LinkRemoteFact::default(),
+                            ) {
                                 let _ = shared.accepted_tx.send(Accepted {
                                     stream,
                                     destination: dest,
@@ -3726,7 +4070,7 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                         // The peer closed the link: drop its entry so the inbound
                         // sender is released. The stream's inbound relay then ends
                         // and the local reader sees EOF (what read-to-end needs).
-                        shared.links.lock().unwrap().remove(&pkt.destination);
+                        shared.remove_link(pkt.destination);
                     }
                     _ => {}
                 }
@@ -3831,20 +4175,27 @@ fn register_resource_session(
     shared: &Arc<Shared>,
     link: Link,
     iface: InterfaceId,
+    direction: LinkDirection,
+    remote: LinkRemoteFact,
 ) -> Option<ResourceSession> {
     if !shared.begin_resource() {
         shared.send_on(iface, link.close_packet(&next_iv()));
         return None;
     }
     let (packet_tx, packets) = mpsc::unbounded_channel();
-    shared.links.lock().unwrap().insert(
-        link.id(),
-        LinkEntry {
-            link: link.clone(),
-            kind: LinkKind::Resource { packets: packet_tx },
-            iface,
-        },
-    );
+    shared.write_diagnostic(|| {
+        shared.links.lock().unwrap().insert(
+            link.id(),
+            LinkEntry {
+                link: link.clone(),
+                kind: LinkKind::Resource { packets: packet_tx },
+                iface,
+                direction,
+                remote,
+            },
+        );
+        ((), true)
+    });
     Some(ResourceSession {
         shared: Arc::clone(shared),
         link,
@@ -3857,23 +4208,34 @@ fn register_resource_session(
 
 /// Build a [`LinkStream`] for a live link on `iface`, wiring the inbound feed and the
 /// outbound relay, and register the link so the router can route to it.
-fn register_stream(shared: &Arc<Shared>, link: Link, iface: InterfaceId) -> Option<LinkStream> {
+fn register_stream(
+    shared: &Arc<Shared>,
+    link: Link,
+    iface: InterfaceId,
+    direction: LinkDirection,
+    remote: LinkRemoteFact,
+) -> Option<LinkStream> {
     let (mine, theirs) = tokio::io::duplex(DUPLEX_BUF);
     let (mut read_half, mut write_half) = tokio::io::split(theirs);
     let (inbound_tx, mut inbound_rx) = mpsc::unbounded_channel::<Vec<u8>>();
     let link_id = link.id();
     let write_chunk = write_chunk_for_mtu(link.mtu());
 
-    shared.links.lock().unwrap().insert(
-        link_id,
-        LinkEntry {
-            link: link.clone(),
-            kind: LinkKind::BestEffort {
-                inbound: inbound_tx,
+    shared.write_diagnostic(|| {
+        shared.links.lock().unwrap().insert(
+            link_id,
+            LinkEntry {
+                link: link.clone(),
+                kind: LinkKind::BestEffort {
+                    inbound: inbound_tx,
+                },
+                iface,
+                direction,
+                remote,
             },
-            iface,
-        },
-    );
+        );
+        ((), true)
+    });
 
     // Inbound: decrypted data from the router → the stream's read side.
     let inbound_started = track(shared, async move {
@@ -3914,7 +4276,7 @@ fn register_stream(shared: &Arc<Shared>, link: Link, iface: InterfaceId) -> Opti
     });
 
     if !inbound_started || !outbound_started {
-        shared.links.lock().unwrap().remove(&link_id);
+        shared.remove_link(link_id);
         return None;
     }
 
@@ -3939,20 +4301,27 @@ fn register_reliable_stream(
     link: Link,
     iface: InterfaceId,
     peer: Option<Identity>,
+    direction: LinkDirection,
+    remote: LinkRemoteFact,
 ) -> Option<LinkStream> {
     let (mine, theirs) = tokio::io::duplex(DUPLEX_BUF);
     let (mut read_half, mut write_half) = tokio::io::split(theirs);
     let (pkt_tx, mut pkt_rx) = mpsc::unbounded_channel::<Packet>();
     let link_id = link.id();
 
-    shared.links.lock().unwrap().insert(
-        link_id,
-        LinkEntry {
-            link: link.clone(),
-            kind: LinkKind::Reliable { packets: pkt_tx },
-            iface,
-        },
-    );
+    shared.write_diagnostic(|| {
+        shared.links.lock().unwrap().insert(
+            link_id,
+            LinkEntry {
+                link: link.clone(),
+                kind: LinkKind::Reliable { packets: pkt_tx },
+                iface,
+                direction,
+                remote,
+            },
+        );
+        ((), true)
+    });
 
     // An initiator (known peer) identifies itself so the responder can validate our proofs.
     let identify = peer
@@ -4026,7 +4395,26 @@ fn register_reliable_stream(
                     } else if pkt.context == CTX_LINKIDENTIFY {
                         // The peer (an initiator) identified itself: learn its identity so we
                         // can validate its proofs of the data we send back.
-                        rc.on_identify(&pkt);
+                        if rc.on_identify(&pkt)
+                            && let Some(identity) = rc.peer().copied()
+                        {
+                            let present = drv.write_diagnostic(|| {
+                                let mut links = drv.links.lock().unwrap();
+                                let Some(entry) = links.get_mut(&link_id) else {
+                                    return (false, false);
+                                };
+                                let changed = if entry.remote.identity == Some(identity) {
+                                    false
+                                } else {
+                                    entry.remote.identity = Some(identity);
+                                    true
+                                };
+                                (true, changed)
+                            });
+                            if !present {
+                                break;
+                            }
+                        }
                     } else if pkt.context == CTX_LINKCLOSE {
                         let _ = write_half.shutdown().await;
                         break;
@@ -4092,11 +4480,11 @@ fn register_reliable_stream(
                 break;
             }
         }
-        drv.links.lock().unwrap().remove(&link_id);
+        drv.remove_link(link_id);
     });
 
     if !driver_started {
-        shared.links.lock().unwrap().remove(&link_id);
+        shared.remove_link(link_id);
         return None;
     }
 
@@ -4253,6 +4641,172 @@ mod tests {
             !ep.shared.path_table.lock().unwrap().contains_key(&dest),
             "and is evicted on lookup",
         );
+    }
+
+    #[tokio::test]
+    async fn route_facts_are_ordered_current_and_read_only() {
+        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x12; 64]));
+        let interface = ep.attach_interface().id();
+        let later = AddressHash::from_bytes([0xBB; 16]);
+        let earlier = AddressHash::from_bytes([0x11; 16]);
+        let transport = AddressHash::from_bytes([0x77; 16]);
+        ep.shared.learn_path(later, interface, 3, Some(transport));
+        ep.shared.learn_path(earlier, interface, 1, None);
+        let learned = ep
+            .shared
+            .path_table
+            .lock()
+            .unwrap()
+            .values()
+            .map(|entry| entry.learned)
+            .max()
+            .unwrap();
+
+        let facts = ep.route_facts_at(learned);
+        assert_eq!(
+            facts
+                .iter()
+                .map(|fact| fact.destination)
+                .collect::<Vec<_>>(),
+            vec![earlier, later]
+        );
+        assert!(facts.iter().all(|fact| fact.interface == interface));
+        assert_eq!(facts[1].transport, Some(transport));
+
+        let before = ep.shared.path_table.lock().unwrap().len();
+        assert!(ep.route_facts_at(learned + PATH_TTL).is_empty());
+        assert_eq!(
+            ep.shared.path_table.lock().unwrap().len(),
+            before,
+            "diagnostic capture must not evict expired routes",
+        );
+    }
+
+    #[tokio::test]
+    async fn diagnostic_capture_waits_for_an_inflight_writer() {
+        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x19; 64]));
+        let initial_generation = ep.diagnostic_generation();
+        let destination = AddressHash::from_bytes([0x66; 16]);
+        let (writer_entered_tx, writer_entered_rx) = std::sync::mpsc::channel();
+        let (release_writer_tx, release_writer_rx) = std::sync::mpsc::channel();
+        let writer_shared = Arc::clone(&ep.shared);
+        let writer = std::thread::spawn(move || {
+            writer_shared.write_diagnostic(|| {
+                writer_entered_tx.send(()).unwrap();
+                release_writer_rx.recv().unwrap();
+                writer_shared.path_table.lock().unwrap().insert(
+                    destination,
+                    PathEntry {
+                        iface: 0,
+                        transport: None,
+                        hops: 1,
+                        learned: Instant::now(),
+                    },
+                );
+                ((), true)
+            });
+        });
+
+        writer_entered_rx.recv().unwrap();
+        let (capture_started_tx, capture_started_rx) = std::sync::mpsc::channel();
+        let (capture_done_tx, capture_done_rx) = std::sync::mpsc::channel();
+        let capture_shared = Arc::clone(&ep.shared);
+        let capture = std::thread::spawn(move || {
+            capture_started_tx.send(()).unwrap();
+            let result = capture_shared
+                .capture_diagnostic(|| capture_shared.path_table.lock().unwrap().len());
+            capture_done_tx.send(result).unwrap();
+        });
+
+        capture_started_rx.recv().unwrap();
+        assert!(
+            capture_done_rx
+                .recv_timeout(Duration::from_millis(50))
+                .is_err(),
+            "capture must not pass a writer holding the revision barrier",
+        );
+
+        release_writer_tx.send(()).unwrap();
+        writer.join().unwrap();
+        let (generation, route_count) = capture_done_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap();
+        capture.join().unwrap();
+
+        assert_eq!(route_count, 1);
+        assert_eq!(generation, initial_generation + 1);
+        assert_eq!(generation, ep.diagnostic_generation());
+    }
+
+    #[tokio::test]
+    async fn announce_facts_retain_ingress_route_and_observation_order() {
+        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x13; 64]));
+        let interface = ep.attach_interface().id();
+        let peer = PrivateIdentity::from_secret_bytes(&[0x14; 64]);
+        let name = DestinationName::new("retinue", ["management-fact"]);
+        let mut packet = announce::build(&peer, name.name_hash(), &[0x22; 10], None, b"opaque");
+        packet.hops = 2;
+        packet.header_type = crate::packet::HeaderType::Type2;
+        packet.transport = Some(AddressHash::from_bytes([0x55; 16]));
+        let decoded = Announce::decode(&packet).unwrap();
+        let destination = decoded.destination;
+
+        process_verified_announce(
+            &ep.shared,
+            interface,
+            packet,
+            decoded,
+            &RoutingPolicy::none(),
+        );
+        let fact = ep.next_announcement().await.unwrap();
+        assert_eq!(fact.destination, destination);
+        assert_eq!(fact.identity.hash(), peer.hash());
+        assert_eq!(fact.app_data, b"opaque");
+        assert_eq!(fact.interface, interface);
+        assert_eq!(fact.hops, 2);
+        assert_eq!(fact.transport, Some(AddressHash::from_bytes([0x55; 16])));
+        assert_eq!(fact.sequence, 1);
+    }
+
+    #[tokio::test]
+    async fn an_inbound_link_fact_keeps_unknown_remote_unknown() {
+        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x15; 64]));
+        let interface = ep.attach_interface().id();
+        let destination =
+            DestinationName::new("retinue", ["management-link"]).destination_hash(ep.identity());
+        let (_, request) = link::PendingLink::open(
+            destination,
+            *ep.identity(),
+            &[0x17; 64],
+            LinkTrailer {
+                mode: LinkMode::Aes256Cbc,
+                mtu: DEFAULT_LINK_MTU,
+            },
+        );
+        let (link, _) = link::accept(
+            &request,
+            &ep.shared.identity,
+            &[0x18; 64],
+            LinkTrailer {
+                mode: LinkMode::Aes256Cbc,
+                mtu: DEFAULT_LINK_MTU,
+            },
+        )
+        .unwrap();
+        let _stream = register_stream(
+            &ep.shared,
+            link,
+            interface,
+            LinkDirection::Inbound,
+            LinkRemoteFact::default(),
+        )
+        .unwrap();
+
+        let facts = ep.link_facts();
+        assert_eq!(facts.len(), 1);
+        assert_eq!(facts[0].direction, LinkDirection::Inbound);
+        assert_eq!(facts[0].remote, LinkRemoteFact::default());
+        assert_eq!(facts[0].interface, interface);
     }
 
     /// One radio routinely reaches different destinations through different transport

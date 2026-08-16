@@ -11,7 +11,7 @@ edition = "2024"
 # Its own floor, not the workspace's. Retinue's `rust-version` is a promise
 # about six published crates and their MSRV job; this package is private and
 # rides genet, whose stack wants a newer toolchain than that promise allows.
-rust-version = "1.92"
+rust-version = "1.96"
 license = "MPL-2.0"
 repository = "https://github.com/merely-made/retinue"
 description = "Signalman's desktop face for the owner firmware flow, on the shared Cambium desktop host."
@@ -49,7 +49,20 @@ cambium-genet-winit-host = { git = "https://github.com/merely-made/genet.git", r
 genet-probe = { git = "https://github.com/merely-made/genet.git", rev = "d47a17bf65ceafada26e4c15c9afcce6c18c17f9" }
 genet-scripted-dom = { git = "https://github.com/merely-made/genet.git", rev = "d47a17bf65ceafada26e4c15c9afcce6c18c17f9", version = "=0.1.0" }
 layout-dom-api = { git = "https://github.com/merely-made/genet.git", rev = "d47a17bf65ceafada26e4c15c9afcce6c18c17f9", version = "=0.1.0" }
+sprigging = { git = "https://github.com/merely-made/genet.git", rev = "d47a17bf65ceafada26e4c15c9afcce6c18c17f9" }
 winit = "0.30"
+
+# Signalman's management graph and its sealed station authority come from one
+# exact Mere revision. Keep these on one source so identities and graph keys do
+# not cross duplicate package instances.
+mere-signalman = { git = "https://github.com/merely-made/mere.git", rev = "032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e" }
+chartulary = { git = "https://github.com/merely-made/mere.git", rev = "032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e" }
+codicil = { git = "https://github.com/merely-made/mere.git", rev = "032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e" }
+gaz = { git = "https://github.com/merely-made/mere.git", rev = "032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e" }
+sceno = { git = "https://github.com/merely-made/mere.git", rev = "032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e" }
+scenomise = { git = "https://github.com/merely-made/mere.git", rev = "032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e" }
+seiche = { git = "https://github.com/merely-made/mere.git", rev = "032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e" }
+euclid = "0.22"
 
 [dev-dependencies]
 # The accessibility receipt asserts against the projection the AccessKit
@@ -63,3 +76,10 @@ accesskit = "0.24"
 stylo_taffy = { git = "https://github.com/merely-made/genet.git", rev = "d47a17bf65ceafada26e4c15c9afcce6c18c17f9" }
 taffy = { git = "https://github.com/merely-made/genet.git", rev = "d47a17bf65ceafada26e4c15c9afcce6c18c17f9" }
 ipc-channel = { git = "https://github.com/merely-made/genet.git", rev = "d47a17bf65ceafada26e4c15c9afcce6c18c17f9" }
+
+# mere-signalman names Retinue from an exact Git revision so its own manifest
+# works in a clean Mere checkout. Redirect that source to this workspace: the
+# desktop and the private port must exchange one Retinue/Postilion type family.
+[patch."https://github.com/merely-made/retinue.git"]
+postilion = { path = "../../crates/postilion" }
+retinue = { path = "../../crates/retinue" }

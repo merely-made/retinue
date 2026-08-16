@@ -512,7 +512,7 @@ fn the_device_page_is_operable_from_the_keyboard_alone() {
 
     // The reachable controls, in document order.
     let mut order = Vec::new();
-    for _ in 0..6 {
+    for _ in 0..11 {
         h.tab(true);
         let Some(node) = h.focus() else { break };
         let label = h.with_dom(|dom| label_of(dom, node));
@@ -524,12 +524,17 @@ fn the_device_page_is_operable_from_the_keyboard_alone() {
     assert_eq!(
         order,
         vec![
+            "Devices".to_string(),
+            "Network".to_string(),
+            "Messages".to_string(),
+            "Map".to_string(),
+            "Browse".to_string(),
             "COM7 — HeltecV4, region US915, channel modem".to_string(),
             String::new(), // the revision field: an input, labelled by its <label>
             "Rescan".to_string(),
             "Use this device".to_string(),
         ],
-        "Tab reaches the row, the revision field, then both actions, in page order",
+        "Tab reaches the section switch and every device-page control in page order",
     );
 
     // The loop stopped one Tab past the end, so focus has wrapped to the first
@@ -542,7 +547,12 @@ fn the_device_page_is_operable_from_the_keyboard_alone() {
     );
 
     // Walk forward to Rescan and activate it with Enter — no pointer involved.
-    h.tab(true); // wraps to the device row
+    h.tab(true); // wraps to Devices
+    h.tab(true); // Network
+    h.tab(true); // Messages
+    h.tab(true); // Map
+    h.tab(true); // Browse
+    h.tab(true); // the device row
     h.tab(true); // the revision field
     h.tab(true); // Rescan
     assert_eq!(
@@ -561,6 +571,11 @@ fn the_revision_field_takes_typing_through_the_text_seam() {
     assert!(h.click_on(&Selector::class("revision-wrap")) || true);
     // Focus it by Tab rather than by class, since the field is the input inside
     // the wrapper.
+    h.tab(true); // Devices
+    h.tab(true); // Network
+    h.tab(true); // Messages
+    h.tab(true); // Map
+    h.tab(true); // Browse
     h.tab(true); // device row
     h.tab(true); // revision field
     h.key_char("4");

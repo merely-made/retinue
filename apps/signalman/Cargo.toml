@@ -23,3 +23,6 @@ postilion = { version = "0.1.0", path = "../../crates/postilion" }
 retinue = { version = "0.1.1", path = "../../crates/retinue", features = ["tulle-radio"] }
 tokio = { version = "1.53.1", features = ["macros", "rt", "signal", "sync", "time"] }
 zeroize = "1"
+
+[dev-dependencies]
+outrider = { version = "0.1.1", path = "../../crates/outrider" }

@@ -6,6 +6,8 @@ graphical face into a radio management surface: its own device-data mere,
 a geographic scene, a logical network scene, a messaging surface, and a
 content pane. No gates are opened here; sequencing is at the end.
 
+**Implementation:** [staged plan and ownership lanes](2026-08-15_signalman_management_surface_implementation_plan.md).
+
 ## The ruling
 
 **Signalman-desktop integrates its own device-data mere.** The same pattern

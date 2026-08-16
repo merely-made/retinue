@@ -17,15 +17,20 @@
 //! The library half exists so the headless page-state and keyboard tests can
 //! drive the same state machine and the same views the binary runs.
 
+pub mod device_mere;
 pub mod flow;
+pub mod network;
 pub mod state;
 pub mod survey;
 pub mod theme;
 pub mod views;
 pub mod worker;
 
-pub use state::{DesktopState, Request, SurveyState};
-pub use theme::SHEET;
+pub use state::{
+    DesktopSection, DesktopState, LabelDensity, ManagementSettings, NetworkRequest, Request,
+    SurveyState,
+};
+pub use theme::{SHEET, sheet};
 pub use views::{Child, Logic, root};
 
 /// The text seam: the device-route fields, when one has focus.

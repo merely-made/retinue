@@ -20,6 +20,7 @@ use std::time::Duration;
 use postilion::{Event, Peer, Sent};
 
 pub mod firmware;
+pub mod management;
 
 pub use firmware::{
     DeviceCandidate, FirmwareCatalog, FirmwareError, FirmwareInstallNotice,
