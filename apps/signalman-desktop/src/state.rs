@@ -17,6 +17,7 @@ use seiche::{LayoutSnapshot, NodeKey};
 use signalman::management::{
     ManagementMaterial, ManagementNodeId, ManagementPresence, ManagementRelationId, StalePolicy,
 };
+use signalman::message::{MessageEvent, MessageId, MessagePeer, QueuedReason, TextMessage};
 use signalman::{
     DeviceCandidate, FirmwareCatalog, FirmwareInstallNotice, FirmwareInstallRecovery,
     FirmwareInstallStage, FirmwareInstallUpdate, FirmwareInstaller, FirmwareView, describe_event,
@@ -24,6 +25,7 @@ use signalman::{
 };
 
 use crate::device_mere::{DeviceMere, DeviceProjection, ReconcileReceipt};
+use crate::messages::MessageStore;
 use crate::network::{
     NetworkInput, NetworkLayout, NetworkPhysics, accept_layout, input_from_projection,
     swatch_from_projection, world_from_normalized,
@@ -136,6 +138,15 @@ pub struct DesktopState {
     pub selected_relation: Option<ManagementRelationId>,
     pub pending_network: Option<NetworkRequest>,
 
+    pub message_store: MessageStore,
+    pub message_local: Option<MessagePeer>,
+    pub message_recipient: cambium::TextInput,
+    pub message_draft: cambium::TextInput,
+    pub message_contact_name: cambium::TextInput,
+    pub selected_message: Option<MessageId>,
+    pub message_notice: Option<String>,
+    next_message_nonce: u64,
+
     /// The owner flow. The only thing that can move a page.
     pub installer: FirmwareInstaller,
     /// The verified package catalog, or why it could not be loaded.
@@ -200,6 +211,14 @@ impl DesktopState {
             network_zoom: 1.0,
             selected_relation: None,
             pending_network: None,
+            message_store: MessageStore::memory("signalman-local"),
+            message_local: None,
+            message_recipient: cambium::TextInput::default(),
+            message_draft: cambium::TextInput::default(),
+            message_contact_name: cambium::TextInput::default(),
+            selected_message: None,
+            message_notice: None,
+            next_message_nonce: 0,
             installer: FirmwareInstaller::new(),
             catalog,
             catalog_error,
@@ -224,6 +243,107 @@ impl DesktopState {
 
     pub fn show_section(&mut self, section: DesktopSection) {
         self.section = section;
+    }
+
+    pub fn replace_message_store(&mut self, store: MessageStore) {
+        self.next_message_nonce = u64::try_from(store.log_len()).unwrap_or(u64::MAX);
+        self.message_store = store;
+        self.message_notice = None;
+    }
+
+    pub fn set_message_local(&mut self, local: MessagePeer) {
+        self.message_local = Some(local);
+        self.message_notice = None;
+    }
+
+    pub fn queue_message(&mut self) {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |duration| duration.as_millis() as u64);
+        self.queue_message_at(now);
+    }
+
+    pub fn queue_message_at(&mut self, observed_unix_ms: u64) {
+        let Some(sender) = self.message_local else {
+            self.message_notice =
+                Some("Connect a station identity before queueing a message.".into());
+            return;
+        };
+        let Some(destination) = parse_address(self.message_recipient.text()) else {
+            self.message_notice = Some("A recipient is exactly 32 hexadecimal characters.".into());
+            return;
+        };
+        let text = self.message_draft.text().trim();
+        if text.is_empty() {
+            self.message_notice = Some("Write a message before queueing it.".into());
+            return;
+        }
+        let mut nonce = [0_u8; 32];
+        nonce[..8].copy_from_slice(&self.next_message_nonce.to_be_bytes());
+        nonce[8..16].copy_from_slice(&observed_unix_ms.to_be_bytes());
+        let message = TextMessage::compose(
+            sender,
+            MessagePeer::new(destination, None),
+            observed_unix_ms,
+            nonce,
+            text,
+        );
+        let id = message.id;
+        match self.message_store.append(MessageEvent::OutgoingQueued {
+            message,
+            reason: QueuedReason::Offline,
+            observed_unix_ms,
+        }) {
+            Ok(_) => {
+                self.next_message_nonce = self.next_message_nonce.saturating_add(1);
+                self.message_draft = cambium::TextInput::default();
+                self.selected_message = Some(id);
+                self.message_notice = Some("Message persisted offline and queued.".into());
+            }
+            Err(error) => self.message_notice = Some(format!("Message was not queued: {error}")),
+        }
+    }
+
+    pub fn apply_message_event(&mut self, event: MessageEvent) {
+        if let Err(error) = self.message_store.append(event) {
+            self.message_notice = Some(format!("Message event was not persisted: {error}"));
+        }
+    }
+
+    pub fn select_message(&mut self, id: MessageId) {
+        self.selected_message = Some(id);
+        self.message_notice = None;
+    }
+
+    pub fn save_selected_sender(&mut self) {
+        let Some(id) = self.selected_message else {
+            self.message_notice = Some("Select an incoming message first.".into());
+            return;
+        };
+        let Some(peer) = self
+            .message_store
+            .records()
+            .find(|record| record.message.id == id)
+            .map(|record| record.message.sender)
+        else {
+            self.message_notice = Some("The selected message is no longer present.".into());
+            return;
+        };
+        let petname = self.message_contact_name.text().trim();
+        if petname.is_empty() {
+            self.message_notice = Some("Give this contact your own name first.".into());
+            return;
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |duration| duration.as_millis() as u64);
+        match self.message_store.save_contact(peer, petname, now) {
+            Ok(()) => {
+                self.message_contact_name = cambium::TextInput::default();
+                self.message_notice = Some("Contact saved.".into());
+            }
+            Err(error) => self.message_notice = Some(format!("Contact was not saved: {error}")),
+        }
     }
 
     /// Apply one pure management projection to the app-owned Mere. Only a
@@ -797,4 +917,27 @@ fn same_visible_topology(left: &DeviceProjection, right: &DeviceProjection) -> b
                     &relation.fact.kind,
                 )
             }))
+}
+
+fn parse_address(text: &str) -> Option<[u8; 16]> {
+    let text = text.trim();
+    if text.len() != 32 {
+        return None;
+    }
+    let mut bytes = [0_u8; 16];
+    for (slot, pair) in bytes.iter_mut().zip(text.as_bytes().chunks_exact(2)) {
+        let high = hex_nibble(pair[0])?;
+        let low = hex_nibble(pair[1])?;
+        *slot = (high << 4) | low;
+    }
+    Some(bytes)
+}
+
+fn hex_nibble(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
 }

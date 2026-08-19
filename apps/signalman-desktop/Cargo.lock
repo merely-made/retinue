@@ -871,8 +871,8 @@ version = "0.0.1"
 source = "git+https://github.com/merely-made/mere.git?rev=032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e#032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e"
 dependencies = [
  "hmac",
+ "pandect",
  "personae",
- "session-runtime",
  "sha1",
  "sha2 0.11.0",
  "zeroize",
@@ -3234,11 +3234,11 @@ dependencies = [
  "blake3",
  "castellan",
  "p2panda-core",
+ "pandect",
  "personae",
  "postilion",
  "retinue",
  "serde",
- "session-runtime",
  "tokio",
  "zeroize",
 ]
@@ -3326,6 +3326,7 @@ source = "git+https://github.com/merely-made/mere.git?rev=032683ae564ee6d27a1d6a
 dependencies = [
  "async-trait",
  "blake3",
+ "redb",
  "serde",
  "serde_json",
 ]
@@ -3965,6 +3966,30 @@ dependencies = [
  "log",
  "netrender",
  "paint_list_api",
+]
+
+[[package]]
+name = "pandect"
+version = "0.0.1"
+source = "git+https://github.com/merely-made/mere.git?rev=032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e#032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e"
+dependencies = [
+ "blake3",
+ "chacha20poly1305",
+ "chartulary",
+ "dirs",
+ "hex",
+ "incipit",
+ "mere-eidetic",
+ "mere-forme",
+ "mere-kernel",
+ "muniment",
+ "notochord",
+ "p2panda-core",
+ "personae",
+ "rand_core 0.6.4",
+ "serde",
+ "serde_json",
+ "uuid",
 ]
 
 [[package]]
@@ -4729,6 +4754,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "03251193000f4bd3b042892be858ee50e8b3719f2b08e5833ac4353724632430"
 
 [[package]]
+name = "redb"
+version = "2.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8eca1e9d98d5a7e9002d0013e18d5a9b000aee942eb134883a82f06ebffb6c01"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "redox_syscall"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5340,30 +5374,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "session-runtime"
-version = "0.0.1"
-source = "git+https://github.com/merely-made/mere.git?rev=032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e#032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e"
-dependencies = [
- "blake3",
- "chacha20poly1305",
- "chartulary",
- "dirs",
- "hex",
- "incipit",
- "mere-eidetic",
- "mere-forme",
- "mere-kernel",
- "muniment",
- "notochord",
- "p2panda-core",
- "personae",
- "rand_core 0.6.4",
- "serde",
- "serde_json",
- "uuid",
-]
-
-[[package]]
 name = "sha1"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5426,6 +5436,9 @@ dependencies = [
  "linkboy",
  "postilion",
  "retinue",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
  "tokio",
  "zeroize",
 ]
@@ -5446,11 +5459,15 @@ dependencies = [
  "layout-dom-api",
  "linkboy",
  "mere-signalman",
+ "muniment",
+ "pollster",
  "sceno",
  "scenomise",
  "seiche",
  "signalman",
  "sprigging",
+ "tempfile",
+ "thiserror 2.0.20",
  "winit",
 ]
 

@@ -21,6 +21,7 @@ use postilion::{Event, Peer, Sent};
 
 pub mod firmware;
 pub mod management;
+pub mod message;
 
 pub use firmware::{
     DeviceCandidate, FirmwareCatalog, FirmwareError, FirmwareInstallNotice,
@@ -102,7 +103,9 @@ pub fn render(event: &Event) -> Option<String> {
             let name = peer.name.as_deref().unwrap_or("(unnamed)");
             format!("[peer] {} {name} appeared", peer.destination)
         }
-        Event::Message { from, title, body } => {
+        Event::Message {
+            from, title, body, ..
+        } => {
             let title = String::from_utf8_lossy(title);
             let body = String::from_utf8_lossy(body);
             format!("[{from}] {title}: {body}")
@@ -116,7 +119,7 @@ pub fn render(event: &Event) -> Option<String> {
 /// One line describing what became of a send.
 pub fn report(sent: &Sent, prefix: &str) -> String {
     match sent {
-        Sent::Delivered { mode } => format!("(sent via {mode:?})"),
+        Sent::HandedToRadio { mode, .. } => format!("(handed to radio via {mode:?})"),
         Sent::NoSuchPeer => format!("(nobody matching {prefix} announced in time)"),
     }
 }

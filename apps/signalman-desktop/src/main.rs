@@ -16,7 +16,9 @@ use signalman_desktop::state::DesktopState;
 use signalman_desktop::state::NetworkRequest;
 use signalman_desktop::views::{Child, Logic};
 use signalman_desktop::worker::Worker;
-use signalman_desktop::{default_catalog_path, flow, root, sheet, survey};
+use signalman_desktop::{
+    MessageStore, default_catalog_path, default_message_store_path, flow, root, sheet, survey,
+};
 
 type Ctx<'a> = AppCtx<'a, DesktopState, Logic, Child>;
 
@@ -159,6 +161,14 @@ fn main() {
         options,
         |_window, _commands, _wake| {
             let mut state = DesktopState::new(&default_catalog_path());
+            match MessageStore::open(default_message_store_path(), "signalman-local") {
+                Ok(store) => state.replace_message_store(store),
+                Err(error) => {
+                    state.message_notice = Some(format!(
+                        "Durable message history could not be opened: {error}"
+                    ));
+                }
+            }
             // The first survey happens before the first frame, so the device
             // page opens with what is actually plugged in rather than with a
             // spinner that resolves a moment later.

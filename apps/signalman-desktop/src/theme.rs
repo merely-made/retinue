@@ -163,6 +163,27 @@ input:focus { border: 1px solid #a8c8ee; }
     background: #171b23;
     border: 1px solid #33405a;
 }
+.messages-page { display: block; padding: 28px 32px; }
+.message-compose, .message-contact {
+    display: block;
+    width: 620px;
+    padding: 14px 16px;
+    margin-bottom: 18px;
+    background: #171b23;
+}
+.message-rows { display: block; width: 760px; }
+.message-row {
+    display: block;
+    width: 760px;
+    padding: 10px 12px;
+    margin-bottom: 4px;
+    color: #e8e6e1;
+    background: #1c222c;
+    border: 1px solid #2b3441;
+    text-align: left;
+}
+.message-row.selected { border-color: #a8c8ee; background: #263548; }
+.message-notice { display: block; margin-top: 8px; color: #c8ced8; }
 .network-page { display: block; padding: 28px 32px; }
 .network-controls { display: flex; margin-bottom: 12px; }
 .network-controls button, .settings-controls button {

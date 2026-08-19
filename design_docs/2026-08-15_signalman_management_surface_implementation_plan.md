@@ -306,6 +306,37 @@ contact; offline/queued, handed-to-radio, accepted-by-propagation-node, fetched,
 and failed states cannot be confused; and a two-process fixture exchanges text
 with the visible status matching the transport receipt.
 
+**Implementation receipt, 2026-08-19:** Signalman now owns stable authored
+message identities, a self-checking versioned text envelope, append-only events,
+chronological replay, deduplication, and fact-only status transitions. Postilion
+preserves the authenticated LXMF id, sender key, and Data/Resource mode on
+receive. Its former `Sent::Delivered` is `Sent::HandedToRadio` and carries the
+actual Outrider receipt id and mode.
+
+The desktop adapter stores `Codicil<MessageEvent>` and the persona-scoped Gaz
+book through Muniment. The shipping desktop opens redb under the owner's local
+application-data directory; headless state uses the memory backend explicitly.
+A candidate log is validated and saved before it replaces the visible material.
+Authenticated unknown senders remain addressable by key and destination, and
+enter Gaz only through the named save-contact action. The Messages face renders
+the current receipt wording and persists an offline outgoing intent before it
+can be handed to a transport worker.
+
+The two-process fixture uses separate sender and receiver processes over a real
+Retinue TCP interface. It records the outgoing event before carriage, carries one signed
+Signalman envelope through Outrider, converts both ends through Postilion's
+shipping adapters, and proves matching application and LXMF transport ids. A
+redb close/reopen test reproduces the exact conversation; duplicate events do
+not grow the Codicil log. The clean exact-source desktop graph passes locked,
+offline metadata and its full headless suite. The Retinue, Outrider, Postilion,
+and Signalman family suite also passes locked and offline.
+
+The desktop binary still has no provisioned station identity at startup, so its
+ordinary UI can queue only after a host attaches that authority. The fixture
+closes S4's process boundary; it is not a headed serial-radio receipt. Likewise,
+the existing Outrider propagation submit receipt is not promoted to
+accepted-by-node without an application-level storage acknowledgement.
+
 ### S5. Voice drops
 
 **Writes:** Signalman message/audio modules and Outrider only where a missing

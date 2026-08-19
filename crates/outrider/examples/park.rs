@@ -95,7 +95,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let Some(event) = event else { break };
                 match event {
                     Event::PeerAppeared(peer) => println!("\n[peer] {} appeared", peer.destination),
-                    Event::Message { from, title, body } => println!(
+                    Event::Message {
+                        from, title, body, ..
+                    } => println!(
                         "\n[{from}] {}: {}",
                         String::from_utf8_lossy(&title),
                         String::from_utf8_lossy(&body),
@@ -129,7 +131,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     match recipient.clone() {
                         None => println!("pick someone first: /peers then /to <prefix>"),
                         Some(prefix) => match station.send_text(&prefix, &line, PATIENCE).await? {
-                            Sent::Delivered { mode } => println!("(sent via {mode:?})"),
+                            Sent::HandedToRadio { mode, .. } => {
+                                println!("(handed to radio via {mode:?})")
+                            }
                             Sent::NoSuchPeer => {
                                 println!("nobody matching {prefix} announced in time")
                             }

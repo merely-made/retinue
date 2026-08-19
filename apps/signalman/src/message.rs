@@ -1,0 +1,540 @@
+//! Signalman's durable message vocabulary.
+//!
+//! Transport reports facts; this module turns them into an append-only log and
+//! a deterministic read model. It deliberately does not own persistence or a
+//! contact book. Those are host adapters around this authority.
+
+use std::collections::BTreeMap;
+
+use postilion::{Event, Sent};
+use retinue::endpoint::PayloadMode;
+use retinue::hash::{AddressHash, full_hash};
+use serde::{Deserialize, Serialize};
+
+pub const WIRE_TITLE: &[u8] = b"signalman.message.v1";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct MessageId(pub [u8; 32]);
+
+impl MessageId {
+    /// Derive an application identity before transmission. The caller supplies
+    /// the nonce so composing an outgoing intent never depends on hidden I/O.
+    pub fn derive(
+        sender: MessagePeer,
+        recipient: MessagePeer,
+        authored_unix_ms: u64,
+        nonce: [u8; 32],
+        text: &str,
+    ) -> Self {
+        let mut bytes = Vec::with_capacity(16 + 16 + 8 + 32 + text.len());
+        bytes.extend_from_slice(&sender.destination);
+        bytes.extend_from_slice(&recipient.destination);
+        bytes.extend_from_slice(&authored_unix_ms.to_be_bytes());
+        bytes.extend_from_slice(&nonce);
+        bytes.extend_from_slice(&(text.len() as u64).to_be_bytes());
+        bytes.extend_from_slice(text.as_bytes());
+        Self(full_hash(&bytes))
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MessagePeer {
+    pub destination: [u8; 16],
+    /// A proven Ed25519 key when one is known. Its presence makes a sender
+    /// addressable; it does not make that sender a saved contact.
+    pub identity: Option<[u8; 32]>,
+}
+
+impl MessagePeer {
+    pub fn new(destination: [u8; 16], identity: Option<[u8; 32]>) -> Self {
+        Self {
+            destination,
+            identity,
+        }
+    }
+
+    pub fn address(self) -> AddressHash {
+        AddressHash::from_bytes(self.destination)
+    }
+}
+
+impl From<AddressHash> for MessagePeer {
+    fn from(value: AddressHash) -> Self {
+        Self::new(*value.as_bytes(), None)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MessageDirection {
+    Outgoing,
+    Incoming,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MessageTransport {
+    Data,
+    Resource,
+}
+
+impl From<PayloadMode> for MessageTransport {
+    fn from(value: PayloadMode) -> Self {
+        match value {
+            PayloadMode::Data => Self::Data,
+            PayloadMode::Resource => Self::Resource,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum QueuedReason {
+    Offline,
+    WaitingForPeer,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MessageStatus {
+    Queued(QueuedReason),
+    HandedToRadio {
+        transport_id: [u8; 32],
+        mode: MessageTransport,
+    },
+    AcceptedByPropagationNode,
+    FetchedFromPropagationNode,
+    ReceivedDirect {
+        transport_id: [u8; 32],
+        mode: MessageTransport,
+    },
+    Failed(String),
+}
+
+impl MessageStatus {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Queued(QueuedReason::Offline) => "offline, queued",
+            Self::Queued(QueuedReason::WaitingForPeer) => "queued, waiting for peer",
+            Self::HandedToRadio { .. } => "handed to radio",
+            Self::AcceptedByPropagationNode => "accepted by propagation node",
+            Self::FetchedFromPropagationNode => "fetched from propagation node",
+            Self::ReceivedDirect { .. } => "received directly",
+            Self::Failed(_) => "failed",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TextMessage {
+    pub id: MessageId,
+    pub sender: MessagePeer,
+    pub recipient: MessagePeer,
+    pub authored_unix_ms: u64,
+    nonce: [u8; 32],
+    pub text: String,
+}
+
+impl TextMessage {
+    pub fn compose(
+        sender: MessagePeer,
+        recipient: MessagePeer,
+        authored_unix_ms: u64,
+        nonce: [u8; 32],
+        text: impl Into<String>,
+    ) -> Self {
+        let text = text.into();
+        let id = MessageId::derive(sender, recipient, authored_unix_ms, nonce, &text);
+        Self {
+            id,
+            sender,
+            recipient,
+            authored_unix_ms,
+            nonce,
+            text,
+        }
+    }
+
+    pub fn encode_wire(&self) -> Result<Vec<u8>, MessageError> {
+        serde_json::to_vec(&WireEnvelope::V1(self.clone())).map_err(MessageError::Wire)
+    }
+
+    pub fn decode_wire(bytes: &[u8]) -> Result<Self, MessageError> {
+        let WireEnvelope::V1(message) =
+            serde_json::from_slice(bytes).map_err(MessageError::Wire)?;
+        let expected = MessageId::derive(
+            message.sender,
+            message.recipient,
+            message.authored_unix_ms,
+            message.nonce,
+            &message.text,
+        );
+        if message.id != expected {
+            return Err(MessageError::InvalidMessageId);
+        }
+        Ok(message)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "version", content = "message")]
+enum WireEnvelope {
+    #[serde(rename = "1")]
+    V1(TextMessage),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MessageEvent {
+    OutgoingQueued {
+        message: TextMessage,
+        reason: QueuedReason,
+        observed_unix_ms: u64,
+    },
+    IncomingReceived {
+        message: TextMessage,
+        transport_id: [u8; 32],
+        mode: MessageTransport,
+        observed_unix_ms: u64,
+    },
+    StatusChanged {
+        id: MessageId,
+        status: MessageStatus,
+        observed_unix_ms: u64,
+    },
+}
+
+impl MessageEvent {
+    pub fn message_id(&self) -> MessageId {
+        match self {
+            Self::OutgoingQueued { message, .. } | Self::IncomingReceived { message, .. } => {
+                message.id
+            }
+            Self::StatusChanged { id, .. } => *id,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MessageRecord {
+    pub message: TextMessage,
+    pub direction: MessageDirection,
+    pub status: MessageStatus,
+    pub observed_unix_ms: u64,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct MessageBook {
+    messages: BTreeMap<MessageId, MessageRecord>,
+    order: Vec<MessageId>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ApplyOutcome {
+    Applied,
+    Duplicate,
+}
+
+impl MessageBook {
+    pub fn replay<'a>(
+        events: impl IntoIterator<Item = &'a MessageEvent>,
+    ) -> Result<Self, MessageError> {
+        let mut book = Self::default();
+        for event in events {
+            book.apply(event)?;
+        }
+        Ok(book)
+    }
+
+    pub fn apply(&mut self, event: &MessageEvent) -> Result<ApplyOutcome, MessageError> {
+        match event {
+            MessageEvent::OutgoingQueued {
+                message,
+                reason,
+                observed_unix_ms,
+            } => self.insert(
+                message,
+                MessageDirection::Outgoing,
+                MessageStatus::Queued(reason.clone()),
+                *observed_unix_ms,
+            ),
+            MessageEvent::IncomingReceived {
+                message,
+                transport_id,
+                mode,
+                observed_unix_ms,
+            } => self.insert(
+                message,
+                MessageDirection::Incoming,
+                MessageStatus::ReceivedDirect {
+                    transport_id: *transport_id,
+                    mode: *mode,
+                },
+                *observed_unix_ms,
+            ),
+            MessageEvent::StatusChanged {
+                id,
+                status,
+                observed_unix_ms,
+            } => {
+                let record = self
+                    .messages
+                    .get_mut(id)
+                    .ok_or(MessageError::UnknownMessage(*id))?;
+                if &record.status == status && record.observed_unix_ms == *observed_unix_ms {
+                    return Ok(ApplyOutcome::Duplicate);
+                }
+                if record.direction == MessageDirection::Incoming {
+                    return Err(MessageError::IncomingStatusChange(*id));
+                }
+                if !valid_transition(&record.status, status) {
+                    return Err(MessageError::InvalidTransition {
+                        id: *id,
+                        from: record.status.clone(),
+                        to: status.clone(),
+                    });
+                }
+                record.status = status.clone();
+                record.observed_unix_ms = *observed_unix_ms;
+                Ok(ApplyOutcome::Applied)
+            }
+        }
+    }
+
+    fn insert(
+        &mut self,
+        message: &TextMessage,
+        direction: MessageDirection,
+        status: MessageStatus,
+        observed_unix_ms: u64,
+    ) -> Result<ApplyOutcome, MessageError> {
+        if let Some(existing) = self.messages.get(&message.id) {
+            if existing.message == *message && existing.direction == direction {
+                return Ok(ApplyOutcome::Duplicate);
+            }
+            return Err(MessageError::ConflictingMessage(message.id));
+        }
+        self.messages.insert(
+            message.id,
+            MessageRecord {
+                message: message.clone(),
+                direction,
+                status,
+                observed_unix_ms,
+            },
+        );
+        self.order.push(message.id);
+        Ok(ApplyOutcome::Applied)
+    }
+
+    pub fn get(&self, id: MessageId) -> Option<&MessageRecord> {
+        self.messages.get(&id)
+    }
+
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = &MessageRecord> {
+        self.order.iter().filter_map(|id| self.messages.get(id))
+    }
+
+    pub fn len(&self) -> usize {
+        self.messages.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.messages.is_empty()
+    }
+}
+
+fn valid_transition(from: &MessageStatus, to: &MessageStatus) -> bool {
+    use MessageStatus::*;
+    matches!(
+        (from, to),
+        (Queued(_), Queued(_))
+            | (Queued(_), HandedToRadio { .. })
+            | (Queued(_), AcceptedByPropagationNode)
+            | (Queued(_), Failed(_))
+            | (HandedToRadio { .. }, AcceptedByPropagationNode)
+            | (HandedToRadio { .. }, FetchedFromPropagationNode)
+            | (HandedToRadio { .. }, Failed(_))
+            | (AcceptedByPropagationNode, FetchedFromPropagationNode)
+            | (AcceptedByPropagationNode, Failed(_))
+    )
+}
+
+/// Convert an authenticated Postilion receive event into a replay event.
+/// The wire's sender facts must match the facts Postilion proved.
+pub fn incoming_event(
+    event: &Event,
+    local: MessagePeer,
+    observed_unix_ms: u64,
+) -> Result<MessageEvent, MessageError> {
+    let Event::Message {
+        message_id,
+        from,
+        sender_identity,
+        mode,
+        title,
+        body,
+    } = event
+    else {
+        return Err(MessageError::NotMessageEvent);
+    };
+    if title.as_slice() != WIRE_TITLE {
+        return Err(MessageError::WrongWireTitle);
+    }
+    let message = TextMessage::decode_wire(body)?;
+    if message.sender.destination != *from.as_bytes()
+        || message.sender.identity != Some(*sender_identity)
+        || message.recipient.destination != local.destination
+        || message
+            .recipient
+            .identity
+            .is_some_and(|identity| Some(identity) != local.identity)
+    {
+        return Err(MessageError::WireAuthorityMismatch);
+    }
+    Ok(MessageEvent::IncomingReceived {
+        message,
+        transport_id: *message_id,
+        mode: (*mode).into(),
+        observed_unix_ms,
+    })
+}
+
+pub fn sent_event(id: MessageId, sent: &Sent, observed_unix_ms: u64) -> MessageEvent {
+    let status = match sent {
+        Sent::HandedToRadio { message_id, mode } => MessageStatus::HandedToRadio {
+            transport_id: *message_id,
+            mode: (*mode).into(),
+        },
+        Sent::NoSuchPeer => MessageStatus::Queued(QueuedReason::WaitingForPeer),
+    };
+    MessageEvent::StatusChanged {
+        id,
+        status,
+        observed_unix_ms,
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum MessageError {
+    #[error("message wire data is invalid: {0}")]
+    Wire(serde_json::Error),
+    #[error("the Postilion event is not a message")]
+    NotMessageEvent,
+    #[error("the message does not use Signalman's wire title")]
+    WrongWireTitle,
+    #[error("the message envelope disagrees with authenticated transport facts")]
+    WireAuthorityMismatch,
+    #[error("the message identity does not match its authored fields")]
+    InvalidMessageId,
+    #[error("message {0:?} has no queued or received record")]
+    UnknownMessage(MessageId),
+    #[error("message {0:?} conflicts with an existing object")]
+    ConflictingMessage(MessageId),
+    #[error("incoming message {0:?} cannot take an outgoing status")]
+    IncomingStatusChange(MessageId),
+    #[error("message {id:?} cannot move from {from:?} to {to:?}")]
+    InvalidTransition {
+        id: MessageId,
+        from: MessageStatus,
+        to: MessageStatus,
+    },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn peer(byte: u8) -> MessagePeer {
+        MessagePeer::new([byte; 16], Some([byte; 32]))
+    }
+
+    #[test]
+    fn restart_replay_is_exact_and_duplicate_receive_is_idempotent() {
+        let message = TextMessage::compose(peer(1), peer(2), 100, [3; 32], "hello");
+        let events = vec![
+            MessageEvent::OutgoingQueued {
+                message: message.clone(),
+                reason: QueuedReason::Offline,
+                observed_unix_ms: 101,
+            },
+            MessageEvent::StatusChanged {
+                id: message.id,
+                status: MessageStatus::HandedToRadio {
+                    transport_id: [9; 32],
+                    mode: MessageTransport::Data,
+                },
+                observed_unix_ms: 102,
+            },
+        ];
+        let first = MessageBook::replay(&events).unwrap();
+        let second = MessageBook::replay(&events).unwrap();
+        assert_eq!(first, second);
+
+        let incoming = TextMessage::compose(peer(2), peer(1), 103, [4; 32], "back");
+        let duplicate = MessageEvent::IncomingReceived {
+            message: incoming,
+            transport_id: [8; 32],
+            mode: MessageTransport::Resource,
+            observed_unix_ms: 104,
+        };
+        let mut book = first;
+        assert_eq!(book.apply(&duplicate).unwrap(), ApplyOutcome::Applied);
+        assert_eq!(book.apply(&duplicate).unwrap(), ApplyOutcome::Duplicate);
+        assert_eq!(book.len(), 2);
+        assert_eq!(
+            book.iter()
+                .map(|record| record.message.text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["hello", "back"]
+        );
+    }
+
+    #[test]
+    fn status_words_keep_transport_facts_distinct() {
+        assert_ne!(
+            MessageStatus::Queued(QueuedReason::Offline).label(),
+            MessageStatus::HandedToRadio {
+                transport_id: [0; 32],
+                mode: MessageTransport::Data,
+            }
+            .label()
+        );
+        assert_ne!(
+            MessageStatus::AcceptedByPropagationNode.label(),
+            MessageStatus::FetchedFromPropagationNode.label()
+        );
+        assert_eq!(
+            MessageStatus::Failed("radio closed".into()).label(),
+            "failed"
+        );
+    }
+
+    #[test]
+    fn authenticated_sender_must_match_the_wire_envelope() {
+        let local = peer(1);
+        let remote = peer(2);
+        let message = TextMessage::compose(remote, local, 100, [7; 32], "hello");
+        let event = Event::Message {
+            message_id: [8; 32],
+            from: remote.address(),
+            sender_identity: remote.identity.unwrap(),
+            mode: PayloadMode::Data,
+            title: WIRE_TITLE.to_vec(),
+            body: message.encode_wire().unwrap(),
+        };
+        let observed = incoming_event(&event, local, 110).unwrap();
+        let mut book = MessageBook::default();
+        assert_eq!(book.apply(&observed).unwrap(), ApplyOutcome::Applied);
+
+        let forged_sender = MessagePeer::new(remote.destination, Some([9; 32]));
+        let forged = TextMessage::compose(forged_sender, local, 100, [7; 32], "hello");
+        let forged = Event::Message {
+            message_id: [8; 32],
+            from: remote.address(),
+            sender_identity: remote.identity.unwrap(),
+            mode: PayloadMode::Data,
+            title: WIRE_TITLE.to_vec(),
+            body: forged.encode_wire().unwrap(),
+        };
+        assert!(matches!(
+            incoming_event(&forged, local, 110),
+            Err(MessageError::WireAuthorityMismatch)
+        ));
+    }
+}

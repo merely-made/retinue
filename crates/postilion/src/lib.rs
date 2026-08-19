@@ -196,10 +196,18 @@ pub enum Event {
     PeerAppeared(Peer),
     /// An authenticated message arrived.
     Message {
+        /// The authenticated LXMF object identity. Replaying this value is how
+        /// an application suppresses the same object after reconnect or restart.
+        message_id: [u8; 32],
         /// The sender's delivery destination, not its identity hash: that is what a person
         /// was told and what the peer table lists, so reporting the identity hash would
         /// leave nobody able to match a message to a peer they know.
         from: AddressHash,
+        /// The public signing key proven by the LXMF signature and Retinue link.
+        /// Applications may address this sender without silently adding it to a contact book.
+        sender_identity: [u8; 32],
+        /// Whether the authenticated object arrived inline or through a Resource transfer.
+        mode: retinue::endpoint::PayloadMode,
         title: Vec<u8>,
         body: Vec<u8>,
     },
@@ -209,15 +217,42 @@ pub enum Event {
     Dropped(String),
 }
 
+impl Event {
+    /// Preserve every authenticated fact Outrider proved at the host boundary.
+    pub fn authenticated_message(received: outrider::ReceivedDirect) -> Self {
+        Self::Message {
+            message_id: received.message.message_id,
+            from: delivery_destination(&received.source_identity),
+            sender_identity: *received.source_identity.ed25519_bytes(),
+            mode: received.mode,
+            title: received.message.payload.title,
+            body: received.message.payload.content,
+        }
+    }
+}
+
 /// What became of a send.
 #[derive(Clone, Debug)]
 pub enum Sent {
-    /// Handed to the radio.
-    Delivered {
+    /// Retinue accepted the object for carriage. This is not an end-recipient
+    /// delivery receipt.
+    HandedToRadio {
+        message_id: [u8; 32],
         mode: retinue::endpoint::PayloadMode,
     },
     /// Nobody matching the prefix announced inside the wait.
     NoSuchPeer,
+}
+
+impl Sent {
+    /// Report precisely the acceptance Outrider returned, without promoting it
+    /// to an end-recipient delivery claim.
+    pub fn handed_to_radio(receipt: outrider::DirectReceipt) -> Self {
+        Self::HandedToRadio {
+            message_id: receipt.message_id,
+            mode: receipt.mode,
+        }
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -359,11 +394,7 @@ impl Station {
                     )
                     .await
                     {
-                        Ok(received) => Event::Message {
-                            from: delivery_destination(&received.source_identity),
-                            title: received.message.payload.title,
-                            body: received.message.payload.content,
-                        },
+                        Ok(received) => Event::authenticated_message(received),
                         Err(error) => Event::Dropped(error.to_string()),
                     };
                     if events_tx.send(event).is_err() {
@@ -471,7 +502,7 @@ impl Station {
         )
         .await
         .map_err(|error| Error::Lxmf(error.to_string()))?;
-        Ok(Sent::Delivered { mode: receipt.mode })
+        Ok(Sent::handed_to_radio(receipt))
     }
 
     /// A fresh starting nonce for a stamp search.

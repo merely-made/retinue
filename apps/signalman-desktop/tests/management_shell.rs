@@ -129,10 +129,6 @@ fn unavailable_sections_name_their_actual_gate() {
     let mut harness = harness();
     let expectations = [
         (
-            "Messages",
-            "Messages are unavailable until the message log and truthful delivery status land.",
-        ),
-        (
             "Map",
             "Map is unavailable until owner placement records land.",
         ),
@@ -151,6 +147,50 @@ fn unavailable_sections_name_their_actual_gate() {
             );
         });
     }
+}
+
+#[test]
+fn messages_face_persists_offline_intent_and_names_its_actual_status() {
+    let mut harness = harness();
+    harness.update(|state| {
+        state.set_message_local(signalman::message::MessagePeer::new([1; 16], Some([1; 32])));
+        state.message_recipient = cambium::TextInput::new("02020202020202020202020202020202");
+        state.message_draft = cambium::TextInput::new("Meet by the north gate");
+    });
+    assert!(harness.click_on(&Selector::role("button").containing("Messages")));
+    assert!(harness.click_on(&Selector::role("button").containing("Queue message")));
+    assert_eq!(harness.state().message_store.len(), 1);
+    assert_eq!(harness.state().message_store.log_len(), 1);
+    harness.with_surfaces(|surfaces| {
+        assert!(genet_probe::text_present(
+            surfaces,
+            "Meet by the north gate"
+        ));
+        assert!(genet_probe::text_present(surfaces, "offline, queued"));
+        assert!(!genet_probe::text_present(surfaces, "delivered"));
+    });
+
+    harness.update(|state| {
+        let id = state
+            .message_store
+            .records()
+            .next()
+            .expect("the queued message")
+            .message
+            .id;
+        state.apply_message_event(signalman::message::MessageEvent::StatusChanged {
+            id,
+            status: signalman::message::MessageStatus::HandedToRadio {
+                transport_id: [9; 32],
+                mode: signalman::message::MessageTransport::Data,
+            },
+            observed_unix_ms: u64::MAX,
+        });
+    });
+    harness.with_surfaces(|surfaces| {
+        assert!(genet_probe::text_present(surfaces, "handed to radio"));
+        assert!(!genet_probe::text_present(surfaces, "offline, queued"));
+    });
 }
 
 #[test]

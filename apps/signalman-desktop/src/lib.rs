@@ -19,6 +19,7 @@
 
 pub mod device_mere;
 pub mod flow;
+pub mod messages;
 pub mod network;
 pub mod state;
 pub mod survey;
@@ -26,6 +27,7 @@ pub mod theme;
 pub mod views;
 pub mod worker;
 
+pub use messages::MessageStore;
 pub use state::{
     DesktopSection, DesktopState, LabelDensity, ManagementSettings, NetworkRequest, Request,
     SurveyState,
@@ -84,8 +86,35 @@ pub fn focused_revision_field(
             get: Box::new(|s: &DesktopState| &s.t114_loader_record),
             get_mut: Box::new(|s: &mut DesktopState| &mut s.t114_loader_record),
         }),
+        Some("message-recipient") => Some(cambium_genet_winit_host::FocusedTextSlot {
+            node,
+            get: Box::new(|s: &DesktopState| &s.message_recipient),
+            get_mut: Box::new(|s: &mut DesktopState| &mut s.message_recipient),
+        }),
+        Some("message-draft") => Some(cambium_genet_winit_host::FocusedTextSlot {
+            node,
+            get: Box::new(|s: &DesktopState| &s.message_draft),
+            get_mut: Box::new(|s: &mut DesktopState| &mut s.message_draft),
+        }),
+        Some("message-contact-name") => Some(cambium_genet_winit_host::FocusedTextSlot {
+            node,
+            get: Box::new(|s: &DesktopState| &s.message_contact_name),
+            get_mut: Box::new(|s: &mut DesktopState| &mut s.message_contact_name),
+        }),
         _ => None,
     }
+}
+
+/// Durable message state for the desktop host. Tests keep the in-memory
+/// adapter installed by `DesktopState::new`; the binary replaces it explicitly.
+pub fn default_message_store_path() -> std::path::PathBuf {
+    if let Some(path) = std::env::var_os("SIGNALMAN_MESSAGE_STORE") {
+        return std::path::PathBuf::from(path);
+    }
+    let root = std::env::var_os("LOCALAPPDATA")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
+    root.join("Merely").join("Signalman").join("messages.redb")
 }
 
 /// Where the packaged firmware catalog lives.
