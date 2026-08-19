@@ -51,6 +51,7 @@ genet-scripted-dom = { git = "https://github.com/merely-made/genet.git", rev = "
 layout-dom-api = { git = "https://github.com/merely-made/genet.git", rev = "d47a17bf65ceafada26e4c15c9afcce6c18c17f9", version = "=0.1.0" }
 sprigging = { git = "https://github.com/merely-made/genet.git", rev = "d47a17bf65ceafada26e4c15c9afcce6c18c17f9" }
 winit = "0.30"
+cpal = "=0.18.2"
 
 # Signalman's management graph and its sealed station authority come from one
 # exact Mere revision. Keep these on one source so identities and graph keys do

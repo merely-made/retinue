@@ -372,6 +372,29 @@ rest of S5. Postilion's present direct-message event also omits LXMF fields;
 live direct voice ingress must preserve that payload without copying the clip
 into Signalman's metadata body.
 
+**Host-audio and direct-ingress receipt, 2026-08-19:** the next S5 software
+rung is implemented. The desktop enumerates stable CPAL input and output device
+IDs, leaves both as owner-visible choices, and offers Pipit LPC-10, half-rate
+LPC-10, or IMA ADPCM with a 10, 30, or 60 second capture bound. One ordinary
+worker owns the host streams. Its real-time callback writes only into a bounded
+buffer; completion downmixes and anti-alias downsamples host PCM to 8 kHz mono,
+then Signalman encodes the captured PCM exactly once and appends the same
+`OutgoingQueued` event used by file-backed voice. Selected decoded clips are
+resampled for the selected output and yield an output-device, sample-rate,
+channel-count, and decoded-duration receipt.
+
+Postilion now retains the complete authenticated `LxmfPayload` in
+`Event::Message` and exposes `Station::send_payload`; `send_bytes` remains the
+text convenience wrapper. A real direct Retinue exchange proves field 7
+survives Postilion and decodes through Signalman's ordinary `incoming_event`.
+Desktop tests inject typed capture/playback events and therefore do not claim
+that CI opened or heard a physical device. The remaining S5 receipt is a
+headed two-site run that attaches the desktop to its sealed station authority,
+records through a real microphone at site A, carries the queued clip through a
+propagation node, fetches it at site B, and audibly plays it through the selected
+output. The current exact Mere port still has to expose that live station lease;
+an injected `message_local` in a harness is not substituted for it.
+
 ### S6. Owner placement and Atlas
 
 **Writes:** `repos/mere/ports/signalman/**`, Signalman's `map.rs` adapter, and

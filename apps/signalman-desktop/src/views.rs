@@ -18,7 +18,7 @@ use signalman::message::{MessageDirection, MessageId};
 use crate::network::swatch_from_projection;
 use crate::state::{
     DesktopSection, DesktopState, LabelDensity, MESHNOLOGY_N39_DOCUMENTATION_URL, Request,
-    SurveyState,
+    SurveyState, VOICE_DURATION_OPTIONS, VOICE_ENCODING_OPTIONS, VoiceActivity,
 };
 
 pub type Child = Box<dyn AnyView<DesktopState, (), GenetCtx, GenetElement>>;
@@ -304,6 +304,187 @@ fn messages_page(state: &DesktopState) -> Child {
         })
         .unwrap_or_else(|| Box::new(el("div", ()).attr("class", "empty-none")));
 
+    let input_names = state
+        .voice_inputs
+        .iter()
+        .map(|device| {
+            if device.is_default {
+                format!("{} (system default)", device.label)
+            } else {
+                device.label.clone()
+            }
+        })
+        .collect::<Vec<_>>();
+    let input_control: Child = if input_names.is_empty() {
+        Box::new(el("div", text("No voice input device is available.")).attr("class", "hint"))
+    } else {
+        Box::new(
+            el(
+                "label",
+                (
+                    el("div", text("Input device")).attr("class", "field-label"),
+                    cambium::lens(
+                        move |choice: &mut cambium::SelectState| {
+                            let options =
+                                input_names.iter().map(String::as_str).collect::<Vec<_>>();
+                            cambium::select(choice, &options)
+                        },
+                        |s: &mut DesktopState| &mut s.voice_input,
+                    ),
+                ),
+            )
+            .attr("class", "voice-choice"),
+        )
+    };
+
+    let output_names = state
+        .voice_outputs
+        .iter()
+        .map(|device| {
+            if device.is_default {
+                format!("{} (system default)", device.label)
+            } else {
+                device.label.clone()
+            }
+        })
+        .collect::<Vec<_>>();
+    let output_control: Child = if output_names.is_empty() {
+        Box::new(el("div", text("No voice output device is available.")).attr("class", "hint"))
+    } else {
+        Box::new(
+            el(
+                "label",
+                (
+                    el("div", text("Output device")).attr("class", "field-label"),
+                    cambium::lens(
+                        move |choice: &mut cambium::SelectState| {
+                            let options =
+                                output_names.iter().map(String::as_str).collect::<Vec<_>>();
+                            cambium::select(choice, &options)
+                        },
+                        |s: &mut DesktopState| &mut s.voice_output,
+                    ),
+                ),
+            )
+            .attr("class", "voice-choice"),
+        )
+    };
+
+    let capture_control: Child = match state.voice_activity {
+        VoiceActivity::Idle => Box::new(
+            button("Record voice drop", |s: &mut DesktopState, _| {
+                s.start_voice_capture()
+            })
+            .attr("class", "primary")
+            .attr("data-voice-action", "record"),
+        ),
+        VoiceActivity::Recording => Box::new(
+            button("Stop and queue voice drop", |s: &mut DesktopState, _| {
+                s.stop_voice_capture()
+            })
+            .attr("class", "primary")
+            .attr("data-voice-action", "stop"),
+        ),
+        _ => Box::new(
+            el(
+                "div",
+                text(format!("Host audio: {}.", state.voice_activity.label())),
+            )
+            .attr("class", "voice-activity")
+            .attr("role", "status"),
+        ),
+    };
+
+    let selected_is_voice = state.selected_message.is_some_and(|id| {
+        state
+            .message_store
+            .records()
+            .find(|record| record.message.id() == id)
+            .is_some_and(|record| record.message.voice().is_some())
+    });
+    let playback_control: Child = if selected_is_voice {
+        Box::new(
+            button("Play selected voice drop", |s: &mut DesktopState, _| {
+                s.play_selected_voice()
+            })
+            .attr("class", "secondary")
+            .attr("data-voice-action", "play"),
+        )
+    } else {
+        Box::new(
+            el("div", text("Select a voice drop in history to play it.")).attr("class", "hint"),
+        )
+    };
+
+    let playback_receipt: Child = state
+        .voice_playback_receipt
+        .as_ref()
+        .map(|receipt| {
+            Box::new(
+                el(
+                    "div",
+                    text(format!(
+                        "Playback receipt: {} ms, {} Hz, {} channel{} through {}.",
+                        receipt.decoded_duration_ms,
+                        receipt.output_sample_rate,
+                        receipt.output_channels,
+                        if receipt.output_channels == 1 {
+                            ""
+                        } else {
+                            "s"
+                        },
+                        receipt.device_label,
+                    )),
+                )
+                .attr("class", "voice-receipt"),
+            ) as Child
+        })
+        .unwrap_or_else(|| Box::new(el("div", ()).attr("class", "empty-none")));
+
+    let voice_controls = el(
+        "div",
+        (
+            el("div", text("Voice drop")).attr("class", "network-heading"),
+            el(
+                "div",
+                text("Recording is downmixed to 8 kHz mono, encoded once, and persisted before transport."),
+            )
+            .attr("class", "hint"),
+            input_control,
+            output_control,
+            el(
+                "label",
+                (
+                    el("div", text("Encoding")).attr("class", "field-label"),
+                    cambium::lens(
+                        |choice: &mut cambium::SelectState| {
+                            cambium::select(choice, &VOICE_ENCODING_OPTIONS)
+                        },
+                        |s: &mut DesktopState| &mut s.voice_encoding,
+                    ),
+                ),
+            )
+            .attr("class", "voice-choice"),
+            el(
+                "label",
+                (
+                    el("div", text("Maximum duration")).attr("class", "field-label"),
+                    cambium::lens(
+                        |choice: &mut cambium::SelectState| {
+                            cambium::select(choice, &VOICE_DURATION_OPTIONS)
+                        },
+                        |s: &mut DesktopState| &mut s.voice_duration,
+                    ),
+                ),
+            )
+            .attr("class", "voice-choice"),
+            capture_control,
+            playback_control,
+            playback_receipt,
+        ),
+    )
+    .attr("class", "voice-compose");
+
     Box::new(
         el(
             "main",
@@ -364,6 +545,7 @@ fn messages_page(state: &DesktopState) -> Child {
                     ),
                 )
                 .attr("class", "message-compose"),
+                voice_controls,
                 el("div", text("Conversation history")).attr("class", "network-heading"),
                 history,
                 contact_controls,

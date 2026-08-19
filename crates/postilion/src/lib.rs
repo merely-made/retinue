@@ -25,8 +25,8 @@
 //!
 //! println!("you are {}", station.address());
 //! while let Some(event) = station.next_event().await {
-//!     if let Event::Message { from, body, .. } = event {
-//!         println!("[{from}] {}", String::from_utf8_lossy(&body));
+//!     if let Event::Message { from, payload, .. } = event {
+//!         println!("[{from}] {}", String::from_utf8_lossy(&payload.content));
 //!     }
 //! }
 //! # Ok(()) }
@@ -208,8 +208,10 @@ pub enum Event {
         sender_identity: [u8; 32],
         /// Whether the authenticated object arrived inline or through a Resource transfer.
         mode: retinue::endpoint::PayloadMode,
-        title: Vec<u8>,
-        body: Vec<u8>,
+        /// The complete authenticated LXMF payload. Applications that own a
+        /// typed field, such as Signalman's field-7 voice clip, receive it
+        /// without copying field bytes into the title or content body.
+        payload: LxmfPayload,
     },
     /// Something arrived and was refused. Surfaced rather than swallowed, because the
     /// commonest cause is a sender this station has never heard announce, and a silent drop
@@ -225,8 +227,7 @@ impl Event {
             from: delivery_destination(&received.source_identity),
             sender_identity: *received.source_identity.ed25519_bytes(),
             mode: received.mode,
-            title: received.message.payload.title,
-            body: received.message.payload.content,
+            payload: received.message.payload,
         }
     }
 }
@@ -475,6 +476,21 @@ impl Station {
         body: &[u8],
         patience: Duration,
     ) -> Result<Sent, Error> {
+        let payload = LxmfPayload::text(now_secs(), title, body);
+        self.send_payload(prefix, &payload, patience).await
+    }
+
+    /// Send one complete LXMF payload to a known peer.
+    ///
+    /// This is the field-preserving sibling of [`Self::send_bytes`]. The
+    /// caller retains ownership of application field semantics; Postilion only
+    /// authenticates and carries the bounded LXMF object.
+    pub async fn send_payload(
+        &self,
+        prefix: &str,
+        payload: &LxmfPayload,
+        patience: Duration,
+    ) -> Result<Sent, Error> {
         let deadline = std::time::Instant::now() + patience;
         let peer = loop {
             if let Some(peer) = self.find(prefix) {
@@ -486,7 +502,6 @@ impl Station {
             tokio::time::sleep(Duration::from_secs(1)).await;
         };
 
-        let payload = LxmfPayload::text(now_secs(), title, body);
         // A budget, not zero. Zero meant a peer that advertises any stamp cost was
         // unreachable: the search was asked for no attempts and failed on the first one, so
         // the only peers this station could talk to were the ones asking nothing. Stamp
@@ -496,7 +511,7 @@ impl Station {
             &self.endpoint,
             &self.identity,
             &peer.announce,
-            &payload,
+            payload,
             self.stamp_seed(),
             STAMP_ATTEMPT_BUDGET,
         )

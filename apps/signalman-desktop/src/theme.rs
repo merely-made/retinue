@@ -184,6 +184,31 @@ input:focus { border: 1px solid #a8c8ee; }
 }
 .message-row.selected { border-color: #a8c8ee; background: #263548; }
 .message-notice { display: block; margin-top: 8px; color: #c8ced8; }
+.voice-compose {
+    display: block;
+    width: 620px;
+    padding: 14px 16px;
+    margin-bottom: 18px;
+    background: #171b23;
+}
+.voice-choice { display: block; margin: 10px 0; }
+.voice-choice .select { display: block; width: 100%; margin-top: 4px; }
+.voice-choice .select-box {
+    display: block;
+    padding: 8px 10px;
+    color: #e8e6e1;
+    background: #1c222c;
+    border: 1px solid #33405a;
+}
+.voice-choice .select-list {
+    display: block;
+    width: 100%;
+    color: #e8e6e1;
+    background: #1c222c;
+    border: 1px solid #33405a;
+}
+.voice-choice .select-option { display: block; padding: 8px 10px; }
+.voice-activity, .voice-receipt { display: block; margin-top: 8px; color: #c8ced8; }
 .network-page { display: block; padding: 28px 32px; }
 .network-controls { display: flex; margin-bottom: 12px; }
 .network-controls button, .settings-controls button {

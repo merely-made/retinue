@@ -95,12 +95,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let Some(event) = event else { break };
                 match event {
                     Event::PeerAppeared(peer) => println!("\n[peer] {} appeared", peer.destination),
-                    Event::Message {
-                        from, title, body, ..
-                    } => println!(
+                    Event::Message { from, payload, .. } => println!(
                         "\n[{from}] {}: {}",
-                        String::from_utf8_lossy(&title),
-                        String::from_utf8_lossy(&body),
+                        String::from_utf8_lossy(&payload.title),
+                        String::from_utf8_lossy(&payload.content),
                     ),
                     Event::Dropped(reason) => println!("\n[dropped] {reason}"),
                 }

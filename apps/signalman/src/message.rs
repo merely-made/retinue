@@ -612,28 +612,30 @@ pub fn incoming_event(
         from,
         sender_identity,
         mode,
-        title,
-        body,
+        payload,
     } = event
     else {
         return Err(MessageError::NotMessageEvent);
     };
-    if title.as_slice() != WIRE_TITLE {
+    let message: Message = if payload.title.as_slice() == WIRE_TITLE {
+        TextMessage::decode_wire(&payload.content)?.into()
+    } else if payload.title.as_slice() == VOICE_WIRE_TITLE {
+        VoiceMessage::decode_payload(payload)?.into()
+    } else {
         return Err(MessageError::WrongWireTitle);
-    }
-    let message = TextMessage::decode_wire(body)?;
-    if message.sender.destination != *from.as_bytes()
-        || message.sender.identity != Some(*sender_identity)
-        || message.recipient.destination != local.destination
+    };
+    if message.sender().destination != *from.as_bytes()
+        || message.sender().identity != Some(*sender_identity)
+        || message.recipient().destination != local.destination
         || message
-            .recipient
+            .recipient()
             .identity
             .is_some_and(|identity| Some(identity) != local.identity)
     {
         return Err(MessageError::WireAuthorityMismatch);
     }
     Ok(MessageEvent::IncomingReceived {
-        message: message.into(),
+        message,
         transport_id: *message_id,
         mode: (*mode).into(),
         observed_unix_ms,
@@ -825,8 +827,7 @@ mod tests {
             from: remote.address(),
             sender_identity: remote.identity.unwrap(),
             mode: PayloadMode::Data,
-            title: WIRE_TITLE.to_vec(),
-            body: message.encode_wire().unwrap(),
+            payload: LxmfPayload::text(1.0, WIRE_TITLE, message.encode_wire().unwrap()),
         };
         let observed = incoming_event(&event, local, 110).unwrap();
         let mut book = MessageBook::default();
@@ -839,8 +840,7 @@ mod tests {
             from: remote.address(),
             sender_identity: remote.identity.unwrap(),
             mode: PayloadMode::Data,
-            title: WIRE_TITLE.to_vec(),
-            body: forged.encode_wire().unwrap(),
+            payload: LxmfPayload::text(1.0, WIRE_TITLE, forged.encode_wire().unwrap()),
         };
         assert!(matches!(
             incoming_event(&forged, local, 110),

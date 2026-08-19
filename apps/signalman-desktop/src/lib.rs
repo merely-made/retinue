@@ -17,6 +17,7 @@
 //! The library half exists so the headless page-state and keyboard tests can
 //! drive the same state machine and the same views the binary runs.
 
+pub mod audio;
 pub mod device_mere;
 pub mod flow;
 pub mod messages;

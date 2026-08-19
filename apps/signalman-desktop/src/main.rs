@@ -11,9 +11,9 @@ use std::rc::Rc;
 
 use cambium_genet_winit_host::{AppCtx, HostHooks, HostOptions, Init, run};
 use signalman::management::ManagementPresence;
+use signalman_desktop::audio::{self, AudioEvent, AudioOperation, AudioWorker};
 use signalman_desktop::network::{LayoutWake, NETWORK_LEAF_KEY, NetworkWorker};
-use signalman_desktop::state::DesktopState;
-use signalman_desktop::state::NetworkRequest;
+use signalman_desktop::state::{AudioRequest, DesktopState, NetworkRequest};
 use signalman_desktop::views::{Child, Logic};
 use signalman_desktop::worker::Worker;
 use signalman_desktop::{
@@ -41,6 +41,42 @@ fn perform_network_request(
     }
 }
 
+fn perform_audio_request(
+    slot: &mut Option<AudioWorker>,
+    request: AudioRequest,
+    wake: LayoutWake,
+) -> Result<(), AudioEvent> {
+    let operation = match &request {
+        AudioRequest::StartCapture { .. } | AudioRequest::StopCapture => AudioOperation::Capture,
+        AudioRequest::Play { .. } => AudioOperation::Playback,
+    };
+    if slot.is_none() {
+        *slot = Some(
+            AudioWorker::spawn(wake).map_err(|error| AudioEvent::Failed {
+                operation,
+                message: format!("could not start the host audio worker: {error}"),
+            })?,
+        );
+    }
+    let worker = slot.as_ref().expect("audio worker was installed");
+    let accepted = match request {
+        AudioRequest::StartCapture {
+            device_id,
+            max_duration,
+        } => worker.start_capture(device_id, max_duration),
+        AudioRequest::StopCapture => worker.stop_capture(),
+        AudioRequest::Play { device_id, voice } => worker.play(device_id, voice),
+    };
+    if accepted {
+        Ok(())
+    } else {
+        Err(AudioEvent::Failed {
+            operation,
+            message: "the host audio worker stopped before accepting the request".into(),
+        })
+    }
+}
+
 fn main() {
     // The worker lives beside the host, not inside it: the host knows nothing
     // about threads, and this is application code.
@@ -50,6 +86,9 @@ fn main() {
     let network = Rc::new(RefCell::new(None::<NetworkWorker>));
     let wake_network = network.clone();
     let dispatch_network = network.clone();
+    let audio = Rc::new(RefCell::new(None::<AudioWorker>));
+    let wake_audio = audio.clone();
+    let dispatch_audio = audio.clone();
     let last_leaf = Rc::new(RefCell::new(None));
     let frame_leaf = last_leaf.clone();
 
@@ -97,7 +136,12 @@ fn main() {
                 .borrow()
                 .as_ref()
                 .and_then(NetworkWorker::take_latest);
-            if messages.is_empty() && layout.is_none() {
+            let audio_events = wake_audio
+                .borrow()
+                .as_ref()
+                .map(AudioWorker::drain)
+                .unwrap_or_default();
+            if messages.is_empty() && layout.is_none() && audio_events.is_empty() {
                 return;
             }
             let mut network_request = None;
@@ -107,6 +151,9 @@ fn main() {
                 }
                 if let Some(layout) = layout {
                     state.adopt_network_layout(layout);
+                }
+                for event in audio_events {
+                    state.apply_audio_event(event);
                 }
                 network_request = state.take_network_request();
             });
@@ -125,15 +172,24 @@ fn main() {
             let mut worker = dispatch_worker.borrow_mut();
             let wake = ctx.wake.callback();
             let mut network_request = None;
+            let mut audio_request = None;
             ctx.runner.update(|state| {
                 if let Some(request) = state.take_request() {
                     flow::perform(state, request, &mut worker, wake.clone());
                 }
                 network_request = state.take_network_request();
+                audio_request = state.take_audio_request();
             });
             drop(worker);
             if let Some(request) = network_request {
-                perform_network_request(&mut dispatch_network.borrow_mut(), request, wake);
+                perform_network_request(&mut dispatch_network.borrow_mut(), request, wake.clone());
+            }
+            if let Some(request) = audio_request {
+                if let Err(event) =
+                    perform_audio_request(&mut dispatch_audio.borrow_mut(), request, wake)
+                {
+                    ctx.runner.update(|state| state.apply_audio_event(event));
+                }
             }
         }),
         // A running firmware transfer needs its process, device, and recovery
@@ -167,6 +223,13 @@ fn main() {
                     state.message_notice = Some(format!(
                         "Durable message history could not be opened: {error}"
                     ));
+                }
+            }
+            match audio::inventory() {
+                Ok(inventory) => state.adopt_audio_inventory(inventory),
+                Err(error) => {
+                    state.message_notice =
+                        Some(format!("Host audio devices could not be listed: {error}"));
                 }
             }
             // The first survey happens before the first frame, so the device

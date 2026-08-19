@@ -104,11 +104,9 @@ pub fn render(event: &Event) -> Option<String> {
             let name = peer.name.as_deref().unwrap_or("(unnamed)");
             format!("[peer] {} {name} appeared", peer.destination)
         }
-        Event::Message {
-            from, title, body, ..
-        } => {
-            let title = String::from_utf8_lossy(title);
-            let body = String::from_utf8_lossy(body);
+        Event::Message { from, payload, .. } => {
+            let title = String::from_utf8_lossy(&payload.title);
+            let body = String::from_utf8_lossy(&payload.content);
             format!("[{from}] {title}: {body}")
         }
         // Shown rather than swallowed: the commonest cause is a sender this station has never

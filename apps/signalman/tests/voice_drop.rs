@@ -3,15 +3,17 @@ use std::time::Duration;
 
 use outrider::{
     DeliveryAnnounce, PropagationAnnounce, PropagationBatch, PropagationCosts, PropagationStore,
-    PropagationStoreLimits, prepare_propagation, receive_submission, register_delivery,
-    register_propagation, serve_fetch, submit_propagation_with_resource_config,
+    PropagationStoreLimits, prepare_propagation, receive_direct_with_stamp_cost,
+    receive_submission, register_delivery, register_propagation, send_direct_stamped, serve_fetch,
+    submit_propagation_with_resource_config,
 };
+use postilion::Event;
 use retinue::endpoint::{Endpoint, PeerAnnounce, ResourceTransferConfig};
 use retinue::identity::PrivateIdentity;
 use retinue::lossy::{LossModel, connect};
 use signalman::message::{
     ApplyOutcome, MessageBook, MessageEvent, MessagePeer, MessageStatus, MessageTransport,
-    QueuedReason, VoiceMessage, fetched_voice_event,
+    QueuedReason, VoiceMessage, fetched_voice_event, incoming_event,
 };
 use signalman::voice::{VoiceClip, VoiceEncoding};
 
@@ -22,6 +24,84 @@ fn peer(identity: &PrivateIdentity) -> MessagePeer {
         *outrider::delivery_destination(identity.public()).as_bytes(),
         Some(*identity.public().ed25519_bytes()),
     )
+}
+
+#[tokio::test]
+async fn direct_voice_keeps_field_seven_through_postilions_authenticated_event() {
+    let sender_identity = PrivateIdentity::from_secret_bytes(&[0x51; 64]);
+    let recipient_identity = PrivateIdentity::from_secret_bytes(&[0x52; 64]);
+    let sender = Arc::new(Endpoint::new(sender_identity.clone()));
+    let recipient = Arc::new(Endpoint::new(recipient_identity.clone()));
+    connect(&sender, &recipient, LossModel::new(51), LossModel::new(52));
+    register_delivery(&sender, &DeliveryAnnounce::named(b"Direct voice sender")).unwrap();
+    wait_for_announce(
+        &recipient,
+        *outrider::delivery_destination(sender_identity.public()).as_bytes(),
+    )
+    .await;
+    register_delivery(
+        &recipient,
+        &DeliveryAnnounce::named(b"Direct voice recipient"),
+    )
+    .unwrap();
+    let announce = wait_for_announce(
+        &sender,
+        *outrider::delivery_destination(recipient_identity.public()).as_bytes(),
+    )
+    .await;
+
+    let clip = VoiceClip::encode_pcm(&vec![1_000_i16; 8_000], VoiceEncoding::Lpc10).unwrap();
+    let message = VoiceMessage::compose(
+        peer(&sender_identity),
+        peer(&recipient_identity),
+        (NOW * 1_000.0) as u64,
+        [0x53; 32],
+        clip.clone(),
+    )
+    .unwrap();
+    let payload = message.encode_payload(NOW).unwrap();
+    let receive = tokio::spawn({
+        let recipient = Arc::clone(&recipient);
+        async move {
+            let accepted = recipient.accept_resource().await.unwrap();
+            receive_direct_with_stamp_cost(&recipient, accepted, 64 * 1024, None)
+                .await
+                .unwrap()
+        }
+    });
+    let sent = send_direct_stamped(&sender, &sender_identity, &announce, &payload, [0; 32], 0)
+        .await
+        .unwrap();
+    let event = Event::authenticated_message(receive.await.unwrap());
+    let Event::Message {
+        message_id,
+        payload: received_payload,
+        ..
+    } = &event
+    else {
+        unreachable!()
+    };
+    assert_eq!(*message_id, sent.message_id);
+    let (_, received_clip) =
+        outrider::voice::audio_at(received_payload, outrider::voice::FieldKey::AUDIO).unwrap();
+    assert_eq!(received_clip, clip.encoded());
+
+    let incoming = incoming_event(
+        &event,
+        peer(&recipient_identity),
+        (NOW * 1_000.0) as u64 + 1,
+    )
+    .unwrap();
+    let MessageEvent::IncomingReceived {
+        message: recovered,
+        transport_id,
+        ..
+    } = incoming
+    else {
+        unreachable!()
+    };
+    assert_eq!(transport_id, sent.message_id);
+    assert_eq!(recovered.voice().unwrap().clip, clip);
 }
 
 async fn wait_for_announce(endpoint: &Endpoint, destination: [u8; 16]) -> PeerAnnounce {
