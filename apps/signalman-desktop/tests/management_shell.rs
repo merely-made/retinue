@@ -177,7 +177,7 @@ fn messages_face_persists_offline_intent_and_names_its_actual_status() {
             .next()
             .expect("the queued message")
             .message
-            .id;
+            .id();
         state.apply_message_event(signalman::message::MessageEvent::StatusChanged {
             id,
             status: signalman::message::MessageStatus::HandedToRadio {

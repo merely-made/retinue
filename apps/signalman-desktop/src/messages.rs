@@ -154,7 +154,8 @@ pub enum MessageStoreError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use signalman::message::{QueuedReason, TextMessage};
+    use signalman::message::{QueuedReason, TextMessage, VoiceMessage};
+    use signalman::voice::{VoiceClip, VoiceEncoding};
 
     #[test]
     fn unknown_authenticated_sender_remains_outside_gaz_until_owner_saves_it() {
@@ -164,7 +165,7 @@ mod tests {
         let mut store = MessageStore::memory("local");
         store
             .append(MessageEvent::IncomingReceived {
-                message,
+                message: message.into(),
                 transport_id: [4; 32],
                 mode: signalman::message::MessageTransport::Data,
                 observed_unix_ms: 11,
@@ -188,7 +189,7 @@ mod tests {
             "hello",
         );
         let event = MessageEvent::OutgoingQueued {
-            message,
+            message: message.into(),
             reason: QueuedReason::Offline,
             observed_unix_ms: 11,
         };
@@ -214,7 +215,7 @@ mod tests {
             let mut first = MessageStore::open(&path, "local").unwrap();
             first
                 .append(MessageEvent::OutgoingQueued {
-                    message,
+                    message: message.into(),
                     reason: QueuedReason::Offline,
                     observed_unix_ms: 11,
                 })
@@ -222,9 +223,43 @@ mod tests {
         }
         let reopened = MessageStore::open(&path, "local").unwrap();
         let record = reopened.records().next().unwrap();
-        assert_eq!(record.message.id, id);
-        assert_eq!(record.message.text, "survives restart");
+        assert_eq!(record.message.id(), id);
+        assert_eq!(record.message.text(), Some("survives restart"));
         assert_eq!(record.status.label(), "offline, queued");
+        assert_eq!(reopened.log_len(), 1);
+    }
+
+    #[test]
+    fn voice_reopens_from_the_same_codicil_log_as_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("voice.redb");
+        let clip = VoiceClip::encode_pcm(&vec![1_000_i16; 1_440], VoiceEncoding::Lpc10).unwrap();
+        let message = VoiceMessage::compose(
+            MessagePeer::new([1; 16], Some([1; 32])),
+            MessagePeer::new([2; 16], None),
+            10,
+            [3; 32],
+            clip.clone(),
+        )
+        .unwrap();
+        let id = message.id;
+        {
+            let mut first = MessageStore::open(&path, "local").unwrap();
+            first
+                .append(MessageEvent::OutgoingQueued {
+                    message: message.into(),
+                    reason: QueuedReason::Offline,
+                    observed_unix_ms: 11,
+                })
+                .unwrap();
+        }
+
+        let reopened = MessageStore::open(&path, "local").unwrap();
+        let record = reopened.records().next().unwrap();
+        let voice = record.message.voice().unwrap();
+        assert_eq!(record.message.id(), id);
+        assert_eq!(voice.clip, clip);
+        assert_eq!(voice.facts().duration_ms, 180);
         assert_eq!(reopened.log_len(), 1);
     }
 }

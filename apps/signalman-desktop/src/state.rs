@@ -290,7 +290,7 @@ impl DesktopState {
         );
         let id = message.id;
         match self.message_store.append(MessageEvent::OutgoingQueued {
-            message,
+            message: message.into(),
             reason: QueuedReason::Offline,
             observed_unix_ms,
         }) {
@@ -323,8 +323,8 @@ impl DesktopState {
         let Some(peer) = self
             .message_store
             .records()
-            .find(|record| record.message.id == id)
-            .map(|record| record.message.sender)
+            .find(|record| record.message.id() == id)
+            .map(|record| record.message.sender())
         else {
             self.message_notice = Some("The selected message is no longer present.".into());
             return;

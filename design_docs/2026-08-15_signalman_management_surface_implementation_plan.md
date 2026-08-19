@@ -352,6 +352,26 @@ through a propagation node, fetched at site B, decoded, and audibly played;
 the receipt records codec, sample rate, duration, encoded bytes, transfer
 mode, and decoded duration; cancellation leaves no message marked delivered.
 
+**File-backed receipt, 2026-08-19:** the first S5 rung is implemented. A
+bounded PCM16LE file is encoded exactly once into a checked Pipit clip, carried
+only in LXMF audio field 7 under `AM_CUSTOM`, submitted to a real Outrider
+propagation store, fetched by a second Retinue endpoint, authenticated, and
+decoded. The retained `VoiceReceipt` names codec, sample rate, encoded and
+decoded duration, encoded bytes, and the node-observed Data/Resource transfer
+mode. Text and voice use the same replayable Signalman event log, while the
+untagged text representation preserves S4's stored JSON shape. Cancellation is
+terminal, so a later fetch fact cannot turn a cancelled message into a
+delivery.
+
+Outrider's field carriage was already sufficient. The only missing public
+fact was which mode the propagation node used for its fetch responses, now
+retained in `ServedFetch` rather than inferred from size. This rung is a
+three-endpoint headless software receipt. Microphone capture, output-device
+playback, the desktop action, and a headed two-site audible receipt remain the
+rest of S5. Postilion's present direct-message event also omits LXMF fields;
+live direct voice ingress must preserve that payload without copying the clip
+into Signalman's metadata body.
+
 ### S6. Owner placement and Atlas
 
 **Writes:** `repos/mere/ports/signalman/**`, Signalman's `map.rs` adapter, and

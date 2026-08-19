@@ -195,10 +195,10 @@ fn messages_page(state: &DesktopState) -> Child {
         .records()
         .rev()
         .map(|record| {
-            let id = record.message.id;
+            let id = record.message.id();
             let peer = match record.direction {
-                MessageDirection::Incoming => record.message.sender,
-                MessageDirection::Outgoing => record.message.recipient,
+                MessageDirection::Incoming => record.message.sender(),
+                MessageDirection::Outgoing => record.message.recipient(),
             };
             let name = state
                 .message_store
@@ -209,11 +209,16 @@ fn messages_page(state: &DesktopState) -> Child {
                 MessageDirection::Incoming => "From",
                 MessageDirection::Outgoing => "To",
             };
-            let mut label = format!(
-                "{direction} {name}: {}. {}",
-                record.message.text,
-                record.status.label()
-            );
+            let content = record.message.text().map(str::to_owned).unwrap_or_else(|| {
+                let facts = record.message.voice().unwrap().facts();
+                format!(
+                    "Voice drop, {}, {} ms, {} bytes",
+                    facts.encoding.label(),
+                    facts.duration_ms,
+                    facts.encoded_bytes
+                )
+            });
+            let mut label = format!("{direction} {name}: {}. {}", content, record.status.label());
             if let signalman::message::MessageStatus::Failed(reason) = &record.status {
                 label.push_str(&format!(": {reason}"));
             }
@@ -248,10 +253,10 @@ fn messages_page(state: &DesktopState) -> Child {
             state
                 .message_store
                 .records()
-                .find(|record| record.message.id == id)
+                .find(|record| record.message.id() == id)
         })
         .filter(|record| record.direction == MessageDirection::Incoming)
-        .map(|record| record.message.sender)
+        .map(|record| record.message.sender())
         .filter(|peer| peer.identity.is_some() && state.message_store.contact_name(*peer).is_none())
         .map(|_| {
             Box::new(

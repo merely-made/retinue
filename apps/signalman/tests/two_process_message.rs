@@ -85,7 +85,7 @@ async fn receiver(dir: &Path) {
             message,
             transport_id,
             ..
-        } => (*transport_id, message.text.clone()),
+        } => (*transport_id, message.text().unwrap().to_owned()),
         _ => unreachable!(),
     };
     let mut book = MessageBook::default();
@@ -141,7 +141,7 @@ async fn sender(dir: &Path, address: std::net::SocketAddr) {
     let message = TextMessage::compose(sender, recipient, 100, [0x77; 32], "two process hello");
     let app_id = message.id;
     let queued = MessageEvent::OutgoingQueued {
-        message: message.clone(),
+        message: message.clone().into(),
         reason: QueuedReason::Offline,
         observed_unix_ms: 101,
     };

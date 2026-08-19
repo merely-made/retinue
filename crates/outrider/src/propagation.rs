@@ -820,6 +820,11 @@ pub struct ServedFetch {
     pub offered: Vec<[u8; 32]>,
     pub served: Vec<[u8; 32]>,
     pub acknowledged: usize,
+    /// How the offer response crossed the node's Retinue link.
+    pub offer_mode: PayloadMode,
+    /// How the selected message batch crossed, or `None` when nothing was
+    /// offered. This is a node-side carriage fact, not an inferred size tier.
+    pub message_mode: Option<PayloadMode>,
 }
 
 /// Serve one stock-compatible two-request fetch session.
@@ -851,7 +856,7 @@ pub async fn serve_fetch(
             .collect(),
     );
     let packed_offer = encode_value(&offer_value)?;
-    accepted
+    let offer_mode = accepted
         .session
         .respond_value_auto(offer_request.request_id, &packed_offer)
         .await?;
@@ -862,6 +867,8 @@ pub async fn serve_fetch(
             offered,
             served: Vec::new(),
             acknowledged: 0,
+            offer_mode,
+            message_mode: None,
         });
     }
 
@@ -895,7 +902,7 @@ pub async fn serve_fetch(
             .map(|message| Value::Binary(message.encode()))
             .collect(),
     ))?;
-    accepted
+    let message_mode = accepted
         .session
         .respond_value_auto(fetch_request.request_id, &packed_messages)
         .await?;
@@ -904,6 +911,8 @@ pub async fn serve_fetch(
         offered,
         served,
         acknowledged,
+        offer_mode,
+        message_mode: Some(message_mode),
     })
 }
 

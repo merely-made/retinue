@@ -3917,6 +3917,7 @@ name = "outrider"
 version = "0.1.1"
 dependencies = [
  "hkdf",
+ "pipit",
  "retinue",
  "rmpv",
  "sha2 0.11.0",
@@ -4248,6 +4249,12 @@ dependencies = [
  "fastrand",
  "futures-io",
 ]
+
+[[package]]
+name = "pipit"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "83852ffc47af1e42844fe7f7f472ed248b159a0f31498e2e7df2cbae54c927a4"
 
 [[package]]
 name = "pkcs8"
@@ -5434,6 +5441,8 @@ version = "0.1.0"
 dependencies = [
  "hex",
  "linkboy",
+ "outrider",
+ "pipit",
  "postilion",
  "retinue",
  "serde",

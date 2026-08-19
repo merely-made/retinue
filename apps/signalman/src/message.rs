@@ -6,12 +6,16 @@
 
 use std::collections::BTreeMap;
 
+use outrider::LxmfPayload;
 use postilion::{Event, Sent};
 use retinue::endpoint::PayloadMode;
 use retinue::hash::{AddressHash, full_hash};
 use serde::{Deserialize, Serialize};
 
+use crate::voice::{VoiceClip, VoiceClipError, VoiceClipFacts};
+
 pub const WIRE_TITLE: &[u8] = b"signalman.message.v1";
+pub const VOICE_WIRE_TITLE: &[u8] = b"signalman.voice.v1";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct MessageId(pub [u8; 32]);
@@ -33,6 +37,23 @@ impl MessageId {
         bytes.extend_from_slice(&nonce);
         bytes.extend_from_slice(&(text.len() as u64).to_be_bytes());
         bytes.extend_from_slice(text.as_bytes());
+        Self(full_hash(&bytes))
+    }
+
+    fn derive_voice(
+        sender: MessagePeer,
+        recipient: MessagePeer,
+        authored_unix_ms: u64,
+        nonce: [u8; 32],
+        clip_hash: [u8; 32],
+    ) -> Self {
+        let mut bytes = Vec::with_capacity(16 + 16 + 8 + 32 + 32 + 22);
+        bytes.extend_from_slice(b"signalman.voice.v1\0");
+        bytes.extend_from_slice(&sender.destination);
+        bytes.extend_from_slice(&recipient.destination);
+        bytes.extend_from_slice(&authored_unix_ms.to_be_bytes());
+        bytes.extend_from_slice(&nonce);
+        bytes.extend_from_slice(&clip_hash);
         Self(full_hash(&bytes))
     }
 }
@@ -99,11 +120,15 @@ pub enum MessageStatus {
         mode: MessageTransport,
     },
     AcceptedByPropagationNode,
-    FetchedFromPropagationNode,
+    FetchedFromPropagationNode {
+        transport_id: [u8; 32],
+        mode: MessageTransport,
+    },
     ReceivedDirect {
         transport_id: [u8; 32],
         mode: MessageTransport,
     },
+    Cancelled,
     Failed(String),
 }
 
@@ -114,8 +139,9 @@ impl MessageStatus {
             Self::Queued(QueuedReason::WaitingForPeer) => "queued, waiting for peer",
             Self::HandedToRadio { .. } => "handed to radio",
             Self::AcceptedByPropagationNode => "accepted by propagation node",
-            Self::FetchedFromPropagationNode => "fetched from propagation node",
+            Self::FetchedFromPropagationNode { .. } => "fetched from propagation node",
             Self::ReceivedDirect { .. } => "received directly",
+            Self::Cancelled => "cancelled",
             Self::Failed(_) => "failed",
         }
     }
@@ -170,6 +196,20 @@ impl TextMessage {
         }
         Ok(message)
     }
+
+    fn validate(&self) -> Result<(), MessageError> {
+        let expected = MessageId::derive(
+            self.sender,
+            self.recipient,
+            self.authored_unix_ms,
+            self.nonce,
+            &self.text,
+        );
+        if self.id != expected {
+            return Err(MessageError::InvalidMessageId);
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -179,15 +219,201 @@ enum WireEnvelope {
     V1(TextMessage),
 }
 
+/// A Pipit clip whose routing and authorship remain outside the clip itself.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VoiceMessage {
+    pub id: MessageId,
+    pub sender: MessagePeer,
+    pub recipient: MessagePeer,
+    pub authored_unix_ms: u64,
+    nonce: [u8; 32],
+    clip_hash: [u8; 32],
+    pub clip: VoiceClip,
+}
+
+impl VoiceMessage {
+    pub fn compose(
+        sender: MessagePeer,
+        recipient: MessagePeer,
+        authored_unix_ms: u64,
+        nonce: [u8; 32],
+        clip: VoiceClip,
+    ) -> Result<Self, MessageError> {
+        clip.validate()?;
+        let clip_hash = full_hash(clip.encoded());
+        let id = MessageId::derive_voice(sender, recipient, authored_unix_ms, nonce, clip_hash);
+        Ok(Self {
+            id,
+            sender,
+            recipient,
+            authored_unix_ms,
+            nonce,
+            clip_hash,
+            clip,
+        })
+    }
+
+    /// Build one LXMF payload without duplicating the clip in Signalman's
+    /// metadata body. The clip bytes live only in audio field 7.
+    pub fn encode_payload(&self, lxmf_timestamp: f64) -> Result<LxmfPayload, MessageError> {
+        self.validate()?;
+        let wire = VoiceWireEnvelope::V1(VoiceWireV1 {
+            id: self.id,
+            sender: self.sender,
+            recipient: self.recipient,
+            authored_unix_ms: self.authored_unix_ms,
+            nonce: self.nonce,
+            clip_hash: self.clip_hash,
+        });
+        let mut payload = LxmfPayload::text(
+            lxmf_timestamp,
+            VOICE_WIRE_TITLE,
+            serde_json::to_vec(&wire).map_err(MessageError::Wire)?,
+        );
+        self.clip.attach(&mut payload)?;
+        Ok(payload)
+    }
+
+    pub fn decode_payload(payload: &LxmfPayload) -> Result<Self, MessageError> {
+        if payload.title.as_slice() != VOICE_WIRE_TITLE {
+            return Err(MessageError::WrongVoiceWireTitle);
+        }
+        let VoiceWireEnvelope::V1(wire) =
+            serde_json::from_slice(&payload.content).map_err(MessageError::Wire)?;
+        let clip = VoiceClip::from_payload(payload)?;
+        let message = Self {
+            id: wire.id,
+            sender: wire.sender,
+            recipient: wire.recipient,
+            authored_unix_ms: wire.authored_unix_ms,
+            nonce: wire.nonce,
+            clip_hash: wire.clip_hash,
+            clip,
+        };
+        message.validate()?;
+        Ok(message)
+    }
+
+    pub fn facts(&self) -> VoiceClipFacts {
+        self.clip.facts()
+    }
+
+    fn validate(&self) -> Result<(), MessageError> {
+        self.clip.validate()?;
+        let clip_hash = full_hash(self.clip.encoded());
+        if self.clip_hash != clip_hash
+            || self.id
+                != MessageId::derive_voice(
+                    self.sender,
+                    self.recipient,
+                    self.authored_unix_ms,
+                    self.nonce,
+                    clip_hash,
+                )
+        {
+            return Err(MessageError::InvalidMessageId);
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "version", content = "message")]
+enum VoiceWireEnvelope {
+    #[serde(rename = "1")]
+    V1(VoiceWireV1),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct VoiceWireV1 {
+    id: MessageId,
+    sender: MessagePeer,
+    recipient: MessagePeer,
+    authored_unix_ms: u64,
+    nonce: [u8; 32],
+    clip_hash: [u8; 32],
+}
+
+/// Text and voice share one event log without changing the serialized shape
+/// of the text records S4 already wrote.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum Message {
+    Text(TextMessage),
+    Voice(VoiceMessage),
+}
+
+impl Message {
+    pub fn id(&self) -> MessageId {
+        match self {
+            Self::Text(message) => message.id,
+            Self::Voice(message) => message.id,
+        }
+    }
+
+    pub fn sender(&self) -> MessagePeer {
+        match self {
+            Self::Text(message) => message.sender,
+            Self::Voice(message) => message.sender,
+        }
+    }
+
+    pub fn recipient(&self) -> MessagePeer {
+        match self {
+            Self::Text(message) => message.recipient,
+            Self::Voice(message) => message.recipient,
+        }
+    }
+
+    pub fn text(&self) -> Option<&str> {
+        match self {
+            Self::Text(message) => Some(&message.text),
+            Self::Voice(_) => None,
+        }
+    }
+
+    pub fn voice(&self) -> Option<&VoiceMessage> {
+        match self {
+            Self::Text(_) => None,
+            Self::Voice(message) => Some(message),
+        }
+    }
+
+    fn validate(&self) -> Result<(), MessageError> {
+        match self {
+            Self::Text(message) => message.validate(),
+            Self::Voice(message) => message.validate(),
+        }
+    }
+}
+
+impl From<TextMessage> for Message {
+    fn from(value: TextMessage) -> Self {
+        Self::Text(value)
+    }
+}
+
+impl From<VoiceMessage> for Message {
+    fn from(value: VoiceMessage) -> Self {
+        Self::Voice(value)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MessageEvent {
     OutgoingQueued {
-        message: TextMessage,
+        message: Message,
         reason: QueuedReason,
         observed_unix_ms: u64,
     },
     IncomingReceived {
-        message: TextMessage,
+        message: Message,
+        transport_id: [u8; 32],
+        mode: MessageTransport,
+        observed_unix_ms: u64,
+    },
+    IncomingFetched {
+        message: Message,
         transport_id: [u8; 32],
         mode: MessageTransport,
         observed_unix_ms: u64,
@@ -202,9 +428,9 @@ pub enum MessageEvent {
 impl MessageEvent {
     pub fn message_id(&self) -> MessageId {
         match self {
-            Self::OutgoingQueued { message, .. } | Self::IncomingReceived { message, .. } => {
-                message.id
-            }
+            Self::OutgoingQueued { message, .. }
+            | Self::IncomingReceived { message, .. }
+            | Self::IncomingFetched { message, .. } => message.id(),
             Self::StatusChanged { id, .. } => *id,
         }
     }
@@ -212,7 +438,7 @@ impl MessageEvent {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MessageRecord {
-    pub message: TextMessage,
+    pub message: Message,
     pub direction: MessageDirection,
     pub status: MessageStatus,
     pub observed_unix_ms: u64,
@@ -267,6 +493,20 @@ impl MessageBook {
                 },
                 *observed_unix_ms,
             ),
+            MessageEvent::IncomingFetched {
+                message,
+                transport_id,
+                mode,
+                observed_unix_ms,
+            } => self.insert(
+                message,
+                MessageDirection::Incoming,
+                MessageStatus::FetchedFromPropagationNode {
+                    transport_id: *transport_id,
+                    mode: *mode,
+                },
+                *observed_unix_ms,
+            ),
             MessageEvent::StatusChanged {
                 id,
                 status,
@@ -298,19 +538,21 @@ impl MessageBook {
 
     fn insert(
         &mut self,
-        message: &TextMessage,
+        message: &Message,
         direction: MessageDirection,
         status: MessageStatus,
         observed_unix_ms: u64,
     ) -> Result<ApplyOutcome, MessageError> {
-        if let Some(existing) = self.messages.get(&message.id) {
+        message.validate()?;
+        let id = message.id();
+        if let Some(existing) = self.messages.get(&id) {
             if existing.message == *message && existing.direction == direction {
                 return Ok(ApplyOutcome::Duplicate);
             }
-            return Err(MessageError::ConflictingMessage(message.id));
+            return Err(MessageError::ConflictingMessage(id));
         }
         self.messages.insert(
-            message.id,
+            id,
             MessageRecord {
                 message: message.clone(),
                 direction,
@@ -318,7 +560,7 @@ impl MessageBook {
                 observed_unix_ms,
             },
         );
-        self.order.push(message.id);
+        self.order.push(id);
         Ok(ApplyOutcome::Applied)
     }
 
@@ -346,11 +588,14 @@ fn valid_transition(from: &MessageStatus, to: &MessageStatus) -> bool {
         (Queued(_), Queued(_))
             | (Queued(_), HandedToRadio { .. })
             | (Queued(_), AcceptedByPropagationNode)
+            | (Queued(_), Cancelled)
             | (Queued(_), Failed(_))
             | (HandedToRadio { .. }, AcceptedByPropagationNode)
-            | (HandedToRadio { .. }, FetchedFromPropagationNode)
+            | (HandedToRadio { .. }, FetchedFromPropagationNode { .. })
+            | (HandedToRadio { .. }, Cancelled)
             | (HandedToRadio { .. }, Failed(_))
-            | (AcceptedByPropagationNode, FetchedFromPropagationNode)
+            | (AcceptedByPropagationNode, FetchedFromPropagationNode { .. })
+            | (AcceptedByPropagationNode, Cancelled)
             | (AcceptedByPropagationNode, Failed(_))
     )
 }
@@ -388,11 +633,68 @@ pub fn incoming_event(
         return Err(MessageError::WireAuthorityMismatch);
     }
     Ok(MessageEvent::IncomingReceived {
-        message,
+        message: message.into(),
         transport_id: *message_id,
         mode: (*mode).into(),
         observed_unix_ms,
     })
+}
+
+/// Turn a field-7 voice payload into a direct receive fact after the caller
+/// supplies the identity and destination facts its transport proved.
+pub fn incoming_voice_event(
+    payload: &LxmfPayload,
+    authenticated_sender: MessagePeer,
+    local: MessagePeer,
+    transport_id: [u8; 32],
+    mode: PayloadMode,
+    observed_unix_ms: u64,
+) -> Result<MessageEvent, MessageError> {
+    let message = authenticated_voice(payload, authenticated_sender, local)?;
+    Ok(MessageEvent::IncomingReceived {
+        message: message.into(),
+        transport_id,
+        mode: mode.into(),
+        observed_unix_ms,
+    })
+}
+
+/// The same authenticated payload after a propagation fetch. This keeps the
+/// visible receipt distinct from direct delivery.
+pub fn fetched_voice_event(
+    payload: &LxmfPayload,
+    authenticated_sender: MessagePeer,
+    local: MessagePeer,
+    transport_id: [u8; 32],
+    mode: PayloadMode,
+    observed_unix_ms: u64,
+) -> Result<MessageEvent, MessageError> {
+    let message = authenticated_voice(payload, authenticated_sender, local)?;
+    Ok(MessageEvent::IncomingFetched {
+        message: message.into(),
+        transport_id,
+        mode: mode.into(),
+        observed_unix_ms,
+    })
+}
+
+fn authenticated_voice(
+    payload: &LxmfPayload,
+    authenticated_sender: MessagePeer,
+    local: MessagePeer,
+) -> Result<VoiceMessage, MessageError> {
+    let message = VoiceMessage::decode_payload(payload)?;
+    if message.sender.destination != authenticated_sender.destination
+        || message.sender.identity != authenticated_sender.identity
+        || message.recipient.destination != local.destination
+        || message
+            .recipient
+            .identity
+            .is_some_and(|identity| Some(identity) != local.identity)
+    {
+        return Err(MessageError::WireAuthorityMismatch);
+    }
+    Ok(message)
 }
 
 pub fn sent_event(id: MessageId, sent: &Sent, observed_unix_ms: u64) -> MessageEvent {
@@ -418,6 +720,10 @@ pub enum MessageError {
     NotMessageEvent,
     #[error("the message does not use Signalman's wire title")]
     WrongWireTitle,
+    #[error("the message does not use Signalman's voice wire title")]
+    WrongVoiceWireTitle,
+    #[error(transparent)]
+    Voice(#[from] VoiceClipError),
     #[error("the message envelope disagrees with authenticated transport facts")]
     WireAuthorityMismatch,
     #[error("the message identity does not match its authored fields")]
@@ -449,7 +755,7 @@ mod tests {
         let message = TextMessage::compose(peer(1), peer(2), 100, [3; 32], "hello");
         let events = vec![
             MessageEvent::OutgoingQueued {
-                message: message.clone(),
+                message: message.clone().into(),
                 reason: QueuedReason::Offline,
                 observed_unix_ms: 101,
             },
@@ -468,7 +774,7 @@ mod tests {
 
         let incoming = TextMessage::compose(peer(2), peer(1), 103, [4; 32], "back");
         let duplicate = MessageEvent::IncomingReceived {
-            message: incoming,
+            message: incoming.into(),
             transport_id: [8; 32],
             mode: MessageTransport::Resource,
             observed_unix_ms: 104,
@@ -479,7 +785,7 @@ mod tests {
         assert_eq!(book.len(), 2);
         assert_eq!(
             book.iter()
-                .map(|record| record.message.text.as_str())
+                .filter_map(|record| record.message.text())
                 .collect::<Vec<_>>(),
             vec!["hello", "back"]
         );
@@ -497,7 +803,11 @@ mod tests {
         );
         assert_ne!(
             MessageStatus::AcceptedByPropagationNode.label(),
-            MessageStatus::FetchedFromPropagationNode.label()
+            MessageStatus::FetchedFromPropagationNode {
+                transport_id: [1; 32],
+                mode: MessageTransport::Resource,
+            }
+            .label()
         );
         assert_eq!(
             MessageStatus::Failed("radio closed".into()).label(),
@@ -536,5 +846,35 @@ mod tests {
             incoming_event(&forged, local, 110),
             Err(MessageError::WireAuthorityMismatch)
         ));
+    }
+
+    #[test]
+    fn text_and_voice_share_one_replayable_log_without_retagging_text() {
+        let text = TextMessage::compose(peer(1), peer(2), 100, [3; 32], "hello");
+        let text_event = MessageEvent::OutgoingQueued {
+            message: text.into(),
+            reason: QueuedReason::Offline,
+            observed_unix_ms: 101,
+        };
+        let text_json = serde_json::to_string(&text_event).unwrap();
+        assert!(text_json.contains("\"text\":\"hello\""));
+        assert!(!text_json.contains("\"Text\""));
+
+        let clip =
+            VoiceClip::encode_pcm(&vec![1_000_i16; 1_440], crate::voice::VoiceEncoding::Lpc10)
+                .unwrap();
+        let voice = VoiceMessage::compose(peer(1), peer(2), 102, [4; 32], clip).unwrap();
+        let voice_id = voice.id;
+        let voice_event = MessageEvent::OutgoingQueued {
+            message: voice.into(),
+            reason: QueuedReason::Offline,
+            observed_unix_ms: 103,
+        };
+        let persisted = serde_json::to_vec(&voice_event).unwrap();
+        let restored: MessageEvent = serde_json::from_slice(&persisted).unwrap();
+        let book = MessageBook::replay([&text_event, &restored]).unwrap();
+
+        assert_eq!(book.len(), 2);
+        assert!(book.get(voice_id).unwrap().message.voice().is_some());
     }
 }

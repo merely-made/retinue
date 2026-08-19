@@ -2496,6 +2496,7 @@ dependencies = [
  "hex",
  "linkboy",
  "outrider",
+ "pipit",
  "postilion",
  "retinue",
  "serde",

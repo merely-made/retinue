@@ -175,7 +175,7 @@ fn audio_value(value: &Value) -> Option<(u8, &[u8])> {
         Value::Array(items) if items.len() == 2 => {
             let mode = u8::try_from(items[0].as_u64()?).ok()?;
             Some((mode, items[1].as_slice()?))
-        },
+        }
         other => Some((AM_CUSTOM, other.as_slice()?)),
     }
 }
@@ -322,9 +322,11 @@ mod tests {
         assert_eq!(header.sample_rate, 8_000);
         assert_eq!(pcm.len(), 8_000);
         let energy: f64 = pcm.iter().map(|s| (*s as f64) * (*s as f64)).sum();
-        assert!((energy / pcm.len() as f64).sqrt() > 100.0, "silence came back");
+        assert!(
+            (energy / pcm.len() as f64).sqrt() > 100.0,
+            "silence came back"
+        );
     }
-
 
     #[test]
     fn a_half_rate_clip_carries_and_identifies_itself() {
@@ -354,9 +356,13 @@ mod tests {
 
         // A third of the airtime of the full-rate vocoder, over the air.
         let full = pipit::encode_clip(&pcm, pipit::ClipParams::lpc10()).unwrap();
-        assert!(clip.len() < full.len() * 7 / 10, "{} vs {}", clip.len(), full.len());
+        assert!(
+            clip.len() < full.len() * 7 / 10,
+            "{} vs {}",
+            clip.len(),
+            full.len()
+        );
     }
-
 
     #[test]
     fn a_clip_travels_in_the_stock_audio_shape() {
@@ -369,7 +375,10 @@ mod tests {
         let Value::Map(entries) = &payload.fields else {
             unreachable!()
         };
-        let (key, value) = entries.iter().find(|(k, _)| key_of(k) == Some(FieldKey::AUDIO)).unwrap();
+        let (key, value) = entries
+            .iter()
+            .find(|(k, _)| key_of(k) == Some(FieldKey::AUDIO))
+            .unwrap();
         assert_eq!(key.as_u64(), Some(7));
         let Value::Array(items) = value else {
             panic!("audio must be a two-element list, got {value:?}")
@@ -424,7 +433,13 @@ mod tests {
         let Value::Map(entries) = &payload.fields else {
             unreachable!()
         };
-        assert_eq!(entries.iter().filter(|(k, _)| key_of(k) == Some(FieldKey(7))).count(), 1);
+        assert_eq!(
+            entries
+                .iter()
+                .filter(|(k, _)| key_of(k) == Some(FieldKey(7)))
+                .count(),
+            1
+        );
         assert!(detach(&mut payload, FieldKey(7)));
         assert!(!detach(&mut payload, FieldKey(7)));
         assert!(find_clip(&payload).is_none());
@@ -447,7 +462,10 @@ mod tests {
 
         assert!(matches!(
             attach_bounded(&mut payload, FieldKey(7), &clip, 100),
-            Err(VoiceError::TooLarge { bytes: 333, limit: 100 })
+            Err(VoiceError::TooLarge {
+                bytes: 333,
+                limit: 100
+            })
         ));
 
         // Nothing partial was left behind by any of the refusals.
