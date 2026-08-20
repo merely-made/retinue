@@ -1,26 +1,38 @@
 schema = "retinue.package-index/v1"
 publisher = "Merely Made"
-version = "1"
+version = "2"
 
 [[packages]]
 package_id = "retinue.heltec-v4"
 manifest = "heltec-v4-current.toml"
 firmware_publisher = "Merely Made"
-state = "partial"
+state = "proven-recipe"
 instructions_url = "https://github.com/merely-made/retinue/blob/main/firmware/packages/README.md"
 recovery_url = "https://github.com/merely-made/retinue/blob/main/firmware/packages/heltec-v4-current-recovery.md"
-installer_receipts = []
-recovery_receipts = []
+installer_receipts = [
+  "https://github.com/merely-made/retinue/blob/main/design_docs/2026-08-19_signalman_public_f5_windows_receipt.md",
+  "https://github.com/merely-made/retinue/blob/main/design_docs/2026-08-19_linkboy_f5_macos_linux_v4_receipt.md",
+]
+recovery_receipts = [
+  "https://github.com/merely-made/retinue/blob/main/design_docs/2026-08-14_com6_n39_hopspot_retinue_signalman_restore_receipt.md",
+  "https://github.com/merely-made/retinue/blob/main/design_docs/2026-08-19_linkboy_f5_windows_v4_retinue_receipt.json",
+]
+receipt_hosts = ["windows-x86_64", "macos-x86_64", "macos-aarch64", "linux-x86_64"]
 
 [[packages]]
 package_id = "retinue.t114"
 manifest = "t114-v51.toml"
 firmware_publisher = "Merely Made"
-state = "partial"
+state = "proven-recipe"
 instructions_url = "https://github.com/merely-made/retinue/blob/main/firmware/packages/README.md"
 recovery_url = "https://github.com/merely-made/retinue/blob/main/firmware/packages/t114-v51-recovery.md"
-installer_receipts = []
-recovery_receipts = []
+installer_receipts = [
+  "https://github.com/merely-made/retinue/blob/main/design_docs/2026-08-19_signalman_public_f5_windows_receipt.md",
+]
+recovery_receipts = [
+  "https://github.com/merely-made/retinue/blob/main/design_docs/2026-08-14_signalman_t114_graphical_receipt.md",
+]
+receipt_hosts = ["windows-x86_64"]
 
 [[packages]]
 package_id = "meshtastic.heltec-mesh-node-t114"
@@ -28,7 +40,7 @@ manifest = "meshtastic-t114-2.7.26.54e0d8d.toml"
 firmware_publisher = "Meshtastic"
 state = "partial"
 instructions_url = "https://github.com/merely-made/retinue/blob/main/firmware/packages/README.md"
-recovery_url = "https://github.com/merely-made/retinue/blob/main/firmware/packages/t114-v47-recovery.md"
+recovery_url = "https://github.com/merely-made/retinue/blob/main/firmware/packages/t114-v51-recovery.md"
 installer_receipts = []
 recovery_receipts = []
 
@@ -36,8 +48,16 @@ recovery_receipts = []
 package_id = "prns.hopspot.heltec-v4"
 manifest = "hopspot-v4-0.3.4.toml"
 firmware_publisher = "Prns"
-state = "partial"
+state = "proven-recipe"
 instructions_url = "https://github.com/merely-made/retinue/blob/main/firmware/packages/README.md"
 recovery_url = "https://github.com/merely-made/retinue/blob/main/firmware/packages/heltec-v4-current-recovery.md"
-installer_receipts = []
-recovery_receipts = []
+installer_receipts = [
+  "https://github.com/merely-made/retinue/blob/main/design_docs/2026-08-14_com6_n39_hopspot_signalman_graphical_receipt.md",
+  "https://github.com/merely-made/retinue/blob/main/design_docs/2026-08-19_linkboy_f5_windows_v4_hopspot_receipt.json",
+  "https://github.com/merely-made/retinue/blob/main/design_docs/2026-08-19_linkboy_f5_macos_linux_v4_receipt.md",
+]
+recovery_receipts = [
+  "https://github.com/merely-made/retinue/blob/main/design_docs/2026-08-14_com6_n39_hopspot_retinue_signalman_restore_receipt.md",
+  "https://github.com/merely-made/retinue/blob/main/design_docs/2026-08-19_linkboy_f5_windows_v4_retinue_receipt.json",
+]
+receipt_hosts = ["windows-x86_64", "macos-x86_64", "macos-aarch64", "linux-x86_64"]

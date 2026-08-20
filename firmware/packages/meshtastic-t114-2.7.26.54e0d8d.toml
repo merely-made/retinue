@@ -54,4 +54,4 @@ manual_check = "After the board leaves the UF2 bootloader, use Meshtastic's own 
 
 [recovery]
 before_write = "Enter the T114's stock UF2 bootloader, select the newly mounted volume explicitly, and keep its root clear of a same-named UF2 file. Linkboy will not infer a board from a drive letter or overwrite an existing file."
-after_failure = "Disconnect and re-enter the stock UF2 bootloader, then retry this verified package on the newly selected volume. To restore Retinue, use the separate serial-DFU T114 package and record its own receipt; this package does not replace that route."
+after_failure = "Disconnect and re-enter the stock UF2 bootloader, then retry this verified package on the newly selected volume. To restore Retinue, use the separate verified retinue.t114 UF2 package and record its own receipt; this package does not replace that route."

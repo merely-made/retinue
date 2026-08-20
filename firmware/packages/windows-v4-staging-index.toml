@@ -1,8 +1,8 @@
 # Windows V4-only staging catalog.
 #
 # This is a packaging fixture, not the public catalog. It deliberately excludes
-# T114 packages because the serial-DFU helper has not passed redistribution
-# review. The regular index remains the source of catalog policy.
+# T114 packages to keep the older V4-only stage focused. The regular index is
+# the source of catalog policy and now uses Linkboy's built-in public T114 UF2 route.
 schema = "retinue.package-index/v1"
 publisher = "Merely Made"
 version = "1"

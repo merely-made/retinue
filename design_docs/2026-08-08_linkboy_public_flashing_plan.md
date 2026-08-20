@@ -75,10 +75,11 @@ OTA, browser flashing, fleet updates, or catalog promotion.
    Signalman face retained the standalone Linkboy recovery door, passed the
    keyboard and owner screen-reader checks, and carried both physical routes
    through reconnect and returned-application verification.
-3. **F7, public catalog projection: next.** The graphical cross-firmware
-   installation and restoration proof is complete for the admitted V4 and T114
-   packages. Publish the verified package-index artifact, then let Mer3ly derive
-   firmware availability and recipe state from it.
+3. **F7, public catalog projection: implementation ready.** The public index
+   now carries package state and exact host receipt evidence, and Mer3ly retains
+   a digest-checked copy to derive its firmware cards. Publication remains open
+   until the paired Retinue and Mer3ly commits are published and the site is
+   deployed.
 
 ### Sidequest queue after the trunk
 
@@ -161,7 +162,8 @@ That is a proven bench door, not yet a public first-flash path.
 ### Mer3ly owns
 
 - the public device catalog and DIY instructions;
-- whether a recipe is described as partial, proven, or sellable;
+- projecting, without reclassifying, package state from Retinue's published
+  package index;
 - putting a purchase link after the complete instructions;
 - linking public claims to Retinue receipts rather than copying their authority.
 

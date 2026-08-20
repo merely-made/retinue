@@ -45,6 +45,9 @@ pub struct CatalogPackage {
     pub recovery_url: String,
     pub installer_receipts: Vec<String>,
     pub recovery_receipts: Vec<String>,
+    /// Host platforms with retained physical installer and recovery evidence.
+    #[serde(default)]
+    pub receipt_hosts: Vec<String>,
     pub purchase_url: Option<String>,
 }
 
@@ -173,12 +176,13 @@ impl PackageIndex {
         );
         for package in &self.packages {
             output.push_str(&format!(
-                "- {} publisher={} state={} installer_receipts={} recovery_receipts={}\n",
+                "- {} publisher={} state={} installer_receipts={} recovery_receipts={} receipt_hosts={}\n",
                 package.package_id,
                 package.firmware_publisher,
                 package.state.label(),
                 package.installer_receipts.len(),
-                package.recovery_receipts.len()
+                package.recovery_receipts.len(),
+                package.receipt_hosts.len(),
             ));
         }
         output
@@ -216,9 +220,12 @@ fn validate_catalog_package(package: &CatalogPackage) -> Result<(), CatalogError
 
     match package.state {
         CatalogState::Partial => {
-            if !package.installer_receipts.is_empty() || !package.recovery_receipts.is_empty() {
+            if !package.installer_receipts.is_empty()
+                || !package.recovery_receipts.is_empty()
+                || !package.receipt_hosts.is_empty()
+            {
                 return Err(CatalogError::Invalid(format!(
-                    "partial package {:?} cannot claim receipts",
+                    "partial package {:?} cannot claim receipt evidence",
                     package.package_id
                 )));
             }
@@ -253,9 +260,12 @@ fn validate_catalog_package(package: &CatalogPackage) -> Result<(), CatalogError
 }
 
 fn validate_receipts(package: &CatalogPackage) -> Result<(), CatalogError> {
-    if package.installer_receipts.is_empty() || package.recovery_receipts.is_empty() {
+    if package.installer_receipts.is_empty()
+        || package.recovery_receipts.is_empty()
+        || package.receipt_hosts.is_empty()
+    {
         return Err(CatalogError::Invalid(format!(
-            "package {:?} needs installer and recovery receipts before promotion",
+            "package {:?} needs installer, recovery, and host receipt evidence before promotion",
             package.package_id
         )));
     }
@@ -265,6 +275,30 @@ fn validate_receipts(package: &CatalogPackage) -> Result<(), CatalogError> {
         .chain(package.recovery_receipts.iter())
     {
         validate_url("receipt", receipt)?;
+    }
+    let mut receipt_hosts = Vec::with_capacity(package.receipt_hosts.len());
+    for host in &package.receipt_hosts {
+        if ![
+            "windows-x86_64",
+            "macos-x86_64",
+            "macos-aarch64",
+            "linux-x86_64",
+            "linux-aarch64",
+        ]
+        .contains(&host.as_str())
+        {
+            return Err(CatalogError::Invalid(format!(
+                "package {:?} has unsupported receipt host {:?}",
+                package.package_id, host
+            )));
+        }
+        if receipt_hosts.iter().any(|known| *known == host) {
+            return Err(CatalogError::Invalid(format!(
+                "package {:?} repeats receipt host {:?}",
+                package.package_id, host
+            )));
+        }
+        receipt_hosts.push(host);
     }
     Ok(())
 }
@@ -308,6 +342,7 @@ mod tests {
             recovery_url: "https://example.com/recover".into(),
             installer_receipts: Vec::new(),
             recovery_receipts: Vec::new(),
+            receipt_hosts: Vec::new(),
             purchase_url: None,
         }
     }
@@ -345,8 +380,54 @@ mod tests {
         value
             .recovery_receipts
             .push("https://example.com/recovery-receipt".into());
+        value.receipt_hosts.push("windows-x86_64".into());
         assert!(index(value.clone()).validate().is_err());
         value.purchase_url = Some("https://example.com/buy".into());
         assert!(index(value).validate().is_ok());
+    }
+
+    #[test]
+    fn retained_public_index_promotes_only_receipted_packages() {
+        let index: PackageIndex =
+            toml::from_str(include_str!("../../../firmware/packages/index.toml"))
+                .expect("parse retained public package index");
+        index
+            .validate()
+            .expect("validate retained public package index");
+
+        let package = |package_id| {
+            index
+                .packages
+                .iter()
+                .find(|package| package.package_id == package_id)
+                .expect("named package")
+        };
+        assert_eq!(
+            package("retinue.heltec-v4").state,
+            CatalogState::ProvenRecipe
+        );
+        assert_eq!(
+            package("retinue.heltec-v4").receipt_hosts,
+            [
+                "windows-x86_64",
+                "macos-x86_64",
+                "macos-aarch64",
+                "linux-x86_64",
+            ]
+        );
+        assert_eq!(package("retinue.t114").state, CatalogState::ProvenRecipe);
+        assert_eq!(
+            package("meshtastic.heltec-mesh-node-t114").state,
+            CatalogState::Partial
+        );
+        assert!(
+            package("meshtastic.heltec-mesh-node-t114")
+                .installer_receipts
+                .is_empty()
+        );
+        assert_eq!(
+            package("prns.hopspot.heltec-v4").state,
+            CatalogState::ProvenRecipe
+        );
     }
 }
