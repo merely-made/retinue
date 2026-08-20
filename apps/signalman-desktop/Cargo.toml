@@ -39,6 +39,7 @@ signalman = { version = "0.1.0", path = "../signalman" }
 # calls a policy, planning, or execution function directly — the worker invokes
 # the owning Signalman/Linkboy flow, and nothing here can construct a FlashPlan.
 linkboy = { version = "0.1.0", path = "../linkboy" }
+postilion = { version = "0.1.0", path = "../../crates/postilion" }
 
 # The single-root Cambium desktop host and its view toolkit, at an exact genet
 # revision. A branch dep would make a Signalman build depend on whatever genet
@@ -56,22 +57,26 @@ cpal = "=0.18.2"
 # Signalman's management graph and its sealed station authority come from one
 # exact Mere revision. Keep these on one source so identities and graph keys do
 # not cross duplicate package instances.
-mere-signalman = { git = "https://github.com/merely-made/mere.git", rev = "032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e" }
-chartulary = { git = "https://github.com/merely-made/mere.git", rev = "032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e" }
-codicil = { git = "https://github.com/merely-made/mere.git", rev = "032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e" }
-gaz = { git = "https://github.com/merely-made/mere.git", rev = "032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e" }
-muniment = { git = "https://github.com/merely-made/mere.git", rev = "032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e", features = ["redb"] }
-sceno = { git = "https://github.com/merely-made/mere.git", rev = "032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e" }
-scenomise = { git = "https://github.com/merely-made/mere.git", rev = "032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e" }
-seiche = { git = "https://github.com/merely-made/mere.git", rev = "032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e" }
+mere-signalman = { git = "https://github.com/merely-made/mere.git", rev = "47966742923c48c2e33b74762458a9a6cd12484d" }
+chartulary = { git = "https://github.com/merely-made/mere.git", rev = "47966742923c48c2e33b74762458a9a6cd12484d" }
+codicil = { git = "https://github.com/merely-made/mere.git", rev = "47966742923c48c2e33b74762458a9a6cd12484d" }
+gaz = { git = "https://github.com/merely-made/mere.git", rev = "47966742923c48c2e33b74762458a9a6cd12484d" }
+muniment = { git = "https://github.com/merely-made/mere.git", rev = "47966742923c48c2e33b74762458a9a6cd12484d", features = ["redb"] }
+pandect = { git = "https://github.com/merely-made/mere.git", rev = "47966742923c48c2e33b74762458a9a6cd12484d" }
+personae = { git = "https://github.com/merely-made/mere.git", rev = "47966742923c48c2e33b74762458a9a6cd12484d" }
+sceno = { git = "https://github.com/merely-made/mere.git", rev = "47966742923c48c2e33b74762458a9a6cd12484d" }
+scenomise = { git = "https://github.com/merely-made/mere.git", rev = "47966742923c48c2e33b74762458a9a6cd12484d" }
+seiche = { git = "https://github.com/merely-made/mere.git", rev = "47966742923c48c2e33b74762458a9a6cd12484d" }
 euclid = "0.22"
 pollster = "0.4"
 thiserror = "2"
+tokio = { version = "1", features = ["rt", "sync", "time"] }
 
 [dev-dependencies]
 # The accessibility receipt asserts against the projection the AccessKit
 # adapter is handed, so it names AccessKit's own types.
 accesskit = "0.24"
+retinue = { version = "0.1.1", path = "../../crates/retinue" }
 tempfile = "3"
 
 # Genet's graph needs the same patches its own workspace applies; a `[patch]`
@@ -86,5 +91,6 @@ ipc-channel = { git = "https://github.com/merely-made/genet.git", rev = "d47a17b
 # works in a clean Mere checkout. Redirect that source to this workspace: the
 # desktop and the private port must exchange one Retinue/Postilion type family.
 [patch."https://github.com/merely-made/retinue.git"]
+outrider = { path = "../../crates/outrider" }
 postilion = { path = "../../crates/postilion" }
 retinue = { path = "../../crates/retinue" }

@@ -9,16 +9,18 @@
 //! elsewhere and hand their results in, which is what lets the whole six-page
 //! flow be driven in a headless test with no board plugged in.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, VecDeque};
 use std::time::Duration;
 
 use linkboy::{BoardFamily, FlashEvent, FlashReceipt, OwnerStage, ReceiptResult};
 use seiche::{LayoutSnapshot, NodeKey};
 use signalman::management::{
     ManagementMaterial, ManagementNodeId, ManagementPresence, ManagementRelationId, StalePolicy,
+    project_management,
 };
 use signalman::message::{
-    MessageEvent, MessageId, MessagePeer, QueuedReason, TextMessage, VoiceMessage,
+    MessageDirection, MessageEvent, MessageId, MessagePeer, MessageStatus, QueuedReason,
+    TextMessage, VoiceMessage,
 };
 use signalman::voice::{DecodedVoice, VoiceClip, VoiceEncoding};
 use signalman::{
@@ -36,6 +38,7 @@ use crate::network::{
     NetworkInput, NetworkLayout, NetworkPhysics, accept_layout, input_from_projection,
     swatch_from_projection, world_from_normalized,
 };
+use crate::station::{StationEvent, StationRequest};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum DesktopSection {
@@ -203,6 +206,8 @@ pub struct DesktopState {
     pub selected_message: Option<MessageId>,
     pub message_notice: Option<String>,
     next_message_nonce: u64,
+    pending_station: VecDeque<StationRequest>,
+    station_inflight: BTreeSet<MessageId>,
     pub voice_inputs: Vec<AudioDeviceChoice>,
     pub voice_outputs: Vec<AudioDeviceChoice>,
     pub voice_input: cambium::SelectState,
@@ -286,6 +291,8 @@ impl DesktopState {
             selected_message: None,
             message_notice: None,
             next_message_nonce: 0,
+            pending_station: VecDeque::new(),
+            station_inflight: BTreeSet::new(),
             voice_inputs: Vec::new(),
             voice_outputs: Vec::new(),
             voice_input: cambium::SelectState::new(0).with_label("Voice input device"),
@@ -325,11 +332,15 @@ impl DesktopState {
     pub fn replace_message_store(&mut self, store: MessageStore) {
         self.next_message_nonce = u64::try_from(store.log_len()).unwrap_or(u64::MAX);
         self.message_store = store;
+        self.pending_station.clear();
+        self.station_inflight.clear();
+        self.schedule_queued_station_messages();
         self.message_notice = None;
     }
 
     pub fn set_message_local(&mut self, local: MessagePeer) {
         self.message_local = Some(local);
+        self.schedule_queued_station_messages();
         self.message_notice = None;
     }
 
@@ -368,14 +379,15 @@ impl DesktopState {
         let id = message.id;
         match self.message_store.append(MessageEvent::OutgoingQueued {
             message: message.into(),
-            reason: QueuedReason::Offline,
+            reason: QueuedReason::ReadyForCarriage,
             observed_unix_ms,
         }) {
             Ok(_) => {
                 self.next_message_nonce = self.next_message_nonce.saturating_add(1);
                 self.message_draft = cambium::TextInput::default();
                 self.selected_message = Some(id);
-                self.message_notice = Some("Message persisted offline and queued.".into());
+                self.schedule_station_message(id);
+                self.message_notice = Some("Message persisted before carriage and queued.".into());
             }
             Err(error) => self.message_notice = Some(format!("Message was not queued: {error}")),
         }
@@ -599,14 +611,15 @@ impl DesktopState {
         let id = message.id;
         match self.message_store.append(MessageEvent::OutgoingQueued {
             message: message.into(),
-            reason: QueuedReason::Offline,
+            reason: QueuedReason::ReadyForCarriage,
             observed_unix_ms,
         }) {
             Ok(_) => {
                 self.next_message_nonce = self.next_message_nonce.saturating_add(1);
                 self.selected_message = Some(id);
+                self.schedule_station_message(id);
                 self.message_notice = Some(format!(
-                    "Voice drop persisted offline and queued: {} ms captured from {} at {} Hz, {} channel{}.",
+                    "Voice drop persisted before carriage and queued: {} ms captured from {} at {} Hz, {} channel{}.",
                     captured.captured_duration_ms,
                     captured.device_label,
                     captured.source_sample_rate,
@@ -642,6 +655,143 @@ impl DesktopState {
     pub fn apply_message_event(&mut self, event: MessageEvent) {
         if let Err(error) = self.message_store.append(event) {
             self.message_notice = Some(format!("Message event was not persisted: {error}"));
+        }
+    }
+
+    pub fn take_station_request(&mut self) -> Option<StationRequest> {
+        self.pending_station.pop_front()
+    }
+
+    pub fn apply_station_event(&mut self, event: StationEvent) {
+        self.apply_station_event_at(event, unix_ms());
+    }
+
+    pub fn apply_station_event_at(&mut self, event: StationEvent, observed_unix_ms: u64) {
+        match event {
+            StationEvent::Connected { local } => {
+                self.set_message_local(local);
+                self.message_notice = Some(format!("Station connected as {}.", local.address()));
+            }
+            StationEvent::Management {
+                snapshot,
+                captured_unix_ms,
+            } => {
+                let material = project_management(
+                    &snapshot,
+                    captured_unix_ms,
+                    StalePolicy {
+                        after: Duration::from_secs(
+                            u64::from(self.management_settings.stale_age_minutes) * 60,
+                        ),
+                    },
+                );
+                self.apply_management_material(&material);
+            }
+            StationEvent::Message(event) => {
+                let id = event.message_id();
+                let outgoing_status = matches!(event.as_ref(), MessageEvent::StatusChanged { .. });
+                if let Err(error) = self.message_store.append(*event) {
+                    self.message_notice = Some(format!("Message event was not persisted: {error}"));
+                } else if outgoing_status {
+                    self.station_inflight.remove(&id);
+                    if let Some(record) = self.message_store.record(id) {
+                        self.message_notice =
+                            Some(format!("Message receipt: {}.", record.status.label()));
+                    }
+                } else {
+                    self.selected_message = Some(id);
+                    self.message_notice =
+                        Some("Authenticated message received and persisted.".into());
+                }
+            }
+            StationEvent::PeerAppeared { destination, name } => {
+                self.schedule_waiting_for_peer(destination);
+                let label = name.unwrap_or_else(|| destination.address().to_string());
+                self.message_notice = Some(format!("Heard delivery peer {label}."));
+            }
+            StationEvent::Dropped(message) => {
+                self.message_notice = Some(format!("Radio input was refused: {message}"));
+            }
+            StationEvent::Failed { id, message } => {
+                if let Some(id) = id {
+                    self.station_inflight.remove(&id);
+                    if let Err(error) = self.message_store.append(MessageEvent::StatusChanged {
+                        id,
+                        status: MessageStatus::Failed(message.clone()),
+                        observed_unix_ms,
+                    }) {
+                        self.message_notice = Some(format!(
+                            "Message failed, and its failure receipt was not persisted: {error}"
+                        ));
+                        return;
+                    }
+                    self.message_notice = Some(format!("Message failed: {message}"));
+                } else {
+                    self.message_notice = Some(message);
+                }
+            }
+            StationEvent::Disconnected(message) => {
+                self.message_local = None;
+                self.pending_station.clear();
+                self.station_inflight.clear();
+                self.message_notice = Some(format!("Station disconnected: {message}"));
+            }
+        }
+    }
+
+    fn schedule_queued_station_messages(&mut self) {
+        if self.message_local.is_none() {
+            return;
+        }
+        let ids = self
+            .message_store
+            .records()
+            .filter(|record| {
+                record.direction == MessageDirection::Outgoing
+                    && matches!(&record.status, MessageStatus::Queued(_))
+            })
+            .map(|record| record.message.id())
+            .collect::<Vec<_>>();
+        for id in ids {
+            self.schedule_station_message(id);
+        }
+    }
+
+    fn schedule_waiting_for_peer(&mut self, peer: MessagePeer) {
+        let ids = self
+            .message_store
+            .records()
+            .filter(|record| {
+                record.direction == MessageDirection::Outgoing
+                    && record.message.recipient().destination == peer.destination
+                    && matches!(
+                        &record.status,
+                        MessageStatus::Queued(QueuedReason::WaitingForPeer)
+                    )
+            })
+            .map(|record| record.message.id())
+            .collect::<Vec<_>>();
+        for id in ids {
+            self.schedule_station_message(id);
+        }
+    }
+
+    fn schedule_station_message(&mut self, id: MessageId) {
+        if self.message_local.is_none() || !self.station_inflight.insert(id) {
+            return;
+        }
+        let message = self
+            .message_store
+            .record(id)
+            .filter(|record| {
+                record.direction == MessageDirection::Outgoing
+                    && matches!(&record.status, MessageStatus::Queued(_))
+            })
+            .map(|record| record.message.clone());
+        if let Some(message) = message {
+            self.pending_station.push_back(StationRequest { message });
+        } else {
+            self.station_inflight.remove(&id);
         }
     }
 

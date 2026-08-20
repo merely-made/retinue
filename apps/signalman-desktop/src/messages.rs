@@ -5,7 +5,9 @@ use std::path::Path;
 use codicil::Codicil;
 use gaz::{Contact, ContactBook, ContactKey, Endpoint, EndpointKind, PersonaScope};
 use muniment::{Backend, JsonSlots, MemoryBackend, RedbBackend, StoreError};
-use signalman::message::{ApplyOutcome, MessageBook, MessageEvent, MessagePeer, MessageRecord};
+use signalman::message::{
+    ApplyOutcome, MessageBook, MessageEvent, MessageId, MessagePeer, MessageRecord,
+};
 
 const LOG_SLOT: &str = "signalman/messages/v1/log";
 const CONTACTS_SLOT: &str = "signalman/messages/v1/contacts";
@@ -83,8 +85,16 @@ impl MessageStore {
         self.book.iter()
     }
 
+    pub fn record(&self, id: MessageId) -> Option<&MessageRecord> {
+        self.book.get(id)
+    }
+
     pub fn len(&self) -> usize {
         self.book.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.book.is_empty()
     }
 
     pub fn log_len(&self) -> usize {

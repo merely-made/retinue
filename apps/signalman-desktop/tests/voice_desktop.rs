@@ -92,12 +92,18 @@ fn captured_pcm_is_encoded_once_persisted_and_then_played_from_the_selected_outp
     assert_eq!(state.message_store.log_len(), 1);
     let record = state.message_store.records().next().unwrap();
     let voice = record.message.voice().unwrap();
-    assert_eq!(voice.facts().encoding, VoiceEncoding::Lpc10Half);
-    assert_eq!(voice.facts().sample_rate, 8_000);
-    assert_eq!(voice.facts().duration_ms, 1_000);
+    let voice_facts = voice.facts();
+    assert_eq!(voice_facts.encoding, VoiceEncoding::Lpc10Half);
+    assert_eq!(voice_facts.sample_rate, 8_000);
+    assert_eq!(voice_facts.duration_ms, 1_000);
     assert_eq!(
         record.status,
-        MessageStatus::Queued(signalman::message::QueuedReason::Offline)
+        MessageStatus::Queued(signalman::message::QueuedReason::ReadyForCarriage)
+    );
+    let station_request = state.take_station_request().expect("station voice request");
+    assert_eq!(
+        station_request.message.voice().unwrap().facts(),
+        voice_facts
     );
 
     state.play_selected_voice();
@@ -193,7 +199,7 @@ fn shipping_messages_face_exposes_record_stop_and_play_actions_with_device_choic
     harness.update(|state| state.apply_audio_event_at(AudioEvent::Captured(captured()), 2_000));
     harness.with_surfaces(|surfaces| {
         assert!(genet_probe::text_present(surfaces, "Voice drop"));
-        assert!(genet_probe::text_present(surfaces, "offline, queued"));
+        assert!(genet_probe::text_present(surfaces, "queued for station"));
     });
     assert!(harness.click_on(&Selector::role("button").containing("Play selected voice drop")));
     let mut playback = None;

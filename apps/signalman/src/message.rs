@@ -109,6 +109,7 @@ impl From<PayloadMode> for MessageTransport {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum QueuedReason {
     Offline,
+    ReadyForCarriage,
     WaitingForPeer,
 }
 
@@ -136,6 +137,7 @@ impl MessageStatus {
     pub fn label(&self) -> &'static str {
         match self {
             Self::Queued(QueuedReason::Offline) => "offline, queued",
+            Self::Queued(QueuedReason::ReadyForCarriage) => "queued for station",
             Self::Queued(QueuedReason::WaitingForPeer) => "queued, waiting for peer",
             Self::HandedToRadio { .. } => "handed to radio",
             Self::AcceptedByPropagationNode => "accepted by propagation node",
@@ -379,11 +381,61 @@ impl Message {
         }
     }
 
+    /// Build the complete LXMF payload for the station boundary.
+    ///
+    /// Both forms validate their authored identity before carriage. Voice
+    /// retains its encoded clip only in LXMF audio field 7; text remains the
+    /// versioned body S4 already persists.
+    pub fn encode_payload(&self, lxmf_timestamp: f64) -> Result<LxmfPayload, MessageError> {
+        match self {
+            Self::Text(message) => {
+                message.validate()?;
+                Ok(LxmfPayload::text(
+                    lxmf_timestamp,
+                    WIRE_TITLE,
+                    message.encode_wire()?,
+                ))
+            }
+            Self::Voice(message) => message.encode_payload(lxmf_timestamp),
+        }
+    }
+
     fn validate(&self) -> Result<(), MessageError> {
         match self {
             Self::Text(message) => message.validate(),
             Self::Voice(message) => message.validate(),
         }
+    }
+}
+
+/// A station event reduced to Signalman's correspondence vocabulary.
+///
+/// Peer discovery remains a radio fact rather than a message, and a refused
+/// frame remains visible without manufacturing a conversation record.
+#[derive(Clone, Debug)]
+pub enum MessageObservation {
+    Incoming(MessageEvent),
+    PeerAppeared {
+        destination: MessagePeer,
+        name: Option<String>,
+    },
+    Dropped(String),
+}
+
+pub fn observe_station_event(
+    event: &Event,
+    local: MessagePeer,
+    observed_unix_ms: u64,
+) -> Result<MessageObservation, MessageError> {
+    match event {
+        Event::Message { .. } => {
+            incoming_event(event, local, observed_unix_ms).map(MessageObservation::Incoming)
+        }
+        Event::PeerAppeared(peer) => Ok(MessageObservation::PeerAppeared {
+            destination: peer.destination.into(),
+            name: peer.name.clone(),
+        }),
+        Event::Dropped(message) => Ok(MessageObservation::Dropped(message.clone())),
     }
 }
 
@@ -795,6 +847,10 @@ mod tests {
 
     #[test]
     fn status_words_keep_transport_facts_distinct() {
+        assert_eq!(
+            MessageStatus::Queued(QueuedReason::ReadyForCarriage).label(),
+            "queued for station"
+        );
         assert_ne!(
             MessageStatus::Queued(QueuedReason::Offline).label(),
             MessageStatus::HandedToRadio {
@@ -846,6 +902,32 @@ mod tests {
             incoming_event(&forged, local, 110),
             Err(MessageError::WireAuthorityMismatch)
         ));
+    }
+
+    #[test]
+    fn station_payload_keeps_text_and_voice_in_their_owned_lxmf_fields() {
+        let text: Message = TextMessage::compose(peer(1), peer(2), 100, [3; 32], "hello").into();
+        let text_payload = text.encode_payload(1.5).unwrap();
+        assert_eq!(text_payload.title, WIRE_TITLE);
+        assert_eq!(
+            TextMessage::decode_wire(&text_payload.content)
+                .unwrap()
+                .text,
+            "hello"
+        );
+
+        let clip =
+            VoiceClip::encode_pcm(&vec![1_000_i16; 1_440], crate::voice::VoiceEncoding::Lpc10)
+                .unwrap();
+        let voice: Message = VoiceMessage::compose(peer(1), peer(2), 100, [4; 32], clip.clone())
+            .unwrap()
+            .into();
+        let voice_payload = voice.encode_payload(2.5).unwrap();
+        assert_eq!(voice_payload.title, VOICE_WIRE_TITLE);
+        assert_eq!(
+            VoiceMessage::decode_payload(&voice_payload).unwrap().clip,
+            clip
+        );
     }
 
     #[test]

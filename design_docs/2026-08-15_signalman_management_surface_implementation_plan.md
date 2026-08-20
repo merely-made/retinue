@@ -392,8 +392,28 @@ that CI opened or heard a physical device. The remaining S5 receipt is a
 headed two-site run that attaches the desktop to its sealed station authority,
 records through a real microphone at site A, carries the queued clip through a
 propagation node, fetches it at site B, and audibly plays it through the selected
-output. The current exact Mere port still has to expose that live station lease;
-an injected `message_local` in a harness is not substituted for it.
+output. At that receipt, the exact Mere port still had to expose that live
+station lease; an injected `message_local` in a harness was not substituted
+for it.
+
+**Sealed-station runtime receipt, 2026-08-19:** Mere revision
+`47966742923c48c2e33b74762458a9a6cd12484d` now exposes address,
+management-snapshot, and complete-payload operations through the sealed
+station head, with the retained authority rechecked at each operation. The
+desktop pins that revision as one Mere family and restores the head only when
+`SIGNALMAN_STATION_DATA_ROOT`, `SIGNALMAN_STATION_RECORD`,
+`SIGNALMAN_STATION_PORT`, and `SIGNALMAN_STATION_NAME` form a complete explicit
+attachment. Send patience remains owner-configurable through
+`SIGNALMAN_STATION_SEND_PATIENCE_SECONDS`.
+
+One worker thread owns the Tokio runtime, sealed identity, serial station,
+message sends, authenticated ingress, and generation-deduplicated management
+captures. The UI receives typed Signalman events, persists each carriage or
+failure fact, and feeds live snapshots into the existing device-data mere. A
+missing, partial, locked, expired, or stopped attachment remains visibly
+disconnected. This is a concrete software consumption of the sealed authority,
+not a headed or physical receipt. The microphone, propagation/fetch, second
+site, and audible-output run remains the final S5 gate.
 
 ### S6. Owner placement and Atlas
 

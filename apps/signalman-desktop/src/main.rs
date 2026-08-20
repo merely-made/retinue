@@ -14,6 +14,9 @@ use signalman::management::ManagementPresence;
 use signalman_desktop::audio::{self, AudioEvent, AudioOperation, AudioWorker};
 use signalman_desktop::network::{LayoutWake, NETWORK_LEAF_KEY, NetworkWorker};
 use signalman_desktop::state::{AudioRequest, DesktopState, NetworkRequest};
+use signalman_desktop::station::{
+    StationEvent, StationRequest, StationStartupConfig, StationWorker,
+};
 use signalman_desktop::views::{Child, Logic};
 use signalman_desktop::worker::Worker;
 use signalman_desktop::{
@@ -77,6 +80,21 @@ fn perform_audio_request(
     }
 }
 
+fn perform_station_request(
+    slot: &Option<StationWorker>,
+    request: StationRequest,
+) -> Result<(), StationEvent> {
+    let id = request.id();
+    if slot.as_ref().is_some_and(|worker| worker.send(request)) {
+        Ok(())
+    } else {
+        Err(StationEvent::Failed {
+            id: Some(id),
+            message: "the station worker stopped before accepting the message".into(),
+        })
+    }
+}
+
 fn main() {
     // The worker lives beside the host, not inside it: the host knows nothing
     // about threads, and this is application code.
@@ -89,6 +107,10 @@ fn main() {
     let audio = Rc::new(RefCell::new(None::<AudioWorker>));
     let wake_audio = audio.clone();
     let dispatch_audio = audio.clone();
+    let station = Rc::new(RefCell::new(None::<StationWorker>));
+    let init_station = station.clone();
+    let wake_station = station.clone();
+    let dispatch_station = station.clone();
     let last_leaf = Rc::new(RefCell::new(None));
     let frame_leaf = last_leaf.clone();
 
@@ -141,10 +163,20 @@ fn main() {
                 .as_ref()
                 .map(AudioWorker::drain)
                 .unwrap_or_default();
-            if messages.is_empty() && layout.is_none() && audio_events.is_empty() {
+            let station_events = wake_station
+                .borrow()
+                .as_ref()
+                .map(StationWorker::drain)
+                .unwrap_or_default();
+            if messages.is_empty()
+                && layout.is_none()
+                && audio_events.is_empty()
+                && station_events.is_empty()
+            {
                 return;
             }
             let mut network_request = None;
+            let mut station_request = None;
             ctx.runner.update(|state| {
                 for message in messages {
                     state.apply_install_update(message);
@@ -155,7 +187,11 @@ fn main() {
                 for event in audio_events {
                     state.apply_audio_event(event);
                 }
+                for event in station_events {
+                    state.apply_station_event(event);
+                }
                 network_request = state.take_network_request();
+                station_request = state.take_station_request();
             });
             if let Some(request) = network_request {
                 perform_network_request(
@@ -163,6 +199,11 @@ fn main() {
                     request,
                     ctx.wake.callback(),
                 );
+            }
+            if let Some(request) = station_request {
+                if let Err(event) = perform_station_request(&wake_station.borrow(), request) {
+                    ctx.runner.update(|state| state.apply_station_event(event));
+                }
             }
         }),
         // A page asked for something that touches hardware or the flow. It runs
@@ -173,12 +214,14 @@ fn main() {
             let wake = ctx.wake.callback();
             let mut network_request = None;
             let mut audio_request = None;
+            let mut station_request = None;
             ctx.runner.update(|state| {
                 if let Some(request) = state.take_request() {
                     flow::perform(state, request, &mut worker, wake.clone());
                 }
                 network_request = state.take_network_request();
                 audio_request = state.take_audio_request();
+                station_request = state.take_station_request();
             });
             drop(worker);
             if let Some(request) = network_request {
@@ -189,6 +232,11 @@ fn main() {
                     perform_audio_request(&mut dispatch_audio.borrow_mut(), request, wake)
                 {
                     ctx.runner.update(|state| state.apply_audio_event(event));
+                }
+            }
+            if let Some(request) = station_request {
+                if let Err(event) = perform_station_request(&dispatch_station.borrow(), request) {
+                    ctx.runner.update(|state| state.apply_station_event(event));
                 }
             }
         }),
@@ -215,7 +263,7 @@ fn main() {
     };
     run(
         options,
-        |_window, _commands, _wake| {
+        move |_window, _commands, wake| {
             let mut state = DesktopState::new(&default_catalog_path());
             match MessageStore::open(default_message_store_path(), "signalman-local") {
                 Ok(store) => state.replace_message_store(store),
@@ -230,6 +278,19 @@ fn main() {
                 Err(error) => {
                     state.message_notice =
                         Some(format!("Host audio devices could not be listed: {error}"));
+                }
+            }
+            match StationStartupConfig::from_env() {
+                Ok(Some(config)) => match StationWorker::spawn(config, wake.callback()) {
+                    Ok(worker) => *init_station.borrow_mut() = Some(worker),
+                    Err(error) => {
+                        state.message_notice =
+                            Some(format!("The station worker could not start: {error}"));
+                    }
+                },
+                Ok(None) => {}
+                Err(error) => {
+                    state.message_notice = Some(format!("Station attachment is invalid: {error}"));
                 }
             }
             // The first survey happens before the first frame, so the device

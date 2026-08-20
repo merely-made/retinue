@@ -8,8 +8,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
-pub use postilion::management::ManagementGeneration;
-use postilion::management::{AnnounceKind, ManagementSnapshot};
+use postilion::management::AnnounceKind;
+pub use postilion::management::{ManagementGeneration, ManagementSnapshot};
 use retinue::endpoint::{LinkDirection, LinkFactKind};
 use retinue::hash::AddressHash;
 use retinue::identity::Identity;

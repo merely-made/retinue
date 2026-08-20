@@ -150,7 +150,7 @@ fn unavailable_sections_name_their_actual_gate() {
 }
 
 #[test]
-fn messages_face_persists_offline_intent_and_names_its_actual_status() {
+fn messages_face_persists_intent_before_carriage_and_names_its_actual_status() {
     let mut harness = harness();
     harness.update(|state| {
         state.set_message_local(signalman::message::MessagePeer::new([1; 16], Some([1; 32])));
@@ -166,7 +166,7 @@ fn messages_face_persists_offline_intent_and_names_its_actual_status() {
             surfaces,
             "Meet by the north gate"
         ));
-        assert!(genet_probe::text_present(surfaces, "offline, queued"));
+        assert!(genet_probe::text_present(surfaces, "queued for station"));
         assert!(!genet_probe::text_present(surfaces, "delivered"));
     });
 
@@ -189,7 +189,7 @@ fn messages_face_persists_offline_intent_and_names_its_actual_status() {
     });
     harness.with_surfaces(|surfaces| {
         assert!(genet_probe::text_present(surfaces, "handed to radio"));
-        assert!(!genet_probe::text_present(surfaces, "offline, queued"));
+        assert!(!genet_probe::text_present(surfaces, "queued for station"));
     });
 }
 
