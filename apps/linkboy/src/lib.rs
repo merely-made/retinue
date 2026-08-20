@@ -35,9 +35,13 @@ pub mod plan;
 pub mod receipt;
 pub mod route;
 pub mod uf2;
+pub mod update;
 pub mod verify;
 
-pub use catalog::{CatalogError, CatalogPackage, CatalogState, PackageIndex};
+pub use catalog::{
+    AuthenticatedPackageIndex, CatalogError, CatalogPackage, CatalogSignature,
+    CatalogSignatureFormat, CatalogState, CatalogTrust, PackageIndex, TrustedCatalogKey,
+};
 pub use device::{
     BoardSelection, BoardSelectionEvidence, BootloaderObservation, DeviceObservation,
     DeviceTransport, HardwareFacts,
@@ -60,6 +64,9 @@ pub use package::{
 pub use plan::{FlashPlan, PackagePartIdentity, Refusal, RefusalReason, plan_flash};
 pub use receipt::{ApplicationVerification, FlashReceipt, ReceiptResult, ReceiptStage};
 pub use uf2::{NRF52840_FAMILY_ID, Uf2EncodeError, encode_application};
+pub use update::{
+    ActivationMode, ReleaseIdentity, UpdateError, UpdateJournal, authenticated_release,
+};
 pub use verify::{VerificationFailure, verify_application};
 
 /// The host baud rate every retinue image's text probe answers at.

@@ -6,6 +6,8 @@
 //! linkboy list                    what is on this machine's ports
 //! linkboy inspect PACKAGE            verify and explain a package
 //! linkboy catalog INDEX           verify a public package index
+//! linkboy catalog-auth INDEX TRUST
+//!                                      require local publisher trust and a valid signature
 //! linkboy plan DEVICE PACKAGE [BOARD@REVISION]
 //!                                      produce a refusal or immutable flash plan
 //! linkboy flash DEVICE PACKAGE [BOARD@REVISION] [--loader-snapshot PATH] [--receipt PATH]
@@ -45,6 +47,7 @@ fn usage() -> &'static str {
      linkboy ask PORT LINE...\n  \
      linkboy inspect PACKAGE\n  \
      linkboy catalog INDEX\n  \
+     linkboy catalog-auth INDEX TRUST\n  \
      linkboy plan DEVICE PACKAGE [BOARD@REVISION]\n  \
      linkboy flash DEVICE PACKAGE [BOARD@REVISION] [--loader-snapshot PATH] [--receipt PATH]\n  \
      linkboy flash-volume VOLUME PACKAGE BOARD@REVISION [--receipt PATH]\n  \
@@ -86,6 +89,23 @@ fn run_command() -> Result<(), Error> {
             let index = linkboy::PackageIndex::load(&index_path)?;
             index.verify_packages(&index_path)?;
             println!("{}", index.describe());
+            Ok(())
+        }
+        Some("catalog-auth") => {
+            let index_path = args
+                .next()
+                .ok_or_else(|| bad_usage("catalog-auth needs an INDEX"))?;
+            let trust_path = args
+                .next()
+                .ok_or_else(|| bad_usage("catalog-auth needs a TRUST file"))?;
+            if args.next().is_some() {
+                return Err(bad_usage("catalog-auth accepts INDEX TRUST"));
+            }
+            let trust = linkboy::CatalogTrust::load(trust_path)?;
+            let index = linkboy::PackageIndex::load_authenticated(&index_path, &trust)?;
+            index.index().verify_packages(&index_path)?;
+            println!("authenticated by key {}", index.key_id());
+            println!("{}", index.index().describe());
             Ok(())
         }
         Some("plan") => {

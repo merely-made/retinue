@@ -192,10 +192,12 @@ Next sequence:
    from the disclosure record.
 
 The signed artifact is a carrier. Retinue still owns command authorization,
-expiry, target class, replay policy, and key custody. The Merely package index
-remains the intended authorization authority for installable packages, but its
-`publisher_signature` is currently recorded, not verified
-(`apps/linkboy/src/catalog.rs`); real index authentication is owed before any
+expiry, target class, replay policy, and key custody. Distribution now supplies
+the Merely package index's cryptographic verification boundary: detached
+Minisign over canonical bytes, checked against owner-selected local trust, with
+an authenticated wrapper type for downstream staging. Assurance adoption is
+not claimed here. The public index is still unsigned, so the offline key
+ceremony and first real signed-index receipt remain owed before any
 network-fetched catalog or OTA bearer relies on it.
 
 ## Lane 4: Distribution
@@ -252,6 +254,13 @@ Sequence:
    Meshtastic UF2 and restored Retinue through the graphical flow.
 7. **DIST6, optional product consumer:** deferred. No browser-rendezvous
    exposure is authorized by these installer receipts; it is not an F7 gate.
+8. **DIST7, authenticated update foundation: host slice complete.** Catalog
+   signatures are now verified against owner-selected local trust before an
+   authenticated catalog type exists. Monotonic staging, trial confirmation,
+   rollback, and recovery-only refusal are modeled and tested. The public index
+   remains unsigned and neither board has an on-device activation receipt, so
+   Bluetooth, Wi-Fi, and LoRa OTA bearers remain blocked. See
+   `2026-08-20_catalog_auth_and_activation_foundation.md`.
 
 Linkboy owns package policy, immutable plans, execution, recovery, and
 receipts. Signalman is its Cambium face. Turnstone may consume a field gateway;

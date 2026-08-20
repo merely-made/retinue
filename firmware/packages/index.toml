@@ -1,9 +1,10 @@
 schema = "retinue.package-index/v1"
 publisher = "Merely Made"
-version = "2"
+version = "3"
 
 [[packages]]
 package_id = "retinue.heltec-v4"
+release_sequence = 1
 manifest = "heltec-v4-current.toml"
 firmware_publisher = "Merely Made"
 state = "proven-recipe"
@@ -21,6 +22,7 @@ receipt_hosts = ["windows-x86_64", "macos-x86_64", "macos-aarch64", "linux-x86_6
 
 [[packages]]
 package_id = "retinue.t114"
+release_sequence = 51
 manifest = "t114-v51.toml"
 firmware_publisher = "Merely Made"
 state = "proven-recipe"
@@ -36,6 +38,7 @@ receipt_hosts = ["windows-x86_64"]
 
 [[packages]]
 package_id = "meshtastic.heltec-mesh-node-t114"
+release_sequence = 2007026
 manifest = "meshtastic-t114-2.7.26.54e0d8d.toml"
 firmware_publisher = "Meshtastic"
 state = "partial"
@@ -46,6 +49,7 @@ recovery_receipts = []
 
 [[packages]]
 package_id = "prns.hopspot.heltec-v4"
+release_sequence = 304
 manifest = "hopspot-v4-0.3.4.toml"
 firmware_publisher = "Prns"
 state = "proven-recipe"

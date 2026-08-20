@@ -216,13 +216,14 @@ record it; it must not silently upgrade it into certainty.
 - firmware license, notices, source revision, and corresponding-source link;
 - origin URL and optional publisher signature.
 
-The Merely package index is intended to supply trust for network-delivered
-packages, but that trust is not yet real: the current index carries an
-optional `publisher_signature` string that Linkboy checks only for
-non-emptiness, never cryptographically (`apps/linkboy/src/catalog.rs`). The
-static, digest-pinned Mer3ly projection does not depend on that signature;
-any network-fetched catalog authority does, and must not ship before Linkboy
-actually verifies the index. An upstream signature can be recorded when one
+The Merely package index now has the host-side authority boundary needed for
+network-delivered packages: `catalog-auth` verifies a detached Minisign
+signature over domain-separated canonical index bytes against an owner-selected
+local trust file, and only then returns `AuthenticatedPackageIndex`. The public
+index remains unsigned, so no network-fetched catalog authority is enabled yet;
+the offline Merely Made key ceremony, public trust root, and first real signed
+index remain required. The static, digest-pinned Mer3ly projection does not
+depend on that signature. An upstream signature can be recorded when one
 exists, but the model does not
 pretend every upstream project publishes one. A local expert package still
 needs an explicit manifest and hash.

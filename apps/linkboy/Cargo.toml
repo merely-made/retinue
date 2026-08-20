@@ -17,12 +17,10 @@ name = "linkboy"
 path = "src/main.rs"
 
 [dependencies]
+minisign-verify = "0.2.5"
 serial2 = "0.2.37"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.151"
 sha2 = "0.10.9"
 thiserror = "2"
 toml = "0.8"
-
-[dev-dependencies]
-minisign-verify = "0.2.5"
