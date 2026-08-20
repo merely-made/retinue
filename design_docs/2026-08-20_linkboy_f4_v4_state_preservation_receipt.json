@@ -1,0 +1,43 @@
+{
+  "schema": 4,
+  "package_id": "retinue.heltec-v4",
+  "package_parts": [
+    {
+      "kind": "application",
+      "offset": null,
+      "byte_length": 4192412,
+      "sha256": "7f5680ee0eb9a8d3a68eda62cd7f47b098ecb24f8096ce10d0f536a2d175fa7a"
+    }
+  ],
+  "publisher_signature": null,
+  "board": "heltec-v4",
+  "board_revision": "4.2",
+  "board_selection_evidence": "owner confirmation from carrier marking",
+  "route": "esp-rom",
+  "helper": {
+    "program": "espflash",
+    "version": "4.5.0",
+    "platform": "windows-x86_64",
+    "binary_sha256": "0cc03364c70a86325236f18ad1aaed17eedf267d89312c0cdabe4964f5cb758e",
+    "archive_sha256": "854c82c947c20e7f337f120f0398042ed1760f2269cb0f9be3d2beae3b66fbfb",
+    "archive_url": "https://github.com/esp-rs/espflash/releases/download/v4.5.0/espflash-x86_64-pc-windows-msvc.zip"
+  },
+  "transport": "serial:COM7",
+  "processor": "esp32-s3",
+  "flash_size": 16777216,
+  "bootloader": "esp-rom",
+  "stages": [
+    {
+      "name": "application-verified",
+      "detail": null
+    }
+  ],
+  "result": "complete",
+  "application": {
+    "board": "heltec-v4",
+    "version": "0.0.1",
+    "region": "US915",
+    "channel": "modem"
+  },
+  "manual_check": null
+}

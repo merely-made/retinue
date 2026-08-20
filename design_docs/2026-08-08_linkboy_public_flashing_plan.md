@@ -4,12 +4,12 @@
 **Status:** F1 and F2 are complete: the 2026-08-20 closure audit mapped every
 done condition to a named Linkboy test, and F2's physical clause is satisfied
 by the 2026-08-19 ESP-ROM receipts and the 2026-08-12/14 `adafruit-dfu`
-receipts. F3 and F4 are complete except three physical claims: a factory
+receipts. F3 and F4 are complete except two physical claims: a factory
 as-shipped board reaching a valid plan (every receipted board had previously
 run Retinue, Hopspot, or Meshtastic), V4 recovery through the board's own
 reset/boot controls (all V4 receipts enter the ROM loader from a live board
-via `espflash --before default-reset`), and a paired before-and-after
-identity/settings preservation fact on one board. F5 is complete with official per-platform V4
+via `espflash --before default-reset`). The paired before-and-after
+identity/settings preservation fact closed on a physical V4 on 2026-08-20. F5 is complete with official per-platform V4
 helper custody, cross-platform V4 physical receipts, and the public T114 UF2
 real-device receipt. On
 2026-08-14 Signalman installed
@@ -407,17 +407,17 @@ Done conditions:
 
 ### F4. Verification and recovery
 
-**Complete except two physical claims (2026-08-20 audit).** Wrong-application
+**Complete except one physical claim (2026-08-20 audit and receipt).** Wrong-application
 failure, post-write silence as `RecoveryRequired`, and secret-free exportable
 receipts are closed by named tests plus the 2026-08-12 wrong-V4 refusal and
-the 2026-08-14 CDC-silence recovery event. Open: (a) V4 recovery through the
+the 2026-08-14 CDC-silence recovery event. Open: V4 recovery through the
 board's own reset/boot controls — T114 double-tap-reset recovery is receipted
 on 2026-08-19, but every V4 receipt enters the ROM loader from a live board
-via `espflash --before default-reset`; (b) identity/settings preservation
-verified by paired facts — the pre-write probe shows the preserved range and
-the raw restore shows `identity=loaded slot=A seq=82` afterward, but no single
-board has a recorded pre-write identity/region fact matched against its
-post-write value, so "Preserved" remains a plan claim, not a demonstrated one.
+via `espflash --before default-reset`. Identity/settings preservation is now
+verified by the paired physical facts in
+`2026-08-20_linkboy_f4_v4_state_preservation_receipt.md`: the same V4 MAC,
+`identity=loaded slot=B seq=5`, `US915` region, and `modem` channel appeared
+before and after the admitted Retinue write.
 
 Files:
 

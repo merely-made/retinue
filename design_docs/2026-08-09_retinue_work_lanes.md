@@ -37,7 +37,7 @@ current plan set sorts as follows.
 | [Retinue Small plan](2026-07-31_retinue_small_plan.md) | Current native-node authority. Software gates N0 through N6 are substantially closed. The unplug leg, current measurements, and the cheaper carrier-sense question remain owner or research work. |
 | [Smolweb over Reticulum](2026-08-04_smolweb_over_reticulum_plan.md) | Active independent application bridge. R-A, R-B, and R-C remain serial within that program. |
 | [Signalman founding](2026-08-06_signalman_founding.md) | Historical founding note. Execution authority moved to the Cambium desktop scope and receipts. |
-| [Linkboy public flashing plan](2026-08-08_linkboy_public_flashing_plan.md) | Active installer authority. The 2026-08-20 audit closed F1 and F2 outright; F3 and F4 are complete except three physical claims (as-shipped-board plan, V4 reset/boot-control recovery, paired preservation facts). F5 is complete: V4 has official per-platform helper custody and physical Windows, Intel-macOS, Apple-silicon-macOS, and Linux receipts; public T114 uses built-in UF2 and has its graphical Windows real-device receipt. F7 is complete: the graphical Prns V4 and Meshtastic T114 install-and-Retinue-restore receipts landed, and the catalog was published 2026-08-20 (Retinue `05b3795`, Mer3ly `94a7d64`, live V4/T114 pages). |
+| [Linkboy public flashing plan](2026-08-08_linkboy_public_flashing_plan.md) | Active installer authority. The 2026-08-20 audit closed F1 and F2 outright; F3 and F4 are complete except two physical claims (as-shipped-board plan and V4 reset/boot-control recovery). The paired V4 preservation fact closed on 2026-08-20. F5 is complete: V4 has official per-platform helper custody and physical Windows, Intel-macOS, Apple-silicon-macOS, and Linux receipts; public T114 uses built-in UF2 and has its graphical Windows real-device receipt. F7 is complete: the graphical Prns V4 and Meshtastic T114 install-and-Retinue-restore receipts landed, and the catalog was published 2026-08-20 (Retinue `05b3795`, Mer3ly `94a7d64`, live V4/T114 pages). |
 | [Linkboy F5 spike](2026-08-08_linkboy_public_flashing_f5_spike.md) | Complete helper-packaging evidence. V4 selects and verifies official per-platform `espflash 4.5.0` artifacts; public T114 uses Linkboy's built-in stock-bootloader UF2 route. Ambient PATH is development-only. Cross-platform V4 receipts and the public T114 real-device receipt are recorded. |
 | [Signalman Cambium desktop scope](2026-08-09_signalman_cambium_desktop_scope.md) | Active GUI authority. G0 through G3 are complete. G4 has physical V4 and T114 cross-firmware-and-recovery receipts, and the owner supplied the manual screen-reader judgement for Windows. |
 | [Signalman G2 receipt](2026-08-09_signalman_desktop_g2_receipt.md) | Evidence, not a work queue. It proves the headed shell and automated accessibility surface, not a board flash. |
@@ -233,11 +233,11 @@ Sequence:
 1. **DIST0, landed-gate audit: run 2026-08-20.** F1 and F2 are complete —
    every done condition maps to a named Linkboy test, and the structured
    executor carried both physical cable routes again in the 2026-08-12/14
-   `adafruit-dfu` and 2026-08-19 ESP-ROM receipts. Three physical claims stay
+   `adafruit-dfu` and 2026-08-19 ESP-ROM receipts. Two physical claims stay
    open and keep F3 and F4 from full closure: a factory as-shipped board
-   reaching a valid plan (F3), V4 recovery through the board's own reset/boot
-   controls (F4; the T114 double-tap-reset leg is receipted), and a paired
-   before-and-after identity/settings preservation fact on one board (F4).
+   reaching a valid plan (F3), and V4 recovery through the board's own
+   reset/boot controls (F4; the T114 double-tap-reset leg is receipted). The
+   paired V4 identity/settings preservation fact closed on 2026-08-20.
    The gate-by-gate evidence is recorded in the flashing plan's F1 through F4
    sections.
 2. **DIST1, package shape: landed.** Ordered sparse parts, per-part offsets and
