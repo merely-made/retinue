@@ -2,10 +2,15 @@
 
 **Date:** 2026-08-15
 **Status:** implementation in progress. S0 and S1 are verified. S2's model,
-retained graph, layout actor, and headless face are verified; headed and live
-receipts remain open at the named pin boundary. S3's five-section shell,
-owner settings, unavailable states, and headless navigation receipts are
-verified.
+retained graph, layout actor, and headless face are verified, and on
+2026-08-20 its live bench leg completed: Mere `1609cb90` added the
+lease-checked read-only snapshot getter, the desktop grew a live station
+actor, and a real V4 station on COM6 carried one over-the-air announce and
+route from a COM7 peer into the shipped projection; see the
+[S2 live station receipt](2026-08-20_signalman_s2_live_station_receipt.md).
+S2's remaining boundary is the owner-driven headed interactive judgement.
+S3's five-section shell, owner settings, unavailable states, and headless
+navigation receipts are verified.
 This opens named gates for the direction in
 [Signalman as a management surface](2026-08-15_signalman_management_surface_direction.md).
 The standing Peer, Air, Assurance, and Distribution authorities remain intact.
@@ -209,11 +214,10 @@ not presented as live.
 At the selected pins, Cambium's graph canvas accepts an external viewport but
 does not emit pan or zoom actions. S2 therefore proves pan and zoom through
 named controls over that same viewport. Pointer/wheel pan and zoom require a
-targeted Cambium change and deliberate Genet pin bump. Mere's selected
-`SitedStation` wrapper also keeps the Postilion station private and exposes no
-management snapshot getter. Model, fixture, and headed face receipts can land;
-the live sealed-station bench receipt stays open until Mere adds a read-only,
-lease-checked getter and the desktop bumps to that exact revision.
+targeted Cambium change and deliberate Genet pin bump. The former blocker is
+resolved: Mere `1609cb90` gives `SitedStation` a read-only, lease-checked
+`management_snapshot()` getter, the desktop pins that exact revision, and the
+2026-08-20 live bench receipt closed the sealed-station leg.
 
 **Done when:**
 
@@ -242,10 +246,15 @@ pan/zoom controls. The exact-pin desktop suite passes 20 integration tests plus
 seven library tests.
 
 This is verified through rung 2, **Headless face**. A real Genet/Netrender
-window and physical station were not run. The selected Mere wrapper still
-lacks the lease-checked management getter required to feed a sealed running
-station into this graph, so the headed live fixture and bench receipt remain
-open rather than being replaced by sample data.
+window and physical station were not run at that date.
+
+**Live receipt, 2026-08-20:** the lease-checked getter landed in Mere
+`1609cb90`, the desktop's live station actor consumed it, and the physical
+bench leg completed with one real announce and route in the shipped
+projection; see the
+[S2 live station receipt](2026-08-20_signalman_s2_live_station_receipt.md).
+The headed interactive judgement in a real window remains open and
+owner-driven.
 
 ### S3. Turn the desktop into a management shell
 

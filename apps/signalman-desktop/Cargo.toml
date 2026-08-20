@@ -82,6 +82,10 @@ tokio = { version = "1", features = ["rt", "time"] }
 # adapter is handed, so it names AccessKit's own types.
 accesskit = "0.24"
 tempfile = "3"
+# The live bench receipt's announcing peer: a plain Postilion station with a
+# short-lived random identity on the second attached board.
+retinue = { version = "0.1.1", path = "../../crates/retinue" }
+getrandom = "0.3"
 
 # Genet's graph needs the same patches its own workspace applies; a `[patch]`
 # table does not inherit through a git dep. These are the two vendored forks
