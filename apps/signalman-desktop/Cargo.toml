@@ -57,16 +57,16 @@ cpal = "=0.18.2"
 # Signalman's management graph and its sealed station authority come from one
 # exact Mere revision. Keep these on one source so identities and graph keys do
 # not cross duplicate package instances.
-mere-signalman = { git = "https://github.com/merely-made/mere.git", rev = "47966742923c48c2e33b74762458a9a6cd12484d" }
-chartulary = { git = "https://github.com/merely-made/mere.git", rev = "47966742923c48c2e33b74762458a9a6cd12484d" }
-codicil = { git = "https://github.com/merely-made/mere.git", rev = "47966742923c48c2e33b74762458a9a6cd12484d" }
-gaz = { git = "https://github.com/merely-made/mere.git", rev = "47966742923c48c2e33b74762458a9a6cd12484d" }
-muniment = { git = "https://github.com/merely-made/mere.git", rev = "47966742923c48c2e33b74762458a9a6cd12484d", features = ["redb"] }
-pandect = { git = "https://github.com/merely-made/mere.git", rev = "47966742923c48c2e33b74762458a9a6cd12484d" }
-personae = { git = "https://github.com/merely-made/mere.git", rev = "47966742923c48c2e33b74762458a9a6cd12484d" }
-sceno = { git = "https://github.com/merely-made/mere.git", rev = "47966742923c48c2e33b74762458a9a6cd12484d" }
-scenomise = { git = "https://github.com/merely-made/mere.git", rev = "47966742923c48c2e33b74762458a9a6cd12484d" }
-seiche = { git = "https://github.com/merely-made/mere.git", rev = "47966742923c48c2e33b74762458a9a6cd12484d" }
+mere-signalman = { git = "https://github.com/merely-made/mere.git", rev = "6f351238703888b8cd7914382ccd53b13de6e4dc" }
+chartulary = { git = "https://github.com/merely-made/mere.git", rev = "6f351238703888b8cd7914382ccd53b13de6e4dc" }
+codicil = { git = "https://github.com/merely-made/mere.git", rev = "6f351238703888b8cd7914382ccd53b13de6e4dc" }
+gaz = { git = "https://github.com/merely-made/mere.git", rev = "6f351238703888b8cd7914382ccd53b13de6e4dc" }
+muniment = { git = "https://github.com/merely-made/mere.git", rev = "6f351238703888b8cd7914382ccd53b13de6e4dc", features = ["redb"] }
+pandect = { git = "https://github.com/merely-made/mere.git", rev = "6f351238703888b8cd7914382ccd53b13de6e4dc" }
+personae = { git = "https://github.com/merely-made/mere.git", rev = "6f351238703888b8cd7914382ccd53b13de6e4dc" }
+sceno = { git = "https://github.com/merely-made/mere.git", rev = "6f351238703888b8cd7914382ccd53b13de6e4dc" }
+scenomise = { git = "https://github.com/merely-made/mere.git", rev = "6f351238703888b8cd7914382ccd53b13de6e4dc" }
+seiche = { git = "https://github.com/merely-made/mere.git", rev = "6f351238703888b8cd7914382ccd53b13de6e4dc" }
 euclid = "0.22"
 pollster = "0.4"
 thiserror = "2"
