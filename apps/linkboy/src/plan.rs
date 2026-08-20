@@ -48,7 +48,14 @@ pub struct PackagePartIdentity {
 pub struct HelperIdentity {
     pub program: String,
     pub version: String,
+    #[serde(default)]
+    pub platform: Option<String>,
+    #[serde(default)]
     pub binary_sha256: Option<String>,
+    #[serde(default)]
+    pub archive_sha256: Option<String>,
+    #[serde(default)]
+    pub archive_url: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -90,7 +97,10 @@ impl FlashPlan {
             helper: HelperIdentity {
                 program: route.helper().into(),
                 version: "test".into(),
+                platform: None,
                 binary_sha256: None,
+                archive_sha256: None,
+                archive_url: None,
             },
             route,
             write_ranges,
@@ -204,9 +214,13 @@ impl FlashPlan {
 }
 
 fn describe_helper(helper: &HelperIdentity) -> String {
-    match &helper.binary_sha256 {
-        Some(digest) => format!("{} {} (sha256 {digest})", helper.program, helper.version),
-        None => format!("{} {}", helper.program, helper.version),
+    match (&helper.platform, &helper.binary_sha256) {
+        (Some(platform), Some(digest)) => format!(
+            "{} {} for {platform} (executable sha256 {digest})",
+            helper.program, helper.version
+        ),
+        (_, Some(digest)) => format!("{} {} (sha256 {digest})", helper.program, helper.version),
+        (_, None) => format!("{} {}", helper.program, helper.version),
     }
 }
 
@@ -279,6 +293,8 @@ pub enum RefusalReason {
     ProtectedRangeOverlap,
     #[error("package does not provide complete recovery instructions")]
     RecoveryMissing,
+    #[error("helper {program} has no admitted release artifact for {platform}")]
+    HelperPlatformUnsupported { program: String, platform: String },
 }
 
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
@@ -415,6 +431,19 @@ pub fn plan_flash(
     {
         refusals.push(RefusalReason::RecoveryMissing);
     }
+    let helper = manifest
+        .helper_for(&target.route)
+        .expect("validated package target has exactly one helper");
+    let helper_artifact = helper.artifact_for_current_platform();
+    if !target.route.uses_builtin_writer()
+        && !helper.artifacts.is_empty()
+        && helper_artifact.is_none()
+    {
+        refusals.push(RefusalReason::HelperPlatformUnsupported {
+            program: helper.program.clone(),
+            platform: crate::package::helper_platform(),
+        });
+    }
     if !refusals.is_empty() {
         return Err(Refusal::new(refusals));
     }
@@ -469,9 +498,6 @@ pub fn plan_flash(
             source: fact_source.into(),
         },
     ];
-    let helper = manifest
-        .helper_for(&target.route)
-        .expect("validated package target has exactly one helper");
     Ok(FlashPlan {
         observation: observation.clone(),
         package: PackageIdentity {
@@ -495,7 +521,10 @@ pub fn plan_flash(
         helper: HelperIdentity {
             program: helper.program.clone(),
             version: helper.version.clone(),
-            binary_sha256: helper.binary_sha256.clone(),
+            platform: helper_artifact.map(|artifact| artifact.platform.clone()),
+            binary_sha256: helper.expected_binary_sha256().map(ToOwned::to_owned),
+            archive_sha256: helper_artifact.map(|artifact| artifact.archive_sha256.clone()),
+            archive_url: helper_artifact.map(|artifact| artifact.archive_url.clone()),
         },
         write_ranges,
         preserved_ranges: manifest.preserved_ranges.clone(),
@@ -541,6 +570,12 @@ mod tests {
                 program: "espflash".into(),
                 version: "4.5.0".into(),
                 binary_sha256: None,
+                artifacts: vec![crate::package::HelperArtifact {
+                    platform: crate::package::helper_platform(),
+                    binary_sha256: "a".repeat(64),
+                    archive_sha256: "b".repeat(64),
+                    archive_url: "https://example.invalid/espflash.tar.gz".into(),
+                }],
                 license: "MIT OR Apache-2.0".into(),
                 source_url: "https://example.invalid/espflash".into(),
                 notice: "Test helper notice".into(),
@@ -604,6 +639,7 @@ mod tests {
                 program: "adafruit-nrfutil".into(),
                 version: "0.5.3.post16".into(),
                 binary_sha256: None,
+                artifacts: Vec::new(),
                 license: "test".into(),
                 source_url: "https://example.invalid/adafruit-nrfutil".into(),
                 notice: "Test helper notice".into(),
@@ -689,6 +725,7 @@ mod tests {
                 program: "esptool".into(),
                 version: "4.8.1".into(),
                 binary_sha256: None,
+                artifacts: Vec::new(),
                 license: "GPL-2.0-or-later".into(),
                 source_url: "https://example.invalid/esptool".into(),
                 notice: "Test helper notice".into(),
@@ -775,10 +812,24 @@ mod tests {
     #[test]
     fn compatible_observation_produces_an_explainable_plan() {
         let plan = plan_flash(&observation(), &package()).expect("facts are compatible");
+        let platform = crate::package::helper_platform();
         assert_eq!(plan.route(), &FlashRoute::EspRom);
         assert_eq!(plan.helper(), "espflash");
+        assert_eq!(
+            plan.helper_identity().platform.as_deref(),
+            Some(platform.as_str())
+        );
+        assert_eq!(
+            plan.helper_identity().binary_sha256.as_deref(),
+            Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        );
+        assert_eq!(
+            plan.helper_identity().archive_sha256.as_deref(),
+            Some("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+        );
         assert_eq!(plan.state_impact(), &StateImpact::Preserved);
         assert!(plan.describe().contains("recovery before write"));
+        assert!(plan.describe().contains(&platform));
     }
 
     #[test]

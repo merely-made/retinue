@@ -229,6 +229,7 @@ mod tests {
                 program: "espflash".into(),
                 version: "4.5.0".into(),
                 binary_sha256: None,
+                artifacts: Vec::new(),
                 license: "MIT OR Apache-2.0".into(),
                 source_url: "https://example.invalid/espflash".into(),
                 notice: "Test".into(),

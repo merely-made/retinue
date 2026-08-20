@@ -14,6 +14,8 @@
 //!                                      execute an admitted T114 UF2 package
 //! linkboy capture-t114-loader VOLUME PATH
 //!                                      capture the HT-n5262 UF2 and SoftDevice record
+//! linkboy make-uf2 BIN UF2 BASE FAMILY
+//!                                      reproducibly package a raw application as UF2
 //! linkboy verify-recovery PORT PACKAGE BOARD@REVISION RECOVERY --loader-snapshot PATH [--receipt PATH]
 //!                                      verify a completed post-write recovery without writing
 //! linkboy flash-raw PORT IMAGE [t114|v4]
@@ -21,9 +23,9 @@
 //! linkboy bootloader PORT         send a T114 to its bootloader and name the new port
 //! ```
 //!
-//! Flashing shells out to the tool each board needs — `adafruit-nrfutil` for the T114's
-//! serial DFU, `espflash` for the ESP ROM loader — rather than reimplementing either. What
-//! linkboy adds is the part that is fiddly by hand and undocumented in one place: knowing
+//! Public T114 packages use Linkboy's built-in UF2 writer. V4 packages use an admitted,
+//! platform-specific `espflash` release for the ESP ROM loader; serial DFU remains an expert
+//! T114 recovery route. Linkboy adds the part that is fiddly by hand and undocumented in one place: knowing
 //! which board it is talking to, sending it to its bootloader, finding the port it comes back
 //! on, and refusing to write anything until all of that is settled.
 
@@ -47,6 +49,7 @@ fn usage() -> &'static str {
      linkboy flash DEVICE PACKAGE [BOARD@REVISION] [--loader-snapshot PATH] [--receipt PATH]\n  \
      linkboy flash-volume VOLUME PACKAGE BOARD@REVISION [--receipt PATH]\n  \
      linkboy capture-t114-loader VOLUME PATH\n  \
+     linkboy make-uf2 BIN UF2 BASE FAMILY\n  \
      linkboy verify-recovery PORT PACKAGE BOARD@REVISION RECOVERY --loader-snapshot PATH [--receipt PATH]\n  \
      linkboy flash-raw PORT IMAGE [t114|v4]\n  \
      linkboy bootloader PORT"
@@ -317,6 +320,51 @@ fn run_command() -> Result<(), Error> {
             println!("captured T114 loader record from {volume} into {path}");
             Ok(())
         }
+        Some("make-uf2") => {
+            let input = args
+                .next()
+                .ok_or_else(|| bad_usage("make-uf2 needs a BIN input"))?;
+            let output = args
+                .next()
+                .ok_or_else(|| bad_usage("make-uf2 needs a UF2 output"))?;
+            let base = args
+                .next()
+                .ok_or_else(|| bad_usage("make-uf2 needs a BASE address"))
+                .and_then(|value| parse_u32(&value, "BASE"))?;
+            let family = args
+                .next()
+                .ok_or_else(|| bad_usage("make-uf2 needs a FAMILY id"))
+                .and_then(|value| parse_u32(&value, "FAMILY"))?;
+            if args.next().is_some() {
+                return Err(bad_usage("make-uf2 accepts BIN UF2 BASE FAMILY"));
+            }
+            let application = std::fs::read(&input).map_err(|error| Error::ToolFailed {
+                tool: "linkboy",
+                message: format!("could not read {input}: {error}"),
+            })?;
+            let uf2 = linkboy::encode_application(&application, base, family).map_err(|error| {
+                Error::ToolFailed {
+                    tool: "linkboy",
+                    message: error.to_string(),
+                }
+            })?;
+            if std::path::Path::new(&output).exists() {
+                return Err(Error::ToolFailed {
+                    tool: "linkboy",
+                    message: format!("refusing to overwrite {output}"),
+                });
+            }
+            std::fs::write(&output, &uf2).map_err(|error| Error::ToolFailed {
+                tool: "linkboy",
+                message: format!("could not write {output}: {error}"),
+            })?;
+            println!(
+                "wrote {} UF2 bytes from {} application bytes",
+                uf2.len(),
+                application.len()
+            );
+            Ok(())
+        }
         Some("verify-recovery") => {
             let port = args
                 .next()
@@ -478,6 +526,19 @@ fn bad_usage(what: &str) -> Error {
         tool: "linkboy",
         message: format!("{what}\n{}", usage()),
     }
+}
+
+fn parse_u32(value: &str, label: &str) -> Result<u32, Error> {
+    let parsed = value
+        .strip_prefix("0x")
+        .or_else(|| value.strip_prefix("0X"))
+        .map(|digits| u32::from_str_radix(digits, 16))
+        .unwrap_or_else(|| value.parse::<u32>());
+    parsed.map_err(|_| {
+        bad_usage(&format!(
+            "{label} must be a 32-bit decimal or 0x hexadecimal value"
+        ))
+    })
 }
 
 fn parse_board_selection(value: &str) -> Result<(BoardFamily, String), Error> {

@@ -4,6 +4,9 @@ param(
     [string]$DesktopBinary,
 
     [Parameter(Mandatory = $true)]
+    [string]$LinkboyBinary,
+
+    [Parameter(Mandatory = $true)]
     [string]$Espflash,
 
     [Parameter(Mandatory = $true)]
@@ -11,9 +14,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$expectedEspflashSha256 = '768f0adfc71629a1e2e690923dd63d267cbfcd2828c26ac1315f664bca1dffc7'
+$expectedEspflashSha256 = '0cc03364c70a86325236f18ad1aaed17eedf267d89312c0cdabe4964f5cb758e'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
 $binaryPath = (Resolve-Path -LiteralPath $DesktopBinary).Path
+$linkboyPath = (Resolve-Path -LiteralPath $LinkboyBinary).Path
 $espflashPath = (Resolve-Path -LiteralPath $Espflash).Path
 
 if (Test-Path -LiteralPath $Destination) {
@@ -32,6 +36,7 @@ $packagesRoot = New-Item -ItemType Directory -Path (Join-Path $firmwareRoot.Full
 $v4Root = New-Item -ItemType Directory -Path (Join-Path $firmwareRoot.FullName 'heltec-v4-phy') -Force
 
 Copy-Item -LiteralPath $binaryPath -Destination (Join-Path $stageRoot.FullName 'signalman-desktop.exe')
+Copy-Item -LiteralPath $linkboyPath -Destination (Join-Path $stageRoot.FullName 'linkboy.exe')
 Copy-Item -LiteralPath $espflashPath -Destination (Join-Path $helperRoot.FullName 'espflash.exe')
 Copy-Item -LiteralPath (Join-Path $repoRoot 'firmware\packages\windows-v4-staging-index.toml') -Destination (Join-Path $packagesRoot.FullName 'index.toml')
 Copy-Item -LiteralPath (Join-Path $repoRoot 'firmware\packages\heltec-v4-current.toml') -Destination $packagesRoot.FullName
@@ -50,6 +55,7 @@ Copy-Item -LiteralPath (Join-Path $repoRoot 'LICENSE') -Destination (Join-Path $
         license = 'MIT OR Apache-2.0'
         source = 'https://github.com/esp-rs/espflash'
     }
+    recovery_cli = 'linkboy.exe'
     catalog = 'firmware/packages/index.toml'
     packages = @('retinue.heltec-v4', 'prns.hopspot.heltec-v4')
     excluded = @('retinue.t114', 'meshtastic.heltec-mesh-node-t114')

@@ -139,16 +139,50 @@ pub enum StateImpact {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct HelperArtifact {
+    /// Linkboy's installed helper directory name, for example `windows-x86_64`.
+    pub platform: String,
+    /// Digest of the executable after extracting the upstream release archive.
+    pub binary_sha256: String,
+    /// Digest published for the retained upstream release archive.
+    pub archive_sha256: String,
+    pub archive_url: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct HelperRequirement {
     pub route: FlashRoute,
     pub program: String,
     pub version: String,
-    /// An optional exact executable digest for a platform-specific helper custody receipt.
-    /// Packages without one remain version-pinned only.
+    /// Legacy single-platform custody. New public packages use `artifacts`.
+    #[serde(default)]
     pub binary_sha256: Option<String>,
+    /// Official release artifacts admitted on each supported host platform.
+    #[serde(default)]
+    pub artifacts: Vec<HelperArtifact>,
     pub license: String,
     pub source_url: String,
     pub notice: String,
+}
+
+impl HelperRequirement {
+    pub fn artifact_for_current_platform(&self) -> Option<&HelperArtifact> {
+        let platform = helper_platform();
+        self.artifacts
+            .iter()
+            .find(|artifact| artifact.platform == platform)
+    }
+
+    pub fn expected_binary_sha256(&self) -> Option<&str> {
+        self.artifact_for_current_platform()
+            .map(|artifact| artifact.binary_sha256.as_str())
+            .or(self.binary_sha256.as_deref())
+    }
+}
+
+pub fn helper_platform() -> String {
+    format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH)
 }
 
 impl fmt::Display for StateImpact {
@@ -664,6 +698,22 @@ fn validate_manifest(manifest: &FlashPackageManifest) -> Result<(), PackageError
                 .binary_sha256
                 .as_deref()
                 .is_some_and(|digest| !is_sha256(digest))
+            || (!helper.artifacts.is_empty() && helper.binary_sha256.is_some())
+            || helper.artifacts.iter().any(|artifact| {
+                artifact.platform.trim().is_empty()
+                    || !is_sha256(&artifact.binary_sha256)
+                    || !is_sha256(&artifact.archive_sha256)
+                    || !artifact.archive_url.starts_with("https://")
+            })
+            || {
+                let mut platforms = helper
+                    .artifacts
+                    .iter()
+                    .map(|artifact| artifact.platform.as_str())
+                    .collect::<Vec<_>>();
+                platforms.sort_unstable();
+                platforms.windows(2).any(|pair| pair[0] == pair[1])
+            }
         {
             return Err(PackageError::InvalidField(format!(
                 "invalid helper metadata for {}",
@@ -803,6 +853,7 @@ const UF2_BLOCK_SIZE: usize = 512;
 const UF2_MAGIC_START0: u32 = 0x0A32_4655;
 const UF2_MAGIC_START1: u32 = 0x9E5D_5157;
 const UF2_MAGIC_END: u32 = 0x0AB1_6F30;
+const UF2_FLAG_FAMILY_ID: u32 = 0x0000_2000;
 
 /// UF2 carries target addresses inside its fixed-size blocks. Checking them here keeps a
 /// one-file package's declared write ranges real rather than an optimistic side note beside
@@ -845,6 +896,19 @@ fn validate_uf2_layout(
         let payload_size = word(16);
         let block_number = word(20);
         let block_total = word(24);
+        let flags = word(8);
+        let family_id = word(28);
+        let nrf52840_target = manifest
+            .targets
+            .iter()
+            .any(|target| target.processor == ProcessorKind::Nrf52840);
+        if nrf52840_target
+            && (flags & UF2_FLAG_FAMILY_ID == 0 || family_id != crate::uf2::NRF52840_FAMILY_ID)
+        {
+            return Err(PackageError::InvalidField(format!(
+                "UF2 block {index} does not carry the nRF52840 family id"
+            )));
+        }
         if payload_size == 0 || payload_size > 476 {
             return Err(PackageError::InvalidField(format!(
                 "UF2 block {index} has invalid payload size {payload_size}"
@@ -982,6 +1046,7 @@ mod tests {
                 program: "espflash".into(),
                 version: "4.5.0".into(),
                 binary_sha256: None,
+                artifacts: Vec::new(),
                 license: "MIT OR Apache-2.0".into(),
                 source_url: "https://example.invalid/espflash".into(),
                 notice: "Test helper notice".into(),
@@ -1274,5 +1339,48 @@ publisher = "x"
 unexpected = true
 "#;
         assert!(toml::from_str::<FlashPackageManifest>(text).is_err());
+    }
+
+    #[test]
+    fn nrf52840_uf2_without_the_matching_family_id_is_rejected() {
+        let mut bytes =
+            crate::uf2::encode_application(b"application", 0x26000, crate::uf2::NRF52840_FAMILY_ID)
+                .unwrap();
+        bytes[28..32].copy_from_slice(&0_u32.to_le_bytes());
+
+        let mut value = manifest(&bytes);
+        value.helpers[0].route = FlashRoute::Uf2MassStorage;
+        value.helpers[0].program = FlashRoute::Uf2MassStorage.helper().into();
+        value.payload = Some(PackagePayload {
+            path: "payload.uf2".into(),
+            format: PayloadFormat::Uf2,
+            byte_length: bytes.len() as u64,
+            sha256: sha256_hex(&bytes),
+            write_bytes: crate::uf2::PAYLOAD_SIZE as u64,
+        });
+        value.targets = vec![PackageTarget {
+            family: BoardFamily::T114,
+            revision: "2.x".into(),
+            processor: ProcessorKind::Nrf52840,
+            flash_size: 1024 * 1024,
+            bootloader: "adafruit-uf2-0.9.0".into(),
+            route: FlashRoute::Uf2MassStorage,
+        }];
+        value.write_ranges = vec![FlashRange {
+            start: 0x26000,
+            length: crate::uf2::PAYLOAD_SIZE as u32,
+        }];
+        value.preserved_ranges = vec![FlashRange {
+            start: 0x26100,
+            length: 1,
+        }];
+        value.expected_application.board = BoardFamily::T114;
+
+        let error = FlashPackage::from_parts(value, "manifest", "payload.uf2", bytes)
+            .expect_err("the nRF52840 family guard must be part of package admission");
+        assert!(matches!(
+            error,
+            PackageError::InvalidField(detail) if detail.contains("nRF52840 family id")
+        ));
     }
 }

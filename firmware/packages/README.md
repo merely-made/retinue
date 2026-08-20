@@ -10,12 +10,14 @@ receipts.
 ## Before installing
 
 Use Linkboy's package path so the manifest, every artifact hash, board facts, flash route, and
-recovery instructions are checked together. The current development slice resolves the pinned helpers
-from `PATH` once per install, then keeps that resolved executable for the write:
+recovery instructions are checked together. Installed builds resolve an admitted helper from their
+own platform directory and keep that verified executable for the write:
 
-- Heltec WiFi LoRa 32 V4: `espflash` 4.5.0 through the ESP32-S3 ROM loader. The current Windows
-  development package also requires its recorded executable SHA-256.
-- Heltec T114: `adafruit-nrfutil` 0.5.3.post16 through serial DFU.
+- Heltec WiFi LoRa 32 V4: an official `espflash` 4.5.0 platform release through the ESP32-S3
+  ROM loader. The manifest records both upstream archive and extracted executable SHA-256.
+- Heltec T114: Linkboy's built-in application-only UF2 writer through the stock `HT-n5262`
+  mass-storage bootloader. The retained serial-DFU package remains an expert recovery route,
+  outside the public catalog.
 - Meshtastic T114: Linkboy's built-in, explicit UF2-volume writer. The retained official
   release file is GPL-3.0 external firmware, not a Retinue capability claim. A UF2 volume can
   disappear while Linkboy flushes a complete file: that expected Windows device-removal
@@ -26,8 +28,8 @@ claim. Its signed channel descriptor and flash manifest are retained with its im
 parts. Linkboy verifies every part and preserves the HSPCFG1 provisioning slot, then requires the
 owner to exercise Hopspot's own interface before calling the route proven.
 
-Helper packaging, license review for `adafruit-nrfutil`, and Windows, macOS, and Linux physical
-receipts remain open before this becomes a public cross-platform installer.
+Windows, macOS, and Linux physical receipts remain required before this is called a public
+cross-platform installer.
 
 Inspect the catalog and a package before connecting a board:
 

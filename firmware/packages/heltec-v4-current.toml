@@ -16,10 +16,38 @@ origin_url = "https://github.com/merely-made/retinue"
 route = "esp-rom"
 program = "espflash"
 version = "4.5.0"
-binary_sha256 = "768f0adfc71629a1e2e690923dd63d267cbfcd2828c26ac1315f664bca1dffc7"
 license = "MIT OR Apache-2.0"
 source_url = "https://github.com/esp-rs/espflash"
-notice = "See apps/linkboy/NOTICES.md. This Windows development custody digest is exact; the helper remains external and cross-platform bundling remains subject to release packaging review."
+notice = "See apps/linkboy/NOTICES.md. Linkboy admits only the platform-specific official espflash 4.5.0 release artifacts and verifies the extracted executable before any write."
+[[helpers.artifacts]]
+platform = "windows-x86_64"
+binary_sha256 = "0cc03364c70a86325236f18ad1aaed17eedf267d89312c0cdabe4964f5cb758e"
+archive_sha256 = "854c82c947c20e7f337f120f0398042ed1760f2269cb0f9be3d2beae3b66fbfb"
+archive_url = "https://github.com/esp-rs/espflash/releases/download/v4.5.0/espflash-x86_64-pc-windows-msvc.zip"
+
+[[helpers.artifacts]]
+platform = "macos-aarch64"
+binary_sha256 = "ff92f62238a0bd6df543e0400d2b7b2ee4d97e53823d6165a80878134de860d1"
+archive_sha256 = "6614ff70e523a6bce5f4ccc6459b77275f5e7e900429004bb7eec463c95db28a"
+archive_url = "https://github.com/esp-rs/espflash/releases/download/v4.5.0/espflash-aarch64-apple-darwin.zip"
+
+[[helpers.artifacts]]
+platform = "macos-x86_64"
+binary_sha256 = "2e6a1d52173f999a4ab6c6f6445038caa28ab143aa2ac9d03965249a257e8844"
+archive_sha256 = "3c5cb664742d883e4304d4fc611fc875b27a8f8d7d105d22da2f615eb36888a0"
+archive_url = "https://github.com/esp-rs/espflash/releases/download/v4.5.0/espflash-x86_64-apple-darwin.zip"
+
+[[helpers.artifacts]]
+platform = "linux-aarch64"
+binary_sha256 = "fbfa94acea38adaf498991be0b958bf7ff032defbb7c33c7a08051b858d787f7"
+archive_sha256 = "2d5972b9c18fc89bf253e60fe6df6a4f8db3aee5db0166b2c97b53bd21c01f09"
+archive_url = "https://github.com/esp-rs/espflash/releases/download/v4.5.0/espflash-aarch64-unknown-linux-gnu.zip"
+
+[[helpers.artifacts]]
+platform = "linux-x86_64"
+binary_sha256 = "a1b2a325cc6f64de4cb7a5e9b4fa2a0a4b1212555664c7ca50be29c5abb303bf"
+archive_sha256 = "542c5cc81f0cca384cbead1cacb7ccc9f35072a989b2de0fb95333d814272c22"
+archive_url = "https://github.com/esp-rs/espflash/releases/download/v4.5.0/espflash-x86_64-unknown-linux-musl.zip"
 
 [payload]
 path = "../heltec-v4-phy/tulle-heltec-v4-phy"

@@ -34,6 +34,7 @@ pub mod package;
 pub mod plan;
 pub mod receipt;
 pub mod route;
+pub mod uf2;
 pub mod verify;
 
 pub use catalog::{CatalogError, CatalogPackage, CatalogState, PackageIndex};
@@ -52,12 +53,13 @@ pub use executor::{
 pub use flow::{FlowError, OwnerFlow, OwnerStage};
 pub use helper::verify_installed as verify_helper;
 pub use package::{
-    BoardFamily, FirmwarePartKind, FlashPackage, FlashRange, FlashRoute, HelperRequirement,
-    PackagePart, ProcessorKind, PublisherSignature, PublisherSignatureFormat, StateImpact,
-    VerifiedPackagePart,
+    BoardFamily, FirmwarePartKind, FlashPackage, FlashRange, FlashRoute, HelperArtifact,
+    HelperRequirement, PackagePart, ProcessorKind, PublisherSignature, PublisherSignatureFormat,
+    StateImpact, VerifiedPackagePart, helper_platform,
 };
 pub use plan::{FlashPlan, PackagePartIdentity, Refusal, RefusalReason, plan_flash};
 pub use receipt::{ApplicationVerification, FlashReceipt, ReceiptResult, ReceiptStage};
+pub use uf2::{NRF52840_FAMILY_ID, Uf2EncodeError, encode_application};
 pub use verify::{VerificationFailure, verify_application};
 
 /// The host baud rate every retinue image's text probe answers at.
@@ -69,7 +71,7 @@ pub const PROBE_TIMEOUT: Duration = Duration::from_millis(1500);
 /// Which board is on a port, as the board itself reports.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Board {
-    /// Heltec Mesh Node T114 (nRF52840). Flashed over serial DFU.
+    /// Heltec Mesh Node T114 (nRF52840). Public installs use its stock UF2 volume.
     T114,
     /// Heltec WiFi LoRa 32 V4 (ESP32-S3). Flashed over the ESP ROM loader.
     HeltecV4,
@@ -98,7 +100,7 @@ impl Board {
     /// How this board is flashed, in words a person can act on.
     pub fn flash_route(&self) -> &'static str {
         match self {
-            Board::T114 => "serial DFU (bootloader probe, then adafruit-nrfutil)",
+            Board::T114 => "stock UF2 volume (serial DFU remains an expert recovery route)",
             Board::HeltecV4 => "ESP ROM loader (espflash)",
             Board::Unknown(_) => "unknown",
         }

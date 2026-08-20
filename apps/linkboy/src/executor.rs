@@ -443,7 +443,7 @@ pub fn execute_plan<P: ProcessRunner, D: DeviceRunner>(
         }
     }
     if plan.route().uses_builtin_writer() {
-        return execute_uf2_volume(plan, package, executable, &location, emit);
+        return execute_uf2_volume(plan, package, executable, &location, device, patience, emit);
     }
     let port = match &plan.observation().transport {
         DeviceTransport::SerialPort(port) | DeviceTransport::SerialDfuPort(port) => port.clone(),
@@ -674,11 +674,13 @@ fn executable_layout<'a>(
     }
 }
 
-fn execute_uf2_volume(
+fn execute_uf2_volume<D: DeviceRunner>(
     plan: &FlashPlan,
     package: &FlashPackage,
     executable: ExecutableLayout<'_>,
     location: &str,
+    device: &mut D,
+    patience: Duration,
     emit: &mut dyn FnMut(FlashEvent),
 ) -> Result<FlashReceipt, ExecutionError> {
     let DeviceTransport::MountedVolume(volume) = &plan.observation().transport else {
@@ -724,33 +726,86 @@ fn execute_uf2_volume(
     });
     emit(FlashEvent::VerifyingTransfer);
     emit(FlashEvent::Rebooting);
-    let instruction = package
-        .manifest()
-        .expected_application
-        .manual_check
-        .clone()
-        .ok_or(ExecutionError::UnsupportedPackageLayout)?;
-    let receipt = FlashReceipt::manual_check_required(
+    let transfer_detail = if write.ejected_after_write {
+        format!(
+            "The UF2 volume ejected after Linkboy wrote all {} verified package bytes to {}; that is the bootloader's transfer acknowledgement.",
+            part.declaration().byte_length,
+            destination.display()
+        )
+    } else {
+        format!(
+            "The built-in UF2 volume writer created {} with {} verified package bytes.",
+            destination.display(),
+            part.declaration().byte_length
+        )
+    };
+    if let Some(instruction) = &package.manifest().expected_application.manual_check {
+        let receipt = FlashReceipt::manual_check_required(
+            plan,
+            instruction.clone(),
+            vec![ReceiptStage {
+                name: "manual-check-required".into(),
+                detail: Some(format!(
+                    "{transfer_detail} The upstream application check remains required."
+                )),
+            }],
+        );
+        emit(FlashEvent::ManualCheckRequired {
+            receipt: receipt.clone(),
+        });
+        return Ok(receipt);
+    }
+
+    let expected = &package.manifest().expected_application;
+    let application_port = device
+        .rediscover_application("", "", expected, patience)
+        .map_err(|error| {
+            recover(
+                plan,
+                emit,
+                ExecutionStage::Rebooting,
+                location,
+                true,
+                error.to_string(),
+            )
+        })?;
+    emit(FlashEvent::VerifyingApplication);
+    let application = device
+        .verify_application(&application_port, expected)
+        .map_err(|error| {
+            recover(
+                plan,
+                emit,
+                ExecutionStage::VerifyingApplication,
+                &application_port,
+                true,
+                error.to_string(),
+            )
+        })?;
+    if let Err(error) = crate::verify::verify_application(
+        expected,
+        &application,
+        &package.manifest().regions,
+        &package.manifest().channel_capabilities,
+    ) {
+        return Err(recover(
+            plan,
+            emit,
+            ExecutionStage::VerifyingApplication,
+            &application_port,
+            true,
+            error.to_string(),
+        ));
+    }
+    let receipt = FlashReceipt::complete(
         plan,
-        instruction,
+        application,
         vec![ReceiptStage {
-            name: "manual-check-required".into(),
-            detail: Some(if write.ejected_after_write {
-                format!(
-                    "The UF2 volume ejected after Linkboy wrote all {} verified package bytes to {}; that is the bootloader's transfer acknowledgement. The upstream application check remains required.",
-                    part.declaration().byte_length,
-                    destination.display()
-                )
-            } else {
-                format!(
-                    "The built-in UF2 volume writer created {} with {} verified package bytes.",
-                    destination.display(),
-                    part.declaration().byte_length
-                )
-            }),
+            name: "uf2-application-verified".into(),
+            detail: Some(transfer_detail),
         }],
     );
-    emit(FlashEvent::ManualCheckRequired {
+    emit(FlashEvent::Complete {
         receipt: receipt.clone(),
     });
     Ok(receipt)
@@ -966,6 +1021,12 @@ mod tests {
     }
 
     fn package(route: FlashRoute) -> FlashPackage {
+        let manual_check = matches!(route, FlashRoute::Uf2MassStorage)
+            .then(|| "Exercise the upstream interface.".into());
+        package_with_manual_check(route, manual_check)
+    }
+
+    fn package_with_manual_check(route: FlashRoute, manual_check: Option<String>) -> FlashPackage {
         let bytes = match route {
             FlashRoute::Uf2MassStorage => test_uf2_bytes(),
             FlashRoute::AdafruitDfu | FlashRoute::EspRom => b"payload".to_vec(),
@@ -1009,6 +1070,7 @@ mod tests {
                 }
                 .into(),
                 binary_sha256: None,
+                artifacts: Vec::new(),
                 license: "test".into(),
                 source_url: "https://example.invalid/helper".into(),
                 notice: "Test helper notice".into(),
@@ -1065,8 +1127,7 @@ mod tests {
             expected_application: ExpectedApplication {
                 board: family,
                 version: "0.0.1".into(),
-                manual_check: matches!(route, FlashRoute::Uf2MassStorage)
-                    .then(|| "Exercise the upstream interface.".into()),
+                manual_check,
             },
             license: "MPL-2.0".into(),
             notices: "Notices".into(),
@@ -1093,10 +1154,12 @@ mod tests {
         };
         word(&mut block, 0, 0x0A32_4655_u32);
         word(&mut block, 4, 0x9E5D_5157_u32);
+        word(&mut block, 8, 0x0000_2000_u32);
         word(&mut block, 12, 0x26000_u32);
         word(&mut block, 16, 4_u32);
         word(&mut block, 20, 0_u32);
         word(&mut block, 24, 1_u32);
+        word(&mut block, 28, crate::uf2::NRF52840_FAMILY_ID);
         block[32..36].copy_from_slice(b"UF2!");
         word(&mut block, 508, 0x0AB1_6F30_u32);
         block
@@ -1137,6 +1200,7 @@ mod tests {
                 program: "espflash".into(),
                 version: "4.5.0".into(),
                 binary_sha256: None,
+                artifacts: Vec::new(),
                 license: "MIT OR Apache-2.0".into(),
                 source_url: "https://example.invalid/espflash".into(),
                 notice: "Test helper notice".into(),
@@ -1773,6 +1837,54 @@ mod tests {
                 .iter()
                 .any(|event| matches!(event, FlashEvent::ManualCheckRequired { .. }))
         );
+        std::fs::remove_dir_all(volume).unwrap();
+    }
+
+    #[test]
+    fn retinue_uf2_install_completes_only_after_application_verification() {
+        let volume =
+            std::env::temp_dir().join(format!("linkboy-retinue-uf2-volume-{}", std::process::id()));
+        std::fs::create_dir(&volume).unwrap();
+        let package = package_with_manual_check(FlashRoute::Uf2MassStorage, None);
+        let plan = uf2_volume_plan(volume.to_string_lossy().into_owned());
+        let mut process = MockProcess {
+            result: Err(ProcessFailure::MissingHelper {
+                program: "must not run".into(),
+            }),
+            progress: Vec::new(),
+        };
+        let mut device = MockDevice {
+            bootloader: Err(DeviceFailure::Other("must not enter bootloader".into())),
+            application: Ok("COM10".into()),
+            verification: Ok(ApplicationVerification {
+                board: BoardFamily::T114,
+                version: "0.0.1".into(),
+                region: Some("US915".into()),
+                channel: Some("rnode".into()),
+            }),
+        };
+        let mut events = Vec::new();
+
+        let receipt = execute_plan(
+            &plan,
+            &package,
+            &mut process,
+            &mut device,
+            Duration::from_secs(1),
+            &mut |event| events.push(event),
+        )
+        .expect("a Retinue UF2 install should verify the returned application");
+
+        assert_eq!(receipt.result, crate::receipt::ReceiptResult::Complete);
+        let verify = events
+            .iter()
+            .position(|event| matches!(event, FlashEvent::VerifyingApplication))
+            .unwrap();
+        let complete = events
+            .iter()
+            .position(|event| matches!(event, FlashEvent::Complete { .. }))
+            .unwrap();
+        assert!(verify < complete);
         std::fs::remove_dir_all(volume).unwrap();
     }
 

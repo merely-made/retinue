@@ -51,7 +51,9 @@ detected COM6 row, Board revision edit, Rescan, Use this device, V4 choice,
 catalog items, Review this firmware, and the non-writing review boundary's
 Approve these changes control. The final control was focused but not activated.
 This proves a headed Narrator traversal exists; only a listener can judge the
-spoken wording and order, so G4's manual quality judgement remains open.
+spoken wording and order. On 2026-08-19 the owner confirmed that the screen
+reader worked in that pass. That supplies the manual quality judgement for this
+Windows flow; it does not substitute for accessibility checks on another host.
 
 ## Boundary
 

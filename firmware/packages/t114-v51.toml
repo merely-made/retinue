@@ -13,31 +13,31 @@ source_url = "https://github.com/merely-made/retinue/tree/main/firmware/t114-phy
 origin_url = "https://github.com/merely-made/retinue"
 
 [[helpers]]
-route = "adafruit-dfu"
-program = "adafruit-nrfutil"
-version = "0.5.3.post16"
-license = "Nordic Semiconductor proprietary license"
-source_url = "https://github.com/adafruit/Adafruit_nRF52_nrfutil"
-notice = "See apps/linkboy/NOTICES.md. The helper is external and redistribution requires a separate license review."
+route = "uf2-mass-storage"
+program = "linkboy UF2 volume writer"
+version = "0.1.0"
+license = "MPL-2.0"
+source_url = "https://github.com/merely-made/retinue/tree/main/apps/linkboy"
+notice = "This application-only route is built into Linkboy. It verifies every UF2 block, the nRF52840 family id, target addresses, and the whole-file digest before writing the owner-selected stock bootloader volume."
 
 [payload]
-path = "../t114-phy/tulle-t114-phy-v51.zip"
-format = "nrf-dfu-zip"
-byte_length = 276270
-sha256 = "f40319be88937315c9f8e7db47d264da869d205f08e2d84ecfc975d749eb5a56"
-write_bytes = 275394
+path = "../t114-phy/tulle-t114-phy-v51.uf2"
+format = "uf2"
+byte_length = 550912
+sha256 = "3b802471f5402f38cf4ab30c39d9acb9a9e893aaf2a588455536b57706452f1b"
+write_bytes = 275456
 
 [[targets]]
 family = "t114"
 revision = "2.x"
 processor = "nrf52840"
 flash_size = 1048576
-bootloader = "s140-v6"
-route = "adafruit-dfu"
+bootloader = "adafruit-uf2-0.9.0"
+route = "uf2-mass-storage"
 
 [[write_ranges]]
 start = 0x26000
-length = 275394
+length = 275456
 
 [[preserved_ranges]]
 start = 0xea000
@@ -52,5 +52,5 @@ board = "t114"
 version = "0.0.1"
 
 [recovery]
-before_write = "Keep the USB cable attached. If the application does not return, use the T114 reset or 1200-baud bootloader entry and select the newly appeared DFU port."
-after_failure = "Reset or touch the original port at 1200 baud, wait for the new DFU port, then retry this package. The S140 bootloader and persisted settings range are outside the application write range."
+before_write = "Double-tap reset to enter the stock HT-n5262 UF2 bootloader, select its mounted volume explicitly, and keep the cable attached. Linkboy refuses an existing same-named UF2 file rather than overwriting it."
+after_failure = "Double-tap reset again, select the reappeared HT-n5262 volume, and retry this verified UF2 package. The S140 SoftDevice, bootloader, and persisted settings ranges remain outside the application write range."

@@ -12,7 +12,7 @@ use crate::package::{FlashRoute, HelperRequirement, sha256_hex};
 /// path: the public program must not ask an owner to install Cargo or amend
 /// `PATH` before it can flash a verified package.
 pub fn bundled_platform_directory() -> String {
-    format!("{}-{}", env::consts::OS, env::consts::ARCH)
+    crate::package::helper_platform()
 }
 
 pub fn version_args(route: &FlashRoute) -> Vec<String> {
@@ -117,7 +117,7 @@ pub fn verify_file_digest(
     path: &Path,
     requirement: &HelperRequirement,
 ) -> Result<(), ProcessFailure> {
-    let Some(expected) = &requirement.binary_sha256 else {
+    let Some(expected) = requirement.expected_binary_sha256() else {
         return Ok(());
     };
     let bytes = fs::read(path).map_err(|error| ProcessFailure::Failed {
@@ -128,7 +128,7 @@ pub fn verify_file_digest(
     if !found.eq_ignore_ascii_case(expected) {
         return Err(ProcessFailure::HelperDigestMismatch {
             program: requirement.program.clone(),
-            expected: expected.clone(),
+            expected: expected.to_owned(),
             found,
         });
     }
@@ -204,6 +204,7 @@ mod tests {
             program: "helper".into(),
             version: version.into(),
             binary_sha256: None,
+            artifacts: Vec::new(),
             license: "test".into(),
             source_url: "https://example.invalid/helper".into(),
             notice: "test".into(),

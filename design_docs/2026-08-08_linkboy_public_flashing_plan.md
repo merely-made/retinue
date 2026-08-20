@@ -2,18 +2,30 @@
 
 **Date:** 2026-08-08  
 **Status:** F1-F4 software slices landed; physical/public acceptance remains
-open where each gate requires it. F5 is open. On 2026-08-14 Signalman installed
+open where each gate requires it. F5 is complete with official per-platform V4
+helper custody, cross-platform V4 physical receipts, and the public T114 UF2
+real-device receipt. On
+2026-08-14 Signalman installed
 the admitted Prns Hopspot V4 package, completed its required 115200-baud
 self-check, and restored Retinue to terminal `Complete` on the same N39 V4.2.
 The graphical T114 path also installed the admitted Meshtastic UF2 package and
 restored Retinue. F7's physical cross-firmware proof is therefore complete on
-both supported board families; public catalog promotion remains gated by F5.
+both supported board families.
 On 2026-08-15 a Windows V4 staging build resolved its pinned `espflash` helper
 from its own `helpers/windows-x86_64` directory, without helper or catalog
-environment overrides, installed Hopspot, and restored Retinue on COM6. This is
-not a public F5 completion: the stage deliberately excludes T114 and macOS and
-Linux still lack physical receipts. Narrator traversal reached the non-writing
-review boundary, but the spoken-quality judgement remains owner evidence.
+environment overrides, installed Hopspot, and restored Retinue on COM6. That
+older stage was not a public F5 completion because it deliberately excluded
+T114. On 2026-08-19 the public route changed: V4 manifests pin official
+per-platform `espflash 4.5.0` artifacts, and T114 uses Linkboy's built-in stock
+bootloader UF2 writer. The full Windows stage and headed preflight are recorded
+in `2026-08-19_signalman_public_f5_windows_receipt.md`; its physical T114 leg
+returned `Complete` with the expected application identity. That same Windows
+stage completed the V4 physical loop on O-PC.
+Standalone staged Linkboy completed the V4 physical
+flash, Hopspot self-check, and Retinue recovery on Intel macOS, Apple-silicon
+macOS, and Linux; see `2026-08-19_linkboy_f5_macos_linux_v4_receipt.md`.
+Those Linkboy receipts are not a headed Signalman acceptance. The owner has
+supplied the Windows screen-reader quality judgement.
 Repeated T114 CDC sessions still expose a separate Windows semaphore-timeout
 defect. Sidequests remain unstarted unless a later receipt says otherwise.
 
@@ -47,24 +59,26 @@ defect. Sidequests remain unstarted unless a later receipt says otherwise.
   self-check, and Retinue restore receipt. See
   `2026-08-14_com6_n39_hopspot_signalman_graphical_receipt.md` and
   `2026-08-14_com6_n39_hopspot_retinue_signalman_restore_receipt.md`.
-- [ ] Take the manual screen-reader pass. Repeated T114 CDC-session reliability
-  is tracked separately from the completed recovery receipt.
+- [x] Take the manual screen-reader pass. The owner confirmed the staged Windows
+  screen-reader flow on 2026-08-19. Repeated T114 CDC-session reliability is
+  tracked separately from the completed recovery receipt.
 
 F3a stops after those receipts. It does not absorb helper distribution, BLE,
 OTA, browser flashing, fleet updates, or catalog promotion.
 
-### Next trunk work
+### Current trunk work
 
-1. **F5, helper delivery.** Choose and prove the supported-library, bundled
-   helper, or native route for each board; finish redistribution review; remove
-   public `PATH` setup; take Windows, macOS, and Linux flash/recovery receipts.
-2. **F6, graphical acceptance.** Package the Signalman face, preserve the
-   standalone Linkboy recovery door, finish keyboard and manual assistive-tech
-   acceptance, and prove reconnect/recovery context survives the whole flow.
-3. **F7, firmware choice.** The graphical cross-firmware installation and
-   restoration proof is complete for the admitted V4 and T114 packages. Publish
-   only verified availability into the Mer3ly catalog after F5's public
-   installer and recovery receipts exist.
+1. **F5, helper delivery: complete.** Official per-platform V4 helper custody,
+   the built-in public T114 UF2 route, and the required physical receipts are
+   recorded.
+2. **F6, graphical acceptance: complete for supported Windows.** The packaged
+   Signalman face retained the standalone Linkboy recovery door, passed the
+   keyboard and owner screen-reader checks, and carried both physical routes
+   through reconnect and returned-application verification.
+3. **F7, public catalog projection: next.** The graphical cross-firmware
+   installation and restoration proof is complete for the admitted V4 and T114
+   packages. Publish the verified package-index artifact, then let Mer3ly derive
+   firmware availability and recipe state from it.
 
 ### Sidequest queue after the trunk
 
@@ -379,6 +393,8 @@ Done conditions:
 
 ### F5. Remove public PATH dependencies
 
+**Complete 2026-08-19.**
+
 The structured routes deliberately land before packaging policy. Then one
 measured spike chooses, per route, between a supported library API, a pinned
 bundled helper, or a simpler native operating-system path such as UF2.
@@ -388,8 +404,26 @@ Windows executables and digests without promoting them to shipped custody.
 Windows V4 stage: its executable resolved `espflash` from the adjacent,
 digest-checked helper directory, then flashed and recovered the physical N39.
 Ambient `PATH` lookup now requires the explicit development-only
-`LINKBOY_ALLOW_PATH_HELPERS=1` setting. The staged catalog excludes the T114
-route until its helper policy is settled.
+`LINKBOY_ALLOW_PATH_HELPERS=1` setting.
+
+The 2026-08-19 public route admits official `espflash 4.5.0` release artifacts
+for Windows x86-64, macOS Arm and x86-64, and Linux Arm and x86-64. Every
+platform entry records both the extracted executable digest and retained archive
+digest and URL. Linkboy refuses an external-helper plan when the current
+platform has no admitted artifact. The public T114 route uses a deterministic,
+application-only UF2 and Linkboy's built-in volume writer, so owners do not need
+Python or `adafruit-nrfutil`. The serial DFU path remains an expert recovery
+route outside the public catalog. The reproducible full-catalog Windows stage
+and its current receipt live in
+`2026-08-19_signalman_public_f5_windows_receipt.md`.
+
+`2026-08-19_linkboy_f5_macos_linux_v4_receipt.md` supplies the V4 physical
+route evidence for Intel macOS, Apple-silicon macOS, and Linux. The stage is
+Linkboy-only because the current native Signalman desktop build stops in the
+separate Netrender `wgpu` 29/30 dependency split. The full-catalog Windows
+receipt supplies the matching official-helper V4 loop and the graphical public
+T114 UF2 real-device loop. Together those receipts close F5 without weakening
+F6's separate headed-flow boundary.
 
 Decision criteria:
 

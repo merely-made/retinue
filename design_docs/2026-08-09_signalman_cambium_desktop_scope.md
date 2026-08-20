@@ -1,11 +1,12 @@
 # Cambium adoption and upgrade scope for Signalman
 
 **Date:** 2026-08-09  
-**Status:** G0, G1, G2, G3, and G5 are complete. Signalman pins the G5 host at
-an immutable Genet revision; Woodshed intentionally tracks the same moving
-Genet reference as Mere and records its resolved revision matrix in the lockfile.
-G4 and the manual accessibility pass remain open. Consumer order is woodshed
-first, Signalman second, Pelt optional.
+**Status:** G0 through G5 are complete for the supported Windows route.
+Signalman pins the G5 host at an immutable Genet revision; Woodshed
+intentionally tracks the same moving Genet reference as Mere and records its
+resolved revision matrix in the lockfile. G4 has physical V4 and T114 receipts,
+and the owner supplied the manual screen-reader judgement. Consumer order is
+woodshed first, Signalman second, Pelt optional.
 
 ## Decision
 
@@ -381,8 +382,10 @@ no focus stop is unnameable. It found four real defects on its first run
 its unnamed drag surface, and an inline `<label>` costing the field its box),
 all fixed. Both apps now audit **RESULT ok**.
 
-**Still owed:** somebody listening to a screen reader read this flow and
-judging whether it makes sense. That remains a G4 prerequisite.
+**Owner judgement received 2026-08-19:** the owner confirmed that the screen
+reader worked in the staged Windows pass. Together with the retained Narrator
+traversal and automated UIA checks, that closes the manual quality prerequisite
+for the supported Windows flow. It does not claim another operating system.
 
 ### G3. Prove the shared host before promoting it
 
@@ -474,8 +477,11 @@ The UI does not upgrade the flashing proof. It must re-run it visibly.
 | T114 | enter DFU, observe rediscovery, transfer, verify or show recovery, and retain receipt | Windows, cabled, local end to end |
 | accessibility | keyboard-only completion plus a real screen-reader pass on the supported Windows route | Windows accessibility evidence only |
 
-Retain the terminal flow until both graphical routes have physical receipts.
-Do not infer post-flash application identity from a helper's successful exit.
+**Complete on Windows 2026-08-19.** The staged public build has headed physical
+V4 and T114 receipts, and the owner supplied the manual screen-reader judgement.
+The T114 flow verified the returned application after the UF2 volume ejected;
+it did not infer post-flash identity from the copy operation. The terminal flow
+remains the standalone recovery path.
 
 ### G5. Application lifetime, wake, and management boundary
 
@@ -666,14 +672,14 @@ better consumer one and it can be migrated before Signalman rather than after.
    **Done 2026-08-09**, delivered as a workspace-excluded private package
    pinned to an exact genet revision.
 5. ~~Produce the headless, semantic, headed, and accessibility receipts.~~
-   **Done**, except the manual screen-reader and keyboard pass, which needs a
-   person and is a G4 prerequisite.
+   **Done 2026-08-19.** The owner confirmed the staged Windows screen-reader
+   pass after the automated and headed accessibility receipts.
 6. ~~Complete G5.1 through G5.3: host wake and close disposition,
    Signalman-owned installation, and consumer revisions.~~ **Done 2026-08-14.**
    Signalman is exact-pinned at the G5 host revision; Woodshed's moving-main
    lockfile records the clean single-graph matrix.
-7. Run the manual accessibility pass, then G4 on V4, then T114 when hardware
-   is available.
+7. ~~Run the manual accessibility pass, then G4 on V4, then T114 when hardware
+   is available.~~ **Done 2026-08-19.**
 8. With both consumers proven, decide the host's stable API and release story —
    application trait or published package. It cannot publish while it rides
    `genet-layout` and `genet-winit-host`.
