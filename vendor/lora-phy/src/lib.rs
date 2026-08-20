@@ -330,6 +330,11 @@ where
     /// nothing anywhere records a loss. Splitting the wait from the collection means only
     /// the interrupt wait is ever raced, and it is the half that is safe to abandon.
     ///
+    /// One call consumes one IRQ. A preamble-only or otherwise nonterminal IRQ returns
+    /// [`RadioError::ReceivePending`] so the caller's outer loop can race the next IRQ against
+    /// its other work. Waiting for a second IRQ inside this method would strand that outer
+    /// loop when a partial preamble has no terminal successor.
+    ///
     /// The radio stays in continuous receive across a collection, so `rx_arm` is called once
     /// rather than per frame.
     pub async fn rx_collect(
@@ -340,23 +345,20 @@ where
         if !matches!(self.radio_mode, RadioMode::Receive(_)) {
             return Err(RadioError::InvalidRadioMode);
         }
-        loop {
-            match self.radio_kind.process_irq_event(self.radio_mode, None, true).await {
-                Ok(Some(IrqState::PreambleReceived)) => self.wait_for_irq().await?,
-                Ok(Some(IrqState::Done)) => {
-                    let received_len = self.radio_kind.get_rx_payload(packet_params, receiving_buffer).await?;
-                    let rx_pkt_status = self.radio_kind.get_rx_packet_status().await?;
-                    return Ok((received_len, rx_pkt_status));
+        match self.radio_kind.process_irq_event(self.radio_mode, None, true).await {
+            Ok(Some(IrqState::PreambleReceived)) | Ok(None) => Err(RadioError::ReceivePending),
+            Ok(Some(IrqState::Done)) => {
+                let received_len = self.radio_kind.get_rx_payload(packet_params, receiving_buffer).await?;
+                let rx_pkt_status = self.radio_kind.get_rx_packet_status().await?;
+                Ok((received_len, rx_pkt_status))
+            }
+            Err(err) => {
+                if self.radio_mode != RadioMode::Receive(RxMode::Continuous) {
+                    self.radio_kind.ensure_ready(self.radio_mode).await?;
+                    self.radio_kind.set_standby().await?;
+                    self.radio_mode = RadioMode::Standby;
                 }
-                Ok(None) => self.wait_for_irq().await?,
-                Err(err) => {
-                    if self.radio_mode != RadioMode::Receive(RxMode::Continuous) {
-                        self.radio_kind.ensure_ready(self.radio_mode).await?;
-                        self.radio_kind.set_standby().await?;
-                        self.radio_mode = RadioMode::Standby;
-                    }
-                    return Err(err);
-                }
+                Err(err)
             }
         }
     }

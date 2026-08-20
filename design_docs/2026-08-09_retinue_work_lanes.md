@@ -115,8 +115,11 @@ and board firmware.
 AIR1's Reticulum announce pacing path, and AIR2's attributed ingress admission
 are implemented and host-tested; see the
 [AIR0/AIR1 receipt](2026-08-12_air0_air1_software_receipt.md) and
-[AIR2 receipt](2026-08-12_air2_announce_ingress_receipt.md). Neither supplies
-the hardware measurements required to close LE3 or FT1, and AIR2 is not the
+[AIR2 receipt](2026-08-12_air2_announce_ingress_receipt.md). The
+[LE3 scan-physics receipt](2026-08-20_le3_t114_scan_physics_receipt.md) now
+supplies the real-radio CAD, retune, handoff, acquisition, cross-sync miss,
+and exact-capture facts for the LE3a/LE3b physical slice. It does not supply
+the long-run rotating-scheduler miss-rate calibration or FT1. AIR2 is not the
 bounded firmware-state proof required by FT2/FS6. AIR3 now supplies the
 native-node route/relay model, a true T114 heap-peak instrument, and an
 [on-air bounded-state receipt](2026-08-13_air3_t114_on_air_receipt.md): live
@@ -127,10 +130,11 @@ transaction remains later transport coverage. See also the
 
 Sequence:
 
-1. **AIR0, profile model:** keep CAD detection separate from exact packet
-   capture. The executive schedules DetectionProfiles and ReceiveProfiles;
-   shared SF/BW may share a CAD observation, but different sync words require
-   different capture dwell. LE3's proof measures both stages.
+1. **AIR0, profile model and LE3 scan physics (physical slice complete
+   2026-08-20):** CAD detection stays separate from exact packet capture. The
+   T114 consumer schedules two DetectionProfiles and three ReceiveProfiles;
+   shared SF/BW shares detection while different sync words receive separate
+   measured dwell. Long-run rotating-scheduler calibration remains later.
 2. **AIR1, outbound pressure:** extend `tulle::AirtimeBudget` with
    announce-specific pacing adapted from Prns's `AnnouncePacer`. Keep the
    existing shared transmission budget authoritative. Close FT1 with modeled
@@ -150,9 +154,10 @@ Sequence:
    against Retinue's current SX1262 path. Port techniques only where Retinue's
    measurements name a real deficit.
 
-After LE2, continue through FT3 bidirectionality, FT4 delivery ratio, and FT5
-scope policy before LE3 through LE5 and the translated CM2 through CM5. The
-sequence stays together because those gates share the Executive, radio
+Per the 2026-08-12 sequencing correction, LE3's physical scan slice ran
+independently of LE1 and LE2. After LE2, continue through FT3
+bidirectionality, FT4 delivery ratio, FT5 scope policy, LE4, LE5, and the
+translated CM2 through CM5. Those remaining gates share the Executive, radio
 ownership, dwell state, and firmware bench. Prns's manifold wake scheduling and `warmth`/`departed-interface` grace
 belong in that later design pass.
 

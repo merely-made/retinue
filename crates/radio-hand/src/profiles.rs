@@ -126,6 +126,7 @@ pub enum ProfileError {
     EmptyCapture(ReceiveProfileId),
     DetectionCapacity,
     ReceiveCapacity,
+    OverfullCycle { required_ms: u64, budget_ms: u64 },
 }
 
 /// Round-robin detection and exact-capture schedule for one radio.
@@ -235,6 +236,64 @@ impl<const DETECTIONS: usize, const RECEIVES: usize> ScanPlan<DETECTIONS, RECEIV
                 .iter()
                 .map(|profile| u64::from(profile.capture_dwell_ms))
                 .sum::<u64>()
+    }
+
+    /// Refuse a registry whose advertised dwell cannot fit in one scan cycle.
+    ///
+    /// This is deliberately separate from registration. A caller may assemble a
+    /// registry before it knows the governing cycle, but it may not schedule that
+    /// registry without proving the complete dwell fits.
+    pub fn require_cycle_budget(&self, budget_ms: u64) -> Result<(), ProfileError> {
+        let required_ms = self.cycle_dwell_ms();
+        if required_ms > budget_ms {
+            Err(ProfileError::OverfullCycle {
+                required_ms,
+                budget_ms,
+            })
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Resolve the CAD group referenced by an exact receive profile.
+    pub fn detection(&self, id: DetectionProfileId) -> Option<DetectionProfile> {
+        self.detections
+            .iter()
+            .find(|profile| profile.id == id)
+            .copied()
+    }
+
+    /// Resolve one exact capture profile by its stable id.
+    pub fn receive(&self, id: ReceiveProfileId) -> Option<ReceiveProfile> {
+        self.receives
+            .iter()
+            .find(|profile| profile.id == id)
+            .copied()
+    }
+
+    pub fn detection_count(&self) -> usize {
+        self.detections.len()
+    }
+
+    pub fn receive_count(&self) -> usize {
+        self.receives.len()
+    }
+
+    /// Build the complete hardware profile for one exact capture slot.
+    pub fn receive_phy(&self, receive: ReceiveProfile, tx_power_dbm: i8) -> Option<PhyProfile> {
+        let detection = self.detection(receive.detection)?;
+        Some(PhyProfile {
+            frequency_hz: detection.frequency_hz,
+            bandwidth_hz: detection.bandwidth_hz,
+            spreading_factor: detection.spreading_factor,
+            coding_rate_denominator: receive.coding_rate_denominator,
+            preamble_symbols: receive.preamble_symbols,
+            sync_word: receive.sync_word,
+            explicit_header: receive.explicit_header,
+            crc: receive.crc,
+            invert_iq: receive.invert_iq,
+            tx_power_dbm,
+        })
     }
 }
 
@@ -363,5 +422,46 @@ mod tests {
                 ..
             }))
         ));
+    }
+
+    #[test]
+    fn overfull_registry_is_refused_before_scheduling() {
+        let meshtastic = long_fast(MESHTASTIC_SYNC_WORD);
+        let mut plan: ScanPlan<1, 1> = ScanPlan::new();
+        plan.register_detection(DetectionProfile::from_phy(DETECT, meshtastic, cad()))
+            .unwrap();
+        plan.register_receive(ReceiveProfile::from_phy(
+            ReceiveProfileId(1),
+            DETECT,
+            meshtastic,
+            40,
+        ))
+        .unwrap();
+
+        assert_eq!(plan.require_cycle_budget(52), Ok(()));
+        assert_eq!(
+            plan.require_cycle_budget(51),
+            Err(ProfileError::OverfullCycle {
+                required_ms: 52,
+                budget_ms: 51,
+            })
+        );
+    }
+
+    #[test]
+    fn receive_slot_resolves_to_an_exact_hardware_profile() {
+        let meshtastic = long_fast(MESHTASTIC_SYNC_WORD);
+        let meshcore = long_fast(MESHCORE_SYNC_WORD);
+        let mut plan: ScanPlan<1, 1> = ScanPlan::new();
+        plan.register_detection(DetectionProfile::from_phy(DETECT, meshtastic, cad()))
+            .unwrap();
+        let receive = ReceiveProfile::from_phy(ReceiveProfileId(2), DETECT, meshcore, 55);
+        plan.register_receive(receive).unwrap();
+
+        let resolved = plan.receive_phy(receive, 7).unwrap();
+        assert_eq!(resolved.sync_word, MESHCORE_SYNC_WORD);
+        assert_eq!(resolved.frequency_hz, meshtastic.frequency_hz);
+        assert_eq!(resolved.spreading_factor, meshtastic.spreading_factor);
+        assert_eq!(resolved.tx_power_dbm, 7);
     }
 }

@@ -125,6 +125,12 @@ struct UiSnapshotRequest {
     done: oneshot::Sender<Result<(), UiSnapshotError>>,
 }
 
+struct ProfileRequest {
+    command: Vec<u8>,
+    params: LoRaParams,
+    done: oneshot::Sender<Result<(), ReconfigureError>>,
+}
+
 struct InFlight {
     request: TxRequest,
     frame_len: usize,
@@ -136,6 +142,38 @@ struct UiSnapshotInFlight {
     done: oneshot::Sender<Result<(), UiSnapshotError>>,
     deadline: Instant,
 }
+
+struct ProfileInFlight {
+    params: LoRaParams,
+    done: oneshot::Sender<Result<(), ReconfigureError>>,
+    deadline: Instant,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ReconfigureError {
+    InvalidProfile(String),
+    Rejected { result: u8 },
+    TimedOut,
+    Stopped,
+}
+
+impl core::fmt::Display for ReconfigureError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::InvalidProfile(message) => write!(f, "invalid direct-PHY profile: {message}"),
+            Self::Rejected { result } => {
+                write!(
+                    f,
+                    "firmware rejected direct-PHY profile with result {result}"
+                )
+            }
+            Self::TimedOut => f.write_str("direct-PHY profile acknowledgement timed out"),
+            Self::Stopped => f.write_str("direct-PHY link stopped"),
+        }
+    }
+}
+
+impl core::error::Error for ReconfigureError {}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UiSnapshotError {
@@ -192,6 +230,7 @@ impl DirectPhyUiControl {
 /// A running serial connection to Tulle direct-PHY firmware.
 pub struct DirectPhySerialLink {
     tx: mpsc::Sender<TxRequest>,
+    profile: mpsc::Sender<ProfileRequest>,
     ui_snapshot: mpsc::Sender<UiSnapshotRequest>,
     rx: mpsc::Receiver<Received>,
     status: watch::Receiver<PumpStatus>,
@@ -235,6 +274,28 @@ impl DirectPhySerialLink {
         self.queue(frame.into(), true).await
     }
 
+    /// Apply a new complete radio profile without dropping the serial session.
+    ///
+    /// Some native-USB firmware cannot observe a host detach and emits its online
+    /// event only once per boot. Reconfiguration therefore belongs inside the
+    /// running pump, serialized against transmit and UI commands.
+    pub async fn reconfigure(&self, profile: PhyProfile) -> Result<(), ReconfigureError> {
+        let command = direct_phy::encode_configure(profile)
+            .map_err(|error| ReconfigureError::InvalidProfile(format!("{error:?}")))?;
+        let params = LoRaParams::try_from(profile)
+            .map_err(|message| ReconfigureError::InvalidProfile(message.to_string()))?;
+        let (done, result) = oneshot::channel();
+        self.profile
+            .send(ProfileRequest {
+                command: command.to_vec(),
+                params,
+                done,
+            })
+            .await
+            .map_err(|_| ReconfigureError::Stopped)?;
+        result.await.unwrap_or(Err(ReconfigureError::Stopped))
+    }
+
     async fn queue(&self, frame: Vec<u8>, announce: bool) -> Result<Duration, TransmitError> {
         let (done, result) = oneshot::channel();
         self.tx
@@ -259,6 +320,7 @@ impl DirectPhySerialLink {
         T: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
         let (tx, tx_rx) = mpsc::channel(config.tx_queue);
+        let (profile_tx, profile_rx) = mpsc::channel(1);
         let (ui_snapshot, ui_snapshot_rx) = mpsc::channel(1);
         let (rx_tx, rx) = mpsc::channel(config.rx_queue);
         let (status_tx, status) = watch::channel(PumpStatus::Settling);
@@ -272,6 +334,7 @@ impl DirectPhySerialLink {
                 budget,
                 config,
                 tx_rx,
+                profile_rx,
                 ui_snapshot_rx,
                 rx_tx,
                 status_tx,
@@ -291,6 +354,7 @@ impl DirectPhySerialLink {
 
         Self {
             tx,
+            profile: profile_tx,
             ui_snapshot,
             rx,
             status,
@@ -368,10 +432,11 @@ impl Drop for DirectPhySerialLink {
 async fn run_pump<T>(
     mut io: T,
     profile: PhyProfile,
-    params: LoRaParams,
+    mut params: LoRaParams,
     mut budget: AirtimeBudget,
     config: DirectPhySerialConfig,
     mut tx_rx: mpsc::Receiver<TxRequest>,
+    mut profile_rx: mpsc::Receiver<ProfileRequest>,
     mut ui_snapshot_rx: mpsc::Receiver<UiSnapshotRequest>,
     rx_tx: mpsc::Sender<Received>,
     status_tx: watch::Sender<PumpStatus>,
@@ -476,10 +541,21 @@ where
     let mut ui_snapshot_pending: Option<UiSnapshotRequest> = None;
     let mut ui_snapshot_in_flight: Option<UiSnapshotInFlight> = None;
     let mut ui_snapshot_closed = false;
+    let mut profile_pending: Option<ProfileRequest> = None;
+    let mut profile_in_flight: Option<ProfileInFlight> = None;
+    let mut profile_closed = false;
     let mut resync_before_command = false;
     let mut last_diagnostic = None;
 
     loop {
+        if profile_pending.is_none() && profile_in_flight.is_none() && !profile_closed {
+            match profile_rx.try_recv() {
+                Ok(request) => profile_pending = Some(request),
+                Err(mpsc::error::TryRecvError::Disconnected) => profile_closed = true,
+                Err(mpsc::error::TryRecvError::Empty) => {}
+            }
+        }
+
         if ui_snapshot_pending.is_none() && ui_snapshot_in_flight.is_none() && !ui_snapshot_closed {
             match ui_snapshot_rx.try_recv() {
                 Ok(request) => ui_snapshot_pending = Some(request),
@@ -490,6 +566,8 @@ where
 
         if pending.is_none()
             && in_flight.is_none()
+            && profile_pending.is_none()
+            && profile_in_flight.is_none()
             && ui_snapshot_pending.is_none()
             && ui_snapshot_in_flight.is_none()
             && !tx_closed
@@ -502,6 +580,29 @@ where
         }
 
         if pending.is_none()
+            && in_flight.is_none()
+            && profile_in_flight.is_none()
+            && ui_snapshot_pending.is_none()
+            && ui_snapshot_in_flight.is_none()
+            && let Some(request) = profile_pending.take()
+        {
+            if resync_before_command {
+                if config.wake.is_none() {
+                    io.write_all(&[crate::WAKE_BYTE]).await?;
+                    io.flush().await?;
+                }
+                resync_before_command = false;
+            }
+            write_command(&mut io, config.wake.as_ref(), &request.command).await?;
+            profile_in_flight = Some(ProfileInFlight {
+                params: request.params,
+                done: request.done,
+                deadline: Instant::now() + config.transmit_timeout,
+            });
+        }
+
+        if profile_in_flight.is_none()
+            && pending.is_none()
             && in_flight.is_none()
             && ui_snapshot_in_flight.is_none()
             && let Some(request) = ui_snapshot_pending.take()
@@ -520,7 +621,9 @@ where
             });
         }
 
-        if ui_snapshot_in_flight.is_none()
+        if profile_pending.is_none()
+            && profile_in_flight.is_none()
+            && ui_snapshot_in_flight.is_none()
             && let Some(request) = pending.take()
         {
             if request.frame.len() > MAX_FRAME_LEN {
@@ -585,9 +688,12 @@ where
         }
 
         if tx_closed
+            && profile_closed
             && ui_snapshot_closed
             && pending.is_none()
             && in_flight.is_none()
+            && profile_pending.is_none()
+            && profile_in_flight.is_none()
             && ui_snapshot_pending.is_none()
             && ui_snapshot_in_flight.is_none()
         {
@@ -603,11 +709,16 @@ where
         if let Some(snapshot) = &ui_snapshot_in_flight {
             wake_at = wake_at.min(snapshot.deadline);
         }
+        if let Some(profile) = &profile_in_flight {
+            wake_at = wake_at.min(profile.deadline);
+        }
 
         tokio::select! {
             _ = &mut shutdown => return Ok(()),
             request = tx_rx.recv(), if pending.is_none()
                 && in_flight.is_none()
+                && profile_pending.is_none()
+                && profile_in_flight.is_none()
                 && ui_snapshot_pending.is_none()
                 && ui_snapshot_in_flight.is_none()
                 && !tx_closed => {
@@ -620,6 +731,12 @@ where
                 match request {
                     Some(request) => ui_snapshot_pending = Some(request),
                     None => ui_snapshot_closed = true,
+                }
+            }
+            request = profile_rx.recv(), if profile_pending.is_none() && profile_in_flight.is_none() && !profile_closed => {
+                match request {
+                    Some(request) => profile_pending = Some(request),
+                    None => profile_closed = true,
                 }
             }
             read = io.read(&mut read_buf) => {
@@ -658,7 +775,17 @@ where
                                 let _ = sent.request.done.send(outcome);
                             }
                         }
-                        Event::Configured { .. } => {}
+                        Event::Configured { result } => {
+                            if let Some(request) = profile_in_flight.take() {
+                                let outcome = if result == selvage::CONFIG_ACCEPTED {
+                                    params = request.params;
+                                    Ok(())
+                                } else {
+                                    Err(ReconfigureError::Rejected { result })
+                                };
+                                let _ = request.done.send(outcome);
+                            }
+                        }
                         Event::UiSnapshot { result } => {
                             if let Some(snapshot) = ui_snapshot_in_flight.take() {
                                 let outcome = if result == selvage::UI_SNAPSHOT_ACCEPTED {
@@ -696,6 +823,14 @@ where
                     && let Some(snapshot) = ui_snapshot_in_flight.take()
                 {
                     let _ = snapshot.done.send(Err(UiSnapshotError::TimedOut));
+                    resync_before_command = true;
+                }
+                if profile_in_flight
+                    .as_ref()
+                    .is_some_and(|profile| profile.deadline <= Instant::now())
+                    && let Some(profile) = profile_in_flight.take()
+                {
+                    let _ = profile.done.send(Err(ReconfigureError::TimedOut));
                     resync_before_command = true;
                 }
             }
@@ -850,6 +985,60 @@ mod tests {
         });
 
         link.wait_online().await.unwrap();
+        link.shutdown().await.unwrap();
+        firmware_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn live_reconfiguration_updates_the_profile_without_reopening_the_link() {
+        let (host, mut firmware) = tokio::io::duplex(2048);
+        let config = DirectPhySerialConfig {
+            open_settle: Duration::ZERO,
+            transmit_timeout: Duration::from_secs(1),
+            ..Default::default()
+        };
+        let budget = AirtimeBudget::new(60_000, 60_000);
+        let mut link = DirectPhySerialLink::spawn_io(host, profile(), params(), budget, config);
+        let mut fast = profile();
+        fast.spreading_factor = 9;
+
+        let firmware_task = tokio::spawn(async move {
+            let mut status = [0_u8; 7];
+            firmware.read_exact(&mut status).await.unwrap();
+            firmware
+                .write_all(b"tulle/test phy online\r\n")
+                .await
+                .unwrap();
+
+            let mut configure = [0_u8; selvage::CONFIG_COMMAND_LEN];
+            firmware.read_exact(&mut configure).await.unwrap();
+            assert_eq!(selvage::decode_config_command(&configure), Ok(profile()));
+            firmware
+                .write_all(&[direct_phy::EVENT_CONFIG, 0])
+                .await
+                .unwrap();
+
+            firmware.read_exact(&mut configure).await.unwrap();
+            assert_eq!(selvage::decode_config_command(&configure), Ok(fast));
+            firmware
+                .write_all(&[direct_phy::EVENT_CONFIG, 0])
+                .await
+                .unwrap();
+
+            let mut transmit = [0_u8; 8];
+            firmware.read_exact(&mut transmit).await.unwrap();
+            assert_eq!(&transmit, b"\x01\x05\x00hello");
+            firmware
+                .write_all(&[direct_phy::EVENT_TX, 0, 5, 0])
+                .await
+                .unwrap();
+            sleep(Duration::from_millis(200)).await;
+        });
+
+        link.wait_online().await.unwrap();
+        link.reconfigure(fast).await.unwrap();
+        let airtime = link.send(b"hello".to_vec()).await.unwrap();
+        assert_eq!(airtime, LoRaParams::try_from(fast).unwrap().time_on_air(5));
         link.shutdown().await.unwrap();
         firmware_task.await.unwrap();
     }

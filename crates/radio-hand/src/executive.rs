@@ -60,6 +60,8 @@ const CAD_BACKOFF_FLOOR_MS: u64 = 20;
 /// [`crate::service::apply_profile`] builds a replacement and only a complete one is swapped
 /// in.
 pub struct RadioState {
+    /// The complete profile represented by the driver parameters below.
+    pub profile: PhyProfile,
     pub modulation: ModulationParams,
     pub tx: PacketParams,
     pub rx: PacketParams,
@@ -159,6 +161,27 @@ pub struct Received {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RadioFault;
 
+/// Timings and outcome for one eight-symbol CAD observation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CadObservation {
+    /// Profile decode and sync-word application.
+    pub apply_us: u64,
+    /// Modem setup and carrier retune before CAD begins.
+    pub retune_us: u64,
+    /// The eight-symbol CAD operation itself.
+    pub cad_us: u64,
+    pub activity: bool,
+}
+
+/// Timings for entering one exact receive window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CaptureArm {
+    /// Profile decode and sync-word application.
+    pub apply_us: u64,
+    /// Continuous-RX setup after the exact profile was applied.
+    pub handoff_us: u64,
+}
+
 /// What the executive has actually done with the radio, counted.
 ///
 /// Diagnostics assert presence, not just cost: when a path is silently dead — a receive that
@@ -207,6 +230,14 @@ pub struct AirDiag {
     pub wait_beats: u16,
     /// Times the unattended wait woke for a received frame.
     pub wait_frames: u16,
+    /// CAD activity observations by stable DetectionProfile id (1 through 4).
+    pub scan_cad_hits: [u16; 4],
+    /// Empty CAD observations by stable DetectionProfile id (1 through 4).
+    pub scan_cad_misses: [u16; 4],
+    /// Captures by stable ReceiveProfile id (1 through 4).
+    pub scan_rx_captures: [u16; 4],
+    /// Empty capture windows by stable ReceiveProfile id (1 through 4).
+    pub scan_rx_misses: [u16; 4],
 }
 
 /// The hardware every channel shares, and the only way a channel reaches it.
@@ -293,6 +324,11 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
         self.diag
     }
 
+    /// The exact profile currently represented by the driver state.
+    pub fn profile(&self) -> PhyProfile {
+        self.radio.profile
+    }
+
     /// Count an unattended-wait wakeup; called by [`crate::channel::await_host`].
     pub fn note_wait(&mut self, frame: bool) {
         if frame {
@@ -300,6 +336,40 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
         } else {
             self.diag.wait_beats = self.diag.wait_beats.saturating_add(1);
         }
+    }
+
+    /// Count a scan-plan CAD result under its stable profile id.
+    pub fn note_scan_cad(&mut self, id: u8, activity: bool) {
+        let Some(index) = id
+            .checked_sub(1)
+            .map(usize::from)
+            .filter(|index| *index < 4)
+        else {
+            return;
+        };
+        let counter = if activity {
+            &mut self.diag.scan_cad_hits[index]
+        } else {
+            &mut self.diag.scan_cad_misses[index]
+        };
+        *counter = counter.saturating_add(1);
+    }
+
+    /// Count an exact capture window under its stable ReceiveProfile id.
+    pub fn note_scan_capture(&mut self, id: u8, captured: bool) {
+        let Some(index) = id
+            .checked_sub(1)
+            .map(usize::from)
+            .filter(|index| *index < 4)
+        else {
+            return;
+        };
+        let counter = if captured {
+            &mut self.diag.scan_rx_captures[index]
+        } else {
+            &mut self.diag.scan_rx_misses[index]
+        };
+        *counter = counter.saturating_add(1);
     }
 
     /// Draw random bytes from the board.
@@ -406,7 +476,8 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
                     snr: status.snr,
                 }))
             }
-            Err(RadioError::PayloadCrcError) => {
+            Err(RadioError::ReceivePending) => Ok(None),
+            Err(RadioError::PayloadCrcError | RadioError::HeaderError) => {
                 self.diag.rx_damaged = self.diag.rx_damaged.saturating_add(1);
                 Ok(None)
             }
@@ -444,7 +515,7 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
                 //
                 // The radio is still in continuous receive (the driver leaves the mode alone
                 // on an error there), so listening again is the whole recovery.
-                Err(RadioError::PayloadCrcError) => {
+                Err(RadioError::PayloadCrcError | RadioError::HeaderError) => {
                     self.diag.rx_damaged = self.diag.rx_damaged.saturating_add(1);
                 }
                 Err(_) => {
@@ -613,6 +684,7 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
                 self.radio.tx = applied.tx;
                 self.radio.rx = applied.rx;
                 self.radio.tx_power_dbm = applied.tx_power_dbm;
+                self.radio.profile = clamped;
                 self.radio.prepare_rx = true;
                 crate::board_status::apply_profile(self.status, clamped);
                 self.publish(LedSignal::Idle);
@@ -620,6 +692,61 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
             }
             Err(code) => code,
         }
+    }
+
+    /// Run one eight-symbol CAD observation under an exact hardware profile.
+    ///
+    /// The vendored SX126x driver fixes CAD at eight symbols. Keeping this operation
+    /// here preserves the authority boundary: scan consumers can request an observation,
+    /// but still cannot reach the radio directly.
+    pub async fn observe_cad(
+        &mut self,
+        profile: &PhyProfile,
+    ) -> Result<CadObservation, RadioFault> {
+        let apply_started = Instant::now();
+        if self.apply_profile(profile).await != service::ACCEPTED {
+            return Err(RadioFault);
+        }
+        let apply_us = apply_started.elapsed().as_micros();
+
+        let retune_started = Instant::now();
+        self.lora
+            .prepare_for_cad(&self.radio.modulation)
+            .await
+            .map_err(|_| RadioFault)?;
+        let retune_us = retune_started.elapsed().as_micros();
+
+        let cad_started = Instant::now();
+        let activity = self
+            .lora
+            .cad(&self.radio.modulation)
+            .await
+            .map_err(|_| RadioFault)?;
+        let cad_us = cad_started.elapsed().as_micros();
+        self.radio.prepare_rx = true;
+        Ok(CadObservation {
+            apply_us,
+            retune_us,
+            cad_us,
+            activity,
+        })
+    }
+
+    /// Enter continuous receive under one exact capture profile.
+    pub async fn arm_capture(&mut self, profile: &PhyProfile) -> Result<CaptureArm, RadioFault> {
+        let apply_started = Instant::now();
+        if self.apply_profile(profile).await != service::ACCEPTED {
+            return Err(RadioFault);
+        }
+        let apply_us = apply_started.elapsed().as_micros();
+
+        let handoff_started = Instant::now();
+        self.ensure_rx().await?;
+        let handoff_us = handoff_started.elapsed().as_micros();
+        Ok(CaptureArm {
+            apply_us,
+            handoff_us,
+        })
     }
 
     /// Read the radio chip's diagnostic registers.

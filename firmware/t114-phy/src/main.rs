@@ -27,7 +27,7 @@ use radio_hand::executive::{Executive, Face, Heartbeat, RadioState};
 use radio_hand::link::{Flow, HostLink};
 use radio_hand::region::Region;
 use radio_hand::settings::Channel as BootChannel;
-use selvage::MESHTASTIC_SYNC_WORD;
+use selvage::{MESHTASTIC_SYNC_WORD, PhyProfile};
 use static_cell::StaticCell;
 
 use crate::radio::{Sx126xDiagnostics, T114Interface, T114Spi};
@@ -36,6 +36,7 @@ mod board;
 mod crash;
 mod heap;
 mod host;
+mod le3;
 mod lxmf;
 mod probes;
 mod radio;
@@ -385,6 +386,7 @@ async fn main(spawner: Spawner) {
     // become the host link and the radio can pass to the executive that owns it.
     let mut host = host::UsbHost::new(class);
     let mut radio = RadioState {
+        profile: PhyProfile::meshtastic_long_fast(boot_frequency),
         modulation,
         tx: tx_params,
         rx: rx_params,

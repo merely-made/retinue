@@ -329,6 +329,7 @@ async fn main(spawner: Spawner) {
     // host link and the radio settings become the state `radio-hand` drives.
     let mut host = host::SplitHost::new(usb_rx, usb_tx);
     let mut radio = RadioState {
+        profile: selvage::PhyProfile::meshtastic_long_fast(board::DEFAULT_FREQUENCY_HZ),
         modulation,
         tx: tx_params,
         rx: rx_params,
@@ -475,7 +476,11 @@ async fn main(spawner: Spawner) {
                         Ok(frame) => frame,
                         // A CRC failure is the air, not the radio. The chip stays in continuous
                         // receive, so the next frame is the whole recovery.
-                        Err(lora_phy::mod_params::RadioError::PayloadCrcError) => continue,
+                        Err(lora_phy::mod_params::RadioError::ReceivePending) => continue,
+                        Err(
+                            lora_phy::mod_params::RadioError::PayloadCrcError
+                            | lora_phy::mod_params::RadioError::HeaderError,
+                        ) => continue,
                         Err(_) => {
                             // Said out loud, matching the T114. A radio that stops
                             // receiving is the whole failure on a board whose only job is
@@ -572,7 +577,10 @@ async fn main(spawner: Spawner) {
             // silently, because the receiver is still listening and the alternative is
             // writing fault text into the host's byte stream once per damaged frame,
             // which on the T114's bench is more than a third of everything heard.
-            Either::Second(Err(lora_phy::mod_params::RadioError::PayloadCrcError)) => {}
+            Either::Second(Err(
+                lora_phy::mod_params::RadioError::PayloadCrcError
+                | lora_phy::mod_params::RadioError::HeaderError,
+            )) => {}
             Either::Second(Err(_)) => {
                 local_status.radio = radio_face::RadioState::Fault;
                 local_status.fault = Some(radio_face::Fault {

@@ -949,14 +949,6 @@ where
                 }
             }
             RadioMode::Receive(rx_mode) => {
-                if (irq_flags & IrqMask::HeaderError.value()) == IrqMask::HeaderError.value() {
-                    // Left as it was, deliberately. A header that did not decode means no
-                    // packet was delivered, so falling through costs nothing: RxDone is not
-                    // raised with it, and this call already returns "keep waiting". Turning
-                    // it into an error would end the driver's wait and make the caller
-                    // re-arm the receiver on every burst of noise.
-                    debug!("HeaderError in radio mode {}", radio_mode);
-                }
                 // A damaged packet must not fall through to RxDone.
                 //
                 // The chip raises RxDone *alongside* CRCError, so reporting it only through
@@ -968,6 +960,15 @@ where
                 if (irq_flags & IrqMask::CRCError.value()) == IrqMask::CRCError.value() {
                     debug!("CRCError in radio mode {}", radio_mode);
                     return Err(RadioError::PayloadCrcError);
+                }
+                if (irq_flags & IrqMask::HeaderError.value()) == IrqMask::HeaderError.value() {
+                    // The split arm/collect path must return control to its caller here.
+                    // Waiting inside `rx_collect` for a second IRQ after this one was cleared
+                    // strands the host loop whenever a partial or mismatched frame has no
+                    // successor. The receiver remains in continuous mode, so the caller can
+                    // count the damaged attempt and resume its outer wait.
+                    debug!("HeaderError in radio mode {}", radio_mode);
+                    return Err(RadioError::HeaderError);
                 }
                 if (irq_flags & IrqMask::RxDone.value()) == IrqMask::RxDone.value() {
                     debug!("RxDone in radio mode {}", radio_mode);

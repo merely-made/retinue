@@ -6,6 +6,15 @@ reframes [channel murmuration](2026-08-09_channel_murmuration.md); both carry
 banners pointing here. The one-image ruling, the licensing edge, and the trunk
 guard stand, translated below.
 
+**Receipt status, 2026-08-20:** the LE3a/LE3b physical scan slice is complete
+on one T114 with two V4 transmitters. The
+[scan-physics receipt](2026-08-20_le3_t114_scan_physics_receipt.md) records two
+CAD groups, three exact receive profiles, measured transition/acquisition
+costs, the runtime cycle-budget refusal, the fixed `0x12`/`0x2b` miss and
+capture pair, and the driver defects found on air. The final unattended
+rotating executive and long-run miss-rate calibration remain outside that
+receipt.
+
 ## The reframe
 
 Retinue is not a protocol personality among channels. It is the board's
@@ -251,6 +260,11 @@ acquisition against each profile's usable preamble; the scan-budget assertion
 fires on a deliberately overfull registry; per-ReceiveProfile miss rate tracks
 the predicted capture dwell. A fixed `0x12` receive window demonstrably misses
 the otherwise-matching `0x2B` frame, then the `0x2B` window captures it.
+*Physical slice:* receipted 2026-08-20 on the T114. D1/D2 CAD behavior, exact
+SF11 `0x12`, SF11 `0x2b`, and SF9 `0x2b` captures, the 900 ms cross-sync miss,
+and a 2840/3000 ms admitted cycle are measured. Scheduler-wide probability
+calibration remains a later runtime receipt rather than an inference from the
+short bench.
 
 **LE4: Dispatch and bounded talk.** A captured frame routes to its adapter;
 the adapter transmits under lease and receives its bounded acknowledgement;

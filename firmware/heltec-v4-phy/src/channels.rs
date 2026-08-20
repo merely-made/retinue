@@ -257,7 +257,7 @@ where
             }
             // A packet that failed its CRC. The air's fault, not the radio's: dropped and
             // the receiver is still listening, so there is nothing to repair.
-            Either::Second(Err(RadioError::PayloadCrcError)) => {}
+            Either::Second(Err(RadioError::PayloadCrcError | RadioError::HeaderError)) => {}
             Either::Second(Err(_)) => {
                 local_status.radio = radio_face::RadioState::Fault;
                 local_status.fault = Some(radio_face::Fault {

@@ -49,6 +49,10 @@ name = "rnode_bulk_probe"
 required-features = ["serial-async"]
 
 [[example]]
+name = "le3_scan_probe"
+required-features = ["serial-async"]
+
+[[example]]
 name = "rnode_witness_probe"
 required-features = ["serial-async"]
 

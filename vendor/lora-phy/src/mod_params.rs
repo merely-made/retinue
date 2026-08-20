@@ -25,6 +25,12 @@ pub enum RadioError {
     InvalidOutputPowerForFrequency,
     TransmitTimeout,
     ReceiveTimeout,
+    /// A nonterminal receive IRQ was consumed. The caller should resume its
+    /// outer wait rather than waiting inside a collection step.
+    ReceivePending,
+    /// Preamble activity reached the receiver but its header did not decode.
+    /// This is an on-air mismatch or damaged frame, not a radio fault.
+    HeaderError,
     /// A packet arrived and failed its CRC. It is not a radio fault: the radio worked and the
     /// air did not. Reported rather than swallowed because the chip raises RxDone alongside
     /// the error, so a caller that is not told will read the corrupt payload as a good one.
