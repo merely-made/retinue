@@ -1,8 +1,15 @@
 # Linkboy public flashing plan
 
 **Date:** 2026-08-08  
-**Status:** F1-F4 software slices landed; physical/public acceptance remains
-open where each gate requires it. F5 is complete with official per-platform V4
+**Status:** F1 and F2 are complete: the 2026-08-20 closure audit mapped every
+done condition to a named Linkboy test, and F2's physical clause is satisfied
+by the 2026-08-19 ESP-ROM receipts and the 2026-08-12/14 `adafruit-dfu`
+receipts. F3 and F4 are complete except three physical claims: a factory
+as-shipped board reaching a valid plan (every receipted board had previously
+run Retinue, Hopspot, or Meshtastic), V4 recovery through the board's own
+reset/boot controls (all V4 receipts enter the ROM loader from a live board
+via `espflash --before default-reset`), and a paired before-and-after
+identity/settings preservation fact on one board. F5 is complete with official per-platform V4
 helper custody, cross-platform V4 physical receipts, and the public T114 UF2
 real-device receipt. On
 2026-08-14 Signalman installed
@@ -75,16 +82,21 @@ OTA, browser flashing, fleet updates, or catalog promotion.
    Signalman face retained the standalone Linkboy recovery door, passed the
    keyboard and owner screen-reader checks, and carried both physical routes
    through reconnect and returned-application verification.
-3. **F7, public catalog projection: implementation ready.** The public index
-   now carries package state and exact host receipt evidence, and Mer3ly retains
-   a digest-checked copy to derive its firmware cards. Publication remains open
-   until the paired Retinue and Mer3ly commits are published and the site is
-   deployed.
+3. **F7, public catalog projection: complete.** The public index carries
+   package state and exact host receipt evidence, and Mer3ly retains a
+   digest-checked copy to derive its firmware cards. Publication closed on
+   2026-08-20: Retinue `05b3795` and Mer3ly `94a7d64` are published, the Pages
+   workflow succeeded, and the live V4 and T114 device pages project the
+   receipted catalog. The Meshtastic T114 entry remains deliberately `partial`
+   until its own app/serial/mobile interface confirms the installed version.
 
 ### Sidequest queue after the trunk
 
 1. Local Bluetooth flashing.
-2. Authenticated over-link update with verified staging and rollback.
+2. Authenticated over-link update with verified staging and rollback. LoRa,
+   BLE, and Wi-Fi are bearers beneath that one protocol; Wi-Fi does not get a
+   separate updater. Real package-index authentication precedes any
+   network-fetched bearer.
 3. Browser installation as a convenience face over the same package and plan
    authority.
 4. Additional board families and printed form factors.
@@ -204,8 +216,14 @@ record it; it must not silently upgrade it into certainty.
 - firmware license, notices, source revision, and corresponding-source link;
 - origin URL and optional publisher signature.
 
-The signed Merely package index supplies trust for network-delivered packages.
-An upstream signature can be recorded when one exists, but the model does not
+The Merely package index is intended to supply trust for network-delivered
+packages, but that trust is not yet real: the current index carries an
+optional `publisher_signature` string that Linkboy checks only for
+non-emptiness, never cryptographically (`apps/linkboy/src/catalog.rs`). The
+static, digest-pinned Mer3ly projection does not depend on that signature;
+any network-fetched catalog authority does, and must not ship before Linkboy
+actually verifies the index. An upstream signature can be recorded when one
+exists, but the model does not
 pretend every upstream project publishes one. A local expert package still
 needs an explicit manifest and hash.
 
@@ -272,6 +290,13 @@ not progress if the bench command stops working.
 
 ### F1. Package and plan before execution
 
+**Complete 2026-08-20.** The closure audit tied every done condition to a
+named test: changed-byte and sparse-part hash refusal in `package.rs`, mutual
+wrong-board refusal, revision/confirmation and conflicting-loader refusals in
+`plan.rs` and `discovery.rs`, protected-range overlap refusal, plan-level
+state-impact and recovery explanation, and no `serialport` reference in any
+parsing or planning test.
+
 Files:
 
 - `apps/linkboy/src/package.rs`
@@ -303,6 +328,13 @@ Done conditions:
 
 ### F2. Structured execution
 
+**Complete 2026-08-20.** All seven simulated failure modes have named tests in
+`executor.rs`, the T114 new-port selection has both tests and the 2026-08-12
+physical COM4 discovery, `Complete` is asserted to follow application
+verification, and both physical cable routes ran again through the structured
+executor: ESP ROM in the 2026-08-19 Windows/macOS/Linux receipts, serial DFU
+in the 2026-08-12 packaged restore and 2026-08-14 graphical replay.
+
 Files:
 
 - `apps/linkboy/src/executor.rs`
@@ -331,6 +363,16 @@ Done conditions:
 - both physical cable routes pass again through the structured executor.
 
 ### F3. First-flash device evidence
+
+**Complete except one physical claim (2026-08-20 audit).** Wrong-model
+refusal, required-and-recorded carrier confirmation (shipped in real receipts
+as `board_selection_evidence`), and re-enumeration identity safety are closed
+by named tests plus the 2026-08-12 wrong-V4 `recovery-required` receipt and
+the 2026-08-14 UF2-route package refusal. Open: no physical receipt shows a
+factory as-shipped board reaching a valid plan — the stock-device path is
+proven only by `stock_v4_reaches_a_first_flash_observation` and
+`stock_t114_reaches_a_first_flash_observation`, and every receipted board had
+previously run Retinue, Hopspot, or Meshtastic.
 
 Files:
 
@@ -363,6 +405,18 @@ Done conditions:
 - unplug, reset, and re-enumeration do not transfer identity to another device.
 
 ### F4. Verification and recovery
+
+**Complete except two physical claims (2026-08-20 audit).** Wrong-application
+failure, post-write silence as `RecoveryRequired`, and secret-free exportable
+receipts are closed by named tests plus the 2026-08-12 wrong-V4 refusal and
+the 2026-08-14 CDC-silence recovery event. Open: (a) V4 recovery through the
+board's own reset/boot controls — T114 double-tap-reset recovery is receipted
+on 2026-08-19, but every V4 receipt enters the ROM loader from a live board
+via `espflash --before default-reset`; (b) identity/settings preservation
+verified by paired facts — the pre-write probe shows the preserved range and
+the raw restore shows `identity=loaded slot=A seq=82` afterward, but no single
+board has a recorded pre-write identity/region fact matched against its
+post-write value, so "Preserved" remains a plan claim, not a demonstrated one.
 
 Files:
 
@@ -456,7 +510,9 @@ The first graphical consumer renders Linkboy's library. Its pages are concrete:
 5. **Install**
 6. **Verify or recover**
 
-The default firmware list comes from the signed package index. Local packages
+The default firmware list comes from the published package index (signature
+verification is a precondition for fetching it over a network, not yet a
+property it has). Local packages
 live behind an expert action and receive the same compatibility checks. The
 review page shows publisher, version, hash, license, source, board revision,
 write route, state impact, and recovery path.
@@ -504,12 +560,13 @@ Done conditions:
 Sidequests are deliberately useful. None may weaken a trunk refusal or become a
 condition for the first cabled release.
 
-### S1. T114 UF2 route
+### S1. T114 UF2 route — promoted, no longer a sidequest
 
-Add mounted-volume discovery, UF2 package validation, copy progress, eject/reset
-handling, and application rediscovery. Promote it to the default T114 route if
-it proves simpler across all three desktop systems and retains a reliable serial
-DFU recovery path.
+Mounted-volume discovery, UF2 package validation, copy progress, eject/reset
+handling, and application rediscovery landed, and the 2026-08-19 public route
+made the built-in stock-bootloader UF2 writer the default public T114 route.
+Serial DFU remains the expert recovery path outside the public catalog. This
+entry is kept as the record of the promotion, not as open work.
 
 ### S2. Local Bluetooth flashing
 
@@ -520,7 +577,12 @@ promoted because Bluetooth pairing alone works.
 
 ### S3. Over-link firmware update
 
-This earns the other half of Linkboy's name. It requires:
+This earns the other half of Linkboy's name. It is one protocol with several
+bearers: LoRa, BLE (S2's transport), and Wi-Fi all deliver images into the
+same authenticated staging, activation, and rollback machinery. Wi-Fi in
+particular is not a separate, simpler updater — a TCP pipe changes the chunk
+budget, not the authorization, verification, staging, or recovery
+obligations. It requires:
 
 - an authenticated management destination distinct from ordinary messages;
 - signed package authorization and replay protection;
