@@ -210,7 +210,7 @@ input:focus { border: 1px solid #a8c8ee; }
 .voice-choice .select-option { display: block; padding: 8px 10px; }
 .voice-activity, .voice-receipt { display: block; margin-top: 8px; color: #c8ced8; }
 .network-page { display: block; padding: 28px 32px; }
-.network-controls { display: flex; margin-bottom: 12px; }
+.network-controls { display: flex; margin-bottom: 4px; }
 .network-controls button, .settings-controls button {
     display: block;
     padding: 7px 9px;

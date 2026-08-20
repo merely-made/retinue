@@ -175,6 +175,86 @@ fn selection_drag_and_named_viewport_controls_use_the_shipping_handlers() {
 }
 
 #[test]
+fn a_dragged_node_tracks_the_pointer_instead_of_a_stale_actor_snapshot() {
+    let mut harness = harness();
+    let dragged = ManagementNodeId::from_source_key("destination:peer");
+    let key = harness
+        .state()
+        .network_projection()
+        .nodes
+        .iter()
+        .find(|node| node.fact.id == dragged)
+        .map(|node| node.key)
+        .expect("dragged node is in the projection");
+
+    // Seed a settled layout, then drag: the painted position must echo the
+    // pointer immediately, without waiting for the actor round trip.
+    let seeded = signalman_desktop::network::NetworkLayout {
+        epoch: harness.state().network_epoch,
+        snapshot: seiche::LayoutSnapshot {
+            positions: vec![(key, euclid::default::Point2D::new(0.0, 0.0))],
+            ..Default::default()
+        },
+        worker_thread: std::thread::current().id(),
+    };
+    let mut adopted = false;
+    let seed_again = seeded.clone();
+    harness.update(|state| adopted = state.adopt_network_layout(seeded));
+    assert!(adopted);
+    harness.update(|state| {
+        state.drag_network_node(&dragged, cambium::PointerPhase::Down, (0.25, 0.25));
+        state.drag_network_node(&dragged, cambium::PointerPhase::Move, (0.75, 0.75));
+    });
+    let echoed = layout_position(harness.state(), key);
+    assert!(
+        echoed.x > 0.0 && echoed.y > 0.0,
+        "paint echoes the pointer, got {echoed:?}"
+    );
+
+    // A stale actor snapshot arriving mid-drag must not flick the dragged
+    // node back; the other bodies stay physics-authoritative.
+    harness.update(|state| adopted = state.adopt_network_layout(seed_again));
+    assert!(adopted);
+    assert_eq!(layout_position(harness.state(), key), echoed);
+
+    // Releasing hands the node back to physics.
+    harness.update(|state| {
+        state.drag_network_node(&dragged, cambium::PointerPhase::Up, (0.75, 0.75));
+    });
+    let settled = signalman_desktop::network::NetworkLayout {
+        epoch: harness.state().network_epoch,
+        snapshot: seiche::LayoutSnapshot {
+            positions: vec![(key, euclid::default::Point2D::new(5.0, 5.0))],
+            ..Default::default()
+        },
+        worker_thread: std::thread::current().id(),
+    };
+    harness.update(|state| adopted = state.adopt_network_layout(settled));
+    assert!(adopted);
+    assert_eq!(
+        layout_position(harness.state(), key),
+        euclid::default::Point2D::new(5.0, 5.0)
+    );
+}
+
+fn layout_position(
+    state: &signalman_desktop::state::DesktopState,
+    key: seiche::NodeKey,
+) -> euclid::default::Point2D<f32> {
+    state
+        .network_layout
+        .as_ref()
+        .and_then(|layout| {
+            layout
+                .positions
+                .iter()
+                .find(|(existing, _)| *existing == key)
+                .map(|(_, position)| *position)
+        })
+        .expect("layout retains the dragged node")
+}
+
+#[test]
 fn last_known_visibility_filters_the_shared_view_without_erasing_retained_history() {
     let mut harness = harness();
     assert_eq!(harness.state().device_mere.projection().nodes.len(), 3);

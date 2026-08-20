@@ -729,30 +729,6 @@ fn network_page(state: &DesktopState) -> Child {
                     "Observed management facts, retained as one local device graph.",
                 ),
                 el(
-                    "div",
-                    (
-                        button("Pan left", |s: &mut DesktopState, _| {
-                            s.pan_network(-0.1, 0.0)
-                        }),
-                        button("Pan right", |s: &mut DesktopState, _| {
-                            s.pan_network(0.1, 0.0)
-                        }),
-                        button("Pan up", |s: &mut DesktopState, _| s.pan_network(0.0, -0.1)),
-                        button("Pan down", |s: &mut DesktopState, _| {
-                            s.pan_network(0.0, 0.1)
-                        }),
-                        button("Zoom in", |s: &mut DesktopState, _| s.zoom_network(1.2)),
-                        button("Zoom out", |s: &mut DesktopState, _| {
-                            s.zoom_network(1.0 / 1.2)
-                        }),
-                        button("Reset view", |s: &mut DesktopState, _| {
-                            s.reset_network_view()
-                        }),
-                    ),
-                )
-                .attr("class", "network-controls")
-                .attr("aria-label", "Network viewport"),
-                el(
                     "section",
                     (
                         el("h2", text("Network settings")).attr("class", "network-heading"),
@@ -847,7 +823,41 @@ fn network_page(state: &DesktopState) -> Child {
                 .attr("aria-label", "Network settings"),
                 station,
                 empty,
-                el("div", canvas).attr("class", "network-canvas"),
+                // The viewport controls live on the canvas frame itself: the
+                // viewport they move is this canvas, not a page setting.
+                el(
+                    "div",
+                    (
+                        el(
+                            "div",
+                            (
+                                button("Pan left", |s: &mut DesktopState, _| {
+                                    s.pan_network(-0.1, 0.0)
+                                }),
+                                button("Pan right", |s: &mut DesktopState, _| {
+                                    s.pan_network(0.1, 0.0)
+                                }),
+                                button("Pan up", |s: &mut DesktopState, _| {
+                                    s.pan_network(0.0, -0.1)
+                                }),
+                                button("Pan down", |s: &mut DesktopState, _| {
+                                    s.pan_network(0.0, 0.1)
+                                }),
+                                button("Zoom in", |s: &mut DesktopState, _| s.zoom_network(1.2)),
+                                button("Zoom out", |s: &mut DesktopState, _| {
+                                    s.zoom_network(1.0 / 1.2)
+                                }),
+                                button("Reset view", |s: &mut DesktopState, _| {
+                                    s.reset_network_view()
+                                }),
+                            ),
+                        )
+                        .attr("class", "network-controls")
+                        .attr("aria-label", "Network viewport"),
+                        canvas,
+                    ),
+                )
+                .attr("class", "network-canvas"),
                 el(
                     "section",
                     (

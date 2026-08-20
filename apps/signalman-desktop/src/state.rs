@@ -194,6 +194,11 @@ pub struct DesktopState {
     pub network_zoom: f32,
     pub selected_relation: Option<ManagementRelationId>,
     pub pending_network: Option<NetworkRequest>,
+    /// The node under an active pointer drag and its latest pinned position.
+    /// Paint echoes this locally so the node tracks the cursor without waiting
+    /// on the layout actor's round trip; the physics remain authoritative for
+    /// every other body.
+    network_drag: Option<(NodeKey, euclid::default::Point2D<f32>)>,
     /// Live-station presentation status: connected, or why the actor stopped.
     /// Facts still arrive only through `apply_management_material`.
     pub station_notice: Option<String>,
@@ -281,6 +286,7 @@ impl DesktopState {
             network_zoom: 1.0,
             selected_relation: None,
             pending_network: None,
+            network_drag: None,
             station_notice: None,
             message_store: MessageStore::memory("signalman-local"),
             message_local: None,
@@ -787,7 +793,28 @@ impl DesktopState {
             return false;
         };
         self.network_layout = Some(snapshot);
+        // An actor snapshot lags the pointer; while a drag is active the
+        // echoed position stays authoritative for the dragged node so paint
+        // does not flick it back to a stale physics position.
+        if let Some((key, position)) = self.network_drag {
+            self.echo_drag_position(key, position);
+        }
         true
+    }
+
+    fn echo_drag_position(&mut self, key: NodeKey, position: euclid::default::Point2D<f32>) {
+        let Some(layout) = &mut self.network_layout else {
+            return;
+        };
+        if let Some(entry) = layout
+            .positions
+            .iter_mut()
+            .find(|(existing, _)| *existing == key)
+        {
+            entry.1 = position;
+        } else {
+            layout.positions.push((key, position));
+        }
     }
 
     pub fn select_network_node(&mut self, id: ManagementNodeId) {
@@ -821,9 +848,15 @@ impl DesktopState {
         };
         self.pending_network = Some(match phase {
             cambium::PointerPhase::Down | cambium::PointerPhase::Move => {
-                NetworkRequest::Pin(key, world_from_normalized(normalized))
+                let position = world_from_normalized(normalized);
+                self.network_drag = Some((key, position));
+                self.echo_drag_position(key, position);
+                NetworkRequest::Pin(key, position)
             }
-            cambium::PointerPhase::Up => NetworkRequest::Unpin(key),
+            cambium::PointerPhase::Up => {
+                self.network_drag = None;
+                NetworkRequest::Unpin(key)
+            }
         });
     }
 
