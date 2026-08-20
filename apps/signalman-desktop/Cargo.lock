@@ -889,14 +889,16 @@ dependencies = [
 
 [[package]]
 name = "castellan"
-version = "0.0.1"
-source = "git+https://github.com/merely-made/mere.git?rev=032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e#032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e"
+version = "0.0.2"
+source = "git+https://github.com/merely-made/mere.git?rev=1609cb904766de40c771e8559b89e8fbcc098a60#1609cb904766de40c771e8559b89e8fbcc098a60"
 dependencies = [
  "hmac",
  "pandect",
  "personae",
+ "serde",
  "sha1",
  "sha2 0.11.0",
+ "uuid",
  "zeroize",
 ]
 
@@ -970,7 +972,7 @@ dependencies = [
 [[package]]
 name = "chartulary"
 version = "0.2.0"
-source = "git+https://github.com/merely-made/mere.git?rev=032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e#032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e"
+source = "git+https://github.com/merely-made/mere.git?rev=1609cb904766de40c771e8559b89e8fbcc098a60#1609cb904766de40c771e8559b89e8fbcc098a60"
 dependencies = [
  "codicil",
  "muniment",
@@ -1048,7 +1050,7 @@ dependencies = [
 [[package]]
 name = "codicil"
 version = "0.1.1"
-source = "git+https://github.com/merely-made/mere.git?rev=032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e#032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e"
+source = "git+https://github.com/merely-made/mere.git?rev=1609cb904766de40c771e8559b89e8fbcc098a60#1609cb904766de40c771e8559b89e8fbcc098a60"
 dependencies = [
  "muniment",
  "serde",
@@ -2050,7 +2052,7 @@ dependencies = [
 [[package]]
 name = "gaz"
 version = "0.0.1"
-source = "git+https://github.com/merely-made/mere.git?rev=032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e#032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e"
+source = "git+https://github.com/merely-made/mere.git?rev=1609cb904766de40c771e8559b89e8fbcc098a60#1609cb904766de40c771e8559b89e8fbcc098a60"
 dependencies = [
  "serde",
 ]
@@ -2850,8 +2852,8 @@ checksum = "89194689a993ab15268672e99e7b0e19da2da3268ac682e8f02d29d4d1434cd7"
 
 [[package]]
 name = "incipit"
-version = "0.0.1"
-source = "git+https://github.com/merely-made/mere.git?rev=032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e#032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e"
+version = "0.2.0"
+source = "git+https://github.com/merely-made/mere.git?rev=1609cb904766de40c771e8559b89e8fbcc098a60#1609cb904766de40c771e8559b89e8fbcc098a60"
 dependencies = [
  "serde",
  "uuid",
@@ -3251,7 +3253,7 @@ dependencies = [
 [[package]]
 name = "mere-eidetic"
 version = "0.0.1"
-source = "git+https://github.com/merely-made/mere.git?rev=032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e#032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e"
+source = "git+https://github.com/merely-made/mere.git?rev=1609cb904766de40c771e8559b89e8fbcc098a60#1609cb904766de40c771e8559b89e8fbcc098a60"
 dependencies = [
  "async-trait",
  "blake3",
@@ -3263,7 +3265,7 @@ dependencies = [
 [[package]]
 name = "mere-forme"
 version = "0.1.0"
-source = "git+https://github.com/merely-made/mere.git?rev=032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e#032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e"
+source = "git+https://github.com/merely-made/mere.git?rev=1609cb904766de40c771e8559b89e8fbcc098a60#1609cb904766de40c771e8559b89e8fbcc098a60"
 dependencies = [
  "serde",
  "serde_json",
@@ -3274,7 +3276,7 @@ dependencies = [
 [[package]]
 name = "mere-kernel"
 version = "0.0.1"
-source = "git+https://github.com/merely-made/mere.git?rev=032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e#032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e"
+source = "git+https://github.com/merely-made/mere.git?rev=1609cb904766de40c771e8559b89e8fbcc098a60#1609cb904766de40c771e8559b89e8fbcc098a60"
 dependencies = [
  "accesskit",
  "chartulary",
@@ -3301,7 +3303,7 @@ dependencies = [
 [[package]]
 name = "mere-signalman"
 version = "0.0.1"
-source = "git+https://github.com/merely-made/mere.git?rev=032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e#032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e"
+source = "git+https://github.com/merely-made/mere.git?rev=1609cb904766de40c771e8559b89e8fbcc098a60#1609cb904766de40c771e8559b89e8fbcc098a60"
 dependencies = [
  "blake3",
  "castellan",
@@ -3394,7 +3396,7 @@ dependencies = [
 [[package]]
 name = "muniment"
 version = "0.1.1"
-source = "git+https://github.com/merely-made/mere.git?rev=032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e#032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e"
+source = "git+https://github.com/merely-made/mere.git?rev=1609cb904766de40c771e8559b89e8fbcc098a60#1609cb904766de40c771e8559b89e8fbcc098a60"
 dependencies = [
  "async-trait",
  "blake3",
@@ -3547,7 +3549,7 @@ checksum = "0676bb32a98c1a483ce53e500a81ad9c3d5b3f7c920c28c24e9cb0980d0b5bc8"
 [[package]]
 name = "notochord"
 version = "0.1.0"
-source = "git+https://github.com/merely-made/mere.git?rev=032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e#032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e"
+source = "git+https://github.com/merely-made/mere.git?rev=1609cb904766de40c771e8559b89e8fbcc098a60#1609cb904766de40c771e8559b89e8fbcc098a60"
 dependencies = [
  "blake3",
  "personae",
@@ -3666,8 +3668,8 @@ dependencies = [
 
 [[package]]
 name = "numen"
-version = "0.1.1"
-source = "git+https://github.com/merely-made/mere.git?rev=032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e#032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e"
+version = "0.2.0"
+source = "git+https://github.com/merely-made/mere.git?rev=1609cb904766de40c771e8559b89e8fbcc098a60#1609cb904766de40c771e8559b89e8fbcc098a60"
 dependencies = [
  "serde",
  "strum",
@@ -4096,8 +4098,8 @@ dependencies = [
 
 [[package]]
 name = "pandect"
-version = "0.0.1"
-source = "git+https://github.com/merely-made/mere.git?rev=032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e#032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e"
+version = "0.1.0"
+source = "git+https://github.com/merely-made/mere.git?rev=1609cb904766de40c771e8559b89e8fbcc098a60#1609cb904766de40c771e8559b89e8fbcc098a60"
 dependencies = [
  "blake3",
  "chacha20poly1305",
@@ -4249,8 +4251,8 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "personae"
-version = "0.1.1"
-source = "git+https://github.com/merely-made/mere.git?rev=032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e#032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e"
+version = "0.2.0"
+source = "git+https://github.com/merely-made/mere.git?rev=1609cb904766de40c771e8559b89e8fbcc098a60#1609cb904766de40c771e8559b89e8fbcc098a60"
 dependencies = [
  "argon2",
  "blake3",
@@ -4637,7 +4639,7 @@ dependencies = [
 [[package]]
 name = "quint"
 version = "0.0.3"
-source = "git+https://github.com/merely-made/mere.git?rev=032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e#032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e"
+source = "git+https://github.com/merely-made/mere.git?rev=1609cb904766de40c771e8559b89e8fbcc098a60#1609cb904766de40c771e8559b89e8fbcc098a60"
 dependencies = [
  "numen",
  "serde",
@@ -5180,16 +5182,16 @@ dependencies = [
 
 [[package]]
 name = "sceno"
-version = "0.0.3"
-source = "git+https://github.com/merely-made/mere.git?rev=032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e#032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e"
+version = "0.0.4"
+source = "git+https://github.com/merely-made/mere.git?rev=1609cb904766de40c771e8559b89e8fbcc098a60#1609cb904766de40c771e8559b89e8fbcc098a60"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "scenomise"
-version = "0.0.3"
-source = "git+https://github.com/merely-made/mere.git?rev=032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e#032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e"
+version = "0.0.4"
+source = "git+https://github.com/merely-made/mere.git?rev=1609cb904766de40c771e8559b89e8fbcc098a60#1609cb904766de40c771e8559b89e8fbcc098a60"
 dependencies = [
  "sceno",
 ]
@@ -5222,7 +5224,7 @@ dependencies = [
 [[package]]
 name = "seiche"
 version = "0.0.4"
-source = "git+https://github.com/merely-made/mere.git?rev=032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e#032683ae564ee6d27a1d6ab0d453f9e2ed3bd15e"
+source = "git+https://github.com/merely-made/mere.git?rev=1609cb904766de40c771e8559b89e8fbcc098a60#1609cb904766de40c771e8559b89e8fbcc098a60"
 dependencies = [
  "euclid",
  "numen",
@@ -5595,14 +5597,19 @@ dependencies = [
  "linkboy",
  "mere-signalman",
  "muniment",
+ "pandect",
+ "personae",
  "pollster",
+ "postilion",
  "sceno",
  "scenomise",
  "seiche",
+ "serde_json",
  "signalman",
  "sprigging",
  "tempfile",
  "thiserror 2.0.20",
+ "tokio",
  "winit",
 ]
 

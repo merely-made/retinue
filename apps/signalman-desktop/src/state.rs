@@ -194,6 +194,9 @@ pub struct DesktopState {
     pub network_zoom: f32,
     pub selected_relation: Option<ManagementRelationId>,
     pub pending_network: Option<NetworkRequest>,
+    /// Live-station presentation status: connected, or why the actor stopped.
+    /// Facts still arrive only through `apply_management_material`.
+    pub station_notice: Option<String>,
 
     pub message_store: MessageStore,
     pub message_local: Option<MessagePeer>,
@@ -278,6 +281,7 @@ impl DesktopState {
             network_zoom: 1.0,
             selected_relation: None,
             pending_network: None,
+            station_notice: None,
             message_store: MessageStore::memory("signalman-local"),
             message_local: None,
             message_recipient: cambium::TextInput::default(),
@@ -710,6 +714,36 @@ impl DesktopState {
         receipt
     }
 
+    /// Apply one live-station observation. Snapshots project under the
+    /// owner's current stale policy and enter through the same
+    /// `apply_management_material` door as every other source; the other
+    /// variants only update the presentation status line.
+    pub fn apply_station_event(&mut self, event: crate::station::StationEvent) {
+        match event {
+            crate::station::StationEvent::Connected {
+                name,
+                port,
+                expires_at_ms: _,
+            } => {
+                self.station_notice = Some(format!("Station \u{201c}{name}\u{201d} is live on {port}."));
+            }
+            crate::station::StationEvent::Snapshot {
+                snapshot,
+                captured_unix_ms,
+            } => {
+                let material = signalman::management::project_management(
+                    &snapshot,
+                    captured_unix_ms,
+                    self.stale_policy(),
+                );
+                self.apply_management_material(&material);
+            }
+            crate::station::StationEvent::Failed { message } => {
+                self.station_notice = Some(message);
+            }
+        }
+    }
+
     pub fn network_projection(&self) -> DeviceProjection {
         let mut projection = self.device_mere.projection();
         if self.management_settings.show_last_known {
@@ -807,9 +841,9 @@ impl DesktopState {
         self.network_zoom = 1.0;
     }
 
-    /// The stale policy a future station-snapshot lease must pass to
-    /// `project_management`. The current exact Mere pin exposes no such lease,
-    /// so this remains an explicit source-side seam rather than fake live data.
+    /// The stale policy the live station path passes to `project_management`.
+    /// The pinned Mere revision exposes the lease-checked snapshot getter, and
+    /// `apply_station_event` applies this policy at each capture.
     pub fn stale_policy(&self) -> StalePolicy {
         StalePolicy {
             after: Duration::from_secs(u64::from(self.management_settings.stale_age_minutes) * 60),

@@ -23,6 +23,7 @@ pub mod flow;
 pub mod messages;
 pub mod network;
 pub mod state;
+pub mod station;
 pub mod survey;
 pub mod theme;
 pub mod views;

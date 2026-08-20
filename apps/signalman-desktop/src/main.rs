@@ -14,6 +14,7 @@ use signalman::management::ManagementPresence;
 use signalman_desktop::audio::{self, AudioEvent, AudioOperation, AudioWorker};
 use signalman_desktop::network::{LayoutWake, NETWORK_LEAF_KEY, NetworkWorker};
 use signalman_desktop::state::{AudioRequest, DesktopState, NetworkRequest};
+use signalman_desktop::station::{self, StationWorker};
 use signalman_desktop::views::{Child, Logic};
 use signalman_desktop::worker::Worker;
 use signalman_desktop::{
@@ -89,6 +90,9 @@ fn main() {
     let audio = Rc::new(RefCell::new(None::<AudioWorker>));
     let wake_audio = audio.clone();
     let dispatch_audio = audio.clone();
+    let station = Rc::new(RefCell::new(None::<StationWorker>));
+    let wake_station = station.clone();
+    let init_station = station.clone();
     let last_leaf = Rc::new(RefCell::new(None));
     let frame_leaf = last_leaf.clone();
 
@@ -141,7 +145,16 @@ fn main() {
                 .as_ref()
                 .map(AudioWorker::drain)
                 .unwrap_or_default();
-            if messages.is_empty() && layout.is_none() && audio_events.is_empty() {
+            let station_events = wake_station
+                .borrow()
+                .as_ref()
+                .map(StationWorker::drain)
+                .unwrap_or_default();
+            if messages.is_empty()
+                && layout.is_none()
+                && audio_events.is_empty()
+                && station_events.is_empty()
+            {
                 return;
             }
             let mut network_request = None;
@@ -154,6 +167,9 @@ fn main() {
                 }
                 for event in audio_events {
                     state.apply_audio_event(event);
+                }
+                for event in station_events {
+                    state.apply_station_event(event);
                 }
                 network_request = state.take_network_request();
             });
@@ -215,8 +231,19 @@ fn main() {
     };
     run(
         options,
-        |_window, _commands, _wake| {
+        move |_window, _commands, wake| {
             let mut state = DesktopState::new(&default_catalog_path());
+            // The live station is a bench activation for now: it starts only
+            // when SIGNALMAN_STATION_PORT names a running Retinue board. The
+            // actor's events land in after_wake like every other worker's.
+            if let Some(settings) = station::settings_from_env() {
+                state.station_notice = Some(format!(
+                    "Connecting station \u{201c}{}\u{201d} on {}\u{2026}",
+                    settings.name, settings.port
+                ));
+                *init_station.borrow_mut() =
+                    Some(StationWorker::spawn(settings, wake.callback()));
+            }
             match MessageStore::open(default_message_store_path(), "signalman-local") {
                 Ok(store) => state.replace_message_store(store),
                 Err(error) => {

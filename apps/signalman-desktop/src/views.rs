@@ -700,6 +700,15 @@ fn network_page(state: &DesktopState) -> Child {
     } else {
         Box::new(el("div", ()).attr("class", "empty-none"))
     };
+    let station: Child = if let Some(notice) = &state.station_notice {
+        Box::new(
+            el("div", text(notice.clone()))
+                .attr("class", "station-status")
+                .attr("role", "status"),
+        )
+    } else {
+        Box::new(el("div", ()).attr("class", "station-status-none"))
+    };
     let settings = &state.management_settings;
     let label_action = match settings.label_density {
         LabelDensity::Hidden => "Show node labels",
@@ -836,6 +845,7 @@ fn network_page(state: &DesktopState) -> Child {
                 )
                 .attr("class", "management-settings")
                 .attr("aria-label", "Network settings"),
+                station,
                 empty,
                 el("div", canvas).attr("class", "network-canvas"),
                 el(
