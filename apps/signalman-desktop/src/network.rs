@@ -318,6 +318,9 @@ pub fn swatch_from_projection(
                 to: ids_by_key.get(&relation.to)?.clone(),
                 kind: relation.fact.kind.vocabulary().to_owned(),
                 label: relation.fact.label.clone(),
+                // No authored polyline: the canvas derives the straight route
+                // between the two endpoints and fans siblings itself.
+                route: Vec::new(),
                 visible: true,
                 emphasized: false,
             })

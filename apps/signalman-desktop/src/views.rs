@@ -686,6 +686,8 @@ fn network_page(state: &DesktopState) -> Child {
             }
             GraphCanvasEvent::RelationActivate(id) => s.select_network_relation(&id),
             GraphCanvasEvent::Expand => {}
+            GraphCanvasEvent::Pan { delta } => s.pan_network(delta.0, delta.1),
+            GraphCanvasEvent::Zoom { factor } => s.zoom_network(factor),
         },
     ));
     let empty: Child = if projection.nodes.is_empty() {

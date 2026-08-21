@@ -44,12 +44,12 @@ linkboy = { version = "0.1.0", path = "../linkboy" }
 # revision. A branch dep would make a Signalman build depend on whatever genet
 # happened to have pushed; the exact rev is the reproducible private route the
 # packaging decision calls for. Bump it deliberately, with a receipt.
-cambium = { git = "https://github.com/merely-made/genet.git", rev = "d47a17bf65ceafada26e4c15c9afcce6c18c17f9" }
-cambium-genet-winit-host = { git = "https://github.com/merely-made/genet.git", rev = "d47a17bf65ceafada26e4c15c9afcce6c18c17f9" }
-genet-probe = { git = "https://github.com/merely-made/genet.git", rev = "d47a17bf65ceafada26e4c15c9afcce6c18c17f9" }
-genet-scripted-dom = { git = "https://github.com/merely-made/genet.git", rev = "d47a17bf65ceafada26e4c15c9afcce6c18c17f9", version = "=0.1.0" }
-layout-dom-api = { git = "https://github.com/merely-made/genet.git", rev = "d47a17bf65ceafada26e4c15c9afcce6c18c17f9", version = "=0.1.0" }
-sprigging = { git = "https://github.com/merely-made/genet.git", rev = "d47a17bf65ceafada26e4c15c9afcce6c18c17f9" }
+cambium = { git = "https://github.com/merely-made/genet.git", rev = "95659afa0fc6f54b29f92844278eeba18c78eded" }
+cambium-genet-winit-host = { git = "https://github.com/merely-made/genet.git", rev = "95659afa0fc6f54b29f92844278eeba18c78eded" }
+genet-probe = { git = "https://github.com/merely-made/genet.git", rev = "95659afa0fc6f54b29f92844278eeba18c78eded" }
+genet-scripted-dom = { git = "https://github.com/merely-made/genet.git", rev = "95659afa0fc6f54b29f92844278eeba18c78eded", version = "=0.1.0" }
+layout-dom-api = { git = "https://github.com/merely-made/genet.git", rev = "95659afa0fc6f54b29f92844278eeba18c78eded", version = "=0.1.0" }
+sprigging = { git = "https://github.com/merely-made/genet.git", rev = "95659afa0fc6f54b29f92844278eeba18c78eded" }
 winit = "0.30"
 cpal = "=0.18.2"
 
@@ -91,9 +91,13 @@ getrandom = "0.3"
 # table does not inherit through a git dep. These are the two vendored forks
 # plus the Stylo-rename adapter, taken from genet.git at the same revision.
 [patch.crates-io]
-stylo_taffy = { git = "https://github.com/merely-made/genet.git", rev = "d47a17bf65ceafada26e4c15c9afcce6c18c17f9" }
-taffy = { git = "https://github.com/merely-made/genet.git", rev = "d47a17bf65ceafada26e4c15c9afcce6c18c17f9" }
-ipc-channel = { git = "https://github.com/merely-made/genet.git", rev = "d47a17bf65ceafada26e4c15c9afcce6c18c17f9" }
+# Upstream vello 0.10 still requires wgpu 29; genet unifies the stack on wgpu
+# 30 through this fork (see genet's own [patch.crates-io] note). Pinned to the
+# exact revision genet's lock resolves, so both graphs share one wgpu.
+vello = { git = "https://github.com/mark-ik/vello.git", rev = "4354955e9d8637f32b7c78b20af2a58f842ba39e" }
+stylo_taffy = { git = "https://github.com/merely-made/genet.git", rev = "95659afa0fc6f54b29f92844278eeba18c78eded" }
+taffy = { git = "https://github.com/merely-made/genet.git", rev = "95659afa0fc6f54b29f92844278eeba18c78eded" }
+ipc-channel = { git = "https://github.com/merely-made/genet.git", rev = "95659afa0fc6f54b29f92844278eeba18c78eded" }
 
 # mere-signalman names Retinue from an exact Git revision so its own manifest
 # works in a clean Mere checkout. Redirect that source to this workspace: the
