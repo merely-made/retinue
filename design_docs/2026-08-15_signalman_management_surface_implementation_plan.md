@@ -415,6 +415,26 @@ disconnected. This is a concrete software consumption of the sealed authority,
 not a headed or physical receipt. The microphone, propagation/fetch, second
 site, and audible-output run remains the final S5 gate.
 
+**Direct-radio hardening and headed receipt, 2026-08-21:** two fresh sealed
+station heads drove the shipping desktop over a Heltec V4 on COM7 and a T114
+on COM10. The qualified 512-byte direct-PHY Resource control passed first. The
+first headed message was authenticated and persisted by the receiver, but the
+sender timed out after serving all ten requested parts because the receiver's
+single completion proof did not return over RF. Postilion now derives Resource
+retry timing from the selected Tulle profile, requests one part per half-duplex
+turn, and gives the whole transfer a caller-configurable 120-second default
+deadline. Retinue queues a bounded set of identical completion proofs before
+releasing the receiver session; a deterministic endpoint test drops the first
+proof and requires the replay to complete the publish.
+
+The rebuilt desktops then carried `receipt1` from V4 to T114 and `receipt2`
+from T114 to V4. Both senders reached `handed to radio`; both receivers reported
+`Authenticated message received and persisted` and replayed the exact payload
+from their separate redb logs. This closes the headed direct-text prerequisite
+without promoting a transport receipt to delivery. It does not close S5: this
+run did not record through the microphone, submit through a propagation node,
+fetch at the second site, or establish audible playback.
+
 ### S6. Owner placement and Atlas
 
 **Writes:** `repos/mere/ports/signalman/**`, Signalman's `map.rs` adapter, and

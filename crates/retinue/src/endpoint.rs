@@ -117,6 +117,11 @@ const MIN_LINK_MTU: u32 = 247;
 /// realistic early loss without ever spinning.
 const IDENTIFY_MAX_SENDS: u32 = 4;
 
+/// How many copies of a completed Resource receipt are queued before the receiving call
+/// returns. Resource proofs have no acknowledgement of their own, so a single lost proof
+/// otherwise leaves the publisher waiting after the receiver has already recovered the data.
+const RESOURCE_PROOF_MAX_SENDS: u32 = 4;
+
 /// How long [`Endpoint::open`] waits for a link proof before giving up. Multi-hop setup can
 /// be slow, so this is generous; it exists to bound a setup that will otherwise never
 /// complete (a peer that never proves) rather than to hang the caller forever.
@@ -482,8 +487,9 @@ impl ResourceSession {
                         for outbound in receiver.on_packet(&packet, next_iv) {
                             shared.send_on(iface, outbound);
                         }
-                        if let Some(data) = receiver.data() {
-                            return Ok(data.to_vec());
+                        if let Some(data) = receiver.data().map(|data| data.to_vec()) {
+                            queue_resource_proof_replays(&shared, iface, &mut receiver);
+                            return Ok(data);
                         } else if receiver.is_canceled() {
                             return Err(io::Error::new(
                                 io::ErrorKind::ConnectionAborted,
@@ -553,8 +559,9 @@ impl ResourceSession {
                         for outbound in receiver.on_packet(&packet, next_iv) {
                             shared.send_on(iface, outbound);
                         }
-                        if let Some(data) = receiver.data() {
-                            return Ok((identified, ReceivedPayload::Resource(data.to_vec())));
+                        if let Some(data) = receiver.data().map(|data| data.to_vec()) {
+                            queue_resource_proof_replays(&shared, iface, &mut receiver);
+                            return Ok((identified, ReceivedPayload::Resource(data)));
                         } else if receiver.is_canceled() {
                             return Err(io::Error::new(
                                 io::ErrorKind::ConnectionAborted,
@@ -758,8 +765,8 @@ impl ResourceSession {
                         for outbound in receiver.on_packet(&packet, next_iv) {
                             shared.send_on(iface, outbound);
                         }
-                        if let Some(bytes) = receiver.data() {
-                            let packed = bytes.to_vec();
+                        if let Some(packed) = receiver.data().map(|bytes| bytes.to_vec()) {
+                            queue_resource_proof_replays(&shared, iface, &mut receiver);
                             let response_id = Response::request_id(&packed).map_err(|_| {
                                 io::Error::new(
                                     io::ErrorKind::InvalidData,
@@ -809,6 +816,24 @@ impl Drop for ResourceSession {
         self.shared
             .send_on(self.iface, self.link.close_packet(&next_iv()));
         self.shared.end_resource();
+    }
+}
+
+/// Queue bounded duplicate receipts while the resource link is still registered.
+///
+/// The first receipt was emitted by [`ResourceReceiver::on_packet`]. These copies are
+/// deliberately queued rather than awaited: the interface owns physical pacing, while the
+/// application can persist and surface the already-verified payload without an artificial
+/// retry-delay pause.
+fn queue_resource_proof_replays(
+    shared: &Shared,
+    iface: InterfaceId,
+    receiver: &mut ResourceReceiver,
+) {
+    for _ in 1..RESOURCE_PROOF_MAX_SENDS {
+        for proof in receiver.retransmit(next_iv) {
+            shared.send_on(iface, proof);
+        }
     }
 }
 
