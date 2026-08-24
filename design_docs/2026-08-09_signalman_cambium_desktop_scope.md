@@ -629,6 +629,20 @@ Signalman library test, five accessibility tests, and twelve owner-flow tests)
 without a command-local source override. This replaces the former
 `398e4af60` consumer pin, which remains historical G2/accessibility context.
 
+**Correction 2026-08-23:** the eighteen-test claim above did not hold when it
+was written. `the_review_page_and_a_refusal_are_both_announced` and
+`the_transfer_bar_reports_a_value` both already existed at `76cbae5`, and the
+projection has never carried either assertion: `role_for` in genet's
+`components/genet-render/src/a11y.rs` had no `alert` role, and nothing on the
+DOM accessibility path read `aria-valuenow`. That is equally true at `d47a17b`,
+at `95659afa0`, at `b9457041`, and at genet HEAD, so no pin moves it. Sixteen
+of the eighteen passed. The paragraph above is kept as written because it
+records what was believed at the time; this is a correction, not a rewrite.
+The gap is now closed in genet -- `role_for` maps `alert`, and the walk reads
+`aria-valuenow`, `aria-valuemin`, and `aria-valuemax`, each covered by a test
+-- but Signalman is deliberately not repinned onto that revision, so both
+tests still fail here.
+
 **Consumer revision receipt 2026-08-23:** The pin moved twice after the
 paragraph above, each time without the locked consumer receipt this section
 requires: to `95659afa0` on 2026-08-20 (`c630930`), and to
