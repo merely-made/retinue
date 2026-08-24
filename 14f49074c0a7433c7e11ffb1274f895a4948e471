@@ -1,0 +1,18 @@
+Message understates what this commit carried.
+
+Besides design_docs/DOC_POLICY.md (+139, the canonical policy core, the
+only part this session authored) it also swept two files belonging to
+concurrent work in this repo:
+
+  crates/retinue/oracle/flake_census.py        +33 -8
+  design_docs/2026-07-31_retinue_small_plan.md +12 -2
+
+Both were modified at 17:59 and 18:03 on 2026-08-24, minutes before the
+commit, by a session still working in this tree. They were swept because
+the committing session read git status several minutes earlier and did
+not re-read it immediately before staging.
+
+No content was lost or reverted: the working tree was untouched by the
+commit and that session can continue and commit forward as normal. This
+note exists because the subject line advertises a documentation change
+and hides a code change, and git log --oneline shows only the subject.
