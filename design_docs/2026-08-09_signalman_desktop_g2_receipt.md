@@ -21,13 +21,20 @@ strictly: the default build, the lockfile, and CI are untouched.
 cargo test --manifest-path apps/signalman-desktop/Cargo.toml
 ```
 
-Genet comes in **at an exact revision, not a branch**:
-`d47a17bf65ceafada26e4c15c9afcce6c18c17f9`. The original G2 pin was
+Genet comes in **at an exact revision, not a branch**. This receipt was taken
+at `d47a17bf65ceafada26e4c15c9afcce6c18c17f9`. The original G2 pin was
 `398e4af60`: the extraction commit `246f0f1e7` predates the four routing fixes;
 `e4920aad6` adds the ARIA roles this application's accessibility receipt turned
-up; and `398e4af60` carries the accessible-label repair this face needs. The
-current pin retains that history and adds the G5 host wake/close API. Bump it
+up; and `398e4af60` carries the accessible-label repair this face needs. That
+revision retained that history and added the G5 host wake/close API. Bump it
 deliberately, with a locked consumer receipt.
+
+**Superseded 2026-08-23:** the manifest has moved twice past this receipt's
+revision, to `95659afa0` on 2026-08-20 (`c630930`) and to
+`b9457041f9db11d78353a65c20db38eb393f4ae7` on 2026-08-21 (`506683e`), neither
+carrying the locked consumer receipt this paragraph asks for. That receipt was
+taken on 2026-08-23; see G5.3 of the Cambium desktop scope for it and for the
+stale-catalog defect it surfaced.
 
 `signalman` and `linkboy` come in by relative path. That is not a cross-checkout
 dependency — they are in this repository.

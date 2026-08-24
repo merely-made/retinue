@@ -629,6 +629,43 @@ Signalman library test, five accessibility tests, and twelve owner-flow tests)
 without a command-local source override. This replaces the former
 `398e4af60` consumer pin, which remains historical G2/accessibility context.
 
+**Consumer revision receipt 2026-08-23:** The pin moved twice after the
+paragraph above, each time without the locked consumer receipt this section
+requires: to `95659afa0` on 2026-08-20 (`c630930`), and to
+`b9457041f9db11d78353a65c20db38eb393f4ae7` on 2026-08-21 (`506683e`). Taking
+that receipt at `b9457041` failed: `cargo test --manifest-path
+apps/signalman-desktop/Cargo.toml --locked --offline` failed 15 of 48 tests,
+all thirteen owner-flow tests and two of five accessibility ones. The pin was
+not the cause. `43c4c91` (2026-08-20) rebuilt
+`firmware/heltec-v4-phy/tulle-heltec-v4-phy` from changed source, 4192412 to
+4190796 bytes, without regenerating `firmware/packages/heltec-v4-current.toml`.
+The repository's own catalog therefore failed verification, and every
+owner-flow test asserts that catalog at setup. The pre-`43c4c91` blob hashes to
+exactly the manifest's recorded `7f5680ee`, which fixes that manifest to the
+pre-rebuild binary rather than to any later one.
+
+Regenerating the payload block against the current binary restores the catalog:
+`byte_length = 4190796`, `sha256 = bd2e59a5...`, and `write_bytes = 191024`,
+the application image espflash 4.5.0 reports for that ELF. The suite is now 46
+of 48. Owner-flow is thirteen of thirteen. The two remaining accessibility
+failures are independent of both the manifest and the pin: they reproduce
+unchanged with `write_bytes` set to `byte_length`.
+`the_review_page_and_a_refusal_are_both_announced` finds no `Role::Alert` for a
+refusal, and `the_transfer_bar_reports_a_value` projects no numeric value where
+the transfer bar should carry 50.0. Both are open, and this scope's
+accessibility claim does not hold while they fail.
+
+The former `write_bytes = 4191528` never matched its documented meaning:
+espflash reports the pre-rebuild ELF's application image as 191456 bytes, so
+the owner's transfer total overstated the write by roughly twenty-two times. It
+also exceeded the rebuilt binary's `byte_length`, which `validate_part` rejects
+outright, so the stale manifest was doubly invalid.
+
+Run this suite with `-j 1` on a loaded machine. Concurrent builds here pushed
+commit charge to 41 GB against a 49 GB limit; rustc then fails to mmap the
+1.69 GB `libgenet_probe` rlib with os error 1455 and reports roughly thirty
+spurious internal compiler errors that read as a code defect and are not one.
+
 **Woodshed receipt 2026-08-14:** The three vendor-patch declarations
 (`stylo_taffy`, `taffy`, and `ipc-channel`) now take Genet `branch = "main"`
 rather than sibling paths. A clean checkout without Woodshed's local path
@@ -674,10 +711,15 @@ better consumer one and it can be migrated before Signalman rather than after.
 5. ~~Produce the headless, semantic, headed, and accessibility receipts.~~
    **Done 2026-08-19.** The owner confirmed the staged Windows screen-reader
    pass after the automated and headed accessibility receipts.
-6. ~~Complete G5.1 through G5.3: host wake and close disposition,
-   Signalman-owned installation, and consumer revisions.~~ **Done 2026-08-14.**
-   Signalman is exact-pinned at the G5 host revision; Woodshed's moving-main
-   lockfile records the clean single-graph matrix.
+6. Complete G5.1 through G5.3: host wake and close disposition,
+   Signalman-owned installation, and consumer revisions. **G5.3 done
+   2026-08-14, re-receipted 2026-08-23** at
+   `b9457041f9db11d78353a65c20db38eb393f4ae7`, which is the current pin rather
+   than the 2026-08-14 one; Woodshed's moving-main lockfile records the clean
+   single-graph matrix. **G5.1 and G5.2 remain open:** the headed
+   hidden-and-restored Windows receipt and the headed minimize-and-restore run
+   are both still unrecorded, and two accessibility tests fail. Do not restrike
+   this item until all four hold.
 7. ~~Run the manual accessibility pass, then G4 on V4, then T114 when hardware
    is available.~~ **Done 2026-08-19.**
 8. With both consumers proven, decide the host's stable API and release story —

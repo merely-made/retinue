@@ -52,9 +52,9 @@ archive_url = "https://github.com/esp-rs/espflash/releases/download/v4.5.0/espfl
 [payload]
 path = "../heltec-v4-phy/tulle-heltec-v4-phy"
 format = "espflash-elf"
-byte_length = 4192412
-sha256 = "7f5680ee0eb9a8d3a68eda62cd7f47b098ecb24f8096ce10d0f536a2d175fa7a"
-write_bytes = 4191528
+byte_length = 4190796
+sha256 = "bd2e59a53bdc31d23a932a9cc219a0070cc32c6d5aac650a561faacfffc7b517"
+write_bytes = 191024
 
 [[targets]]
 family = "heltec-v4"
