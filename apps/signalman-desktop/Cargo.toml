@@ -44,12 +44,12 @@ linkboy = { version = "0.1.0", path = "../linkboy" }
 # revision. A branch dep would make a Signalman build depend on whatever genet
 # happened to have pushed; the exact rev is the reproducible private route the
 # packaging decision calls for. Bump it deliberately, with a receipt.
-cambium = { git = "https://github.com/merely-made/genet.git", rev = "b9457041f9db11d78353a65c20db38eb393f4ae7" }
-cambium-genet-winit-host = { git = "https://github.com/merely-made/genet.git", rev = "b9457041f9db11d78353a65c20db38eb393f4ae7" }
-genet-probe = { git = "https://github.com/merely-made/genet.git", rev = "b9457041f9db11d78353a65c20db38eb393f4ae7" }
-genet-scripted-dom = { git = "https://github.com/merely-made/genet.git", rev = "b9457041f9db11d78353a65c20db38eb393f4ae7", version = "=0.1.0" }
-layout-dom-api = { git = "https://github.com/merely-made/genet.git", rev = "b9457041f9db11d78353a65c20db38eb393f4ae7", version = "=0.1.0" }
-sprigging = { git = "https://github.com/merely-made/genet.git", rev = "b9457041f9db11d78353a65c20db38eb393f4ae7" }
+cambium = { git = "https://github.com/merely-made/genet.git", rev = "5ec8274ed21cecb6066c814e996e9283348de458" }
+cambium-genet-winit-host = { git = "https://github.com/merely-made/genet.git", rev = "5ec8274ed21cecb6066c814e996e9283348de458" }
+genet-probe = { git = "https://github.com/merely-made/genet.git", rev = "5ec8274ed21cecb6066c814e996e9283348de458" }
+genet-scripted-dom = { git = "https://github.com/merely-made/genet.git", rev = "5ec8274ed21cecb6066c814e996e9283348de458", version = "=0.1.0" }
+layout-dom-api = { git = "https://github.com/merely-made/genet.git", rev = "5ec8274ed21cecb6066c814e996e9283348de458", version = "=0.1.0" }
+sprigging = { git = "https://github.com/merely-made/genet.git", rev = "5ec8274ed21cecb6066c814e996e9283348de458" }
 winit = "0.30"
 cpal = "=0.18.2"
 
@@ -96,8 +96,8 @@ getrandom = "0.3"
 # 30 through this fork (see genet's own [patch.crates-io] note). Pinned to the
 # exact revision genet's lock resolves, so both graphs share one wgpu.
 vello = { git = "https://github.com/mark-ik/vello.git", rev = "4354955e9d8637f32b7c78b20af2a58f842ba39e" }
-taffy = { git = "https://github.com/merely-made/genet.git", rev = "b9457041f9db11d78353a65c20db38eb393f4ae7" }
-ipc-channel = { git = "https://github.com/merely-made/genet.git", rev = "b9457041f9db11d78353a65c20db38eb393f4ae7" }
+taffy = { git = "https://github.com/merely-made/genet.git", rev = "5ec8274ed21cecb6066c814e996e9283348de458" }
+ipc-channel = { git = "https://github.com/merely-made/genet.git", rev = "5ec8274ed21cecb6066c814e996e9283348de458" }
 
 # mere-signalman names Retinue from an exact Git revision so its own manifest
 # works in a clean Mere checkout. Redirect that source to this workspace: the
