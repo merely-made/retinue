@@ -8,9 +8,9 @@ between the two implementations.
 
 The three cases are:
 
-* stock RNS 1.4.2 <-> Retinue (the control pairing),
+* stock RNS 1.5.0 <-> Retinue (the control pairing),
 * pinned Prns <-> Retinue, and
-* pinned Prns <-> stock RNS 1.4.2.
+* pinned Prns <-> stock RNS 1.5.0.
 
 Each case proves an announce in both directions.  A localhost relay writes one
 raw stream per direction and the result manifest records its SHA-256, the exact
@@ -20,12 +20,12 @@ fixtures for CI.
 
 Run from ``crates/retinue/oracle`` after building the pinned Prns daemon:
 
-    cargo build --manifest-path ..\\..\\..\\..\\Prns\\prnsd\\Cargo.toml -p prnsd \\
+    cargo build --manifest-path ..\\..\\..\\..\\..\\crates\\prns\\prnsd\\Cargo.toml -p prnsd \\
         --no-default-features --features tokio-host,observability
     .\\.venv\\Scripts\\python.exe -u peer_matrix.py
 
 ``--prns-root`` selects a clean Prns worktree and ``--prnsd`` selects its
-daemon executable explicitly.  Otherwise the driver uses ``repos/Prns`` and
+daemon executable explicitly.  Otherwise the driver uses ``crates/prns`` and
 looks for its normal debug artifact locations.  It rejects a Prns tree whose
 commit is not H8's pinned revision or whose working tree is dirty, preserving
 the independent-process claim.
@@ -55,7 +55,11 @@ import RNS
 HERE = Path(__file__).resolve().parent
 RETINUE_CRATE = HERE.parent
 RETINUE_REPO = RETINUE_CRATE.parents[1]
-PRNS_ROOT = RETINUE_REPO.parent / "Prns"
+WORKSPACE_ROOT = RETINUE_REPO.parents[1]
+# Prns is a fork of someone else's crate, so the workspace keeps it under
+# ``crates/`` rather than ``repos/``.  This default read ``repos/Prns``
+# until 2026-08-23, by which point that path resolved nowhere.
+PRNS_ROOT = WORKSPACE_ROOT / "crates" / "prns"
 PINNED_PRNS_REVISION = "72b6b30d27cac910ce20d370e1dc711fe9b95955"
 
 RETINUE_ASPECT = "retinue.interop"
@@ -842,7 +846,7 @@ def main() -> int:
     if prnsd is None:
         print("peer matrix: no prnsd executable found", file=sys.stderr)
         print(
-            "build it with: cargo build --manifest-path C:\\Users\\mark_\\Code\\repos\\Prns\\prnsd\\Cargo.toml "
+            f"build it with: cargo build --manifest-path {PRNS_ROOT / 'prnsd' / 'Cargo.toml'} "
             "-p prnsd --no-default-features --features tokio-host,observability",
             file=sys.stderr,
         )

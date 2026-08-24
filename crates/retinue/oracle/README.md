@@ -166,11 +166,23 @@ this checkout Cargo uses `C:\t\graphshell-target`; prebuilt Retinue examples
 there are used when present so an unrelated workspace build cannot stall a
 receipt. Otherwise the driver falls back to `cargo run`.
 
+The peer daemon **must be built from inside the peer worktree**, not from here.
+Prns pins a 256 MiB Windows stack in its own `.cargo/config.toml`, and Cargo reads
+that file relative to the working directory rather than to `--manifest-path`.
+
 ```powershell
 $peer = "$env:TEMP\retinue-peer-prns-72b6b30d"
-git -C C:\Users\mark_\Code\repos\Prns worktree add --detach $peer 72b6b30d27cac910ce20d370e1dc711fe9b95955
+git -C C:\Users\mark_\Code\crates\prns worktree add --detach $peer 72b6b30d27cac910ce20d370e1dc711fe9b95955
 $env:CARGO_TARGET_DIR = "$env:TEMP\retinue-peer-prns-target"
+# Build from inside $peer.  Cargo resolves .cargo/config.toml from the working
+# directory, not from --manifest-path, and Prns's own config carries
+# link-arg=/STACK:268435456 for windows-msvc.  Built from anywhere else that
+# setting is silently dropped, and the daemon overflows the default 1 MiB stack
+# before it can parse an argument -- `prnsd --version` dies and the matrix
+# aborts on its first peer call.
+Push-Location $peer
 cargo build --manifest-path "$peer\prnsd\Cargo.toml" -p prnsd --no-default-features --features tokio-host,observability
+Pop-Location
 
 .\.venv\Scripts\python.exe -u .\peer_matrix.py `
   --prns-root $peer `

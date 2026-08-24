@@ -65,11 +65,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let our_id = PrivateIdentity::from_secret_bytes(&OUR_SEED);
     let our_name = DestinationName::new("retinue", ["svc"]);
     let our_dest = our_name.destination_hash(our_id.public());
-    send(
-        &mut iface,
-        &announce::build(&our_id, our_name.name_hash(), &rh(), None, b"svc"),
-    )
-    .await;
+    let our_announce = announce::build(&our_id, our_name.name_hash(), &rh(), None, b"svc");
 
     // --- Direction 1: retinue -> RNS request.
     let peer = *PrivateIdentity::from_secret_bytes(&DEST_SEED).public();
@@ -83,18 +79,66 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             mtu: 500,
         },
     );
-    send(&mut iface, &request).await;
 
-    let out_link = loop {
-        match tokio::time::timeout(Duration::from_secs(10), iface.recv()).await {
-            Err(_) => {
-                println!("TIMEOUT proof");
-                return Ok(());
+    // Neither the announce nor the link request is acknowledged, and `accept` returning does
+    // not mean the peer can receive them: the gate builds its Reticulum instance, its
+    // destination and its announce handler only *after* the TCP connection lands. Sending
+    // each once behind a fixed 250 ms guess loses that race often enough to matter. A 120-run
+    // census of this gate put every failure into one of two shapes, and both are that race:
+    // RNS never saw our /svc announce, so it never opened direction 2; or our link request
+    // drew no proof and we gave up at the 10 s mark having sent it exactly once.
+    //
+    // So resend both until the proof lands, which is what any stack does with an
+    // unacknowledged request, rather than guessing a delay long enough for the worst case.
+    //
+    // The wait also has to answer RNS while it runs. The previous loop discarded every packet
+    // that was not a proof, so an inbound link request for our own destination -- which RNS
+    // sends as soon as it sees the announce, quite possibly before it proves ours -- was
+    // dropped on the floor, and direction 2 then had no link to arrive on.
+    let mut resp_link: Option<retinue::link::Link> = None;
+    let proof_deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    let mut established: Option<retinue::link::Link> = None;
+
+    while established.is_none() && tokio::time::Instant::now() < proof_deadline {
+        send(&mut iface, &our_announce).await;
+        send(&mut iface, &request).await;
+
+        let attempt_until =
+            (tokio::time::Instant::now() + Duration::from_millis(1000)).min(proof_deadline);
+        while tokio::time::Instant::now() < attempt_until {
+            let left = attempt_until.saturating_duration_since(tokio::time::Instant::now());
+            match tokio::time::timeout(left, iface.recv()).await {
+                Err(_) => break,
+                Ok(Err(_)) => continue,
+                Ok(Ok(p)) if p.packet_type == PacketType::Proof => {
+                    established = Some(pending.prove(&p)?);
+                    break;
+                }
+                Ok(Ok(p))
+                    if resp_link.is_none()
+                        && p.packet_type == PacketType::LinkRequest
+                        && p.destination == our_dest =>
+                {
+                    let (l, proof) = link::accept(
+                        &p,
+                        &our_id,
+                        &OUR_EPHEMERAL,
+                        LinkTrailer {
+                            mode: LinkMode::Aes256Cbc,
+                            mtu: 500,
+                        },
+                    )?;
+                    send(&mut iface, &proof).await;
+                    resp_link = Some(l);
+                }
+                Ok(Ok(_)) => continue,
             }
-            Ok(Err(_)) => continue,
-            Ok(Ok(p)) if p.packet_type == PacketType::Proof => break pending.prove(&p)?,
-            Ok(Ok(_)) => continue,
         }
+    }
+
+    let Some(out_link) = established else {
+        println!("TIMEOUT proof");
+        return Ok(());
     };
     send(&mut iface, &out_link.rtt_packet(0.05, &iv(1))).await;
     tokio::time::sleep(Duration::from_millis(400)).await;
@@ -106,7 +150,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("SENT_REQUEST id={request_id}");
 
     // Meanwhile, act as responder for RNS's inbound link + request.
-    let mut resp_link: Option<retinue::link::Link> = None;
     let mut direction1_done = false;
     let mut direction2_done = false;
 
