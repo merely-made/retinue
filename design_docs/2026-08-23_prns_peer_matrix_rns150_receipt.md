@@ -66,6 +66,30 @@ here because they are part of the sample, not as independent receipts.
 Result directories are intentionally gitignored: they hold transient identities,
 ports, and raw captures.
 
+### Machine load, and why it does not weaken this
+
+Every run here was taken on a heavily contended machine: roughly 54 `rustc` and
+14 `cargo` processes against 16 logical cores, about 3.4x oversubscribed, with
+other sessions building continuously throughout. That is recorded because the
+live-gate flake lane establishes that **rates** measured under uncontrolled load
+are not comparable with rates measured on a quiet box, and someone reading both
+documents should not carry that doubt across to this one by default.
+
+It does not transfer, for two reasons.
+
+A pass under contention is **stronger** evidence than a pass on an idle machine,
+not weaker. Load can manufacture failures in timing-sensitive localhost
+networking; it cannot manufacture a successful announce validation. Thirty-five
+of thirty-five case executions succeeded under adverse timing.
+
+More importantly, the substantive claim here is not a rate. It is that the
+unstuffed capture lengths are invariant at 185, 376, and 199 across both pins.
+That is a property of packet **content** -- what bytes the implementations put on
+the wire -- and is independent of when those bytes arrive. Scheduling pressure
+cannot change how many bytes an announce serialises to.
+
+The load caveat applies to rates. It does not apply to invariants.
+
 | Case | Result | Receipt |
 | --- | --- | --- |
 | Retinue and stock RNS | Pass 7/7 | Announce validated in both directions on every run. |
