@@ -2022,6 +2022,13 @@ IFAC will see half loss and should not chase it as a radio problem.
 `interop_ifac` in both directions; all crate suites green; the IFAC fixture is
 byte-identical to its 1.3.8 capture.
 
+> **Amended 2026-08-24 (FLK5).** The gate count above is a single clean run and
+> is weaker evidence than it reads as. The live suite flakes: measured per gate,
+> `interop_reqresp` failed 4 of 30 standalone runs, and a full twelve-gate run
+> comes back clean roughly one time in three, on both the old and new pins. The
+> byte-identical fixture claim is unaffected, because fixture determinism is not
+> subject to timing. See `2026-08-23_live_gate_flake_lane.md`.
+
 **The `ifac_size` race, measured and split in two, 2026-08-06.** The two Rust
 probes each slept 250 ms after accept, both filed under one recorded cause: an
 RNS `TCPClientInterface.ifac_size` initialization race. Nobody had measured it.
@@ -2042,7 +2049,10 @@ that wait stays, now with a comment that says what it is actually for and
 notes the better fix: wait for RNS's own first frame instead of a clock, a
 readiness signal rather than a guess.
 
-Twelve of twelve gates still pass with the IFAC wait removed.
+Twelve of twelve gates still pass with the IFAC wait removed. (Amended
+2026-08-24: read that as one clean run, not a stable result; see the flake lane
+note above and `2026-08-23_live_gate_flake_lane.md`. It does not overturn the
+finding that the wait was superstition, which rested on the A/B, not the count.)
 
 Lesson, and it is the same shape as the one below: **a workaround with no
 measurement behind it also carries a diagnosis, and that diagnosis can be

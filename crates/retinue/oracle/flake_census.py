@@ -76,17 +76,32 @@ def concurrent_builders() -> str:
     measured under load must not be compared against one measured idle. Measured
     2026-08-23 during the RNS 1.5.0 re-pin: 54 rustc and 14 cargo on 16 cores.
     """
-    try:
-        out = subprocess.run(["tasklist"], capture_output=True, text=True,
-                             errors="replace", timeout=20).stdout.lower()
-        return f"{out.count('rustc.exe')} rustc / {out.count('cargo.exe')} cargo"
-    except Exception:
+    # A bare `tasklist` dumps the whole process table and TIMES OUT on this box
+    # (measured 2026-08-24: over 20s, so the first version of this function
+    # silently recorded "unknown" for every census). Ask for one image name at a
+    # time instead: ~11s filtered, ~6s through PowerShell. Slow either way, which
+    # is why it runs twice per census and not per run.
+    def count(image: str) -> int | None:
         try:
-            out = subprocess.run(["pgrep", "-c", "rustc"], capture_output=True,
-                                 text=True, timeout=20).stdout.strip()
-            return f"{out} rustc"
+            r = subprocess.run(
+                ["powershell", "-NoProfile", "-Command",
+                 f"(Get-Process {image} -ErrorAction SilentlyContinue).Count"],
+                capture_output=True, text=True, errors="replace", timeout=45)
+            return int((r.stdout.strip() or "0"))
         except Exception:
-            return "unknown"
+            pass
+        try:
+            r = subprocess.run(
+                ["tasklist", "/NH", "/FI", f"IMAGENAME eq {image}.exe"],
+                capture_output=True, text=True, errors="replace", timeout=45)
+            return r.stdout.lower().count(f"{image}.exe")
+        except Exception:
+            return None
+
+    rustc, cargo = count("rustc"), count("cargo")
+    if rustc is None and cargo is None:
+        return "unknown"
+    return f"{rustc if rustc is not None else '?'} rustc / {cargo if cargo is not None else '?'} cargo"
 
 
 def fingerprint(log: str) -> tuple[str, ...]:
