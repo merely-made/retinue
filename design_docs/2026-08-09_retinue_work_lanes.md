@@ -8,7 +8,9 @@ this document's asserted dependencies unsupported (LE3 does not gate on
 LE1/LE2; FT5 does not gate on FT3/FT4; CV2 gates only on FT1's configuration
 surface; FS6 does not gate on the Prns H3 harvest). **The four-lane split
 below stands; its sequences do not.** That doc also orders the program against
-the 2026-09-01 ARDC intake, which this one walls off as external.
+the 2026-09-01 ARDC intake, which this one walls off as external. **Source-lock
+locations verified and corrected 2026-08-23** against the actual tree; three of
+this document's four placement claims no longer held.
 
 This document splits Retinue's remaining work without replacing the plans that
 own each gate. It exists because the Prns harvest brief exposed work in four
@@ -49,6 +51,7 @@ current plan set sorts as follows.
 | [Assurance lane status](2026-08-10_assurance_lane_status.md), [FS2 carrier decision](2026-08-10_fs2_command_carrier_decision.md), and [FS4/FS5](2026-08-10_fs4_custody_and_fs5_seizure.md) | Current assurance evidence. ASSURE1 and the unsafe audit pass; ASSURE3 through ASSURE5 are complete in software. A first green Linux fuzz run, FS3, on-metal command verification, physical FS4, and disclosure remain open. |
 | [Bluetooth capability scoping](2026-08-11_bluetooth_capability_scoping.md) | Pre-decision candidate lane. LB1 through LB6 do not become active gates until the stack ruling is accepted; LB1 is the only opening hardware risk. |
 | [Civic deployment](2026-08-11_civic_deployment_prescribed_paths.md) | Phase-two program consuming FT/FS/LE/LB facts. CV1 through CV6 and D1 through D5 are not pilot-critical engineering gates. |
+| [Live-gate flake lane](2026-08-23_live_gate_flake_lane.md) | Active measurement lane, opened 2026-08-23. FLK1 through FLK5 own the per-gate failure rates of the live RNS/LXMF oracle gates and what a suite run is allowed to prove. Until it closes, a bare "twelve of twelve" count is not evidence. Does not cover the peer matrix, which never runs the flaking gates. |
 | [Signalman management surface plan](2026-08-15_signalman_management_surface_implementation_plan.md) | Active product authority for the Signalman desktop beyond flashing: Devices, Network, Messages, Map, and Browse. S0/S1 and the S2/S3 software slices are verified, and S2's live bench leg completed 2026-08-20 through Mere `1609cb90`'s lease-checked station getter and the desktop's live station actor. The owner-driven S2 headed interactive judgement, G5 hide/reopen receipt, and S5 headed two-site audible voice remain open. Presentation code takes no radio or flashing authority. |
 
 The low-power UART personality and first on-device UI design are inputs to the
@@ -64,34 +67,64 @@ additional execution lane.
 The source lock has four items:
 
 1. Pin Prns at `72b6b30d27cac910ce20d370e1dc711fe9b95955` and record the
-   exact RNS 1.4.2 peer version.
+   exact stock RNS peer version in each receipt. It was 1.4.2 when this
+   document was written and is 1.5.0 since the 2026-08-23 re-pin; the duty is
+   to record whichever version actually ran, not to hold a particular one.
 2. Add the itemized Prns donor ledger and the intended inbound license for each
    copied seam.
 3. Preserve a clean, untouched Prns executable for black-box peer work.
 4. Put the security finding in a private disclosure record before publishing
    board, path, reproduction, or impact details.
 
-Items 1 through 3 are present: the clean oracle checkout remains
-`Code/crates/prns` at the pin, distinct from the working T114 port in
-`Code/repos/Prns` and its current-main adaptation in
-`Code/worktrees/Prns-t114-upstream`. Item 4 is still owed: the donor ledger
-records that no private disclosure record has been sent. This blocks
+Items 1 through 3 hold, but this document's account of *where* they hold was
+wrong by 2026-08-23 and is corrected here against the actual tree.
+
+The clean oracle checkout is `Code/crates/prns`, which now sits on `main` at
+`df05c6bf` (Prns 0.3.6) rather than at the pin. The H8 pin `72b6b30d` remains
+reachable there by revision, and the peer matrix detaches a disposable worktree
+from it, so nothing depends on the checkout itself resting on the pinned commit.
+The working T114 port this document placed in `Code/repos/Prns` no longer
+exists, and `Code/worktrees/Prns-t114-upstream` is orphaned: its `.git` file
+still points into that vanished repository. Neither is load-bearing for H8. The
+stale `repos/Prns` location had also been written into the peer-matrix driver,
+where it silently broke the receipt procedure until `d0d31c3`.
+
+Item 3 is satisfied by recipe rather than by a stored binary, which is a change
+of kind and is recorded deliberately. The executable this document meant lived
+in `%TEMP%` and is gone. What replaces it is the reproducible path from pinned
+source to a working daemon, repaired and documented on 2026-08-23: the peer must
+be built from **inside its own worktree**, because Prns pins a 256 MiB Windows
+stack in its own `.cargo/config.toml` and Cargo resolves that file relative to
+the working directory rather than to `--manifest-path`. Built from anywhere
+else the daemon overflows a 1 MiB stack before it can parse an argument. See the
+[RNS 1.5.0 peer matrix receipt](2026-08-23_prns_peer_matrix_rns150_receipt.md).
+
+Item 4 is still owed: the donor ledger records that no private disclosure record
+has been sent, and no disclosure directory exists in the tree. This blocks
 publication of the finding and any release claim that the disclosure duty is
-complete; it does not freeze unrelated software or hardware work. Assurance
-owns its closure.
+complete; it does not freeze unrelated software or hardware work. Assurance owns
+its closure.
 
 ## Lane 1: Peer
 
 **Owns:** H8, mixed-runtime interop, independent discrepancy records.
 **Primary write surface:** `crates/retinue/oracle/`, oracle scripts, captured
 receipts.
+**Current receipt:** [RNS 1.5.0 peer
+matrix](2026-08-23_prns_peer_matrix_rns150_receipt.md), seven runs all passing,
+which supersedes the version claim of the 2026-08-11 receipt but not its lane
+boundary.
 
 Sequence:
 
 1. Run the three exact pairings: Retinue to RNS, Retinue to Prns, and Prns to
    RNS.
 2. Reuse the existing live-gate shape where it describes the same protocol
-   claim. Keep process versions, commands, ports, and captured bytes exact.
+   claim. Keep process versions, commands, and ports exact. Captured **bytes**
+   cannot be held exact and must not be compared raw: HDLC byte-stuffing over
+   freshly minted ephemeral identities gives every run a different capture
+   length. Compare unstuffed lengths, which are invariant, as the 2026-08-23
+   receipt sets out.
 3. Cross-check O-10, hops on rebroadcast, against Prns's retransmit behavior.
 4. Record disagreements before any implementation harvest touches that seam.
 
