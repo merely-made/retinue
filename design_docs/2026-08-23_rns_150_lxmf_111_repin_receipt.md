@@ -244,16 +244,25 @@ remains open work.
 ## Open
 
 - **A full re-capture** of the three carried-forward fixtures at the current pin.
-- **The live-suite flake**, largely unexplained and present on both pins. `interop_reqresp` is
-  measured at 13% standalone and two of its three failure modes have no identified cause;
-  `interop_resource_recv` and `interop_ifac` were seen failing during the alternating runs and
-  have no baseline of their own yet. This wants a dedicated lane with sample sizes in the
-  hundreds -- 30-run blocks cannot separate a 13% rate from a 7% one. Until then, a passing
-  suite run is weak evidence and a failing one is ambiguous.
+- **The live-suite flake.** Superseded 2026-08-24: this now has a lane, and the "largely
+  unexplained" state recorded here no longer holds. See
+  [the live-gate flake lane](2026-08-23_live_gate_flake_lane.md). Of the modes this receipt
+  could not account for, FLK3 is closed with two identified bugs and FLK4 is explained --
+  RNS drops a peer whose first frame precedes its connect, permanently -- though not closed,
+  since the 750 ms settle that reduces it is a constant fitted under load rather than a
+  readiness signal. What remains open from this receipt's point of view is FLK1 and FLK2:
+  `interop_resource_recv` and `interop_ifac` were both seen failing and still have no
+  baseline of their own. The sampling constraint stands unchanged -- 30-run blocks cannot
+  separate a 13% rate from a 7% one -- so a bare passing suite run remains weak evidence and
+  a failing one ambiguous.
 - **What `LXMF.PN_META_VERSION = 0` gates.** Unused here; the propagation-node announce it
   accompanies parses identically across both LXMF versions.
 - **Whether stock compresses toward a peer that declares support.**
   `LXMessage.determine_compression_support` exists and is per-recipient, but an isolated probe
   never reached the router's peer table (returned `None`, identical packed sizes), so this was
   not settled. It is moot for outrider, which now declares no support — but it matters if
-  outrider ever implements compression.
+  outrider ever implements compression. **What is inherited here is a failed probe, not an
+  open question.** The `None` was the probe not reaching the peer table, not stock declining
+  to compress, so the two outcomes were never distinguished. Anyone picking this up should
+  build a probe that reaches the router's peer table first and treat the earlier result as
+  carrying no information either way.

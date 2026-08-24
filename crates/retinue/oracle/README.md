@@ -35,10 +35,15 @@ py -m venv .venv
 `lxmf==1.1.1`, which the Outrider oracle drives. Re-pin
 deliberately, not on every upstream release.
 
-Re-pinned 2026-08-23 from `rns==1.4.2` / `lxmf==0.9.6`. Twelve of twelve live gates pass on
-RNS 1.5.0, and eighteen of eighteen deterministic fixtures re-captured byte-identical, so
-the wire has not moved across 1.3.8 → 1.4.2 → 1.5.0; the only difference in a re-captured
-fixture is the `rns_version` string each manifest records. 1.5.0 ships no changelog
+Re-pinned 2026-08-23 from `rns==1.4.2` / `lxmf==0.9.6`. Eighteen of eighteen deterministic
+fixtures re-captured byte-identical on RNS 1.5.0, and the live gates passed twelve of twelve
+on a single suite run. **The fixture result is what carries the claim; the gate count is
+quoted beside it rather than on its own**, because these gates flake at a rate this
+repository has not yet bounded — see the flake note further down and
+[the live-gate flake lane](../../../design_docs/2026-08-23_live_gate_flake_lane.md).
+Deterministic fixtures do not flake, so eighteen of eighteen means what it says. On that
+evidence the wire has not moved across 1.3.8 → 1.4.2 → 1.5.0; the only difference in a
+re-captured fixture is the `rns_version` string each manifest records. 1.5.0 ships no changelog
 anywhere public, so what it changes was established from package metadata and runtime
 constants: it is an ingress-scheduling release (traffic classes, bounded per-class inbound
 queues, path-request suppression tightened) that also added per-interface protocol- and
