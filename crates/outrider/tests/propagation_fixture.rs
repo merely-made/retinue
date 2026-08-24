@@ -23,7 +23,7 @@ fn bytes<const N: usize>(hex_value: &str) -> [u8; N] {
 #[test]
 fn stock_propagation_fixture_replays_without_python() {
     let fixture: Fixture =
-        serde_json::from_str(include_str!("fixtures/lxmf_0_9_6_propagation.json")).unwrap();
+        serde_json::from_str(include_str!("fixtures/lxmf_propagation.json")).unwrap();
     PropagationAnnounce::decode(&hex::decode(&fixture.announce_hex).unwrap()).unwrap();
     let submission = hex::decode(&fixture.submission_hex).unwrap();
     let batch = PropagationBatch::decode(&submission, submission.len(), 1).unwrap();

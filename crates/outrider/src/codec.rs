@@ -246,11 +246,11 @@ mod tests {
     }
 
     fn oracle() -> OracleCapture {
-        serde_json::from_str(include_str!("../tests/fixtures/lxmf_0_9_6_message.json")).unwrap()
+        serde_json::from_str(include_str!("../tests/fixtures/lxmf_message.json")).unwrap()
     }
 
     #[test]
-    fn lxmf_0_9_6_oracle_capture_decodes_with_title_before_content() {
+    fn stock_oracle_capture_decodes_with_title_before_content() {
         let oracle = oracle();
         let packed = hex::decode(&oracle.packed).unwrap();
         let decoded = decode(&packed).unwrap();

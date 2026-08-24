@@ -470,7 +470,7 @@ mod tests {
     }
 
     fn oracle() -> OracleCapture {
-        serde_json::from_str(include_str!("../tests/fixtures/lxmf_0_9_6_message.json")).unwrap()
+        serde_json::from_str(include_str!("../tests/fixtures/lxmf_message.json")).unwrap()
     }
 
     /// The bar, first half: the stock LXMF 0.9.6 capture decodes to the same facts the

@@ -9,7 +9,7 @@ resources. An outrider rides ahead of the party to scout and carry word.
 Not affiliated with or endorsed by the Reticulum or LXMF projects.
 
 **Status: codec, opportunistic/direct delivery, and captured propagation lane implemented.**
-Pinned LXMF 0.9.6 / RNS 1.4.2 black-box oracles prove byte-exact message
+Pinned LXMF 1.1.1 / RNS 1.5.0 black-box oracles prove byte-exact message
 objects, ratcheted opportunistic delivery in both directions, cost-8 stamped
 direct delivery in both directions, small data and 4 KiB Resource delivery,
 the same direct lane over V4-to-T114 direct-PHY RF, compact cost-8

@@ -271,10 +271,9 @@ mod tests {
 
     #[test]
     fn stock_capture_is_the_full_codec_with_only_destination_elided() {
-        let doc: serde_json::Value = serde_json::from_str(include_str!(
-            "../tests/fixtures/lxmf_0_9_6_opportunistic.json"
-        ))
-        .unwrap();
+        let doc: serde_json::Value =
+            serde_json::from_str(include_str!("../tests/fixtures/lxmf_opportunistic.json"))
+                .unwrap();
         let destination: [u8; DESTINATION_LEN] = array(doc["destination"].as_str().unwrap());
         let single = hex::decode(doc["single_payload"].as_str().unwrap()).unwrap();
         assert!(single.len() <= retinue::packet::ENCRYPTED_MDU);

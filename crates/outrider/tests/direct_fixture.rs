@@ -4,7 +4,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 fn fixture() -> Value {
-    serde_json::from_str(include_str!("fixtures/lxmf_0_9_6_direct.json")).unwrap()
+    serde_json::from_str(include_str!("fixtures/lxmf_direct.json")).unwrap()
 }
 
 fn bytes(value: &Value, field: &str) -> Vec<u8> {

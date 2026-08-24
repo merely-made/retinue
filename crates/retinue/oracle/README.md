@@ -31,14 +31,29 @@ py -m venv .venv
 ./.venv/Scripts/python.exe -m pip install -r requirements.txt
 ```
 
-`requirements.txt` pins `rns==1.4.2`, Retinue's current compatibility target, and
-`lxmf==0.9.6`, which the Outrider oracle drives. Re-pin
-deliberately, not on every upstream release. Re-pinned 2026-08-06 from 1.4.0 (which carried
-the 1.3.9 `rnsh` security fix); the twelve live gates pass on it, and re-capturing
-`ifac_packet.bin` produced bytes identical to the 1.3.8 original, so the IFAC wire has not
-moved across 1.3.8 → 1.4.2. The committed fixture corpus otherwise stays labelled 1.3.8
-because those files are historical byte observations; current compatibility is established
-by the live gates below.
+`requirements.txt` pins `rns==1.5.0`, Retinue's current compatibility target, and
+`lxmf==1.1.1`, which the Outrider oracle drives. Re-pin
+deliberately, not on every upstream release.
+
+Re-pinned 2026-08-23 from `rns==1.4.2` / `lxmf==0.9.6`. Twelve of twelve live gates pass on
+RNS 1.5.0, and eighteen of eighteen deterministic fixtures re-captured byte-identical, so
+the wire has not moved across 1.3.8 → 1.4.2 → 1.5.0; the only difference in a re-captured
+fixture is the `rns_version` string each manifest records. 1.5.0 ships no changelog
+anywhere public, so what it changes was established from package metadata and runtime
+constants: it is an ingress-scheduling release (traffic classes, bounded per-class inbound
+queues, path-request suppression tightened) that also added per-interface protocol- and
+IFAC-violation accounting. Nothing in it touches a header, flag, or size constant.
+
+LXMF 1.1.1 did move a wire shape: the delivery announce grew a third element, a
+supported-features array. Outrider refused it and had to be fixed; see
+`design_docs/2026-08-23_rns_150_lxmf_111_repin_receipt.md`.
+
+The committed fixture corpus otherwise stays labelled with the version that produced each
+file, because those files are historical byte observations; current compatibility is
+established by the live gates below.
+
+Re-pinned 2026-08-06 from 1.4.0 (which carried the 1.3.9 `rnsh` security fix); at that
+point re-capturing `ifac_packet.bin` produced bytes identical to the 1.3.8 original.
 
 **On the 250 ms waits in the Rust probes, corrected 2026-08-06.** These were recorded as a
 single `TCPClientInterface.ifac_size` initialization race in RNS. Measurement found two
@@ -140,9 +155,9 @@ streams under `validation/results/` with SHA-256 digests.
 
 The matrix covers:
 
-- Retinue ↔ stock RNS 1.4.2, as the control pairing;
+- Retinue ↔ stock RNS 1.5.0, as the control pairing;
 - Retinue ↔ Prns at the pinned H8 commit;
-- Prns ↔ stock RNS 1.4.2; and
+- Prns ↔ stock RNS 1.5.0; and
 - stock RNS and Prns transport forwarding, independently, so O-10 compares
   their forwarded hop byte rather than relying on donor-source interpretation.
 
@@ -171,7 +186,7 @@ ports, raw captures, and exact clean-commit state.
 
 | file | what |
 | --- | --- |
-| `requirements.txt` | the current live-oracle pin: `rns==1.4.2` |
+| `requirements.txt` | the current live-oracle pin: `rns==1.5.0`, `lxmf==1.1.1` |
 | `run_live.py` | the complete eleven-gate mixed-runtime matrix |
 | `capture.py` | R0 fixtures: identity vector, announces, negatives, a token |
 | `capture_tcp.py` | R1 fixtures: the raw TCP stream, and the framing rules |

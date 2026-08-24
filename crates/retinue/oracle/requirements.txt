@@ -1,4 +1,4 @@
-rns==1.4.2
+rns==1.5.0
 # LXMF rides on RNS and is what the outrider oracle drives; the field
 # registry capture imports it directly.
-lxmf==0.9.6
+lxmf==1.1.1

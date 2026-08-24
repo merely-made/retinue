@@ -12,9 +12,23 @@ pub const DEFAULT_MAX_ANNOUNCE_BYTES: usize = 1024;
 
 /// The application data carried by an `lxmf.delivery` announce.
 ///
-/// Stock LXMF 0.9.6 emits no application data when the display name is absent.
-/// When present, the wire value is `[display_name, stamp_cost]`, with the name
-/// as MessagePack binary and the cost as an unsigned integer or nil.
+/// Stock LXMF emits no application data when the display name is absent. When present, the
+/// wire value is `[display_name, stamp_cost, supported_features]`, with the name as
+/// MessagePack binary, the cost as an unsigned integer or nil, and the features as an array
+/// of feature numbers. LXMF 0.9.6 emitted only the first two; 1.1.1 appends the third.
+///
+/// The feature list is a *declaration*, and the one feature defined so far is compression
+/// (`SF_COMPRESSION = 0`). Its default is permissive in the dangerous direction: stock reads
+/// an absent or nil feature list as compression **supported**. Outrider implements no
+/// compression, so emitting the two-element form would silently claim a capability we do not
+/// have and invite peers to compress at us. We therefore always emit the three-element form
+/// with an empty feature list, which is the only shape that truthfully declares nothing.
+///
+/// Inbound, we accept two or more elements and ignore anything past the cost. Stock itself
+/// parses a four-element announce without complaint, so matching that tolerance costs nothing
+/// and is what keeps the next appended field from breaking us the way this one did. The
+/// peer's own feature list is not retained because outrider never compresses, so it has no
+/// decision to make with it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DeliveryAnnounce {
     pub display_name: Option<Vec<u8>>,
@@ -39,7 +53,11 @@ impl DeliveryAnnounce {
         let mut encoded = Vec::new();
         rmpv::encode::write_value(
             &mut encoded,
-            &Value::Array(vec![Value::Binary(display_name.clone()), cost]),
+            &Value::Array(vec![
+                Value::Binary(display_name.clone()),
+                cost,
+                Value::Array(Vec::new()),
+            ]),
         )
         .map_err(|_| AnnounceError::Encode)?;
         if encoded.len() > DEFAULT_MAX_ANNOUNCE_BYTES {
@@ -68,7 +86,7 @@ impl DeliveryAnnounce {
         let Value::Array(parts) = value else {
             return Err(AnnounceError::InvalidShape);
         };
-        if parts.len() != 2 {
+        if parts.len() < 2 {
             return Err(AnnounceError::InvalidShape);
         }
         let Value::Binary(display_name) = &parts[0] else {
@@ -96,7 +114,7 @@ pub enum AnnounceError {
     TooLarge,
     #[error("LXMF delivery announce is not one complete MessagePack value")]
     MalformedMessagePack,
-    #[error("LXMF delivery announce must be a two-item array")]
+    #[error("LXMF delivery announce must be an array of at least two items")]
     InvalidShape,
     #[error("LXMF delivery display name must be MessagePack binary")]
     InvalidDisplayName,
@@ -171,7 +189,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn stock_named_announce_with_stamp_cost_round_trips_exactly() {
+    fn stock_0_9_6_two_element_announce_still_decodes() {
         let captured = hex::decode("92c40c53746f636b204f7261636c6508").unwrap();
         let announce = DeliveryAnnounce::decode(&captured).unwrap();
         assert_eq!(
@@ -179,19 +197,70 @@ mod tests {
             Some(b"Stock Oracle".as_slice())
         );
         assert_eq!(announce.stamp_cost, Some(8));
-        assert_eq!(announce.encode().unwrap(), captured);
     }
 
     #[test]
-    fn stock_named_announce_without_stamp_cost_round_trips_exactly() {
-        let captured = hex::decode("92c40e53746f636b205265636569766572c0").unwrap();
+    fn stock_1_1_1_three_element_announce_decodes() {
+        // Captured from stock LXMF 1.1.1: [b"Stock Receiver", 8, [0]]. The trailing [0]
+        // declares compression support; we read the name and cost and ignore it.
+        let captured = hex::decode("93c40e53746f636b205265636569766572089100").unwrap();
         let announce = DeliveryAnnounce::decode(&captured).unwrap();
         assert_eq!(
             announce.display_name.as_deref(),
             Some(b"Stock Receiver".as_slice())
         );
+        assert_eq!(announce.stamp_cost, Some(8));
+    }
+
+    #[test]
+    fn stock_1_1_1_nil_stamp_cost_announce_decodes() {
+        // [b"Stock Opportunistic Receiver", nil, [0]], captured from stock LXMF 1.1.1.
+        let captured =
+            hex::decode("93c41c53746f636b204f70706f7274756e6973746963205265636569766572c09100")
+                .unwrap();
+        let announce = DeliveryAnnounce::decode(&captured).unwrap();
         assert_eq!(announce.stamp_cost, None);
-        assert_eq!(announce.encode().unwrap(), captured);
+    }
+
+    /// The bug this guards against is the one that broke us: LXMF 1.1.1 appended a third
+    /// element and a `!= 2` length check refused every stock announce, so outrider never
+    /// learned any sender's keys. Stock parses a four-element announce happily; so do we.
+    #[test]
+    fn announces_longer_than_we_understand_are_accepted() {
+        let future = hex::decode("94c4014e089100 63".replace(' ', "").as_str()).unwrap();
+        let announce = DeliveryAnnounce::decode(&future).unwrap();
+        assert_eq!(announce.display_name.as_deref(), Some(b"N".as_slice()));
+        assert_eq!(announce.stamp_cost, Some(8));
+    }
+
+    /// Outrider implements no compression. An empty feature list is the only encoding that
+    /// says so: stock reads both an absent list and a nil list as compression *supported*.
+    #[test]
+    fn we_declare_an_empty_feature_list() {
+        let encoded = DeliveryAnnounce {
+            display_name: Some(b"Stock Oracle".to_vec()),
+            stamp_cost: Some(8),
+        }
+        .encode()
+        .unwrap();
+        assert_eq!(hex::encode(&encoded), "93c40c53746f636b204f7261636c650890");
+
+        let anonymous_cost = DeliveryAnnounce::named("Stock Receiver").encode().unwrap();
+        assert_eq!(
+            hex::encode(&anonymous_cost),
+            "93c40e53746f636b205265636569766572c090"
+        );
+    }
+
+    /// What we emit must survive our own decoder, feature list and all.
+    #[test]
+    fn our_own_announce_round_trips() {
+        let announce = DeliveryAnnounce {
+            display_name: Some(b"outrider".to_vec()),
+            stamp_cost: Some(4),
+        };
+        let encoded = announce.encode().unwrap();
+        assert_eq!(DeliveryAnnounce::decode(&encoded).unwrap(), announce);
     }
 
     #[test]

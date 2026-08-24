@@ -11,7 +11,7 @@ but here's a generated overview.
   identity, announces, links, resources, routing), `tulle` (radio interface
   layer), `selvage` (shared PHY profiles), `sennet` (Meshtastic-compatible
   mesh), `tucket` (MeshCore interop), `outrider` (LXMF messages, byte-exact
-  against LXMF 0.9.6), `postilion` (shared host library), and the
+  against LXMF 1.1.1), `postilion` (shared host library), and the
   `radio-face` / `radio-hand` firmware-support crates. Published crates are
   at 0.0.x on crates.io; MSRV 1.88, held by CI.
 - Apps: `linkboy` (inspects, plans, and flashes firmware packages over
@@ -23,7 +23,7 @@ but here's a generated overview.
   The T114 image gained a bounded transport profile for the channel-node
   role on 2026-08-12 (~275 KB flash); its on-metal RF receipt is still open.
 - On-air Reticulum-over-LoRa milestones landed July 2026; interop is
-  receipt-driven against reference Reticulum (RNS 1.4.2) and Prns.
+  receipt-driven against reference Reticulum (RNS 1.5.0) and Prns.
 - Validation inventory: `python validation/run.py verify` (12 suites).
 
 Current plans live in `design_docs/`: close the on-metal receipts for the new

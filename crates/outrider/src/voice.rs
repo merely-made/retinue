@@ -48,8 +48,9 @@ pub const DEFAULT_MAX_CLIP_BYTES: usize = 256 * 1024;
 pub struct FieldKey(pub u64);
 
 impl FieldKey {
-    /// The field stock LXMF carries audio in, observed as 7 against
-    /// LXMF 0.9.6 by `oracle/capture_fields.py`.
+    /// The field stock LXMF carries audio in, observed as 7 by
+    /// `oracle/capture_fields.py` against LXMF 0.9.6 and re-confirmed against 1.1.1,
+    /// which added five fields (48, 49, 64, 65, 66) without moving any existing one.
     pub const AUDIO: Self = Self(7);
 }
 

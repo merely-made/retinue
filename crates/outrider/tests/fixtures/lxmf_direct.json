@@ -1,0 +1,44 @@
+{
+  "stock": {
+    "lxmf": "1.1.1",
+    "rns": "1.5.0"
+  },
+  "stock_to_outrider_small": {
+    "transport": "link_data",
+    "sender_public_identity": "1cf579aba45a10ba1d1ef06d91fca2aa9ed0a1150515653155405d0b18cb9a67c853ad0f0cd2b619aea92ceec4fd56a24d6499d584ce79257e45cfd8139b60a7",
+    "sender_announce_app_data": "93c40c53746f636b204f7261636c65089100",
+    "destination": "3e45eacae90c7f3c18b2ae4643097606",
+    "source": "ca8c12aee6acd35c83f048927490e188",
+    "packed": "3e45eacae90c7f3c18b2ae4643097606ca8c12aee6acd35c83f048927490e1885496322f1b14d627ba26190fb6dce2ce964a06d8da65af0277f785897172b8d7905ade70d6c9190470d4a1582c4f78ff1024ea931db88dbee1c12c266b6d040294cb41da217720600000c40b53544f434b205449544c45c40a53544f434b20424f445980",
+    "message_id": "9f6a267af4b0340ddba58e44a0b51b8aa03533fc87be9fa7bc345b5870607541",
+    "accepted": true
+  },
+  "outrider_to_stock_small": {
+    "transport": "link_data",
+    "receiver_announce_app_data": "93c40e53746f636b205265636569766572c09100",
+    "destination": "8f77e37e8a1c8904553a29095a6dcadd",
+    "source": "e427ccc58572c042c4f749304e4ad550",
+    "packed": "8f77e37e8a1c8904553a29095a6dcadde427ccc58572c042c4f749304e4ad550b8bc5889bbf8fe057c4c87788247cc42c92ffc2b2fab0176f74f57e84e7769fb6be69aa3ed235050db0ea502f5acb8ae9f59135399bd55252b1cde504202e50e94cb41da217720a00000c40e4f55545249444552205449544c45c40d4f5554524944455220424f445980",
+    "message_id": "bbca8e62091fe896544847f4b0c904207f8b78f4708d4cfc51cf54d3c12c0dd5",
+    "accepted": true
+  },
+  "stock_to_outrider_large": {
+    "transport": "resource",
+    "content": "4096 bytes from SHA256(big_endian_u32(0..127))",
+    "packed_len": 4225,
+    "message_id": "dbf3ccc22a62790c24d5b664c192e3587216758835d263dde985e6c17fbe6d68",
+    "accepted": true
+  },
+  "outrider_to_stock_large": {
+    "transport": "resource",
+    "content": "4096 bytes from SHA256(big_endian_u32(0..127))",
+    "packed_len": 4228,
+    "message_id": "2cb039b634344030956f1c2b81e70c507e72b0843e7f540bf6df64516be88c68",
+    "accepted": true
+  },
+  "provenance": {
+    "announce_app_data": "Re-captured at LXMF 1.1.1 / RNS 1.5.0. LXMF 1.1.1 appends a supported-features array to the delivery announce (SF_COMPRESSION = 0), so these two vectors are three-element where the 0.9.6 capture was two-element.",
+    "message_vectors": "Carried forward unchanged from the LXMF 0.9.6 / RNS 1.4.2 capture in lxmf_0_9_6_direct.json. LXMF 1.1.1 changed no message-level constant or signature, and these vectors replay green against it. They are not re-observations at this pin.",
+    "superseded_capture": "lxmf_0_9_6_direct.json"
+  }
+}

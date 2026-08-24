@@ -20,7 +20,10 @@ import RNS.vendor.umsgpack as msgpack
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
-OUT = REPO / "crates" / "outrider" / "tests" / "fixtures" / "lxmf_0_9_6_fields.json"
+# The current pin's vectors carry no version in the filename; superseded captures are
+# kept beside them under their version (lxmf_0_9_6_fields.json), so the corpus
+# accumulates instead of being overwritten. The versions live inside the JSON.
+OUT = REPO / "crates" / "outrider" / "tests" / "fixtures" / "lxmf_fields.json"
 
 TIMESTAMP = 1_753_603_208.5
 TITLE = b"VOICE TITLE"
@@ -71,8 +74,8 @@ def main() -> None:
     observed_mode, observed_audio = on_wire[audio_field]
 
     result = {
-        "lxmf_version": "0.9.6",
-        "rns_version": "1.4.2",
+        "lxmf_version": LXMF.__version__,
+        "rns_version": RNS.__version__,
         "note": (
             "Public constants read at runtime and confirmed against packed "
             "bytes. No LXMF source was read to produce this."
