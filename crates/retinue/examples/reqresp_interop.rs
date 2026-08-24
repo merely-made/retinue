@@ -172,5 +172,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     println!("DONE d1={direction1_done} d2={direction2_done}");
+
+    // Hold the connection open briefly before `iface` drops.
+    //
+    // `send` writes the response through to the kernel and returns, so the bytes are on
+    // their way -- but this example exits the instant its own done-conditions are met, and
+    // dropping the interface closes the socket underneath a peer that has not read yet.
+    // The race is directly observed, not inferred: in runs that pass, RNS logs receipt of
+    // the response *after* our socket has already closed; in runs that fail it reports
+    // `None` while our own log already says ANSWERED_REQUEST and d2=true. The 250 ms wait
+    // after `accept` above is the same shape of concession at the other end of the
+    // connection's life, and this is its bookend. A real responder does not exit here,
+    // which is why this belongs to the example and not to `TcpInterface`.
+    //
+    // It does NOT make the gate reliable. Measured against RNS 1.5.0: 4 failures in 30 runs
+    // before this wait, 4 in 60 after -- indistinguishable at these sample sizes. What did
+    // change is which mode fails. The teardown signature above stopped appearing, and the
+    // residue is two other modes this wait cannot touch: `d2=false`, where we break out of
+    // the receive loop before RNS's request arrives at all, and a collapse of the whole
+    // exchange in which direction 1 fails too. Both are unexplained. Do not read a passing
+    // run of this gate as strong evidence; see the 2026-08-23 re-pin receipt.
+    tokio::time::sleep(Duration::from_millis(250)).await;
     Ok(())
 }

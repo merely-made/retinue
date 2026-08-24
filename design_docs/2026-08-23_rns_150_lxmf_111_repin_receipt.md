@@ -168,10 +168,34 @@ Every affected gate passes reliably in isolation: `interop_reqresp` 5/5, `intero
 `interop_opportunistic_receive`, `interop_reqresp`, `interop_propagation_receive` — plus
 `interop_ifac` and `interop_resource_recv` in the alternating runs.
 
-**The cause is unexplained.** Two hypotheses were tested and both failed. Raising RNS's log level
-to 7 made a failure vanish (6/6), suggesting a timing race; and forcing a rebuild before each run,
-to reproduce the edit-then-test loop the first failures appeared in, did **not** reproduce them
-(5/5).
+**Per-gate rates vary widely, and the 9% above is an average inferred from suite-level results,
+not a uniform figure.** Measured directly: `interop_reqresp` fails **4 of 30 standalone runs**
+(13%), while `interop_opportunistic_receive` went 32/32 interleaved and roughly 53 consecutive.
+A five-run sample proves nothing at these rates and should not be quoted as evidence.
+
+**One mechanism is identified, in `interop_reqresp`, and it is a teardown race in the example
+rather than a protocol or version problem.** Paired pass/fail logs show it directly: in passing
+runs RNS logs receipt of the direction-2 response *after* retinue's socket has already closed; in
+failing runs it reports `None` while retinue's own log already says `ANSWERED_REQUEST` and
+`d2=true`. The library is not at fault -- `TcpInterface::send_raw` does `write_all` then `flush`,
+so the bytes reach the kernel before `send` returns -- but `examples/reqresp_interop.rs` exited
+the instant both done-conditions were met, dropping the interface underneath a peer that had not
+read yet. A 250 ms grace was added before return, the bookend to the 250 ms wait the example
+already took after `accept` for the documented RNS connect race.
+
+**That fix did not measurably reduce the failure rate**: 4 in 30 before, 4 in 60 after, which is
+indistinguishable at these sample sizes (Fisher's exact p is about 0.44). What changed is the
+*mode*. The teardown signature stopped appearing in captured failures; the residue is two other
+modes the grace cannot touch -- `d2=false`, where retinue breaks out of its receive loop before
+RNS's request arrives at all, and a collapse of the whole exchange in which direction 1 fails
+too. Both remain unexplained.
+
+**Two further hypotheses were tested and failed.** Raising RNS's log level to 7 made a failure
+vanish (6/6), suggesting a timing race; and forcing a rebuild before each run, to reproduce the
+edit-then-test loop the first failures appeared in, did **not** reproduce them (5/5). A sequence
+effect was also ruled out: `interop_reqresp` flakes at the same rate run alone as inside the
+suite, so the suite's roughly-one-failure-per-run is arithmetic over twelve gates, not
+interference between them.
 
 **A methodological warning, recorded because it nearly cost a wrong conclusion here.** An earlier
 2×2 across `{RNS 1.4.2, 1.5.0} × {LXMF 0.9.6, 1.1.1}` was run as four sequential *blocks* and
@@ -220,8 +244,12 @@ remains open work.
 ## Open
 
 - **A full re-capture** of the three carried-forward fixtures at the current pin.
-- **The ~9% per-gate live-suite flake**, cause unknown, present on both pins. Worth a dedicated
-  lane: it makes every suite run a coin flip and devalues gate counts as evidence.
+- **The live-suite flake**, largely unexplained and present on both pins. `interop_reqresp` is
+  measured at 13% standalone and two of its three failure modes have no identified cause;
+  `interop_resource_recv` and `interop_ifac` were seen failing during the alternating runs and
+  have no baseline of their own yet. This wants a dedicated lane with sample sizes in the
+  hundreds -- 30-run blocks cannot separate a 13% rate from a 7% one. Until then, a passing
+  suite run is weak evidence and a failing one is ambiguous.
 - **What `LXMF.PN_META_VERSION = 0` gates.** Unused here; the propagation-node announce it
   accompanies parses identically across both LXMF versions.
 - **Whether stock compresses toward a peer that declares support.**
