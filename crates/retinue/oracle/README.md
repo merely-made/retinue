@@ -200,6 +200,7 @@ ports, raw captures, and exact clean-commit state.
 | --- | --- |
 | `requirements.txt` | the current live-oracle pin: `rns==1.5.0`, `lxmf==1.1.1` |
 | `run_live.py` | the complete eleven-gate mixed-runtime matrix |
+| `flake_census.py` | census one gate by failure **mode**, not rate; see below |
 | `capture.py` | R0 fixtures: identity vector, announces, negatives, a token |
 | `capture_tcp.py` | R1 fixtures: the raw TCP stream, and the framing rules |
 | `interop_r1.py` | the R1 live two-way announce gate |
@@ -216,3 +217,41 @@ computable, so we can derive the session key ourselves and prove it by having RN
 data we encrypted, and by decrypting RNS's reply. That, plus RNS's own
 `Link.link_id_from_lr_packet` / `mode_from_lr_packet` helpers as a cross-check, pinned the
 entire link layer before a line of Rust was written.
+
+## Censusing a flaky gate
+
+```sh
+./.venv/Scripts/python.exe flake_census.py interop_reqresp.py 120
+```
+
+These gates flake, and the rate differs per gate: `interop_reqresp` was measured
+at 4 failures in 30 standalone runs while `interop_opportunistic_receive` went 32
+of 32. **A single suite run is therefore weak evidence, and a bare "twelve of
+twelve" should not be quoted in a receipt without a rate beside it.**
+
+Counting is the wrong instrument for chasing that. Separating a 13% failure rate
+from a 7% one needs roughly 390 runs per arm, so the 30-run block is worse than
+useless — it produces numbers that look like findings. On 2026-08-23 that error
+cost an afternoon and a confident, wrong claim that RNS 1.5.0 had regressed
+opportunistic delivery by 20%; the apparent effect was an artifact of running the
+four arms as sequential blocks on a machine whose load drifted, and it vanished
+when the arms were interleaved.
+
+`flake_census.py` classifies instead. It runs one gate n times, fingerprints every
+failure across its verdict lines and a handful of gate-agnostic signals, groups the
+fingerprints into modes and keeps one exemplar log per mode. Seven classified
+failures of `interop_reqresp` located three distinct bugs — a discarded inbound
+link request, an announce lost to the gate's handler-registration window, and a
+peer dropped during connection setup — that no number of counted runs would have
+found. Each fix was then confirmed by its mode going to zero, which is a much
+cheaper thing to establish than a rate.
+
+Two cautions the tool now enforces. It **discards runs that died in the build**
+rather than in the gate, because a shared target directory under heavy
+parallelism manufactures stale-rlib failures that are not gate failures. And it
+**records the concurrent rustc and cargo count** at the start and end of every
+census: these gates are timing-sensitive localhost networking, so a census taken
+during a build storm measures the machine as much as the gate, and two censuses
+taken under different load cannot be pooled or compared.
+
+Exemplar logs land in `census/`, which is not committed.

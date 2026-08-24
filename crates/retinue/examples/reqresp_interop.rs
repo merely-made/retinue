@@ -59,7 +59,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpInterfaceListener::bind("127.0.0.1:0".parse()?).await?;
     println!("LISTENING {}", listener.local_addr()?.port());
     let mut iface = listener.accept().await?;
-    tokio::time::sleep(Duration::from_millis(250)).await;
+
+    // `accept` returns when the TCP connection lands, which is earlier than RNS being able to
+    // use it: its `TCPClientInterface` drops a peer whose first frame arrives before it has
+    // finished connecting, and a peer dropped that way stays dropped -- no amount of resending
+    // below revives it, because the frames are being discarded rather than lost. This wait is
+    // the only lever for that failure, and it is why it is longer than the 250 ms carried here
+    // previously: at 250 ms a 120-run census still lost about one run in sixty to it, with RNS
+    // proving nothing and seeing no announce for the whole ten-second retry window.
+    //
+    // Treat 750 as provisional. It was fitted on a box running 54 rustc and 14 cargo processes
+    // across 16 cores -- a 3.4x oversubscription that inflates every latency this wait is
+    // racing against. It is therefore probably generous on an idle machine and may still be
+    // short on a busier one, which is the same superstition the 250 ms in `interop_r1` was
+    // carried as for months. The honest fix is to wait on evidence the peer is usable rather
+    // than on a constant; until something can supply that signal, this number should be
+    // re-measured on a quiet machine before anyone trusts it.
+    tokio::time::sleep(Duration::from_millis(750)).await;
 
     // Announce our responder destination so RNS can call us back.
     let our_id = PrivateIdentity::from_secret_bytes(&OUR_SEED);
@@ -155,9 +171,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
     while tokio::time::Instant::now() < deadline && !(direction1_done && direction2_done) {
+        // Keep announcing until RNS acts on it. The retry loop above stops the moment our own
+        // proof arrives, but RNS registers its announce handler *after* the destination that
+        // proved us, so an announce sent in that window is processed by its Transport with
+        // nothing listening and is simply never seen. Direction 1 then passes while direction 2
+        // never begins -- the one failure shape a census of 120 runs could not otherwise
+        // account for. Re-announcing costs a packet a second and closes it.
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-        let packet = match tokio::time::timeout(remaining, iface.recv()).await {
-            Err(_) => break,
+        let slice = remaining.min(Duration::from_secs(1));
+        let packet = match tokio::time::timeout(slice, iface.recv()).await {
+            Err(_) => {
+                if resp_link.is_none() {
+                    send(&mut iface, &our_announce).await;
+                }
+                continue;
+            }
             Ok(Err(RecvError::Wire(_))) => continue,
             Ok(Err(RecvError::Io(_))) => break,
             Ok(Ok(p)) => p,

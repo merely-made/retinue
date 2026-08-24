@@ -39,11 +39,87 @@ teardown signature stopped appearing in captured failures.
 run alone as inside the suite, so the suite's roughly-one-failure-per-run is
 arithmetic over twelve gates rather than interference between them.
 
+## FLK3 and FLK4 are closed: three more mechanisms, found by classifying
+
+**Amended 2026-08-23 by the re-pin session, which owned this work already.** The
+two modes recorded below as having no identified cause now have three
+mechanisms between them, all read off code paths rather than inferred, and all
+three modes have gone to zero across 120-run censuses.
+
+The method matters as much as the result, because it is the answer to the
+sampling problem this document states so well. Rate comparison is the expensive
+instrument: separating 13% from 7% needs about 390 runs an arm. Classifying
+failures by signature is the cheap one, and it is strictly more informative --
+**seven classified failures located three distinct bugs that no number of
+counted runs would have found.** `scratchpad/flake_census.py` runs a gate n
+times, fingerprints every failure across fourteen signals, groups them into
+modes and keeps one exemplar log per mode. FLK1 and FLK2 should adopt it: a gate
+bounded under 1% by 300 clean runs is worth more when you also know the shapes
+of the failures that did occur.
+
+**FLK4 -- whole-exchange collapse. The lane's guess was right: it is connection
+establishment, not request/response.** The signature is `TIMEOUT proof` with
+nothing else whatsoever -- no `SENT_REQUEST`, no `DONE`, RNS never sees the
+`/svc` announce, and there is no traceback, IO error or timeout anywhere. RNS's
+`TCPClientInterface` drops a peer whose first frame arrives before it has
+finished connecting, the same behaviour `oracle/README.md` already records
+behind `interop_r1`'s 250 ms wait. A peer dropped that way **stays** dropped:
+adding a loop that resends the announce and link request every second for ten
+seconds does not revive it, which is the evidence that the frames are being
+discarded rather than lost. The only lever is the post-accept settle, raised
+250 ms -> 750 ms. **That number is the weakest thing in this amendment** -- a
+guess at a distribution nobody has characterised, of exactly the kind that left
+`interop_r1` carrying a superstitious sleep for months. This mode is the sole
+survivor of the final census, at 1 in 120, and deserves its own FLK item.
+
+**FLK3 -- `d2=false`. The lane asked whether the loop's exit condition was wrong
+or the request never arrived. It is both, and they are two separate bugs.**
+
+- *The request arrived and was discarded.* The proof-wait loop matched only
+  `PacketType::Proof` and sent everything else to `Ok(Ok(_)) => continue`. RNS
+  opens its direction-2 link as soon as it sees the announce, which can easily
+  precede its proof of ours -- so the inbound `LinkRequest` hit that discard
+  branch, and direction 2 then had no link to arrive on. Fixed by accepting an
+  inbound link concurrently during the proof wait.
+- *The request was never sent, because RNS never saw the announce.* The gate
+  registers its destination **before** `RNS.Transport.register_announce_handler`,
+  leaving a window in which a link can be proved but an announce is processed
+  with nothing listening. The retry loop stopped at the proof, so the announce
+  was never resent. Signature: `dir1=PASS`, `rns_saw_svc` absent, `d2=false`.
+  Fixed by re-announcing every second until the responder link exists.
+
+**Census progression on `interop_reqresp`, n=120 each: 7 failures in 4 modes ->
+3 in 2 -> 1 in 1.** Read that as three modes going to zero alongside three
+identified mechanisms, **not** as a rate measurement. The rate is still FLK1's
+job at its declared n, and this document's arithmetic on that point stands
+unchanged.
+
 ## What is not established
 
-Two failure modes have no identified cause: `d2=false`, where retinue leaves the
-receive loop before RNS's request arrives at all, and a collapse in which
-direction 1 fails too. Both survive the teardown fix.
+The connection-establishment mode above survives at roughly 1 in 120, and the
+750 ms settle that reduced it is an uncharacterised guess.
+
+**Every rate in this document was measured on a heavily contended machine, and
+none of them should be compared against a rate measured elsewhere.** During the
+2026-08-23 work the box was running 54 rustc and 14 cargo processes across 16
+logical cores -- a 3.4x oversubscription, varying continuously as other sessions
+started and finished builds. Each live gate is timing-sensitive localhost
+networking, so under that load the measurements describe the machine at least as
+much as the gate. This plausibly accounts for several of the failed attributions
+recorded above: a blocked 2x2 that appeared to show a 20% RNS 1.5.0 regression
+and vanished when interleaved, a failure that disappeared at log level 7, and a
+rebuild hypothesis that would not reproduce. Load drift is a single explanation
+for all three.
+
+The consequence for FLK1 and FLK2 is direct: **a declared n is not sufficient if
+the load is uncontrolled.** A 175-run baseline taken during a build storm and one
+taken on a quiet machine are not the same measurement and cannot be pooled.
+`flake_census.py` now records concurrent rustc and cargo counts at the start and
+end of every census for exactly this reason, and discards runs that died in the
+build rather than in the gate -- a shared target directory under this much
+parallelism manufactures stale-rlib failures that are not gate failures at all.
+The three censuses reported above were checked for that contamination and had
+none, but they were not protected against it at the time.
 
 `interop_resource_recv` and `interop_ifac` were seen failing during the
 alternating runs and have no baseline of their own. The remaining eight gates
@@ -97,19 +173,21 @@ high-precision figure for one gate.
    `interop_resource_recv` and `interop_ifac` first since both have been seen
    failing. A gate with zero failures in 300 runs is bounded under 1% and can be
    set aside.
-3. **FLK3 — explain `d2=false`.** Retinue leaves the receive loop before the
-   request arrives. Determine whether the loop's exit condition is wrong or the
-   request genuinely never arrives, from captures rather than from reasoning.
-4. **FLK4 — explain the whole-exchange collapse.** The mode where direction 1
-   fails too. Likelier to be a connection-establishment problem than a
-   request/response one, but that is a guess and is labelled as one.
+3. **FLK3 — explain `d2=false`. DONE**, see the amendment above: two bugs, a
+   discarded inbound `LinkRequest` and an announce lost to the gate's
+   handler-registration window. Both fixed; the mode is at zero in 120 runs.
+4. **FLK4 — explain the whole-exchange collapse. EXPLAINED, NOT CLOSED.** It is
+   connection establishment, as this item guessed. The mitigation is a raised
+   settle wait rather than a fix, and the mode survives at about 1 in 120.
+   Characterising how long RNS actually needs before its first frame — instead
+   of guessing 750 ms — is the open remainder and should carry its own number.
 5. **FLK5 — set the evidence policy.** Once per-gate rates are bounded, state in
    the oracle README what a passing suite run is allowed to prove, and stop
    quoting bare "twelve of twelve" counts in receipts without a rate alongside.
 
-FLK1 and FLK2 are mechanical and can run unattended. FLK3 and FLK4 depend on
-FLK1's captured failures and should not start before there are enough of them to
-classify.
+FLK1 and FLK2 are mechanical and can run unattended, and should use the census
+tool rather than bare pass counts. FLK3 is done and FLK4 is explained; neither
+now blocks on FLK1.
 
 ## Done-conditions
 
