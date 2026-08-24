@@ -47,11 +47,22 @@ use management::{DEFAULT_ANNOUNCE_HISTORY_BOUND, ManagementState};
 /// derivation is done, so this bound is milliseconds on a host.
 const STAMP_ATTEMPT_BUDGET: u64 = 1 << 12;
 
+/// Qualified whole-transfer deadline for a station's direct radio carriage.
+///
+/// The two-board Resource receipt uses this deadline. Callers can narrow or widen it through
+/// [`StationConfig::resource_timeout`] without replacing the profile-derived retry policy.
+pub const DEFAULT_RESOURCE_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// Strict half-duplex radios request one Resource part per turn. A broad window is useful on a
+/// fast stream but makes both ends transmit over one another on this family's shared channel.
+const RADIO_RESOURCE_REQUEST_WINDOW: usize = 1;
+
 use outrider::{
     DEFAULT_MAX_MESSAGE_BYTES, DeliveryAnnounce, LxmfPayload, announce_delivery,
-    delivery_destination, receive_direct_with_stamp_cost, register_delivery, send_direct_stamped,
+    delivery_destination, receive_direct_with_stamp_cost_and_resource_config, register_delivery,
+    send_direct_stamped_with_resource_config,
 };
-use retinue::endpoint::{Endpoint, PeerAnnounce};
+use retinue::endpoint::{Endpoint, PeerAnnounce, ResourceTransferConfig};
 use retinue::hash::AddressHash;
 use retinue::identity::PrivateIdentity;
 use retinue::iface::tulle::drive;
@@ -106,6 +117,11 @@ pub struct StationConfig {
     pub announce_interval: Duration,
     /// Maximum announce observations retained for management history.
     pub announce_history_bound: usize,
+    /// Maximum time allowed for one complete direct-message Resource transfer.
+    ///
+    /// Retries and request turns are derived from the selected radio profile; this is the
+    /// owner-controlled failure horizon around that mechanism.
+    pub resource_timeout: Duration,
     /// The station's Reticulum identity.
     ///
     /// This is supplied by the host. Postilion deliberately neither persists
@@ -129,6 +145,7 @@ impl StationConfig {
             radio: Radio::Phy,
             announce_interval: Duration::from_secs(30),
             announce_history_bound: DEFAULT_ANNOUNCE_HISTORY_BOUND,
+            resource_timeout: DEFAULT_RESOURCE_TIMEOUT,
             identity,
         }
     }
@@ -278,6 +295,7 @@ pub struct Station {
     address: AddressHash,
     management: Arc<Mutex<ManagementState>>,
     radio_config: StationRadioConfig,
+    resource_config: ResourceTransferConfig,
     events: mpsc::UnboundedReceiver<Event>,
     tasks: Vec<tokio::task::JoinHandle<()>>,
     driver: tokio::task::AbortHandle,
@@ -290,6 +308,7 @@ impl Station {
         let radio_config = StationRadioConfig::from(&config);
         let profile = profile(config.bandwidth_hz);
         let params = tulle::lora::LoRaParams::try_from(profile).map_err(|_| Error::Profile)?;
+        let resource_config = radio_resource_config(&params, config.resource_timeout);
 
         let endpoint = Arc::new(Endpoint::new(identity.clone()));
         // The board carries 255 on the air whatever the host protocol claims, so link traffic
@@ -382,16 +401,18 @@ impl Station {
 
         tasks.push(tokio::spawn({
             let endpoint = Arc::clone(&endpoint);
+            let resource_config = resource_config;
             async move {
                 loop {
                     let Ok(accepted) = endpoint.accept_resource().await else {
                         return;
                     };
-                    let event = match receive_direct_with_stamp_cost(
+                    let event = match receive_direct_with_stamp_cost_and_resource_config(
                         &endpoint,
                         accepted,
                         DEFAULT_MAX_MESSAGE_BYTES,
                         None,
+                        resource_config,
                     )
                     .await
                     {
@@ -412,6 +433,7 @@ impl Station {
             address,
             management,
             radio_config,
+            resource_config,
             events,
             tasks,
             driver: driver.abort_handle(),
@@ -507,13 +529,14 @@ impl Station {
         // the only peers this station could talk to were the ones asking nothing. Stamp
         // work is skipped entirely when a peer advertises no cost, so a bench of our own
         // stations still pays nothing for it.
-        let receipt = send_direct_stamped(
+        let receipt = send_direct_stamped_with_resource_config(
             &self.endpoint,
             &self.identity,
             &peer.announce,
             payload,
             self.stamp_seed(),
             STAMP_ATTEMPT_BUDGET,
+            self.resource_config,
         )
         .await
         .map_err(|error| Error::Lxmf(error.to_string()))?;
@@ -568,6 +591,17 @@ impl Drop for Station {
     }
 }
 
+fn radio_resource_config(
+    params: &tulle::lora::LoRaParams,
+    timeout: Duration,
+) -> ResourceTransferConfig {
+    ResourceTransferConfig {
+        timeout,
+        retry_interval: tulle::pacing::resource_retry(params, false),
+        request_window: RADIO_RESOURCE_REQUEST_WINDOW,
+    }
+}
+
 /// This family's trunk profile at a chosen bandwidth.
 pub fn profile(bandwidth_hz: u32) -> PhyProfile {
     PhyProfile {
@@ -602,7 +636,24 @@ mod tests {
 
         assert_eq!(config.port, "COM6");
         assert_eq!(config.name, "bench");
+        assert_eq!(config.resource_timeout, DEFAULT_RESOURCE_TIMEOUT);
         assert_eq!(config.identity.public().hash(), identity.public().hash());
+    }
+
+    /// Station carriage must use the same strict half-duplex policy as the qualified
+    /// two-board Resource receipt. The fast-link default reproduces collisions on hardware.
+    #[test]
+    fn radio_resource_policy_is_profile_derived_and_single_turn() {
+        let params = tulle::lora::LoRaParams::try_from(profile(250_000)).unwrap();
+        let timeout = Duration::from_secs(75);
+        let config = radio_resource_config(&params, timeout);
+
+        assert_eq!(config.timeout, timeout);
+        assert_eq!(
+            config.retry_interval,
+            tulle::pacing::resource_retry(&params, false)
+        );
+        assert_eq!(config.request_window, 1);
     }
 
     #[test]

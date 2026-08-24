@@ -1,13 +1,43 @@
 //! Endpoint-level resource publish/fetch over the raw interface seam.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use retinue::destination::DestinationName;
 use retinue::endpoint::{Endpoint, PayloadMode, ReceivedPayload, ResourceTransferConfig};
 use retinue::identity::PrivateIdentity;
+use retinue::link::CTX_RESOURCE_PRF;
 use retinue::lossy::{LossModel, connect};
 use retinue::request::Request;
+
+fn connect_dropping_first_resource_proof(a: &Endpoint, b: &Endpoint) -> Arc<AtomicBool> {
+    let (mut a_out, a_sink) = a.attach_interface().split();
+    let (mut b_out, b_sink) = b.attach_interface().split();
+    let dropped = Arc::new(AtomicBool::new(false));
+
+    tokio::spawn(async move {
+        while let Some(packet) = a_out.recv().await {
+            if !b_sink.deliver(packet) {
+                break;
+            }
+        }
+    });
+
+    let proof_dropped = Arc::clone(&dropped);
+    tokio::spawn(async move {
+        while let Some(packet) = b_out.recv().await {
+            if packet.context == CTX_RESOURCE_PRF && !proof_dropped.swap(true, Ordering::AcqRel) {
+                continue;
+            }
+            if !a_sink.deliver(packet) {
+                break;
+            }
+        }
+    });
+
+    dropped
+}
 
 #[tokio::test]
 async fn endpoint_publishes_and_fetches_a_resource() {
@@ -57,6 +87,52 @@ async fn endpoint_publishes_and_fetches_a_resource() {
         .expect("receiver completes")
         .unwrap();
     assert_eq!(fetched, ReceivedPayload::Resource(expected));
+}
+
+#[tokio::test]
+async fn endpoint_publish_survives_a_lost_completion_proof() {
+    let server_id = PrivateIdentity::from_secret_bytes(&[0x24; 64]);
+    let client_id = PrivateIdentity::from_secret_bytes(&[0x13; 64]);
+    let server = Arc::new(Endpoint::new(server_id.clone()));
+    let client = Endpoint::new(client_id);
+
+    let name = DestinationName::new("retinue", ["resource-proof-replay"]);
+    let destination = name.destination_hash(server_id.public());
+    server.register_resource(name, b"");
+    let proof_dropped = connect_dropping_first_resource_proof(&client, &server);
+
+    let payload: Vec<u8> = (0..2_000_u32)
+        .map(|n| n.wrapping_mul(29).wrapping_add(5) as u8)
+        .collect();
+    let expected = payload.clone();
+    let receiver = tokio::spawn({
+        let server = Arc::clone(&server);
+        async move {
+            let mut accepted = server.accept_resource().await.unwrap();
+            accepted.session.receive().await.unwrap()
+        }
+    });
+
+    let sent = client
+        .send_payload_with_config(
+            destination,
+            *server_id.public(),
+            &payload,
+            ResourceTransferConfig {
+                timeout: Duration::from_secs(2),
+                retry_interval: Duration::from_millis(20),
+                request_window: 1,
+            },
+        )
+        .await
+        .expect("a replayed completion proof reaches the publisher");
+
+    assert_eq!(sent, PayloadMode::Resource);
+    assert!(
+        proof_dropped.load(Ordering::Acquire),
+        "the test must remove the receiver's first completion proof"
+    );
+    assert_eq!(receiver.await.unwrap(), ReceivedPayload::Resource(expected));
 }
 
 #[tokio::test]
