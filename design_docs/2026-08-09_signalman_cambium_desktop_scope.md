@@ -1,12 +1,21 @@
 # Cambium adoption and upgrade scope for Signalman
 
 **Date:** 2026-08-09  
-**Status:** G0 through G5 are complete for the supported Windows route.
-Signalman pins the G5 host at an immutable Genet revision; Woodshed
+**Status:** G0 through G4 are complete for the supported Windows route; **G5 is
+partial.** Signalman pins the G5 host at an immutable Genet revision; Woodshed
 intentionally tracks the same moving Genet reference as Mere and records its
 resolved revision matrix in the lockfile. G4 has physical V4 and T114 receipts,
 and the owner supplied the manual screen-reader judgement. Consumer order is
 woodshed first, Signalman second, Pelt optional.
+
+**Status corrected 2026-08-24.** This line read "G0 through G5 are complete"
+while the ordered-gate list at the foot of this document said, and still says,
+that G5.1 and G5.2 remain open. The header was not revised when item 6 was
+un-struck on 2026-08-23, so the document contradicted itself for a day and a
+reader who stopped at the status line got the wrong answer. G5.3 is done
+(2026-08-14, re-receipted 2026-08-23); G5.1 and G5.2 are not. See the
+2026-08-24 accessibility note under G5 for which of their conditions have since
+been met.
 
 ## Decision
 
@@ -642,6 +651,38 @@ The gap is now closed in genet -- `role_for` maps `alert`, and the walk reads
 `aria-valuenow`, `aria-valuemin`, and `aria-valuemax`, each covered by a test
 -- but Signalman is deliberately not repinned onto that revision, so both
 tests still fail here.
+
+**Accessibility note, 2026-08-24: both tests now pass, and the paragraph above
+is superseded on its last clause only.** Signalman has since been repinned. The
+eight Genet pins in `apps/signalman-desktop/Cargo.toml` moved `b9457041` ->
+`5ec8274ed21` in retinue `bd71ee1`, and `apps/signalman-desktop` is 48 of 48,
+zero failures, under `cargo test --locked --offline -j 1 --no-fail-fast`.
+`tests/accessibility.rs` is 5 of 5, including
+`the_review_page_and_a_refusal_are_both_announced` and
+`the_transfer_bar_reports_a_value`. Counted from a completed run, not inferred
+from an exit code.
+
+Two consequences, and one non-consequence.
+
+- **This scope's accessibility claim holds again.** The 2026-08-23 correction
+  withdrew it on the grounds that two assertions failed; they no longer do, so
+  the withdrawal is spent. G2's owner judgement and G4's accessibility leg
+  stand as originally recorded.
+- **Two of the four conditions on G5.1 and G5.2 are now met.** The ordered-gate
+  item requires the headed hidden-and-restored Windows receipt, the headed
+  minimize-and-restore run, and both accessibility tests. The tests hold; the
+  two headed runs remain unrecorded and are owner-driven. Do not restrike the
+  item on the strength of this note alone.
+- **"No pin moves it" was true when written and is no longer.** It described
+  every revision that existed on 2026-08-23. The fix was authored afterwards,
+  so the claim aged out rather than being wrong. Worth stating because a reader
+  meeting that sentence today would otherwise conclude the tests are unfixable
+  by pinning, which is the opposite of what happened.
+
+The repin is an absorption rather than an isolated fix: `b9457041..5ec8274ed21`
+is 30 commits and 24,686 insertions, and it required a coupled netrender move
+to `4269ca58`, because `genet-render-host` at that revision calls
+`Renderer::invalidate_surface_tiles`. See `bd71ee1` for the full receipt.
 
 **Consumer revision receipt 2026-08-23:** The pin moved twice after the
 paragraph above, each time without the locked consumer receipt this section

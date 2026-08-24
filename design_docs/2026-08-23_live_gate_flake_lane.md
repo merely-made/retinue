@@ -39,12 +39,20 @@ teardown signature stopped appearing in captured failures.
 run alone as inside the suite, so the suite's roughly-one-failure-per-run is
 arithmetic over twelve gates rather than interference between them.
 
-## FLK3 and FLK4 are closed: three more mechanisms, found by classifying
+## FLK3 closed, FLK4 explained: three more mechanisms, found by classifying
 
 **Amended 2026-08-23 by the re-pin session, which owned this work already.** The
 two modes recorded below as having no identified cause now have three
 mechanisms between them, all read off code paths rather than inferred, and all
 three modes have gone to zero across 120-run censuses.
+
+**Heading corrected 2026-08-24.** It read "FLK3 and FLK4 are closed", which
+contradicted this section's own itemised status below: FLK4 is marked there,
+correctly, as **explained but not closed** — its mode survives at roughly 1 in
+120 and the 750 ms settle that reduces it is a constant fitted under load
+rather than a readiness signal. The heading is the first thing a reader meets,
+so it was the version most likely to be believed. Nothing else in the section
+changed.
 
 The method matters as much as the result, because it is the answer to the
 sampling problem this document states so well. Rate comparison is the expensive
