@@ -10,9 +10,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use cambium_genet_winit_host::{AppCtx, HostHooks, HostOptions, Init, run};
-use signalman::management::ManagementPresence;
 use signalman_desktop::audio::{self, AudioEvent, AudioOperation, AudioWorker};
-use signalman_desktop::network::{LayoutWake, NETWORK_LEAF_KEY, NetworkWorker};
+use signalman_desktop::network::{LayoutWake, NETWORK_LEAF_KEY, NetworkWorker, paint_network_leaf};
 use signalman_desktop::state::{AudioRequest, DesktopState, NetworkRequest};
 use signalman_desktop::station::{self, StationWorker};
 use signalman_desktop::views::{Child, Logic};
@@ -104,20 +103,7 @@ fn main() {
             let swatch = ctx.runner.state().network_swatch();
             let mut last = frame_leaf.borrow_mut();
             if last.as_ref() != Some(&swatch) {
-                let leaf = swatch.paint_leaf(|presence| match presence {
-                    ManagementPresence::Live => sprigging::ColorF {
-                        r: 0.35,
-                        g: 0.72,
-                        b: 0.56,
-                        a: 1.0,
-                    },
-                    ManagementPresence::Stale => sprigging::ColorF {
-                        r: 0.43,
-                        g: 0.46,
-                        b: 0.52,
-                        a: 1.0,
-                    },
-                });
+                let leaf = paint_network_leaf(&swatch);
                 ctx.leaves.insert(NETWORK_LEAF_KEY, Box::new(leaf));
                 *last = Some(swatch);
             }
@@ -241,8 +227,7 @@ fn main() {
                     "Connecting station \u{201c}{}\u{201d} on {}\u{2026}",
                     settings.name, settings.port
                 ));
-                *init_station.borrow_mut() =
-                    Some(StationWorker::spawn(settings, wake.callback()));
+                *init_station.borrow_mut() = Some(StationWorker::spawn(settings, wake.callback()));
             }
             match MessageStore::open(default_message_store_path(), "signalman-local") {
                 Ok(store) => state.replace_message_store(store),

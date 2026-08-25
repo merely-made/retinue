@@ -327,7 +327,7 @@ their filenames says so — see the `result` column.
 | [Cambium desktop scope](2026-08-09_signalman_cambium_desktop_scope.md) | Desktop G0–G5 authority. G0–G4 complete, G5 partial. |
 | [G2 receipt](2026-08-09_signalman_desktop_g2_receipt.md) | Evidence, not a queue. **Its accessibility count is wrong** — see Known divergences. |
 | [Management surface direction](2026-08-15_signalman_management_surface_direction.md) | Ruling on the device-data mere. |
-| [Management surface plan](2026-08-15_signalman_management_surface_implementation_plan.md) | S0–S9 authority. |
+| [Management surface plan](2026-08-15_signalman_management_surface_implementation_plan.md) | S0–S9 authority; also records Signalman's headless mixed-realization consumer receipt without changing S2's headed gate. |
 | [S2 live station receipt](2026-08-20_signalman_s2_live_station_receipt.md) | Live bench leg complete, over-the-air announce. |
 | Graphical receipts | [V4 COM6 G4](2026-08-10_signalman_v4_com6_g4_receipt.md) · [V4 COM7 owner flow](2026-08-10_signalman_v4_com7_owner_flow_receipt.md) · [T114 graphical](2026-08-14_signalman_t114_graphical_receipt.md) · [COM6 N39](2026-08-14_com6_n39_signalman_graphical_receipt.md) · [N39 Hopspot](2026-08-14_com6_n39_hopspot_signalman_graphical_receipt.md) · [N39 Hopspot→Retinue restore](2026-08-14_com6_n39_hopspot_retinue_signalman_restore_receipt.md) · [Windows staged helper](2026-08-15_signalman_windows_v4_staged_helper_receipt.md) · [public F5 Windows](2026-08-19_signalman_public_f5_windows_receipt.md) |
 
@@ -428,6 +428,14 @@ dependency move.
   resolves `.cargo/config.toml` from the working directory, and Prns pins a
   256 MiB Windows stack there. Built from anywhere else the daemon overflows a
   1 MiB stack before it can parse an argument, and the build reports success.
+
+
+### Mixed-realization receipts
+
+- Count custom paint and retained controls as one scene only when a product
+  receipt starts from one projection and proves one focus order, action state,
+  pointer-capture route, AccessKit tree, and automation surface. Separate paint
+  and input component tests do not prove that composition.
 
 ## Status
 

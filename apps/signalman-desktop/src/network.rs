@@ -26,6 +26,30 @@ const SETTLE_TICKS: usize = 180;
 #[cfg(test)]
 const SETTLE_TICKS: usize = 4;
 
+/// Build the Sprigging paint half of Signalman's Network scene.
+///
+/// The matching semantic targets live in Cambium's retained `graph_canvas`
+/// view. Keeping this builder in the library lets the desktop binary and its
+/// mixed-realization receipt exercise the same product palette and projection.
+pub fn paint_network_leaf(
+    swatch: &GraphCanvasSwatch<ManagementNodeId, ManagementPresence>,
+) -> sprigging::GraphCanvas {
+    swatch.paint_leaf(|presence| match presence {
+        ManagementPresence::Live => sprigging::ColorF {
+            r: 0.35,
+            g: 0.72,
+            b: 0.56,
+            a: 1.0,
+        },
+        ManagementPresence::Stale => sprigging::ColorF {
+            r: 0.43,
+            g: 0.46,
+            b: 0.52,
+            a: 1.0,
+        },
+    })
+}
+
 /// Owner-selected physics values. `force_strength` scales the three public
 /// Seiche force defaults together; damping is applied directly to every body.
 #[derive(Clone, Copy, Debug, PartialEq)]

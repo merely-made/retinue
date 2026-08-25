@@ -9,6 +9,12 @@ actor, and a real V4 station on COM6 carried one over-the-air announce and
 route from a COM7 peer into the shipped projection; see the
 [S2 live station receipt](2026-08-20_signalman_s2_live_station_receipt.md).
 S2's remaining boundary is the owner-driven headed interactive judgement.
+On 2026-08-25 the shipping Network face also became the forcing consumer for
+Mere projection-receipts FT8: one headless product receipt now joins its
+Sprigging marks, retained DOM controls, semantic targets, probe selectors,
+AccessKit projection, focus traversal, pointer capture, and state actions. That
+closes the narrower mixed-realization receipt; it does not substitute for S2's
+headed judgement.
 S3's five-section shell, owner settings, unavailable states, and headless
 navigation receipts are verified.
 This opens named gates for the direction in
@@ -255,6 +261,18 @@ projection; see the
 [S2 live station receipt](2026-08-20_signalman_s2_live_station_receipt.md).
 The headed interactive judgement in a real window remains open and
 owner-driven.
+
+**Mixed-realization receipt, 2026-08-25:**
+`mixed_realization_uses_one_scene_focus_and_action_model` builds the production
+Sprigging Network leaf from the same `GraphCanvasSwatch` used by the retained
+view, verifies emitted path marks, resolves a graph-node target and an ordinary
+viewport control through `genet-probe`, reaches both through one Tab order and
+one AccessKit tree, retains graph-node pointer capture while the pointer crosses
+the DOM control, and applies both actions to one `DesktopState`. The production
+palette moved from binary-only wiring into
+`apps/signalman-desktop/src/network.rs`; the binary consumes that same builder.
+The focused Network suite passes 6 tests. The full exact-pin locked/offline
+desktop suite passes 50 tests. This is rung 2, **Headless face**.
 
 ### S3. Turn the desktop into a management shell
 
@@ -565,6 +583,23 @@ Stop when any of these occurs:
   reusable document-session boundary;
 - a physical installer run overlaps an Air bench session;
 - Turnstone needs direct Signalman graph or radio mutation authority.
+
+## Findings
+
+- **2026-08-25:** Cambium's graph canvas is already a real mixed-realization
+  component in Signalman: Sprigging owns the marks while retained native
+  controls aligned through the same viewport own pointer, keyboard,
+  accessibility, and automation semantics. The product receipt was missing
+  because the production paint builder lived only in `main.rs`.
+- **2026-08-25:** A headless mixed-realization receipt and S2's headed product
+  judgement are different boundaries. Closing Mere FT8 does not close S2.
+
+## Progress
+
+- **2026-08-25:** extracted `paint_network_leaf`, added the joined Network-face
+  receipt, and passed
+  `cargo test --manifest-path apps/signalman-desktop/Cargo.toml --locked --offline -j 1`
+  with 50 tests.
 
 ## Deliberate deferrals
 

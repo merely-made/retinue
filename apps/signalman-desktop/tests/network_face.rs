@@ -10,9 +10,11 @@ use signalman::management::{
     ManagementNodeId, ManagementPresence, ManagementProvenance, ManagementRelation,
     ManagementRelationId, ManagementRelationKind, ManagementRole, ManagementSource,
 };
+use signalman_desktop::network::paint_network_leaf;
 use signalman_desktop::state::{DesktopSection, DesktopState, NetworkRequest};
 use signalman_desktop::views::{Child, Logic};
 use signalman_desktop::{default_catalog_path, root, sheet};
+use sprigging::{Leaf, PaintCmd, PaintCx, Size};
 
 type App = Harness<DesktopState, Logic, Child>;
 
@@ -92,6 +94,107 @@ fn harness() -> App {
     let mut harness = Harness::new(sheet(), state, root as Logic);
     harness.layout_at(1100.0, 900.0);
     harness
+}
+
+#[test]
+fn mixed_realization_uses_one_scene_focus_and_action_model() {
+    let mut harness = harness();
+    let selected = ManagementNodeId::from_source_key("destination:peer");
+    let mark = Selector::role("button").with_attr("data-key", selected.as_str());
+    let control = Selector::role("button").containing("Pan right");
+
+    // The shipping Sprigging builder paints the same swatch that built the
+    // retained semantic targets. The custom leaf is presentational; Cambium's
+    // aligned native targets own keyboard, pointer, AccessKit, and probe input.
+    let swatch = harness.state().network_swatch();
+    let mut leaf = paint_network_leaf(&swatch);
+    let mut paint = Vec::new();
+    leaf.paint(&mut PaintCx::new(
+        &mut paint,
+        Size {
+            width: swatch.width as f32,
+            height: swatch.height as f32,
+        },
+    ));
+    assert!(
+        paint
+            .iter()
+            .any(|command| matches!(command, PaintCmd::DrawPath(path) if path.fill.is_some())),
+        "the product leaf emitted GPU-ready node marks"
+    );
+    assert!(
+        !leaf.paint_dirty(),
+        "the retained leaf consumed its paint dirtiness"
+    );
+
+    let (mark_node, control_node, scene_present) = harness.with_dom(|dom| {
+        let mark_node = genet_probe::matching(dom, &mark)
+            .into_iter()
+            .next()
+            .expect("probe resolves a painted node's semantic target");
+        let control_node = genet_probe::matching(dom, &control)
+            .into_iter()
+            .next()
+            .expect("probe resolves an ordinary DOM control");
+        let scene_present = genet_probe::matching(dom, &Selector::class("graph-canvas-swatch"))
+            .into_iter()
+            .next()
+            .is_some();
+        (mark_node, control_node, scene_present)
+    });
+    assert!(scene_present);
+    let focusables = harness.runner().focusables();
+    assert!(focusables.contains(&mark_node));
+    assert!(focusables.contains(&control_node));
+
+    let mut reached_mark = false;
+    let mut reached_control = false;
+    for _ in 0..focusables.len() {
+        harness.tab(true);
+        reached_mark |= harness.focus() == Some(mark_node);
+        reached_control |= harness.focus() == Some(control_node);
+    }
+    assert!(
+        reached_mark && reached_control,
+        "one Tab order reaches both realizations"
+    );
+
+    let (tree, map) = harness.a11y_tree();
+    assert!(tree.nodes.iter().any(|(id, node)| {
+        map.get(id) == Some(&mark_node)
+            && node.role() == Role::Button
+            && node
+                .label()
+                .is_some_and(|label| label.contains("Workshop peer"))
+    }));
+    assert!(tree.nodes.iter().any(|(id, node)| {
+        map.get(id) == Some(&control_node)
+            && node.role() == Role::Button
+            && node
+                .label()
+                .is_some_and(|label| label.contains("Pan right"))
+    }));
+
+    let point = harness
+        .resolve(&mark)
+        .expect("mark target has a shipping rect");
+    harness.press_at(point.0, point.1);
+    let capture = harness
+        .pointer_capture()
+        .expect("mark press starts capture");
+    let control_point = harness
+        .resolve(&control)
+        .expect("DOM control has a shipping rect");
+    harness.move_to(control_point.0, control_point.1);
+    assert_eq!(harness.pointer_capture(), Some(capture));
+    harness.release_at(control_point.0, control_point.1);
+    assert_eq!(harness.pointer_capture(), None);
+    assert_eq!(harness.state().device_mere.selected(), Some(&selected));
+
+    let pan = harness.state().network_pan;
+    assert!(harness.click_on(&control));
+    assert!(harness.state().network_pan.0 > pan.0);
+    assert_eq!(harness.state().device_mere.selected(), Some(&selected));
 }
 
 #[test]
