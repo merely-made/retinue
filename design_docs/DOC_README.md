@@ -138,12 +138,25 @@ their gate. `UNKNOWN` means no document states a status — it does not mean ope
 Live as of 2026-08-24. Each is a place where a document, or a shipped artefact,
 disagrees with the tree.
 
-- **The published firmware catalog is out of sync with this repository, and the
-  published half is the stale one.** `firmware/packages/` changed in `a644ea5`
-  after the 2026-08-20 publication at `05b3795`, and nothing has republished.
-  The live pages still project `write_bytes = 4191528`, a value wrong by roughly
-  22×, which makes a real V4 flash crawl to about 4.6% and appear to stall.
-  Owned by Distribution / F7.
+- **The published firmware catalog is out of sync with this repository.**
+  Mer3ly pins its projection to `index.toml` at `05b3795`, whose SHA-256 it
+  records; `35f3f7b` has since moved that file to `version = "3"` and added
+  `release_sequence` to every package. So the published catalog advertises v2
+  semantics and carries none of the release sequences the authenticated-update
+  path depends on. Owned by Distribution / F7 with DIST7.
+
+  Republishing is blocked on a schema change rather than a content refresh:
+  Mer3ly's catalog structs all use `serde(deny_unknown_fields)`, so today's
+  index fails to deserialize there, and `RETINUE_PACKAGE_INDEX_URL` is a
+  hardcoded constant still pinned at `05b3795`.
+
+  **This is not the `write_bytes` defect, and an earlier version of this entry
+  said it was.** Mer3ly's projection carries no payload fields at all — no
+  `write_bytes`, `byte_length` or `sha256` — so the live pages never served the
+  22×-wrong value and no flash was ever driven from them. That bug lived in
+  `heltec-v4-current.toml` and was fixed in `a644ea5`. The claim was inherited
+  from an audit summary and restated here without checking the projected file,
+  which is the exact failure this document's working principles describe.
 - **The Plan audit table** in [work lanes](2026-08-09_retinue_work_lanes.md) is
   a rival index to this file. Six of its 24 rows were stale on 2026-08-24 —
   ARDC, Linkboy/F7, both Signalman rows, the management surface, and Outrider —
