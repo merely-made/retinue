@@ -71,10 +71,30 @@ nothing else whatsoever -- no `SENT_REQUEST`, no `DONE`, RNS never sees the
 `/svc` announce, and there is no traceback, IO error or timeout anywhere. RNS's
 `TCPClientInterface` drops a peer whose first frame arrives before it has
 finished connecting, the same behaviour `oracle/README.md` already records
-behind `interop_r1`'s 250 ms wait. A peer dropped that way **stays** dropped:
-adding a loop that resends the announce and link request every second for ten
-seconds does not revive it, which is the evidence that the frames are being
-discarded rather than lost. The only lever is the post-accept settle, raised
+behind `interop_r1`'s 250 ms wait.
+
+**Retracted 2026-08-24: the "stays dropped" half of this was not established.**
+It rested on a retry loop that resent the announce and link request every second
+for ten seconds without reviving the peer, which was read as proof that the
+frames were being discarded rather than lost. That inference does not hold,
+because `reqresp_interop.rs` rebuilt neither packet between attempts: it sent
+byte-identical bytes each time, from one `rh()` call and one fixed ephemeral
+seed. This repo has already observed RNS suppressing repeats from a destination
+it knows (small plan, 2026-08-06) and `interop_tcp.rs` states the rule outright,
+and every other re-announcing example varies its rand_hash. So "the retry did not
+help" has two live explanations, dedupe and a dropped peer, and the experiment
+could not separate them. Fixed the same day: each announce now carries a fresh
+rand_hash. The link request is still resent identically, because fresh ephemeral
+seeds mean tracking several outstanding pending links, so that half of the
+confound remains open.
+
+A second finding compounds it: the proof-wait loop matched `Ok(Err(_)) =>
+continue`, swallowing `RecvError::Io` alongside malformed frames. A connection
+that died mid-wait therefore produced exactly the FLK4 fingerprint, `TIMEOUT
+proof` and nothing else. The gate could not distinguish "RNS discarded our
+frames" from "the socket was gone". It now prints `PROOF_WAIT_IO` and breaks.
+Both fixes exist so the NEXT census can answer what the last one could not; they
+are not themselves evidence about the mechanism. The only lever is the post-accept settle, raised
 250 ms -> 750 ms. **That number is the weakest thing in this amendment** -- a
 guess at a distribution nobody has characterised, of exactly the kind that left
 `interop_r1` carrying a superstitious sleep for months. This mode is the sole

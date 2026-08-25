@@ -81,7 +81,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let our_id = PrivateIdentity::from_secret_bytes(&OUR_SEED);
     let our_name = DestinationName::new("retinue", ["svc"]);
     let our_dest = our_name.destination_hash(our_id.public());
-    let our_announce = announce::build(&our_id, our_name.name_hash(), &rh(), None, b"svc");
+    // Each announce gets a FRESH rand_hash. Byte-identical repeats are the one
+    // thing that cannot be used as evidence here: this repo has already observed
+    // RNS suppressing repeats from a destination it already knows (see the small
+    // plan's 2026-08-06 entry), and `interop_tcp.rs` says so outright. Every other
+    // example that re-announces varies it; this one did not, which silently
+    // confounded the conclusion that a dropped peer "stays dropped".
+    let fresh_announce =
+        || announce::build(&our_id, our_name.name_hash(), &rh(), None, b"svc");
 
     // --- Direction 1: retinue -> RNS request.
     let peer = *PrivateIdentity::from_secret_bytes(&DEST_SEED).public();
@@ -116,7 +123,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut established: Option<retinue::link::Link> = None;
 
     while established.is_none() && tokio::time::Instant::now() < proof_deadline {
-        send(&mut iface, &our_announce).await;
+        send(&mut iface, &fresh_announce()).await;
         send(&mut iface, &request).await;
 
         let attempt_until =
@@ -125,6 +132,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let left = attempt_until.saturating_duration_since(tokio::time::Instant::now());
             match tokio::time::timeout(left, iface.recv()).await {
                 Err(_) => break,
+                // Distinguish a dead socket from a malformed frame. Both used to
+                // fall through to `TIMEOUT proof`, so a census could not tell
+                // "RNS discarded our frames" from "the connection was gone".
+                Ok(Err(RecvError::Io(e))) => {
+                    println!("PROOF_WAIT_IO {e}");
+                    break;
+                }
                 Ok(Err(_)) => continue,
                 Ok(Ok(p)) if p.packet_type == PacketType::Proof => {
                     established = Some(pending.prove(&p)?);
@@ -182,7 +196,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let packet = match tokio::time::timeout(slice, iface.recv()).await {
             Err(_) => {
                 if resp_link.is_none() {
-                    send(&mut iface, &our_announce).await;
+                    send(&mut iface, &fresh_announce()).await;
                 }
                 continue;
             }
