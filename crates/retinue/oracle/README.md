@@ -24,6 +24,13 @@ That discipline is not squeamishness. Two reasons:
 Reading RNS source is therefore forbidden. Running it, calling its documented API,
 inspecting its public constants at runtime, and reading its output are all fine.
 
+The same implementation boundary applies to `source-derived-peer` projects named by the
+permissive compatibility survey: their released behavior may motivate and serve a
+black-box probe, but their implementation does not shape Retinue code. In particular,
+microReticulum's `/*p`, `//p`, and `//z` comment blocks appear to reproduce restricted
+Python reference source. Do not read or quote those blocks, regardless of the repository's
+root licence. microReticulum remains a peer/probe lead rather than a donor.
+
 ## Setup
 
 ```sh
@@ -260,3 +267,23 @@ during a build storm measures the machine as much as the gate, and two censuses
 taken under different load cannot be pooled or compared.
 
 Exemplar logs land in `census/`, which is not committed.
+
+## Announce timebase probe
+
+`probe_announce_timebase.py` is a clean-room, black-box RNS 1.5.0 probe for
+the P1/P2/P3 matrix. It creates each signed packet in a sender child, injects
+it into a fresh receiver child, and reuses the receiver's persistent config
+between cases. The post-shutdown `storage/destination_table` is authoritative;
+`in_process_snapshot` is diagnostic only. A false answer is still a valid
+measurement. Run it from this directory:
+
+```powershell
+.\.venv\Scripts\python.exe -u probe_announce_timebase.py
+```
+
+The local, ignored 2026-08-25 RNS 1.5.0 receipt is under the repository root at
+`validation/results/announce-timebase-final2/result.json`, SHA-256
+`639dda1d1d4f8ef9128a6a4f4ceeda00444524a62c1da234c7c167d5a6ab1ac1`. P1 rejected a
+fresh nonce with an equal timebase at the same one-hop route, P2 rejected timebase `2`
+after accepting `2^39`, and P3 accepted both `1` and `2^39`. All first sightings persisted
+with valid packets.

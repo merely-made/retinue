@@ -1,15 +1,63 @@
 # Announce timebase plan
 
 **Date:** 2026-08-25
-**Status:** open plan. Nothing in it is implemented yet.
-**Owns:** the announce `rand_hash` field, the receive-side path-acceptance rule, the
-firmware tier's monotonic timebase, and the clean-room rule for microReticulum.
+**Status (2026-08-25):** in progress. P1/P2/P3 are answered and P8 remains open. The
+additive Phase B blob/timebase primitive has landed; caller, receive, and firmware
+semantics have not.
+**Owns:** the announce `rand_hash` field, receive-side announce freshness, and the
+firmware tier's durable monotonic timebase. The Peer lane owns black-box evidence, the Air
+lane owns protocol and firmware code, and Assurance owns any central validation or
+provenance registry change. Evidence supplied by one lane does not close another lane's
+gate.
 
 **Related authority:** [wire format reference](2026-07-13_rns_wire_format_reference.md)
 (needs the corrections in §6 below), [RNS 1.5.0 re-pin
 receipt](2026-08-23_rns_150_lxmf_111_repin_receipt.md), [live-gate flake
 lane](2026-08-23_live_gate_flake_lane.md), [Prns harvest
-brief](2026-08-09_prns_harvest_brief.md).
+brief](2026-08-09_prns_harvest_brief.md), [work lanes](2026-08-09_retinue_work_lanes.md),
+and [permissive-source classification](2026-08-25_permissive_radio_protocol_compatibility_survey.md).
+
+---
+
+## 0. Decisions and execution order
+
+The source survey is prior art and a hypothesis generator. It is not one undifferentiated
+implementation authority. Per the compatibility survey, only `observed-wire`,
+`official-doc`, and elected `clean-donor` material may shape Retinue code. Findings from a
+`source-derived-peer` may motivate a probe, but the probe or a clean donor must carry the
+decision. This corrects the broader authority implied by earlier wording in this plan.
+
+### Decisions taken in review
+
+1. **M1, structured caller input:** `announce::build` will take a typed announce blob whose
+   constructors distinguish exact wire replay from minting `nonce(5) || timebase(5)`. The
+   protocol core remains sans-I/O; entropy and time still come from its caller. A raw
+   `[u8; 10]` remains available only as decoded or fixture wire material, not as the normal
+   emission contract.
+2. **Receive freshness is not packet-loop dedup.** The packet-hash window remains a bounded
+   relay-loop mechanism. Announce admission gets separate per-destination state and gates
+   address-book mutation, route mutation, local publication, and relay together.
+3. **Firmware durability uses an ahead-of-use reservation.** The board persists a
+   `reserved_through` ceiling before it emits any value in that range. After restart it
+   starts above the durable ceiling. A periodic checkpoint of the last value used is
+   insufficient and is rejected below.
+4. **Every mint advances.** The five-byte field is encoded in whole-second units, but the
+   ordinal must increase for every emission from a destination, including two calls in the
+   same second, retries, and freshly minted owned-destination path responses.
+
+### Phases
+
+| phase | owner and write surface | target | done-conditions |
+| --- | --- | --- | --- |
+| **A. Black-box decisions** | Peer: `crates/retinue/oracle/` and captured local evidence | Run P1, P2, P3, and the receive matrix P8 against pinned stock RNS with persistent, isolated state. | Exact RNS version, inputs, order, config lifetime, and destination-table state are recorded. Poison cases use their own destination/config. No implementation source is read. |
+| **B. Typed emission** | Air: `crates/retinue/src/announce.rs`, host emission, `Node` caller seam, examples and owner tests | Introduce the structured wire type; make host and board callers supply five nonce bytes plus a monotonic ordinal. | Byte-order KATs pass; deterministic injected-clock tests cover same-second emission, backward host-clock movement, and 40-bit exhaustion; no emission site fills bytes 5..10 with entropy. The already-dirty `reqresp_interop.rs` is coordinated rather than overwritten. |
+| **C. Receive freshness** | Air: shared bounded freshness model plus `Endpoint` and `Node` consumers | Apply the P8 acceptance matrix before every observable announce effect. | Host and `no_std` tests cover stale time, duplicate blob, changed context, better-hop copies, ratchet/app-data rollback, expiry, and bounded eviction. Retention scope is explicit; packet-loop dedup stays separate. |
+| **D. Durable firmware reservation** | Air, with board-specific storage adapters and a declared quiet-write seam | Persist a reservation before radio use, fail closed on storage fault/exhaustion, and preserve identity across upgrade. | Torn writes, corrupt timebase with valid identity, first upgrade, explicit rekey, and downgrade posture are tested. Both boards survive a power cut and emit a value above every possibly transmitted pre-cut value; stock RNS accepts it and completes a link. Flash cadence and receive blanking meet a stated bound. |
+| **E. Reconciliation and receipt** | Owning docs plus Assurance-owned registry work | Correct the wire reference, source boundary, index, and final status from measured behavior. | O-20 is closed by observed bytes; open equality or migration points move to a named plan; this plan has dated Findings and Progress; hardware and software claims remain separate. |
+
+Phases B and C may share one protocol-core commit after Phase A answers the matrix. Phase D
+does not ride along merely because the A/B settings record already exists; its write
+authority, endurance, migration, and failure behavior are separate proof obligations.
 
 ---
 
@@ -17,8 +65,9 @@ brief](2026-08-09_prns_harvest_brief.md).
 
 Two surveys on 2026-08-24 and 2026-08-25 read fourteen independent Reticulum
 implementations at source, licence verified by opening the file in every case. The
-findings below are not inferences from the manual; each is read in source or observed in
-bytes.
+survey findings below are useful corroboration, but source-derived peers do not authorize
+Retinue code. The emitted-byte observations and persistent stock-RNS probes carry the wire
+claims; elected clean-donor evidence may carry an implementation technique with provenance.
 
 **The 10-byte announce field at payload offset 74..84 is not opaque.** It splits: bytes
 0..5 a per-emission random nonce, bytes 5..10 a 40-bit **big-endian count of whole
@@ -41,16 +90,16 @@ Confirmed three independent ways, none of which required reading the Python refe
    [bin10 ...], iface_hash(32), packet_hash(32)]`. `random_blobs` is a **list**, which is
    RNS's own output confirming it retains this field per destination for comparison.
 
-**The field is a monotonic counter, not a clock.** Eight implementations that implement
+**The survey says the field is a monotonic counter, not a clock.** Eight implementations that implement
 announce acceptance were read. **Not one performs a calendar check, a skew check, a
 plausibility window, or any comparison against the local clock.** Every one compares
 ordinally, per destination, against blobs stored for that destination. Three of them have
 a real wall clock available and still decline to use the field as one. Prns names the
 type `MonotonicTimebase` rather than `UnixTimestamp` for this reason.
 
-**Consequence: any monotonically increasing 40-bit counter interoperates.** A real epoch
-second is not required by any receiver surveyed. This is the load-bearing assumption of
-the firmware work in §4, and probe P3 exists to test it rather than trust it.
+**Working hypothesis: a monotonically increasing 40-bit counter interoperates.** A real
+epoch second is not required by any receiver surveyed. P3 must confirm that stock RNS does
+not range-check it before Phase B or D relies on that result.
 
 **The asymmetry that makes the fix direction matter.** Monotonicity is enforced per
 destination against that destination's own prior emissions. There is no cross-node
@@ -61,8 +110,8 @@ timestamp comparison anywhere in the protocol.
 - **Starting high is poison.** Once a value above what the node can subsequently count up
   to is latched, the node can never beat its own high-water mark again.
 
-**The acceptance boundary is strictly-greater, on a seven-to-one tally**, with the one
-dissenter demonstrably broken in the same function. See §5.
+**The source tally predicts a strictly-greater acceptance boundary, seven to one.** P1 and
+P8 decide Retinue's rule; the tally does not.
 
 ---
 
@@ -124,18 +173,25 @@ PATH_TTL`. `node.rs:657`: `if route.hops <= hops { return }`. Hop count plus ret
 local clock. Nothing in `crates/` parses, compares or remembers `rand_hash`; its only
 consumer workspace-wide is a test.
 
-This matters because **a transport node answering a path request replays the original
-announce payload verbatim**, same nonce, same embedded timestamp, rewriting only hop count
-and header. So an ancient announce arriving at one fewer hop unconditionally replaces a
-live route and is held for up to `PATH_TTL`. This is not adversarial; it is routine
-transport behaviour that `path::path_request` actively solicits.
+The source survey says a transport node answering a path request for a cached foreign
+destination replays the original announce payload, changing routing header material rather
+than the signed blob. That behavior must be confirmed in P8 before it becomes Retinue's
+acceptance authority. It creates the ordinary, non-adversarial case in which the same blob
+may arrive over a better path.
 
-**The near-miss is the useful part.** Retinue's packet hash masks out hops, header type
-and transport ID (`packet.rs:224`), so a re-stamped replay hashes identically to the
-original and `announce_is_new` (`endpoint.rs:2265`, a 4096-entry window) would catch it.
-But that dedup is consulted at `endpoint.rs:3750` for the **relay** decision only, and
-`learn_path` already ran at `endpoint.rs:3735`. The mechanism exists and is applied
-fifteen lines too late.
+Retinue does **not** currently implement that cache. `Shared::path_response` answers only
+for a locally registered destination and mints a new announce; the executor-neutral `Node`
+does not answer cached foreign path requests either. Incoming stale path responses from an
+external transport can still expose the missing receive gate, but the plan must not
+describe byte-preserving foreign responses as current Retinue behavior.
+
+**The existing packet-hash window is related but not the answer.** Retinue's packet hash
+masks hops, header type, and transport ID (`packet.rs:224`), while context remains part of
+the hash. Moving `announce_is_new` (`endpoint.rs:2265`) before `learn_path` would therefore
+discard a legitimate same-blob better-hop copy, yet a context-changed path response could
+bypass it. Keep that window for relay-loop suppression. Freshness needs parsed,
+per-destination blob/timebase state applied before the address book, route, local announce
+publication, or relay changes.
 
 ### D4. Equal-hop announces never update the route. Minor.
 
@@ -147,8 +203,8 @@ equal-length path is not followed until `PATH_TTL` expires.
 
 ## 3. The emit fix
 
-Shape is settled; three decisions inside it are the maintainer's and are flagged, not
-taken.
+The wire shape is settled. M1 is taken in §0; the remaining runtime and migration choices
+are gated rather than left implicit.
 
 - Bytes 0..5 from the CSPRNG, unchanged.
 - Bytes 5..10 a big-endian whole-second count from a monotonic source.
@@ -160,25 +216,31 @@ taken.
   discards the top byte, so a value with bits 32..39 set compares differently on that peer
   than on a Python one. Avoid triggering it; do not rely on it.
 
-**Decision M1: does `announce::build` keep taking an opaque `[u8; 10]`?**
+**Decision M1: `announce::build` takes a structured value.**
 The sans-io contract is correct and not in question: retinue has a `no_std` firmware tier
 and a tokio host tier, one implementation serves both, and a core that reached for a clock
 or an RNG could not compile for the boards. It also buys byte-exact fixture pinning.
 Sans-io says the caller supplies entropy and time; it says nothing about the parameter
-being structureless. The choice is only whether the type carries the split so callers
-cannot get it wrong. Four callers currently get it wrong. Prns's answer is a move-only
-entropy type consumed at mint, which is parse-don't-validate applied and is still fully
-sans-io.
+being structureless. The type carries the split so callers cannot get it wrong. Exact
+decoded bytes remain constructible for fixture replay, while a mint constructor requires
+five nonce bytes and a checked 40-bit ordinal.
 
-**Decision M2: what the `no_std` tier puts there.** See §4.
+**Decision M2: what the `no_std` tier puts there.** A value from a durable ahead-of-use
+reservation, described in §4. Boot-relative uptime without that reservation is not an
+implementation option.
 
-**Decision M3: remediation.** No remediation appears to be owed. Every peer that has heard
+**Decision M3: remediation and downgrade.** No peer-state cleanup appears to be owed. Every peer that has heard
 retinue is a throwaway RNS instance in a temp directory: 45 of 54 oracle scripts use
 `tempfile.mkdtemp` and the rest delegate to those that do, no `destination_table` exists
 outside per-run capture directories, and retinue has never been pointed at a public
 Reticulum node or a testnet. The poisoning is real and demonstrated but did not survive
 its test run. **The bill comes due the first time retinue announces to something
-persistent.** Fixing before that costs nothing.
+persistent.** P2 verifies the claim against an isolated persistent destination.
+
+Firmware rollback is still owed. Once a board has emitted from a durable reservation, an
+older image that ignores the appended state and resumes ten random bytes can regress or
+jump beyond the reserved range. Phase D must state how Linkboy/catalog rollback policy and
+the raw-owner recovery route expose or refuse that downgrade before persistent deployment.
 
 ---
 
@@ -211,44 +273,54 @@ the wire does not require.
 
 ### Recommendation
 
-Synthesised from what these implementations do and where they broke. Each is a decision to
-be taken, not one taken here.
+The earlier checkpoint recommendation was wrong. If flash holds `100` and the board emits
+through `700` before power loss, restoring at `101` still regresses by 599 values. Rounding
+and adding one changes the unit; it does not make an old checkpoint cover values emitted
+after it. Periodically rewriting `SettingsStore` also violates the current rule that flash
+writes happen before radio startup or immediately before reset, and a ten-minute erase
+cadence would exhaust ordinary sector endurance.
 
-1. **Whole seconds, never sub-second.** As §3.
-2. **A persisted high-water mark in flash, u64 internally.** Prns's shape, not
-   microReticulum's. Never apply a magnitude heuristic to the persisted value:
-   microReticulum discards any offset above `4294967295`, which is a ceiling of 49.71 days
-   of cumulative uptime, reachable without a reboot, after which the timebase collapses to
-   zero permanently.
-3. **On restore, round up to the next whole second and bump by one whole second.**
-   microReticulum bumps by one **millisecond** against a **whole-second** wire field, and
-   persists every 600 s, so its post-crash announce blackout is up to ten minutes.
-   Round-up-on-restore collapses that to zero regardless of persist interval. **The
-   persist interval is otherwise the blackout window**, which makes it a correctness
-   constraint rather than a tuning knob.
-4. **Tag the representation.** A bare integer cannot distinguish "uptime since first boot"
-   from "epoch-derived". Once a board acquires a real epoch the counter jumps forward,
-   which is monotone and fine; the reverse is not, and a tagged enum makes the illegal
-   transition unrepresentable. microReticulum's single untagged offset is incoherent for
-   exactly this reason: its u32 ceiling silently forecloses the epoch regime.
-5. **Adopting a real epoch is a separate, later decision.** The announce wire does not need
-   it. The things that do want one, based on what the surveyed implementations gate on wall
-   time, are ratchet expiry (30 days), link-request freshness, and cross-node log
-   correlation. None of them is this field.
+The corrected shape is:
+
+1. **Whole-second wire units, strict ordinal minting.** Quantise a real clock before
+   encoding it, but mint `max(source_seconds, last_emitted + 1)`. A board without epoch
+   knowledge advances the reserved ordinal once per emission. Same-second retries and path
+   responses must not reuse the prior ordinal.
+2. **Persist a reservation before use.** Durable state records `reserved_through`. Boot or
+   a declared quiet-write operation atomically advances that ceiling, verifies it, and only
+   then allows emission from the newly reserved range. A reboot starts above the durable
+   ceiling, even if every value in the old range was heard before the crash.
+3. **Fail closed.** If reservation write/readback fails, its state is corrupt while the
+   identity survives, the 40-bit range is exhausted, or a live node consumes its range
+   without an authorized quiet window, it emits no announce and exposes a concrete fault.
+   It does not fall back to uptime, zero, randomness, or a guessed epoch. Explicit rekey is
+   a recovery action, not an automatic response to timebase damage.
+4. **Storage is a separate design target.** The existing A/B settings record supplies a
+   torn-write pattern, not automatic authority for runtime erases. Phase D chooses and
+   proves a dedicated reservation journal or a bounded boot-time reservation scheme,
+   including capacity, configurable lease size, flash wear, receive blanking, and renewal.
+5. **Migration is part of correctness.** First upgrade from a legacy identity with no
+   reservation, corrupt reservation with a valid identity, factory reset/rekey, and
+   downgrade to an image that ignores the field each get an explicit outcome and test.
+6. **A real epoch remains separate.** If later adopted, its representation is tagged so a
+   board can move from ordinal to epoch-derived values but cannot silently move backward.
+   Ratchet expiry, link-request freshness, and cross-node log correlation need their own
+   wall-clock decision; this field does not supply one.
 
 ---
 
 ## 5. The receive fix
 
-**Tally at equal-or-better hop count, across both surveys:**
+**Source-survey tally at equal-or-better hop count:**
 
 | strictly greater | accepts equal | no comparison |
 | --- | --- | --- |
 | microReticulum, reticulum-kt, reticulum-swift, Quad4 Go, go-reticulum, LXMF-rs, Prns | reticulum-zig | ReticulumKit, rns.js, one Go fork |
 
-Seven to one, and the one is broken in the same function: its stricter term is a subset of
-its looser term, so the hop comparison is dead code and hop count plays no role in
-acceptance at all. Read it as incomplete, not as a dissenting vote.
+Seven to one, and the one appears broken in the same function: its stricter term is a
+subset of its looser term, so the hop comparison is dead code and hop count plays no role
+in acceptance. This is corroboration, not implementation authority; P1 and P8 settle the
+stock behavior Retinue follows.
 
 **Two field post-mortems corroborate independently of any source reading.** reticulum-kt
 commit `3e22e7e` *added* the emission-time gate after a deployed network showed phones
@@ -256,25 +328,29 @@ holding stale path-response entries at four hops that fresh one-hop announces co
 overwrite. reticulum-swift carries a comment from someone who hit the mirror failure:
 without a proper timestamp "the relay's deduplication logic will reject our announces".
 
-**Both conditions are required.** The comparison target is `max()` over a stored **list**
-(64 blobs in most implementations; 32 in memory with 16 persisted in microReticulum), not
-a scalar. A scalar-only implementation accepts a replayed blob whose timestamp equals the
-max; a list-only implementation accepts a stale one.
+The survey indicates that a scalar timebase and bounded blob history play different roles,
+but it does not yet establish their exact branches. A global packet-hash ring cannot stand
+in for either: its retention and key differ, a changed context changes the hash, and a
+same-blob copy over a better path may be useful route evidence.
 
-**Recommendation:** implement strictly-greater plus blob-novelty at `hops <= existing`, and
-a separate looser branch at `hops >` (expired implies blob-novelty alone, else strictly
-greater). **Defer both equality carve-outs** (the unresponsive-path repair, and the RNS
-1.4.1 interface-gravity tiebreak) until measured. They only ever add acceptances, so
-omitting them is the conservative error.
+**Recommendation:** P8 first measures combinations of `{older, equal, newer}` timebase,
+`{same, new}` nonce, `{better, equal, worse}` hop count, ordinary announce versus path
+response context, and expired versus live route. The resulting rule is implemented once in
+a bounded per-destination freshness model shared in semantics by `Endpoint` and `Node`.
+Admission occurs before `AddressBook::ingest`, `learn_path`/`learn_route`, `PeerAnnounce`
+publication, and relay. This prevents a stale but valid signature from rolling back
+ratchet or app-data even when route replacement would be refused.
 
-Fixing D3 also means moving the `announce_is_new` consultation to before `learn_path`, or
-giving `learn_path` its own replay check. The window already exists.
+Any retained-history guarantee is stated as **within the configured bound and lifetime**.
+No finite board can promise to reject one blob forever. Equality carve-outs remain deferred
+unless the black-box matrix names one.
 
 ---
 
 ## 6. Wire reference corrections
 
-Against [the wire format reference](2026-07-13_rns_wire_format_reference.md).
+Against [the wire format reference](2026-07-13_rns_wire_format_reference.md). Layout
+corrections may land from committed bytes; receive-policy corrections wait for Phase A.
 
 1. **Close O-20** and rewrite §3.3.4. The 10 bytes are 5 random plus 5 big-endian whole
    seconds. Confirmable from fixtures already in the tree, per §1.
@@ -288,21 +364,24 @@ Against [the wire format reference](2026-07-13_rns_wire_format_reference.md).
    historical: that commit, "fix: announces include timestamp in random blob", is an
    independent author discovering this defect by interop testing.
 4. **Expand §3.3.5** from a note that retinue has no dedup or freshness check into the named
-   gap, with the rule from §5 written out.
-5. **"Expires routes at exactly 7.0 days" is the default-mode figure only.** Six independent
-   confirmations give per-interface expiry: ACCESS_POINT 24 h, ROAMING 6 h, else 7 days.
-   Retinue's `no_std` nodes live on roaming links, so their blast radius is six hours.
+   gap, with the measured P8 matrix and bounded-state rule from §5 written out.
+5. **"Expires routes at exactly 7.0 days" is the surveyed stock default-mode figure only.**
+   The source survey reports ACCESS_POINT 24 h, ROAMING 6 h, else 7 days. Do not map that
+   onto Retinue by assertion: Retinue host and board routes currently default to 30 minutes,
+   and the remote stock interface mode is a separately observed/configured fact.
 6. **Add `PATHFINDER_M = 128` with its asymmetry:** admit at `hops <= 128`, retransmit only
    at `hops < 128`. Invisible from the manual.
-7. **Add: path-response announces are the same payload bytes with only the context byte
-   changed**, and forwarders must never regenerate the blob. Multi-path hop comparison
-   depends on identical blobs arriving over several routes.
+7. **Clarify path-response ownership.** A transport answering for a cached foreign
+   destination must preserve the signed payload if P8 confirms that stock behavior; an
+   owner answering for its own destination may mint a fresh announce. Retinue currently
+   implements only the latter and has no foreign announce cache.
 8. **Add `LOCAL_REBROADCASTS_MAX = 2`**, suppression keyed on `packet.hops - 1 ==
    entry.hops`.
 9. **Add the RNS destination-table format** from §1, as retinue's first direct observation
    of RNS's routing state.
-10. **Add an ecosystem-hazard note, not a spec fact:** at least one Go port truncates the
-    40-bit timebase to `uint32`.
+10. **Add an ecosystem-hazard note, not a spec fact:** one source-surveyed Go port truncates
+    the 40-bit timebase to `uint32`. Stock P6 cannot establish whether it is the only port
+    with that defect.
 
 ---
 
@@ -317,13 +396,16 @@ was confirmed. It is the default instrument.
 | **P2** | Does a poisoned high-water mark actually lock a corrected retinue out? | Announce once with an absurdly high timestamp half, then with a correct one; check whether `destination_table` grew a second blob. | the severity claim in D1 |
 | **P3** | Is a received timebase range-checked anywhere? | From one destination, emit timebase `1` (1970) and `2^39`; read `destination_table`. | **§4 entirely.** If a boot-relative counter is rejected, the whole firmware recommendation collapses. |
 | **P4** | How many blobs does RNS retain? | 70 announces at 1 Hz into a persistent instance, count the array. | the list-versus-scalar half of §5 |
-| **P5** | Does stock RNS gate link requests on a wall-clock `requested_at`? | Capture a stock LINKREQUEST payload, look for a msgpack timestamp. | whether a clockless board can do anything beyond announcing |
-| **P6** | What does stock RNS do with bits 32..39 set? | Same instrument as P3 with `2^33`. | whether the Go truncation is a lone bug |
+| **P5** | Does stock RNS gate link requests on wall-clock freshness? | Capture a stock LINKREQUEST, replay the old request after a controlled delay/restart, and observe acceptance or proof. Merely finding a msgpack timestamp does not test the gate. | whether a clockless board can do anything beyond announcing |
+| **P6** | What does stock RNS do with bits 32..39 set? | Same instrument as P3 with `2^33`. | stock's full-40-bit behavior; says nothing about whether the surveyed Go truncation is unique |
 | **P7** | Path-request addressing: to the target hash, or to a well-known `rnstransport.path.request` destination? | Capture what `rnpath <hash>` emits. | one implementation disagrees with our reading |
+| **P8** | What exact route/freshness combinations does stock accept? | Against isolated persistent state, vary `{older,equal,newer}` timebase, `{same,new}` nonce, `{better,equal,worse}` hops, ordinary/path-response context, and live/expired incumbent. Record the destination table after every step. | §5 receive algorithm, including whether a same-blob better path is useful and which state mutations must be gated |
 
-P1 and P3 are the two that gate real decisions. P3 gates more.
+P1 and P3 gate emission. P8 gates receive behavior. P2 measures remediation severity. P5
+belongs to the later wall-clock decision, not this implementation trunk.
 
-**Every probe needs a persistent RNS config directory.** Every current gate uses
+**Every stateful probe needs a persistent RNS config directory, and poison probes need
+isolated destinations/configs.** Every current gate uses
 `tempfile.mkdtemp`, which is why all nine committed runs contain exactly one entry with
 exactly one blob: **the suite only ever exercises the first-sighting arm, which accepts
 unconditionally.** It would pass with the field set to all zeroes. That blindness is
@@ -337,38 +419,44 @@ structural and should be recorded in the validation section of the wire referenc
 reference source in comments**: 23 `/*p ... */` blocks, 153 `//p` lines, 41 `//z` lines,
 with no NOTICE file and no attribution to the Python author anywhere.
 
-**Standing rule: treat `/*p`, `//p` and `//z` in microReticulum as black-box, exactly like
-the Python reference itself.** The surrounding C++ is Apache-2.0 and readable; those
-comment blocks are not, whatever the repository's own licence file says, because the
-licence a repository declares cannot relicense someone else's code that it has pasted in.
+**Standing rule: microReticulum is a `source-derived-peer`, not a Retinue donor.** Its
+permissively licensed source may be read for survey classification, but it may not shape
+Retinue implementation. The `/*p`, `//p` and `//z` blocks are additionally forbidden even
+inside survey work: they appear to reproduce restricted Python reference source, and a
+repository licence cannot relicense pasted code.
 
 One surveyor read two such blocks before recognising the pattern and disclosed it. Nothing
 was carried into a recommendation and no retinue code is affected: retinue's IFAC came from
 captured bytes and published documentation.
 
-This also makes microReticulum a **weaker reference than its prominence suggests**. Where
-it is most complete, much of what one would learn from it is upstream Python in disguise.
-
-This rule belongs in `crates/retinue/oracle/README.md` beside the existing black-box
-discipline, and in `crates/outrider/PROVENANCE.md`.
+This makes microReticulum a **peer and probe lead, not implementation authority**. The
+broader evidence-class rule already lives in the permissive compatibility survey. The
+specific comment-block hazard belongs in `crates/retinue/oracle/README.md` beside the RNS
+black-box discipline. Outrider's provenance already excludes all third-party protocol
+implementation source, so duplicating a microReticulum-specific carve-out there would add
+noise rather than a stronger boundary.
 
 ---
 
 ## 9. Done-conditions
 
-- No emission site in the workspace writes randomness into bytes 5..10. Verified by a test
-  that decodes an emitted announce and asserts the timestamp half advances between two
-  emissions more than one second apart.
-- A firmware node's timebase survives a reboot without regressing. Verified on hardware,
-  not in a host test.
-- The path table rejects an announce whose timestamp does not exceed the stored maximum for
-  that destination at `hops <= existing`, and rejects a replayed blob at any hop count.
+- No emission site in the workspace writes randomness into bytes 5..10. Deterministic tests
+  decode emissions and prove byte order, same-second strict advance, backward-clock
+  handling, and exhaustion without sleeps.
+- A firmware node durably reserves before use and survives reboot/power loss without
+  emitting at or below any value it might already have transmitted. Verified on both
+  boards against persistent stock RNS, not inferred from a host test.
+- Receive admission follows the measured P8 matrix and gates address book, route, local
+  publication, and relay together. Replayed or stale material is rejected within an
+  explicit per-destination retention bound; packet-loop dedup remains separate.
 - A gate exists that exercises the non-first-sighting arm, meaning at least one gate uses a
   persistent RNS config across two announces.
-- P1 and P3 are answered, or the plan records why the conservative subset was adopted
-  without them.
+- P1, P3, and P8 are answered before their dependent code lands.
 - The wire reference carries the §6 corrections and O-20 is closed.
-- The clean-room rule in §8 is recorded in both provenance documents.
+- The clean-room rule in §8 is recorded in the Retinue oracle README and agrees with the
+  compatibility survey's evidence classes.
+- Legacy upgrade, corrupt reservation with a valid identity, explicit rekey, reservation
+  exhaustion, and firmware downgrade each have a named, tested outcome.
 
 ## 10. Explicitly out of scope
 
@@ -378,3 +466,54 @@ discipline, and in `crates/outrider/PROVENANCE.md`.
 - The live-gate flake, which has [its own lane](2026-08-23_live_gate_flake_lane.md).
 - Any change to Prns, microReticulum, or any other surveyed implementation. We read them;
   we do not carry patches to them.
+
+## 11. Findings
+
+- **2026-08-25, observed bytes:** committed stock-RNS captures and fixtures establish the
+  5-byte nonce plus 5-byte big-endian whole-second layout. The stock acceptance branches
+  remain Phase A questions rather than source-tally conclusions.
+- **2026-08-25, black-box RNS 1.5.0 receipt:** the persistent clean-room probe answered P1,
+  P2, and P3 with exact packet/blob inputs. P1 equal timestamp was rejected; P2 rejected
+  the corrected timestamp after a `2^39` high-water announce; P3 accepted both `1` and
+  `2^39`. Every first sighting persisted at one hop with a valid packet. The ignored local
+  receipt is `validation/results/announce-timebase-final2/result.json`, SHA-256
+  `639dda1d1d4f8ef9128a6a4f4ceeda00444524a62c1da234c7c167d5a6ab1ac1`.
+- **2026-08-25, P8 baseline failure:** a separate stock TCP client sent a public-valid
+  Type-1, wire-hop-zero announce to a stock TCP server transport. RNS cached the announce
+  under `storage/cache/announces` but did not create a destination-table row. This is an
+  invalid topology for the receive matrix, not negative freshness evidence. P8 still needs
+  a real forwarded Type-2 transport path; no receive rule is inferred from this run. The
+  ignored local diagnostic is `validation/results/route-freshness-direct-baseline/`; its
+  `baseline.json` SHA-256 is
+  `af744756f18bfa7ef46514bf66f7b9b73240cafb85f0b53248712064190876e0`.
+- **2026-08-25, live code:** host `PathEntry` and firmware `Route` retain no announce blob
+  or timebase, so neither can implement freshness without a new bounded state model.
+- **2026-08-25, live code:** `announce_is_new`/`seen_transit` are relay-loop windows applied
+  after route learning. Moving them earlier would conflate loop suppression with route
+  freshness and discard some useful multi-path evidence.
+- **2026-08-25, live code:** Retinue path responses are freshly minted only for locally
+  registered destinations. Retinue has no cache from which to replay a foreign announce.
+- **2026-08-25, persistence review:** checkpoint-plus-one is not crash monotonic. Current
+  board stores also restrict erases to pre-radio startup or immediate-reset paths, so a
+  runtime high-water rewrite cannot be smuggled through `SettingsStore::save`.
+- **2026-08-25, migration review:** the settings body is intentionally append-only and old
+  firmware ignores later fields. That preserves identity but makes downgrade to a
+  pre-timebase image a protocol-safety case that Phase D must expose or refuse.
+
+## 12. Progress
+
+- **2026-08-25:** Reconciled the research brief with doc policy; added phases, lane
+  boundaries, validation conditions, and this log. Chose a structured sans-I/O emission
+  input, separated freshness from packet-loop dedup, replaced periodic high-water writes
+  with ahead-of-use reservation, corrected current path-response and route-TTL claims, and
+  made P8 a prerequisite for receive code.
+- **2026-08-25:** Phase A is partially complete. P1/P2/P3 implementation and execution are
+  complete in the pinned RNS 1.5.0 receipt above. P8's first attempted topology failed its
+  baseline gate and was not retained as an implementation; the real transported matrix
+  remains open.
+- **2026-08-25:** The additive Phase B core primitive is implemented: a typed ten-byte
+  announce blob, checked 40-bit decoding/minting, and a pure strict-advance generator with
+  host and pre-reserved firmware ceilings. Caller migration remains behind the completed
+  P1/P3 evidence and the separate firmware persistence design. The complete Retinue
+  library gate passed 172 tests with `cargo test --locked --offline -p retinue --lib -j 1`,
+  including all six new deterministic timebase tests.
