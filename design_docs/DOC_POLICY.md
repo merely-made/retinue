@@ -129,11 +129,8 @@ across the workspace. Retinue had 92 documents in `design_docs/` and no policy.
 Docs are flat in `design_docs/`; no area roots have been promoted yet, and
 core §4 says flat is the right default until one domain earns promotion.
 
-**Two core requirements are not yet met, and meeting them is the first doc work
-this repo owes:**
-
-- Core §6 requires `design_docs/DOC_README.md` as the canonical index. It does
-  not exist here yet; the 92 existing docs are unindexed.
-- Core §7 refers to `PROJECT_DESCRIPTION.md`, which does not exist here yet.
-  Until it does, the root `README.md` stands alone and §7's derivation rule is
-  inert rather than violated.
+Core §6 is now met: `design_docs/DOC_README.md` exists and is the sole
+canonical index. Core §7 remains intentionally unmet because
+`PROJECT_DESCRIPTION.md` is maintainer-reserved and does not exist. Until it
+does, the root `README.md` stands alone and §7's derivation rule is inert rather
+than violated.

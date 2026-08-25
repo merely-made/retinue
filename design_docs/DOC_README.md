@@ -224,6 +224,9 @@ supplying data-graph and identity crates.
 | [Retinue v0 plan](2026-07-06_retinue_v0_plan.md) | Historical protocol ledger. R0–R10 all closed. Its "next actions" block is not a queue. |
 | [RNS wire format reference](2026-07-13_rns_wire_format_reference.md) | Wire reference, byte-fixture corpus, pinned at RNS 1.3.8. |
 | [Re-pin receipt, RNS 1.5.0 / LXMF 1.1.1](2026-08-23_rns_150_lxmf_111_repin_receipt.md) | Current oracle pin. Records the flake finding and one outrider defect fixed. |
+| [Announce timebase plan](2026-08-25_announce_timebase_plan.md) | Active plan correcting the announce nonce/timebase split, firmware monotonic persistence, path freshness, persistent-peer probes, wire documentation, and microReticulum clean-room boundary. |
+| [Permissive radio protocol compatibility survey](2026-08-25_permissive_radio_protocol_compatibility_survey.md) | Revision-pinned Reticulum, MeshChat, MeshCore and adjacent LoRa survey; separates donors, executable peers, radio adapters, bearers and semantic bridges. Opens no gates. |
+| [Compact signed feed and local control plan](2026-08-25_compact_signed_feed_and_local_control_plan.md) | Active cross-repository plan: exact allocation-free tinySSB core first; Mere foreign-source probe, ULCP extraction, Noise attach and radio personality behind explicit gates. |
 | [Peer matrix receipt](2026-08-11_prns_peer_matrix_receipt.md) | H8 three-corner interop at RNS 1.4.2. |
 | [Peer matrix at RNS 1.5.0](2026-08-23_prns_peer_matrix_rns150_receipt.md) | H8 re-receipted. Seven runs, 35/35. Establishes that capture byte counts are not constants. |
 | [Live-gate flake lane](2026-08-23_live_gate_flake_lane.md) | FLK1–FLK5. Per-gate rates, mechanisms, and what a suite run may prove. |
