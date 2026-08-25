@@ -1,7 +1,7 @@
 # Compact signed feed and local control plan
 
-**Date:** 2026-08-25. **Status:** plan; research complete, implementation not
-started.
+**Date:** 2026-08-25. **Status:** plan; CF0/CF1 implemented and locally
+verified; later families remain unstarted.
 
 **Authority:** the
 [permissive protocol survey](2026-08-25_permissive_radio_protocol_compatibility_survey.md)
@@ -110,11 +110,37 @@ The core owns no clock, entropy, persistence, retry, radio I/O or dynamic feed
 table. It does not reuse Reticulum, Personae or device identities as tinySSB
 feed identities.
 
-**Done when:** upstream fixtures round-trip byte-exactly; bad DMX, signature,
+**Done when:** pinned-source fixtures round-trip byte-exactly; bad DMX, signature,
 predecessor, sequence, chunk pointer, declared length and capacity are refused;
 the crate passes host tests and
 `cargo check --no-default-features --target thumbv7em-none-eabihf`; dependency
 and symbol inspection show no allocator.
+
+#### CF0/CF1 implementation findings
+
+- The permitted pinned ESP32 core carries the wire implementation but no raw
+  packet corpus. `tinyssb-core` therefore records deterministic synthetic
+  vectors, their checksums and their exact pinned MIT source inputs in its
+  fixture manifest. The prior CF1 wording, "upstream fixtures", was
+  contradictory with the available permitted source and is corrected above to
+  "pinned-source fixtures".
+- A fresh pinned v0 frontier uses the first twenty bytes of the feed id as its
+  predecessor, not an all-zero message id. The leaf crate fixes that behavior
+  and tests it directly.
+- The verifier has fixed 120-byte frame values and caller-owned frontier and
+  chunk cursor state. It deliberately adds no feed table, persistence, radio
+  personality, local-control or Noise dependency.
+
+#### CF0/CF1 progress
+
+- Added the MIT, `#![no_std]`, allocation-free `tinyssb-core` workspace leaf
+  with exact v0 main-frame and chunk verification.
+- Added checksumed valid plain and side-chain fixtures plus corrupted DMX,
+  signature and chunk variants. Their manifest excludes the Android and LGPL
+  Codec2 trees and attributes only the pinned MIT ESP32 core.
+- Host tests, allocation/symbol inspection and the embedded target check are
+  recorded with this implementation's handoff; they do not advance CF2 or any
+  radio, local-control or secure-attach family.
 
 ## MF family: Mere foreign-source composition
 

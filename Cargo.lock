@@ -2693,6 +2693,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "tinyssb-core"
+version = "0.1.0"
+dependencies = [
+ "ed25519-dalek",
+ "sha2 0.11.0",
+]
+
+[[package]]
 name = "tokio"
 version = "1.53.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

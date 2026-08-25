@@ -1,0 +1,74 @@
+# Compatibility fixtures for tinyssb-core 0.1.0.
+#
+# Source wire rules: MIT tinySSB ESP32 core at
+# 39896b72c97b51159d46610c5f11ff7f5a279031,
+# `esp32/loramesh-TBeam/replica.cpp`,
+# `esp32/loramesh-TBeam/replica.h`,
+# `esp32/loramesh-TBeam/config.h`, and
+# `esp32/loramesh-TBeam/bipf.cpp`.
+# The Android tree and its LGPL Codec2 subtree were excluded from the source
+# and fixture basis.
+#
+# The permitted upstream ESP32 core contains no reusable packet corpus. These
+# synthetic, deterministic vectors are emitted from that exact grammar with
+# the fixed private seed `[0x42; 32]`; the public feed id is recorded below.
+# The checksum covers the decoded 120-byte frame, not line-ending-dependent
+# ASCII fixture text.
+
+format = 1
+upstream_repository = "https://github.com/ssbc/tinySSB"
+upstream_revision = "39896b72c97b51159d46610c5f11ff7f5a279031"
+upstream_license = "MIT"
+feed_id = "2152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12"
+
+[[fixture]]
+path = "plain-1.hex"
+kind = "main"
+evidence_class = "synthetic"
+sha256 = "825432f927288ca891f8764e317cae1b8feda2a68466cb9c76b4b1bd61a568d4"
+note = "valid sequence-one type-0 entry"
+
+[[fixture]]
+path = "sidechain-1.hex"
+kind = "main"
+evidence_class = "synthetic"
+sha256 = "8e95d12a35b9c1f9071f42eac7c6bf2381fc356bc94dfcfb8bf07534e18cb75a"
+note = "valid sequence-one type-1 entry with two chunks"
+
+[[fixture]]
+path = "sidechain-1.chunk-1.hex"
+kind = "chunk"
+evidence_class = "synthetic"
+sha256 = "4b13406e5d984d2ae49d6f02a1cc272837c68eabb0f3c87e2855f83cde6c1eb9"
+note = "first valid chunk, pointing to chunk two"
+
+[[fixture]]
+path = "sidechain-1.chunk-2.hex"
+kind = "chunk"
+evidence_class = "synthetic"
+sha256 = "b51752f85c5264000e851b7e2651a4d5393c27d8e63ebf6e72be424244aa1692"
+note = "final valid chunk"
+
+[[fixture]]
+path = "plain-1.bad-dmx.hex"
+kind = "corrupt-main"
+evidence_class = "synthetic"
+sha256 = "d8f54c5599df203c3b7365af375f6ae472f38d69ddc2a3b490ce48b377946f18"
+derived_from = "plain-1.hex"
+mutation = "flip bit zero of byte 0"
+
+[[fixture]]
+path = "plain-1.bad-signature.hex"
+kind = "corrupt-main"
+evidence_class = "synthetic"
+sha256 = "7762bdcfe876aa62fc3f064a837a39d90e12e1278cd56c8f6199a3496d6882c0"
+derived_from = "plain-1.hex"
+mutation = "replace byte 56 with 0x00"
+
+[[fixture]]
+path = "sidechain-1.chunk-1.bad-pointer.hex"
+kind = "corrupt-chunk"
+evidence_class = "synthetic"
+sha256 = "7ca2844460a5234c256589663b327484f189c693f16889410c98913f981d6ffd"
+derived_from = "sidechain-1.chunk-1.hex"
+mutation = "replace byte 100 with 0x00"

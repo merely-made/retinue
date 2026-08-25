@@ -1,0 +1,14 @@
+tinyssb-core implements the tinySSB v0 main-entry and side-chain verification
+rules from the pinned MIT tinySSB ESP32 core:
+
+  https://github.com/ssbc/tinySSB/tree/39896b72c97b51159d46610c5f11ff7f5a279031
+
+Consulted source paths:
+
+  esp32/loramesh-TBeam/config.h
+  esp32/loramesh-TBeam/replica.h
+  esp32/loramesh-TBeam/replica.cpp
+  esp32/loramesh-TBeam/bipf.cpp
+
+The implementation is an independently written Rust verifier. No Android
+source or Codec2 material is used.
