@@ -87,8 +87,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // plan's 2026-08-06 entry), and `interop_tcp.rs` says so outright. Every other
     // example that re-announces varies it; this one did not, which silently
     // confounded the conclusion that a dropped peer "stays dropped".
-    let fresh_announce =
-        || announce::build(&our_id, our_name.name_hash(), &rh(), None, b"svc");
+    let fresh_announce = || announce::build(&our_id, our_name.name_hash(), &rh(), None, b"svc");
 
     // --- Direction 1: retinue -> RNS request.
     let peer = *PrivateIdentity::from_secret_bytes(&DEST_SEED).public();
