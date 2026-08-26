@@ -1,8 +1,8 @@
 # Announce timebase plan
 
 **Date:** 2026-08-25
-**Status (2026-08-25):** in progress. P1/P2/P3 are answered and P8 remains open. The
-additive Phase B blob/timebase primitive has landed; caller, receive, and firmware
+**Status (2026-08-26):** in progress. P1/P2/P3 and the 72-cell P8 matrix are answered.
+The additive Phase B blob/timebase primitive has landed; caller, receive, and firmware
 semantics have not.
 **Owns:** the announce `rand_hash` field, receive-side announce freshness, and the
 firmware tier's durable monotonic timebase. The Peer lane owns black-box evidence, the Air
@@ -49,7 +49,7 @@ decision. This corrects the broader authority implied by earlier wording in this
 
 | phase | owner and write surface | target | done-conditions |
 | --- | --- | --- | --- |
-| **A. Black-box decisions** | Peer: `crates/retinue/oracle/` and captured local evidence | Run P1, P2, P3, and the receive matrix P8 against pinned stock RNS with persistent, isolated state. | Exact RNS version, inputs, order, config lifetime, and destination-table state are recorded. Poison cases use their own destination/config. No implementation source is read. |
+| **A. Black-box decisions** | Peer: `crates/retinue/oracle/` and captured local evidence | Run P1, P2, P3, and the receive matrix P8 against pinned stock RNS with persistent, per-destination state. | Exact RNS version, inputs, order, config lifetime, shared-global-state scope, and destination-table state are recorded. Poison cases use their own destination/config. No implementation source is read. |
 | **B. Typed emission** | Air: `crates/retinue/src/announce.rs`, host emission, `Node` caller seam, examples and owner tests | Introduce the structured wire type; make host and board callers supply five nonce bytes plus a monotonic ordinal. | Byte-order KATs pass; deterministic injected-clock tests cover same-second emission, backward host-clock movement, and 40-bit exhaustion; no emission site fills bytes 5..10 with entropy. The already-dirty `reqresp_interop.rs` is coordinated rather than overwritten. |
 | **C. Receive freshness** | Air: shared bounded freshness model plus `Endpoint` and `Node` consumers | Apply the P8 acceptance matrix before every observable announce effect. | Host and `no_std` tests cover stale time, duplicate blob, changed context, better-hop copies, ratchet/app-data rollback, expiry, and bounded eviction. Retention scope is explicit; packet-loop dedup stays separate. |
 | **D. Durable firmware reservation** | Air, with board-specific storage adapters and a declared quiet-write seam | Persist a reservation before radio use, fail closed on storage fault/exhaustion, and preserve identity across upgrade. | Torn writes, corrupt timebase with valid identity, first upgrade, explicit rekey, and downgrade posture are tested. Both boards survive a power cut and emit a value above every possibly transmitted pre-cut value; stock RNS accepts it and completes a link. Flash cadence and receive blanking meet a stated bound. |
@@ -328,22 +328,32 @@ holding stale path-response entries at four hops that fresh one-hop announces co
 overwrite. reticulum-swift carries a comment from someone who hit the mirror failure:
 without a proper timestamp "the relay's deduplication logic will reject our announces".
 
-The survey indicates that a scalar timebase and bounded blob history play different roles,
-but it does not yet establish their exact branches. A global packet-hash ring cannot stand
-in for either: its retention and key differ, a changed context changes the hash, and a
-same-blob copy over a better path may be useful route evidence.
+P8 now establishes the branches against stock RNS 1.5.0. “Worse” below means a larger
+calibrated hop count; the expired/worse result is not a typo.
 
-**Recommendation:** P8 first measures combinations of `{older, equal, newer}` timebase,
-`{same, new}` nonce, `{better, equal, worse}` hop count, ordinary announce versus path
-response context, and expired versus live route. The resulting rule is implemented once in
-a bounded per-destination freshness model shared in semantics by `Endpoint` and `Node`.
-Admission occurs before `AddressBook::ingest`, `learn_path`/`learn_route`, `PeerAnnounce`
-publication, and relay. This prevents a stale but valid signature from rolling back
-ratchet or app-data even when route replacement would be refused.
+| loaded route | candidate blob | timebase | hops | stock outcome |
+| --- | --- | --- | --- | --- |
+| live | new | newer | any | admit |
+| live | new | equal or older | any | no observable admission |
+| live | exact same | equal | any | no observable admission |
+| expired | new | newer | any | admit |
+| expired | new | equal or older | worse | admit |
+| expired | new | equal or older | better or equal | no observable admission |
+| expired | exact same | equal | any | no observable admission |
 
-Any retained-history guarantee is stated as **within the configured bound and lifetime**.
-No finite board can promise to reject one blob forever. Equality carve-outs remain deferred
-unless the black-box matrix names one.
+Ordinary and real path-response contexts produced the same result in every row. A separate
+six-cell run moved the observed packet-hash list aside while preserving the destination
+table; exact-same blobs still never changed the route, including the live/better and
+expired/better rows. Packet-loop dedup therefore cannot stand in for announce freshness,
+and a same-blob better-path carve-out is not stock behavior.
+
+**Recommendation:** implement this rule once in a bounded per-destination freshness model
+shared in semantics by `Endpoint` and `Node`. Within the one-incumbent P8 shape, the compact
+form is `new_blob && (timebase > incumbent_timebase || (expired && candidate_hops >
+incumbent_hops))`. Admission occurs before `AddressBook::ingest`,
+`learn_path`/`learn_route`, `PeerAnnounce` publication, and relay so every effect follows the
+same stock-compatible decision. Any retained-history guarantee is stated as **within the
+configured bound and lifetime**; no finite board can promise to reject one blob forever.
 
 ---
 
@@ -399,10 +409,14 @@ was confirmed. It is the default instrument.
 | **P5** | Does stock RNS gate link requests on wall-clock freshness? | Capture a stock LINKREQUEST, replay the old request after a controlled delay/restart, and observe acceptance or proof. Merely finding a msgpack timestamp does not test the gate. | whether a clockless board can do anything beyond announcing |
 | **P6** | What does stock RNS do with bits 32..39 set? | Same instrument as P3 with `2^33`. | stock's full-40-bit behavior; says nothing about whether the surveyed Go truncation is unique |
 | **P7** | Path-request addressing: to the target hash, or to a well-known `rnstransport.path.request` destination? | Capture what `rnpath <hash>` emits. | one implementation disagrees with our reading |
-| **P8** | What exact route/freshness combinations does stock accept? | Against isolated persistent state, vary `{older,equal,newer}` timebase, `{same,new}` nonce, `{better,equal,worse}` hops, ordinary/path-response context, and live/expired incumbent. Record the destination table after every step. | §5 receive algorithm, including whether a same-blob better path is useful and which state mutations must be gated |
+| **P8** | What exact route/freshness combinations does stock accept? | In one persistent receiver, use a distinct destination per cell while varying `{older,equal,newer}` timebase, `{same,new}` nonce, `{better,equal,worse}` hops, ordinary/path-response context, and live/expired incumbent. Record the shared-runtime scope, forwarded frames, and destination table. | §5 receive algorithm, including whether a same-blob better path is useful and which state mutations must be gated |
 
 P1 and P3 gate emission. P8 gates receive behavior. P2 measures remediation severity. P5
 belongs to the later wall-clock decision, not this implementation trunk.
+
+P8 is answered by the RNS 1.5.0 receipts in §11. The expired arm is a loaded-state
+perturbation with a byte-identical MessagePack round trip before changing selected expiry
+values; natural elapsed expiry remains a distinct lifecycle measurement.
 
 **Every stateful probe needs a persistent RNS config directory, and poison probes need
 isolated destinations/configs.** Every current gate uses
@@ -486,6 +500,22 @@ noise rather than a stronger boundary.
   ignored local diagnostic is `validation/results/route-freshness-direct-baseline/`; its
   `baseline.json` SHA-256 is
   `af744756f18bfa7ef46514bf66f7b9b73240cafb85f0b53248712064190876e0`.
+- **2026-08-26, black-box RNS 1.5.0 P8 receipt:** natural two/three/four-transport chains
+  calibrated better/equal/worse forwarded Type-2 hops against a persistent three-transport
+  incumbent. Public `request_path` calls produced real context-`0x0b` responses; no context
+  byte was synthesised. All 72 rows had public signature-valid forwarded Type-2 frames,
+  valid hop relations, and no matching signature-valid frame with an unexpected header
+  type or context.
+  The measured rule is in §5. The ignored receipt is
+  `validation/results/route-freshness-full-20260826T211647Z/result.json`, SHA-256
+  `bcb83e38b9d840926f2ee3a7093a37877fa6f84e2d2c4ed1290c4290c2a17a38`.
+- **2026-08-26, packet-loop isolation:** moving the observed `packet_hashlist.raw` aside
+  while preserving and reloading the destination table moved all six incumbent route
+  hashes out of the pre-candidate loop window and did not change any exact-same-blob
+  outcome. All remained no-admission across live/expired and
+  better/equal/worse. The ignored receipt is
+  `validation/results/route-freshness-same-blob-diagnostic-20260826T212136Z/result.json`,
+  SHA-256 `7b9680456492d7577b78fdd5b0007ad17934ebb966b50eb5549c2f2b83c269fc`.
 - **2026-08-25, live code:** host `PathEntry` and firmware `Route` retain no announce blob
   or timebase, so neither can implement freshness without a new bounded state model.
 - **2026-08-25, live code:** `announce_is_new`/`seen_transit` are relay-loop windows applied
@@ -517,3 +547,7 @@ noise rather than a stronger boundary.
   P1/P3 evidence and the separate firmware persistence design. The complete Retinue
   library gate passed 172 tests with `cargo test --locked --offline -p retinue --lib -j 1`,
   including all six new deterministic timebase tests.
+- **2026-08-26:** Phase A is complete for the implementation trunk. The clean-room P8
+  harness and packet-loop isolation diagnostic answered the receive matrix without reading
+  RNS source. Phase C receive code remains unimplemented; natural elapsed-expiry behavior
+  is explicitly outside the P8 receipt rather than being claimed from the loaded-state arm.

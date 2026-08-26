@@ -220,6 +220,8 @@ ports, raw captures, and exact clean-commit state.
 | `link_crypto_probe.py` | pins the link key derivation by decrypting real RNS link traffic |
 | `capture_link_session.py` | R3 fixtures: a deterministic captured link session |
 | `interop_link.py` | the R3 live encrypted-link gate |
+| `probe_announce_timebase.py` | persistent P1/P2/P3 announce-timebase matrix |
+| `probe_route_freshness.py` | natural transported P8 route/freshness matrix and same-blob diagnostic |
 | `.venv/` | gitignored |
 
 The link-crypto probes are worth a note on method. `link_crypto_probe.py` acts as a link
@@ -287,3 +289,54 @@ The local, ignored 2026-08-25 RNS 1.5.0 receipt is under the repository root at
 fresh nonce with an equal timebase at the same one-hop route, P2 rejected timebase `2`
 after accepting `2^39`, and P3 accepted both `1` and `2^39`. All first sightings persisted
 with valid packets.
+
+## Route/freshness probe
+
+`probe_route_freshness.py` is the clean-room P8 probe. It sends public-API-generated,
+signed Type-1 announces through natural stock-RNS transport chains, records the Type-2
+frames at a persistent receiver, and treats the receiver's post-shutdown
+`storage/destination_table` as authority. Better, equal, and worse paths are calibrated as
+two, three, and four transport hops against a three-hop incumbent. Path-response rows are
+seeded while the receiver is disconnected and then requested with public
+`RNS.Transport.request_path`; context `0x0b` is never synthesised.
+Each cell has a distinct destination. Cells share one persistent receiver and one candidate
+chain per hop relation; the result records that shared-global-state scope explicitly.
+
+Run the smoke matrix, the full 72-cell matrix, and the packet-loop isolation diagnostic
+from this directory:
+
+```powershell
+.\.venv\Scripts\python.exe -u probe_route_freshness.py --profile smoke
+.\.venv\Scripts\python.exe -u probe_route_freshness.py --profile full
+.\.venv\Scripts\python.exe -u probe_route_freshness.py --profile same-blob-diagnostic
+```
+
+The ignored RNS 1.5.0 full receipt is
+`validation/results/route-freshness-full-20260826T211647Z/result.json`, SHA-256
+`bcb83e38b9d840926f2ee3a7093a37877fa6f84e2d2c4ed1290c4290c2a17a38`. All 72 rows have a
+publicly signature-validated forwarded Type-2 frame and calibrated hop relation. No
+row has a matching signature-valid frame with an unexpected header type or context.
+Ordinary and real path-response
+contexts behave identically:
+
+| incumbent state | candidate | measured outcome |
+| --- | --- | --- |
+| live | strictly newer timebase | admit at better, equal, or worse hops |
+| live | equal or older timebase, including an exact-same blob | no observable admission |
+| loaded expired | new blob with a strictly newer timebase | admit at better, equal, or worse hops |
+| loaded expired | new blob with an equal or older timebase | admit only at worse hops |
+| loaded expired | exact-same blob | no observable admission at any hop relation |
+
+The six exact-same ordinary rows could otherwise be hidden by RNS's packet-loop window.
+The separate receipt moves the observed `packet_hashlist.raw` aside while preserving the
+destination table, then reloads stock RNS and repeats live/expired by better/equal/worse.
+The original list contained all six incumbent route packet hashes. The pre-candidate list
+contained one reload-generated hash and none of those six. All six measurements remained
+no-admission. Its result is
+`validation/results/route-freshness-same-blob-diagnostic-20260826T212136Z/result.json`,
+SHA-256 `7b9680456492d7577b78fdd5b0007ad17934ebb966b50eb5549c2f2b83c269fc`.
+
+The expired arm is deliberately named `loaded-expired-state`. The probe independently
+decodes and byte-identically re-encodes the observed MessagePack table, changes only the
+selected expiry `f64` values to the past, and reloads stock RNS. This measures admission
+against loaded expired state, not the natural elapsed-expiry lifecycle.

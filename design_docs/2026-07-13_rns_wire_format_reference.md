@@ -1,14 +1,14 @@
 # RNS 1.x wire format reference (retinue's ground truth)
 
-**Status (2026-07-28, amended):** first consolidated wire reference. The byte-fixture
-corpus is pinned to **RNS 1.3.8**; current live compatibility is verified against
-**RNS 1.4.0**.
+**Status (2026-08-26, amended):** first consolidated wire reference. The byte-fixture
+corpus is pinned to **RNS 1.3.8**; the announce timebase and route/freshness probes are
+pinned to **RNS 1.5.0**.
 Assembled from the public-domain Reticulum manual and the MIT Beechat crate
 (`reticulum-0.1.0`), then adversarially reviewed.
 
 **Amendment: the oracle now exists, and R0 is settled against it.** `oracle/capture.py`
-drove RNS 1.3.8 as a black box and wrote `tests/fixtures/`. The live gates use the current
-RNS 1.4.0 pin. The R0 surface (identity,
+drove RNS 1.3.8 as a black box and wrote `tests/fixtures/`. Current announce gates use the
+RNS 1.5.0 pin. The R0 surface (identity,
 hashing, destination naming, the packet header, announces, and the identity token) is no
 longer inference: retinue's announces are byte-identical to RNS's from the same inputs,
 and retinue decrypts tokens RNS encrypted to it. See **section 0** below for the facts the
@@ -26,7 +26,7 @@ These are `[O]` facts: observed from bytes RNS actually emitted, or from indepen
 recomputation against them. They outrank every `[M]`, `[B]`, `[X]`, `[I]`, and `[P]` claim below.
 
 **Ratchets are carried in the announce, and the Context Flag signals them.** A
-ratchet-enabled destination inserts a 32-byte X25519 public key **between `rand_hash` and
+ratchet-enabled destination inserts a 32-byte X25519 public key **between the timebase and
 the signature** (payload offsets 84..116, pushing the signature to 116..180), and sets
 **bit 5 of header byte 0**. Observed: an identical destination announces at 148 payload
 bytes with flags `0x01`, and at 180 bytes with flags `0x21`, the first 74 bytes
@@ -42,7 +42,7 @@ trunc10(SHA256(ratchet_public_key))`, confirmed by recomputation.
 **The announce signed message is not the announce payload.** The Ed25519 signature covers:
 
 ```text
-dest_hash(16) || x25519_pub(32) || ed25519_pub(32) || name_hash(10) || rand_hash(10)
+dest_hash(16) || x25519_pub(32) || ed25519_pub(32) || name_hash(10) || nonce(5) || timebase(5)
               || [ratchet(32)]  || app_data(*)
 ```
 
@@ -192,8 +192,7 @@ notes. Where it is wrong, the fix goes here first and into code second.
   **0.1.0, stale, and a generation behind on the header**. It has zero ratchet code and
   implements 4 of the 21 packet contexts it declares.
 - **The Python reference implementation was never read.** It is a black-box oracle only:
-  run, driven, and observed. Cited as **[O]** where an answer is expected from it. There
-  are no [O] facts in this document yet.
+  run, driven, and observed. Cited as **[O]**.
 - **Independent recomputation** by me, from allowed sources, with `hashlib` +
   `cryptography`. Cited as **[X]**.
 - **Prns** (MIT/Apache Rust implementation, pinned commit in the
@@ -251,7 +250,7 @@ An error in this table is a silent wire-incompatibility bug. Source column: **[M
 | Address hash (`TRUNCATED_HASHLENGTH`) | **16 bytes** (128 bits), non-configurable | [M] reference.html; [B] `hash.rs:13` |
 | Truncation method | plain prefix of the digest | [B] `hash.rs:15-19` |
 | Name hash | **10 bytes** | [B] `destination.rs:59` **only. Not in the manual.** |
-| Announce random hash | **10 bytes** | [B] `destination.rs:60` **only. Not in the manual.** |
+| Announce blob | **10 bytes = nonce 5 + timebase 5** | [O] emitted bytes and P1/P2/P3 |
 | X25519 public key | 32 bytes | [B] `identity.rs:15` |
 | Ed25519 verifying key | 32 bytes | [B] `identity.rs:15` |
 | Public identity blob (`KEYSIZE`) | **64 bytes = X25519 pub ‖ Ed25519 verifying**, X25519 first | [B] `identity.rs:89-124`; [M] KEYSIZE = 512 bits = "256 bit encryption key, 256 bit signing key" |
@@ -363,8 +362,8 @@ expanded name   "example_utilities.announcesample.fruits"   (39 bytes, not 38)
 name_hash       6f233dfd9aa4cbd4a1e2
 dest_hash       2419dca3c93718497b91990373df1503
 
-announce with random_hash = 00112233445566778899, no app_data:
-signed message (100 B) = dest_hash ‖ x25519 ‖ ed25519 ‖ name_hash ‖ random_hash
+announce with nonce = 0011223344, timebase bytes = 5566778899, no app_data:
+signed message (100 B) = dest_hash ‖ x25519 ‖ ed25519 ‖ name_hash ‖ nonce ‖ timebase
 signature       4596d1161e8856dda74789e9c7d121c49f52fee2fc87a336178d5ff887c01363
                 0903275dd494ee90df6fafd145c8e2c1e4e7ee809fde52ff7292f4c3cc42fc07
 full packet (167 B):
@@ -709,7 +708,8 @@ correct for type 1 only.
 | 0 | 32 | X25519 public key |
 | 32 | 32 | Ed25519 verifying key |
 | 64 | 10 | name hash |
-| 74 | 10 | random hash |
+| 74 | 5 | per-emission nonce |
+| 79 | 5 | monotonic timebase, big-endian unsigned 40-bit |
 | 84 | 64 | Ed25519 signature |
 | 148 | n | app_data (opaque, unframed, unlengthed) |
 
@@ -723,7 +723,8 @@ signed = destination_hash[16]   <- from the packet ADDRESS field; not in the bod
        ‖ x25519_pub[32]
        ‖ ed25519_pub[32]
        ‖ name_hash[10]
-       ‖ random_hash[10]
+       ‖ nonce[5]
+       ‖ timebase_be_u40[5]
        ‖ app_data[n]
 length = 100 + len(app_data)
 ```
@@ -744,13 +745,19 @@ and non-canonical keys and R components. That can only make us **stricter** than
 looser: a liveness risk, not a security one. Recommend plain `verify` for wire compatibility,
 plus an explicit degenerate-key check if we want that property. Low-priority oracle probe.
 
-#### 3.3.4 Random hash
+#### 3.3.4 Announce nonce and timebase: VERIFIED [O]
 
-Beechat: `SHA256(32 random bytes)[0..10]` ([B] `hash.rs:48-56`, `destination.rs:246-247`).
-[M]: "a random blob, making each new announce unique." To a verifier the field is opaque, so
-signature interop is unaffected either way, but RNS may give it internal structure (a timestamp
-component used for de-duplication or ordering). O-20. *(Was mis-tagged O-10 until 2026-08-09;
-O-10 is hop-count semantics, and its now-partial answer says nothing about this field.)*
+The ten bytes are `nonce[5] || timebase_be_u40[5]`. Stock-RNS captures decode their final
+five bytes to their own whole-second capture times, including two committed fixtures one
+second apart. The persistent RNS 1.5.0 P1/P2/P3 probe then established that receivers use
+the value ordinally, not as a plausibility-checked wall clock: equal was rejected, a value
+of `2` was rejected after `2^39`, and first sightings at both `1` and `2^39` were accepted.
+O-20 is closed.
+
+Beechat's historical `SHA256(32 random bytes)[0..10]` construction describes its behavior
+before its independent `d4fc67d` timebase fix. It remains useful provenance for old peers,
+not the stock wire rule. The manual's phrase “a random blob” describes the combined field
+only loosely.
 
 #### 3.3.5 Receiver validation
 
@@ -766,14 +773,41 @@ What Beechat does **not** do, and retinue should:
   but an announcer can squat an address it cannot derive. **Whether RNS drops such an announce
   is unknown** (O-13); the previously-cited manual sentence supporting the check does not exist.
   Recompute and compare anyway: it costs one SHA-256 and it cannot make us wrong.
-- **Dedup.** No replay or freshness check anywhere in the crate.
+- **Freshness admission.** No replay or timebase check anywhere in the crate. Stock RNS
+  behavior is now measured below; packet-loop dedup is a separate mechanism.
 - **Hop limit.** `PATHFINDER_M` is declared and never read.
 - **`destination_type == Single`.** Not checked. (Beechat can only *emit* Single announces:
   `Destination::announce` is implemented only for `Destination<PrivateIdentity, Input, Single>`,
   `destination.rs:222-293`.)
-- **Context byte.** 0x00 vs 0x0B (path response) is not distinguished. [M]'s announce-handler
-  API exposes `is_path_response` and `receive_path_responses`, so the distinction exists on the
-  wire; that it is carried by context 0x0B is [I] (O-15).
+- **Context byte.** 0x00 vs 0x0B (path response) is not distinguished. Real responses to
+  public `RNS.Transport.request_path` calls were captured as forwarded Type-2 announces
+  with context 0x0B [O].
+
+The RNS 1.5.0 P8 probe measured 72 distinct-destination combinations in one persistent
+receiver run, with one candidate chain per hop relation. “Worse” means a larger calibrated
+hop count. Ordinary and real path-response contexts behaved identically:
+
+| loaded route | candidate | stock outcome [O] |
+|---|---|---|
+| live | new blob, newer timebase | admitted at any hop relation |
+| live | new blob, equal/older timebase | no observable admission |
+| live | exact-same blob | no observable admission |
+| expired | new blob, newer timebase | admitted at any hop relation |
+| expired | new blob, equal/older timebase | admitted only at worse hops |
+| expired | exact-same blob | no observable admission |
+
+The compact one-incumbent rule is `new_blob && (timebase > incumbent_timebase ||
+(expired && candidate_hops > incumbent_hops))`. A separate six-cell run preserved the
+destination table while moving `packet_hashlist.raw` aside; all six incumbent route hashes
+were present before pruning and absent after reload, yet exact-same blobs still never
+changed the route, including better paths. The receiver's observed persisted row is
+`[destination, received_at, received_from, hops, expires, random_blobs[], interface_hash,
+packet_hash]`. Retinue needs bounded per-destination blob/timebase state in addition to its
+packet-loop window.
+
+The expired rows use a byte-identically re-encoded observed MessagePack table with selected
+expiry `f64` values moved into the past, followed by a stock-RNS reload. They measure loaded
+expired state, not the natural elapsed-expiry lifecycle.
 
 #### 3.3.6 Ratchets in announces: the biggest gap
 
@@ -791,8 +825,8 @@ another. **We do not know which, and we will not guess.**
 Two candidate body layouts, both parseable at fixed offsets:
 
 ```
-A: ..‖ rand_hash(10) ‖ RATCHET(32) ‖ sig(64) ‖ app_data
-B: ..‖ rand_hash(10) ‖ sig(64) ‖ RATCHET(32) ‖ app_data
+A: ..‖ nonce(5) ‖ timebase(5) ‖ RATCHET(32) ‖ sig(64) ‖ app_data
+B: ..‖ nonce(5) ‖ timebase(5) ‖ sig(64) ‖ RATCHET(32) ‖ app_data
 ```
 
 **They fail in opposite ways, and B is the dangerous one.** Under A, a Beechat-shaped parser
@@ -1320,22 +1354,22 @@ Ranked by blast radius: how badly a wrong guess hurts, and how silently.
 | **O-4** | **Link MTU discovery: does 1.3.8 append 3 bytes to the link request and/or proof, and is the link ID hashed over the full payload or only the first 64 bytes?** Also: is the link-ID preimage really the masked/clipped hash, given [M] says "a hash of the entire link request packet"? Capture a handshake on TCP (high MTU) and on a 500-byte interface, and count bytes: 83/115 means no trailer; 86/118 means it is real. | **Silent total failure.** Wrong link ID means both sides derive different keys and **no link ever forms**, with no error message. |
 | **O-4b** | **The proof's signed blob.** Two fields (`link_id ‖ LKr`, per [M]'s prose) or three (`link_id ‖ LKr ‖ destination_verifying_key`, per the crate)? | Every proof we emit is rejected; every proof we receive fails to verify. |
 | **O-4c** | **The proof's wire field order.** `sig(64) ‖ LKr(32)` (crate) or `LKr(32) ‖ sig(64)` ([M]'s prose lists LKr first)? Read bytes 19..51 of a captured proof: is it a valid X25519 point? | Same as O-4b, and the 115-byte total does not disambiguate. |
-| **O-5** | **The announce signed-message byte order.** The crate's order (`dest ‖ x25519 ‖ ed25519 ‖ name_hash ‖ rand_hash ‖ app_data`) rests on Beechat alone; [M]'s prose puts app_data *before* the random blob. Capture one announce with non-empty app_data and brute-force which candidate blob the signature covers (pure offline computation once we have one real announce). | Every announce we emit is rejected; every one we receive fails. Cheap to settle offline from a single capture. |
+| **O-5** | **The announce signed-message byte order.** The crate's order (`dest ‖ x25519 ‖ ed25519 ‖ name_hash ‖ nonce ‖ timebase ‖ app_data`) rests on Beechat alone; [M]'s prose puts app_data *before* the announce blob. Capture one announce with non-empty app_data and brute-force which candidate blob the signature covers (pure offline computation once we have one real announce). | Every announce we emit is rejected; every one we receive fails. Cheap to settle offline from a single capture. |
 | **O-6** | **Link MDU.** `link.get_mdu()` on a fresh link over a 500-MTU interface: 415, 431, or something else? Then send a plaintext of exactly that length and one byte more. | Wastes 4% of every packet, or overflows the MTU on the last hop. Also settles whether the block-quantisation model is real. This is v0-plan Lesson 7. |
 | **O-7** | **Does RNS ratchet on links at all?** [M] frames ratcheting as a link-*less*, per-destination feature, so we expect no. If the link request or link KDF touches a ratchet key, section 3.4.4 is wrong. | Rewrites the whole link crypto section. Cheap to ask early. |
 | **O-8** | **Ratchet selection on receive.** How does a receiver know which of up to 512 retained ratchet keys a link-less packet used: trial decryption with HMAC check, or an explicit id on the wire? | Blocks link-less encrypted packets to a ratcheting destination. Not needed for R0-R3. |
-| **O-9** | **Type-2 address order.** In a transport-forwarded packet, is the transport id the first 16-byte field and the destination the second? The signature covers the destination, so getting it backwards makes every relayed announce fail. Run the oracle as a transport node and capture a forwarded announce; the destination field is identifiable (it must match the known announcer). **Corroborated [B]+[P] 2026-08-09 (see §3.2.1 note): Prns also parses transport-first. Risk now low; awaiting stock capture to close.** | Garbage destinations on every forwarded packet. |
+| **O-9** | **Type-2 address order. ANSWERED 2026-08-26 [O].** Natural two/three/four-transport P8 chains captured the known destination in the second address field in every forwarded announce; the first field was recorded as the opaque transport id. | Garbage destinations on every forwarded packet. |
 | **O-10** | **Hop-count semantics.** Who increments, and when relative to the forwarding decision? Is a packet arriving with hops >= 128 dropped? (1.3.8's changelog mentions a fixed hop-count serialization error on transport.) **Answered by second-implementation evidence 2026-08-09 (see §3.2.3 [P] note): receiver increments at ingest; 128-on-wire is ignored. Awaiting stock on-air capture to close.** | Beechat's evidence here is dead code. Endpoint-only impact is modest, but decode must be right. |
 | **O-11** | **TCP: does RNS send any bytes on connect, in either direction, before the first frame?** Point RNS's `TCPClientInterface` at a dumb hexdumping listener and record every byte from `accept()`. Is byte 0 `0x7E`? | A preamble is invisible to a resynchronising decoder, so "it works" proves nothing. If it exists, we must emit it. |
 | **O-12** | **What are the "internal reliability and recovery mechanisms" that `kiss_framing` disables between a TCP client and server?** In-band bytes, or local reconnect logic? Kill the connection mid-frame, let RNS reconnect, diff the bytes against a clean connection. | If in-band, our TCP framing is incomplete and reconnects corrupt the first frame. |
 | **O-13** | **Does RNS drop an announce whose address field != `SHA256(name_hash ‖ identity_hash)[0..16]`?** Hand-craft a correctly-signed announce with an all-zero destination (the signature covers the address, so we can legitimately sign it) and check whether it enters the oracle's path table. | Determines whether address squatting is a real behavior we must mirror. Recompute-and-compare regardless. |
 | **O-14** | **Link RTT packet: 99 bytes ([M]) or 83 (crate's construction)?** Capture the ctx-0xFE packet, decrypt with the derived link key, dump the plaintext. | The only [M] size-table row that does not reconcile. Tells us whether we misunderstand the token layout or the RTT payload. |
-| **O-15** | **Path response.** Is an announce delivered as a path response distinguished by context byte 0x0B? Issue a path request (destination `rnstransport.path.request`, 51-byte packet = 19 + 32) and dump the context byte of what comes back. Also confirms the real Plain destination hash (expected `6b9f66014d9853faab220fba47d02761`) and the type-2 address order in one experiment. | Cannot distinguish solicited from spontaneous announces. Cheap; settles three questions at once. |
+| **O-15** | **Path-response context. ANSWERED 2026-08-26 [O].** Public `RNS.Transport.request_path` calls produced real forwarded Type-2 responses with context 0x0B. P8 also closed the Type-2 address order; request-destination hashing remains covered separately by P7. | Cannot distinguish solicited from spontaneous announces. |
 | **O-16** | **Link close (0xFC) and identify (0xFB) payloads.** Both are dead constants in the crate; `Link::close()` sends nothing. Encrypted or plaintext? What plaintext? | Blocks R3's teardown and R4's `ALLOW_LIST`. |
 | **O-17** | **Resource wire format, in full.** Advertisement, part, part request, hashmap update, proof, cancel: serialization format, field order, integer widths, flags, hashmap encoding, windowing model, segmentation ceiling, compression algorithm. | **Blocks all of R4.** Nothing is known below the context codes. |
 | **O-18** | **Channel envelope (0x0E) and Buffer stream framing.** ~~Sequence-number width, message-type tag, ack/retry scheme, `stream_id` encoding, EOF marker~~. **ANSWERED — Channel 2026-07-17 (§3.9), Buffer 2026-07-18 (§3.10).** Channel: envelope `[msgtype u16][seq u16][len u16][payload]` under context 14, windowed 16-bit seq, dynamic window, **ack/retry = the link packet proof** (5 silent resends of seq 0). Buffer: stream frame `[eof<<15 \| compressed<<14 \| stream_id:14][data]` under msgtype `0xff00`, `MAX_DATA_LEN=423`, eof bit ends a stream. All gold-tested against fixtures `channel_wire.json` / `channel_link.json` / `buffer_wire.json` and implemented in `src/channel.rs`. Only open interop edge: receiving RNS's *bz2-compressed* frames (narrow — bz2 rarely shrinks a sub-423-byte chunk). | Blocks the `AsyncRead`/`AsyncWrite` surface, which 3.6.3 argues should be a Channel port. |
 | **O-19** | **Multi-aspect edge cases.** Zero aspects (is the trailing `.` omitted?), an empty-string aspect, a non-ASCII aspect. Beechat takes aspects as a single pre-dotted string and never exercises the join. | Wrong destination hashes for a class of names. Cheap. |
-| **O-20** | **Random hash structure.** Are the 10 bytes pure randomness, or is part a timestamp? Capture several announces from one destination seconds apart and look for monotonic structure. | Signature interop is unaffected (the field is opaque to a verifier). Only affects de-dup and freshness. Low. |
+| **O-20** | **Announce blob structure. ANSWERED 2026-08-25 [O].** The field is nonce(5) plus a big-endian unsigned 40-bit whole-second timebase. P1/P2/P3 and P8 prove the timebase controls route admission ordinally without a clock-plausibility check. | Deployment-affecting: a bad high-water value can make a destination unroutable after restart. |
 | **O-21** | **MDU enforcement on receive.** Does RNS drop an over-MDU packet on ingress, or only refuse to emit one? Is the ceiling 464 or 465? | Determines how strict our decoder should be. Low. |
 | **O-22** | **Ed25519 strictness.** Does RNS ever emit signatures that `verify_strict` would reject (small-order A, non-canonical R)? | Liveness only: strictness can make us drop announces RNS accepts, never the reverse. One adversarial fixture. Low. |
 | **O-23** | **IFAC derivation. ANSWERED 2026-07-28 (§3.2.5).** Per-credential SHA-256, combined SHA-256, 64-byte HKDF with the fixed salt, Ed25519 over the logical packet with bit 7 clear and no code, signature suffix truncation, code at offset 2, and HKDF masking keyed by code + interface key. Fixed RNS 1.4.0 bytes and mixed-runtime acceptance prove it. | Implemented at the carrier boundary. |
