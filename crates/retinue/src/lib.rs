@@ -62,6 +62,7 @@ pub mod address_book;
 pub mod announce;
 #[cfg(feature = "tokio")]
 pub mod announce_admission;
+pub mod announce_freshness;
 pub mod artifact;
 pub mod capacity;
 pub mod channel;

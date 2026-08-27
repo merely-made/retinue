@@ -29,6 +29,10 @@ use heapless::Vec as BoundedVec;
 
 use crate::address_book::{AddressBook, Ingested};
 use crate::announce::{self, Announce, RAND_HASH_LEN, RATCHET_LEN};
+use crate::announce_freshness::{
+    AnnounceFreshness, AnnounceFreshnessCandidate, AnnounceFreshnessConfig,
+    AnnounceFreshnessDecision, AnnounceFreshnessReject,
+};
 use crate::hash::{AddressHash, NameHash};
 use crate::identity::PrivateIdentity;
 use crate::link::{self, Inbound, Link, LinkMode, LinkTrailer, PendingLink};
@@ -179,6 +183,42 @@ pub const LINK_IDLE_TIMEOUT: u64 = 900_000;
 /// eligible for replacement during one field visit.
 pub const DEFAULT_ROUTE_TTL: u64 = 1_800_000;
 
+/// Default lifetime for receive-side announce freshness tombstones.
+///
+/// This is deliberately longer than [`DEFAULT_ROUTE_TTL`]. Route usability and replay
+/// protection are separate clocks: removing a route must not immediately make the last
+/// accepted announce a first sighting again.
+pub const DEFAULT_FRESHNESS_RETENTION: u64 = 7 * 24 * 60 * 60 * 1_000;
+
+/// Bounds for the receive-side announce freshness table.
+///
+/// The table is runtime state rather than a const-generic part of [`Node`], so firmware can
+/// choose a smaller footprint and a desktop caller can choose a larger one without making a
+/// second node type. The defaults are intentionally aligned with the node's peer budget and
+/// keep eight accepted blobs per destination.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FreshnessPolicy {
+    /// Maximum destination rows retained by the freshness table.
+    pub max_destinations: usize,
+    /// Maximum accepted full announce blobs retained per destination.
+    pub max_blobs_per_destination: usize,
+    /// How long a row/blob remains eligible for freshness decisions, in caller tick units.
+    pub retention: u64,
+}
+
+impl FreshnessPolicy {
+    pub const fn for_peers(peers: usize) -> Self {
+        Self {
+            // `AddressBook` can be instantiated with PEERS == 0 for a deliberately
+            // non-learning node. Keep Node::new infallible while retaining a valid internal
+            // freshness table; the zero-capacity address book still refuses every announce.
+            max_destinations: if peers == 0 { 1 } else { peers },
+            max_blobs_per_destination: 8,
+            retention: DEFAULT_FRESHNESS_RETENTION,
+        }
+    }
+}
+
 /// How long a carried link remains bridgeable after it last carries traffic.
 ///
 /// A link's own keepalives are considerably more frequent than this. The longer interval
@@ -243,7 +283,7 @@ impl Default for TransportConfig {
     }
 }
 
-/// What the bounded transport tables have done since this node started.
+/// What the bounded transport and freshness tables have done since this node started.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct TransportCounters {
     /// Verified announces re-broadcast for another destination.
@@ -262,6 +302,18 @@ pub struct TransportCounters {
     pub hop_limit_dropped: u16,
     /// Transit that named this node but had no fresh route onward.
     pub unroutable_packets: u16,
+    /// Valid announces rejected because their full blob was already retained.
+    pub replayed_announces: u16,
+    /// Valid announces rejected by the timebase/hop freshness policy.
+    pub stale_announces: u16,
+    /// Freshness destination rows expired under the configured retention lifetime.
+    pub expired_freshness_rows: u16,
+    /// Freshness history blobs expired under the configured retention lifetime.
+    pub expired_freshness_blobs: u16,
+    /// Freshness destination rows evicted under the configured capacity bound.
+    pub evicted_freshness_rows: u16,
+    /// Accepted announce blobs evicted from per-destination history under the configured capacity.
+    pub evicted_freshness_blobs: u16,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -345,6 +397,10 @@ pub struct Node<
     /// Paths learned from verified announces. This is separate from the address book: the book
     /// has keys needed to initiate a link, while a route says where a transport packet goes.
     routes: BoundedVec<Route, ROUTES>,
+    /// Receive-side announce freshness. This survives route eviction so a displaced or expired
+    /// route cannot make an old announce authoritative again.
+    freshness: AnnounceFreshness,
+    freshness_policy: FreshnessPolicy,
     /// Link ids this node is carrying, with their ingress and egress interfaces. A proof or
     /// link-data packet names a link id rather than its original destination, so this is the
     /// small fact that lets return traffic take the same bridge back.
@@ -400,6 +456,13 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             app_data: Vec::new(),
             transport: TransportConfig::none(),
             routes: BoundedVec::new(),
+            freshness_policy: FreshnessPolicy::for_peers(PEERS),
+            freshness: AnnounceFreshness::new(AnnounceFreshnessConfig {
+                destination_capacity: PEERS.max(1),
+                blob_capacity: 8,
+                retention_ticks: DEFAULT_FRESHNESS_RETENTION,
+            })
+            .expect("nonzero fallback freshness capacity"),
             bridges: BoundedVec::new(),
             seen_transit: BoundedVec::new(),
             last_announce: None,
@@ -434,6 +497,62 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
     pub fn with_transport_config(mut self, config: TransportConfig) -> Self {
         self.transport = config;
         self
+    }
+
+    /// Configure receive-side announce freshness bounds.
+    pub fn with_freshness_policy(
+        mut self,
+        policy: FreshnessPolicy,
+    ) -> Result<Self, crate::announce_freshness::AnnounceFreshnessConfigError> {
+        self.freshness = AnnounceFreshness::new(AnnounceFreshnessConfig {
+            destination_capacity: policy.max_destinations,
+            blob_capacity: policy.max_blobs_per_destination,
+            retention_ticks: policy.retention,
+        })?;
+        self.freshness_policy = policy;
+        Ok(self)
+    }
+
+    /// Change receive-side freshness bounds without changing identity or transport policy.
+    /// `now` applies the new retention window while preserving still-retained rows and
+    /// deterministically trimming history. Invalid zero capacities leave the old policy intact.
+    pub fn set_freshness_policy(
+        &mut self,
+        policy: FreshnessPolicy,
+        now: u64,
+    ) -> Result<
+        crate::announce_freshness::AnnounceFreshnessReconfigure,
+        crate::announce_freshness::AnnounceFreshnessConfigError,
+    > {
+        let config = AnnounceFreshnessConfig {
+            destination_capacity: policy.max_destinations,
+            blob_capacity: policy.max_blobs_per_destination,
+            retention_ticks: policy.retention,
+        };
+        let report = self.freshness.reconfigure(config, now)?;
+        self.transport_counters.expired_freshness_rows = self
+            .transport_counters
+            .expired_freshness_rows
+            .saturating_add(u16::try_from(report.expired_destinations).unwrap_or(u16::MAX));
+        self.transport_counters.expired_freshness_blobs = self
+            .transport_counters
+            .expired_freshness_blobs
+            .saturating_add(u16::try_from(report.expired_blobs).unwrap_or(u16::MAX));
+        self.transport_counters.evicted_freshness_rows = self
+            .transport_counters
+            .evicted_freshness_rows
+            .saturating_add(u16::try_from(report.evicted_destinations).unwrap_or(u16::MAX));
+        self.transport_counters.evicted_freshness_blobs = self
+            .transport_counters
+            .evicted_freshness_blobs
+            .saturating_add(u16::try_from(report.evicted_blobs).unwrap_or(u16::MAX));
+        self.freshness_policy = policy;
+        Ok(report)
+    }
+
+    /// The current receive-side announce freshness policy.
+    pub fn freshness_policy(&self) -> FreshnessPolicy {
+        self.freshness_policy
     }
 
     /// Change the transport policy without replacing the node's learned state.
@@ -634,9 +753,9 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         }
     }
 
-    /// Record a route from a verified announce. The shortest live path wins; a re-announce
-    /// refreshes that path only when it arrived on the same interface, so a worse alternate
-    /// cannot keep a dead preferred route alive forever.
+    /// Record a route from a freshness-accepted announce. The accepted announce is the route
+    /// incumbent regardless of hop count. Freshness decides whether an announce may mutate any
+    /// observable state; route selection must not apply a second shortest-path filter.
     fn learn_route(
         &mut self,
         destination: AddressHash,
@@ -654,13 +773,6 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             .iter_mut()
             .find(|route| route.destination == destination)
         {
-            if route.hops <= hops {
-                if route.interface == interface {
-                    route.learned = now;
-                    route.transport = transport;
-                }
-                return;
-            }
             *route = Route {
                 destination,
                 interface,
@@ -924,29 +1036,77 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                 // matches the announced identity, so an entry can only come from an
                 // announce whose maths checked out. The invalid fixtures are the proof.
                 if let Ok(announce) = Announce::decode(packet) {
+                    let candidate = AnnounceFreshnessCandidate {
+                        destination: announce.destination,
+                        blob: crate::announce::AnnounceBlob::from_wire(announce.rand_hash),
+                        hops: packet.hops,
+                    };
+                    let decision =
+                        self.freshness
+                            .evaluate(candidate, now, self.transport.route_ttl);
+                    let accepted = match decision {
+                        AnnounceFreshnessDecision::Accept(_) => true,
+                        AnnounceFreshnessDecision::Reject(reason) => {
+                            match reason {
+                                AnnounceFreshnessReject::Replay => {
+                                    self.transport_counters.replayed_announces = self
+                                        .transport_counters
+                                        .replayed_announces
+                                        .saturating_add(1);
+                                }
+                                AnnounceFreshnessReject::StaleTimebase => {
+                                    self.transport_counters.stale_announces =
+                                        self.transport_counters.stale_announces.saturating_add(1);
+                                }
+                            }
+                            false
+                        }
+                    };
+                    if !accepted {
+                        return actions;
+                    }
+
+                    // Address-book capacity is part of admission. If it refuses, no announce
+                    // effect happened and the freshness candidate must remain unrecorded so a
+                    // later capacity opening can still admit it.
                     if self.book.ingest(&announce) == Ingested::Refused {
                         self.refused_peers = self.refused_peers.saturating_add(1);
-                    } else {
-                        if self.transport.relay_announces || self.transport.relay_packets {
-                            self.learn_route(
-                                announce.destination,
-                                interface,
-                                packet.hops,
-                                packet.transport,
-                                now,
-                            );
-                        }
-                        actions.push(Action::Learned {
-                            destination: announce.destination,
-                        });
-                        self.relay_announce(
-                            interface,
-                            packet,
+                        return actions;
+                    }
+
+                    let record = self.freshness.record_accepted(candidate, now);
+                    self.transport_counters.expired_freshness_rows = self
+                        .transport_counters
+                        .expired_freshness_rows
+                        .saturating_add(
+                            u16::try_from(record.expired_destinations).unwrap_or(u16::MAX),
+                        );
+                    self.transport_counters.expired_freshness_blobs = self
+                        .transport_counters
+                        .expired_freshness_blobs
+                        .saturating_add(u16::try_from(record.expired_blobs).unwrap_or(u16::MAX));
+                    self.transport_counters.evicted_freshness_rows = self
+                        .transport_counters
+                        .evicted_freshness_rows
+                        .saturating_add(u16::from(record.evicted_destination.is_some()));
+                    self.transport_counters.evicted_freshness_blobs = self
+                        .transport_counters
+                        .evicted_freshness_blobs
+                        .saturating_add(u16::from(record.evicted_blob.is_some()));
+
+                    if self.transport.relay_announces || self.transport.relay_packets {
+                        self.learn_route(
                             announce.destination,
+                            interface,
+                            packet.hops,
+                            packet.transport,
                             now,
-                            &mut actions,
                         );
                     }
+                    actions.push(Action::Learned {
+                        destination: announce.destination,
+                    });
+                    self.relay_announce(interface, packet, announce.destination, now, &mut actions);
                 }
             }
             PacketType::LinkRequest => self.on_link_request(interface, packet, now, &mut actions),
@@ -1473,6 +1633,255 @@ mod tests {
         assert!(n.ingest(IFACE, &other, 0).is_empty());
         assert_eq!(n.peers().len(), 1, "the established peer survives");
         assert_eq!(n.peers().refused(), 1, "and the refusal is counted");
+    }
+
+    #[test]
+    fn freshness_gates_effects_and_newer_route_replaces_regardless_of_hops() {
+        let mut relay = Node::<8, 8, 4, 4>::new(
+            PrivateIdentity::from_secret_bytes(&[0x81; 64]),
+            DestinationName::new("retinue", ["relay"]).name_hash(),
+        )
+        .with_transport_config(TransportConfig::transit());
+        let peer = Node::<8, 8, 4, 4>::new(
+            PrivateIdentity::from_secret_bytes(&[0x82; 64]),
+            DestinationName::new("retinue", ["peer"]).name_hash(),
+        );
+
+        let mut first = peer.announce(&[1, 0, 0, 0, 0, 0, 0, 0, 0, 10], None);
+        first.hops = 1;
+        let accepted = relay.ingest(IFACE, &first, 0);
+        assert_eq!(accepted.len(), 2, "learn plus relay");
+        assert_eq!(relay.route_to(peer.destination(), 0), Some((IFACE, 1)));
+
+        let mut newer_equal = peer.announce(&[2, 0, 0, 0, 0, 0, 0, 0, 0, 11], None);
+        newer_equal.hops = 1;
+        let accepted = relay.ingest(IFACE + 1, &newer_equal, 1);
+        assert_eq!(accepted.len(), 2, "newer equal-hop announce replaces");
+        assert_eq!(relay.route_to(peer.destination(), 1), Some((IFACE + 1, 1)));
+
+        let mut newer_worse = peer.announce(&[3, 0, 0, 0, 0, 0, 0, 0, 0, 12], None);
+        newer_worse.hops = 7;
+        let accepted = relay.ingest(IFACE + 2, &newer_worse, 2);
+        assert_eq!(accepted.len(), 2, "newer announce still learns and relays");
+        assert_eq!(relay.route_to(peer.destination(), 2), Some((IFACE + 2, 7)));
+
+        let mut stale = peer.announce(&[4, 0, 0, 0, 0, 0, 0, 0, 0, 11], None);
+        stale.hops = 0;
+        assert!(relay.ingest(IFACE, &stale, 3).is_empty());
+        assert_eq!(relay.peers().len(), 1);
+        assert_eq!(relay.route_to(peer.destination(), 3), Some((IFACE + 2, 7)));
+        assert_eq!(relay.transport_counters().stale_announces, 1);
+
+        assert!(relay.ingest(IFACE, &newer_worse, 4).is_empty());
+        assert_eq!(relay.transport_counters().replayed_announces, 1);
+    }
+
+    #[test]
+    fn expired_route_only_accepts_a_stale_copy_at_worse_hops() {
+        let mut relay = Node::<8, 8, 4, 4>::new(
+            PrivateIdentity::from_secret_bytes(&[0x83; 64]),
+            DestinationName::new("retinue", ["relay"]).name_hash(),
+        )
+        .with_transport_config(TransportConfig {
+            route_ttl: 10,
+            ..TransportConfig::transit()
+        });
+        let better_peer = Node::<8, 8, 4, 4>::new(
+            PrivateIdentity::from_secret_bytes(&[0x84; 64]),
+            DestinationName::new("retinue", ["better"]).name_hash(),
+        );
+        let equal_peer = Node::<8, 8, 4, 4>::new(
+            PrivateIdentity::from_secret_bytes(&[0x85; 64]),
+            DestinationName::new("retinue", ["equal"]).name_hash(),
+        );
+        let worse_peer = Node::<8, 8, 4, 4>::new(
+            PrivateIdentity::from_secret_bytes(&[0x86; 64]),
+            DestinationName::new("retinue", ["worse"]).name_hash(),
+        );
+        for peer in [&better_peer, &equal_peer, &worse_peer] {
+            let mut first = peer.announce(&[1, 0, 0, 0, 0, 0, 0, 0, 0, 20], None);
+            first.hops = 2;
+            assert_eq!(relay.ingest(IFACE, &first, 0).len(), 2);
+        }
+        assert_eq!(relay.route_count(), 3);
+        let _ = relay.poll(10, IFACE, &[0; RAND_HASH_LEN]);
+        assert_eq!(
+            relay.route_count(),
+            0,
+            "route TTL evicted the physical route"
+        );
+
+        let mut better = better_peer.announce(&[2, 0, 0, 0, 0, 0, 0, 0, 0, 19], None);
+        better.hops = 1;
+        let mut equal = equal_peer.announce(&[2, 0, 0, 0, 0, 0, 0, 0, 0, 19], None);
+        equal.hops = 2;
+        let mut worse = worse_peer.announce(&[2, 0, 0, 0, 0, 0, 0, 0, 0, 19], None);
+        worse.hops = 3;
+
+        assert!(relay.ingest(IFACE + 1, &better, 11).is_empty());
+        assert!(relay.ingest(IFACE + 1, &equal, 11).is_empty());
+        assert_eq!(relay.ingest(IFACE + 1, &worse, 11).len(), 2);
+        assert_eq!(
+            relay.route_to(worse_peer.destination(), 11),
+            Some((IFACE + 1, 3))
+        );
+        assert_eq!(relay.route_to(better_peer.destination(), 11), None);
+        assert_eq!(relay.route_to(equal_peer.destination(), 11), None);
+        assert_eq!(relay.transport_counters().stale_announces, 2);
+    }
+
+    #[test]
+    fn address_book_refusal_does_not_commit_freshness() {
+        let mut n = Node::<1, 8, 4, 4>::new(
+            PrivateIdentity::from_secret_bytes(&[0x85; 64]),
+            DestinationName::new("retinue", ["node"]).name_hash(),
+        )
+        .with_transport_config(TransportConfig::transit());
+        let first_peer = Node::<8, 8, 4, 4>::new(
+            PrivateIdentity::from_secret_bytes(&[0x86; 64]),
+            DestinationName::new("retinue", ["first"]).name_hash(),
+        );
+        let second_peer = Node::<8, 8, 4, 4>::new(
+            PrivateIdentity::from_secret_bytes(&[0x87; 64]),
+            DestinationName::new("retinue", ["second"]).name_hash(),
+        );
+        n.ingest(IFACE, &first_peer.announce(&[1; RAND_HASH_LEN], None), 0);
+        let packet = second_peer.announce(&[2; RAND_HASH_LEN], None);
+        let candidate = AnnounceFreshnessCandidate {
+            destination: second_peer.destination(),
+            blob: crate::announce::AnnounceBlob::from_wire([2; RAND_HASH_LEN]),
+            hops: packet.hops,
+        };
+        assert!(n.ingest(IFACE, &packet, 1).is_empty());
+        assert_eq!(n.refused_peers(), 1);
+        assert!(matches!(
+            n.freshness.evaluate(candidate, 1, DEFAULT_ROUTE_TTL),
+            AnnounceFreshnessDecision::Accept(_)
+        ));
+        assert!(!n.peers().knows(second_peer.destination()));
+        assert_eq!(n.route_count(), 1);
+    }
+
+    #[test]
+    fn packet_loop_dedup_is_after_freshness() {
+        let mut relay = Node::<8, 8, 4, 4>::new(
+            PrivateIdentity::from_secret_bytes(&[0x88; 64]),
+            DestinationName::new("retinue", ["relay"]).name_hash(),
+        )
+        .with_transport_config(TransportConfig::transit());
+        let peer = Node::<8, 8, 4, 4>::new(
+            PrivateIdentity::from_secret_bytes(&[0x89; 64]),
+            DestinationName::new("retinue", ["peer"]).name_hash(),
+        );
+        let packet = peer.announce(&[4; RAND_HASH_LEN], None);
+        assert!(relay.transit_is_new(packet.hash(), 0));
+        let actions = relay.ingest(IFACE, &packet, 1);
+        assert_eq!(
+            actions.len(),
+            1,
+            "freshness learns before loop dedup suppresses relay"
+        );
+        assert!(actions.iter().any(|a| matches!(a, Action::Learned { .. })));
+        assert_eq!(relay.peers().len(), 1);
+        assert_eq!(relay.transport_counters().replayed_announces, 0);
+    }
+
+    #[test]
+    fn stale_same_blob_cannot_roll_back_ratchet_or_app_data() {
+        let mut n = node();
+        let peer = Node::<8, 8, 4, 4>::new(
+            PrivateIdentity::from_secret_bytes(&[0x90; 64]),
+            DestinationName::new("retinue", ["peer"]).name_hash(),
+        )
+        .with_app_data(b"current");
+        let rand = [9; RAND_HASH_LEN];
+        let current = peer.announce(&rand, Some(&[0xA1; RATCHET_LEN]));
+        assert_eq!(n.ingest(IFACE, &current, 0).len(), 1);
+        assert_eq!(
+            n.peers().resolve(peer.destination()).unwrap().app_data,
+            b"current"
+        );
+        assert_eq!(
+            n.peers().resolve(peer.destination()).unwrap().ratchet,
+            Some([0xA1; RATCHET_LEN])
+        );
+
+        let older = Node::<8, 8, 4, 4>::new(
+            PrivateIdentity::from_secret_bytes(&[0x90; 64]),
+            DestinationName::new("retinue", ["peer"]).name_hash(),
+        )
+        .with_app_data(b"rollback");
+        let rollback = older.announce(&rand, Some(&[0xB2; RATCHET_LEN]));
+        assert!(n.ingest(IFACE, &rollback, 1).is_empty());
+        let retained = n.peers().resolve(peer.destination()).unwrap();
+        assert_eq!(retained.app_data, b"current");
+        assert_eq!(retained.ratchet, Some([0xA1; RATCHET_LEN]));
+    }
+
+    #[test]
+    fn freshness_policy_is_bounded_and_reconfigures_without_resetting_history() {
+        let mut n = Node::<8, 8, 4, 4>::new(
+            PrivateIdentity::from_secret_bytes(&[0x8A; 64]),
+            DestinationName::new("retinue", ["node"]).name_hash(),
+        )
+        .with_transport_config(TransportConfig::transit());
+        assert!(
+            Node::<8, 8, 4, 4>::new(
+                PrivateIdentity::from_secret_bytes(&[0x8B; 64]),
+                DestinationName::new("retinue", ["invalid"]).name_hash(),
+            )
+            .with_freshness_policy(FreshnessPolicy {
+                max_destinations: 0,
+                max_blobs_per_destination: 8,
+                retention: 100,
+            })
+            .is_err()
+        );
+
+        let a = Node::<8, 8, 4, 4>::new(
+            PrivateIdentity::from_secret_bytes(&[0x8C; 64]),
+            DestinationName::new("retinue", ["a"]).name_hash(),
+        );
+        let b = Node::<8, 8, 4, 4>::new(
+            PrivateIdentity::from_secret_bytes(&[0x8D; 64]),
+            DestinationName::new("retinue", ["b"]).name_hash(),
+        );
+        n.ingest(IFACE, &a.announce(&[5; RAND_HASH_LEN], None), 0);
+        n.ingest(IFACE, &b.announce(&[6; RAND_HASH_LEN], None), 1);
+        assert_eq!(n.freshness.config().destination_capacity, 8);
+        assert!(
+            n.set_freshness_policy(
+                FreshnessPolicy {
+                    max_destinations: 1,
+                    max_blobs_per_destination: 1,
+                    retention: 100,
+                },
+                1
+            )
+            .is_ok()
+        );
+        assert_eq!(n.freshness_policy().max_destinations, 1);
+        assert_eq!(n.transport_counters().evicted_freshness_rows, 1);
+        assert_eq!(n.transport_counters().evicted_freshness_blobs, 0);
+        assert!(matches!(
+            n.freshness.evaluate(
+                AnnounceFreshnessCandidate {
+                    destination: a.destination(),
+                    blob: crate::announce::AnnounceBlob::from_wire([5; RAND_HASH_LEN]),
+                    hops: 0,
+                },
+                1,
+                DEFAULT_ROUTE_TTL,
+            ),
+            AnnounceFreshnessDecision::Accept(_)
+        ));
+
+        // The remaining destination's second accepted blob now exercises per-row history
+        // pressure independently of destination-row pressure.
+        let mut b_again = b.announce(&[7; RAND_HASH_LEN], None);
+        b_again.hops = 1;
+        n.ingest(IFACE, &b_again, 2);
+        assert_eq!(n.transport_counters().evicted_freshness_blobs, 1);
     }
 
     /// Actions are bounded, and say so when they fill.

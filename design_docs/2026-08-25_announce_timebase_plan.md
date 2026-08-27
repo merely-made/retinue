@@ -1,9 +1,9 @@
 # Announce timebase plan
 
 **Date:** 2026-08-25
-**Status (2026-08-26):** in progress. P1/P2/P3 and the 72-cell P8 matrix are answered.
-The additive Phase B blob/timebase primitive has landed; caller, receive, and firmware
-semantics have not.
+**Status (2026-08-26):** in progress. P1/P2/P3 and the 72-cell P8 matrix are answered,
+and Phase C receive freshness is implemented. The additive Phase B blob/timebase primitive
+has landed; emission-caller migration and Phase D firmware durability remain.
 **Owns:** the announce `rand_hash` field, receive-side announce freshness, and the
 firmware tier's durable monotonic timebase. The Peer lane owns black-box evidence, the Air
 lane owns protocol and firmware code, and Assurance owns any central validation or
@@ -175,9 +175,9 @@ consumer workspace-wide is a test.
 
 The source survey says a transport node answering a path request for a cached foreign
 destination replays the original announce payload, changing routing header material rather
-than the signed blob. That behavior must be confirmed in P8 before it becomes Retinue's
-acceptance authority. It creates the ordinary, non-adversarial case in which the same blob
-may arrive over a better path.
+than the signed blob. P8 confirmed that this creates an ordinary same-blob arrival over a
+different path, but it also showed that stock RNS does **not** admit that blob again, even
+when the candidate path is better and the packet-loop hash has been removed.
 
 Retinue does **not** currently implement that cache. `Shared::path_response` answers only
 for a locally registered destination and mints a new announce; the executor-neutral `Node`
@@ -187,17 +187,21 @@ describe byte-preserving foreign responses as current Retinue behavior.
 
 **The existing packet-hash window is related but not the answer.** Retinue's packet hash
 masks hops, header type, and transport ID (`packet.rs:224`), while context remains part of
-the hash. Moving `announce_is_new` (`endpoint.rs:2265`) before `learn_path` would therefore
-discard a legitimate same-blob better-hop copy, yet a context-changed path response could
-bypass it. Keep that window for relay-loop suppression. Freshness needs parsed,
-per-destination blob/timebase state applied before the address book, route, local announce
-publication, or relay changes.
+the hash. Moving `announce_is_new` before `learn_path` would still be wrong: it would make
+context affect admission even though P8 found identical decisions for ordinary announces
+and real path responses. Keep that window for relay-loop suppression. Freshness needs
+parsed, per-destination blob/timebase state applied before the address book, route, local
+announce publication, or relay changes.
 
-### D4. Equal-hop announces never update the route. Minor.
+### D4. Accepted equal- or worse-hop announces do not replace the route. Compatibility.
 
-`endpoint.rs:2164` and `node.rs:657` both keep the incumbent on `hops <= hops`. RNS
-accepts an equal-hop announce when strictly newer, so a peer that moves to a different
-equal-length path is not followed until `PATH_TTL` expires.
+`endpoint.rs:2192` and `node.rs:657` both keep the incumbent on `hops <= hops`. P8 shows
+that stock RNS replaces the route for every accepted newer blob at better, equal, and worse
+hops. It also replaces an expired incumbent for the measured stale/worse branch. Phase C
+therefore cannot put the freshness comparator in front of the existing shortest-live
+filter: the accepted candidate becomes the route incumbent. A peer moving to a different
+equal-length path, or deliberately advertising a newer longer path after topology changes,
+must not remain pinned to the old interface.
 
 ---
 
@@ -354,6 +358,57 @@ incumbent_hops))`. Admission occurs before `AddressBook::ingest`,
 `learn_path`/`learn_route`, `PeerAnnounce` publication, and relay so every effect follows the
 same stock-compatible decision. Any retained-history guarantee is stated as **within the
 configured bound and lifetime**; no finite board can promise to reject one blob forever.
+
+### Phase C implementation scope
+
+The shared always-available core owns one row per destination:
+
+- the current accepted `AnnounceBlob`, whose last five bytes supply the incumbent timebase;
+- the incumbent hop count and caller-supplied monotonic acceptance tick;
+- a bounded oldest-first history of accepted full ten-byte blobs.
+
+First sighting is admitted. A candidate whose full blob remains anywhere in history is a
+replay and is refused. Every other candidate follows the compact P8 rule above. Context,
+interface, transport ID, packet hash, ratchet, and app data are deliberately absent from the
+decision. On acceptance the candidate becomes the incumbent, including the expired/worse
+branch where its timebase may move backwards. Historical blobs remain so a later replay of
+the displaced higher value does not regain authority merely because the incumbent moved.
+
+Evaluation and recording are separate operations. `Endpoint` holds one freshness guard
+across evaluation, address-book capacity outcome, recording, route replacement, local
+publication, and relay scheduling; concurrent held-release tasks therefore cannot both
+admit against one incumbent or publish out of decision order. `Node` performs the same
+sequence in its single-threaded ingest turn. A full address book refuses the announce
+without recording its blob, since nothing else learned or published it.
+
+Route usability and freshness retention are separate clocks. The existing route lifetime
+moves the row from live to expired for the P8 decision, while a longer configurable
+retention lifetime keeps the freshness tombstone after the usable route is physically
+removed. Destination and per-destination blob capacities are explicit. Retention-expired
+rows are removed first; remaining pressure evicts the oldest accepted row, and blob pressure
+evicts the oldest retained blob. Rejected traffic never refreshes eviction age. Host defaults
+remain aligned with its 4,096-peer tier; the board default remains aligned with `PEERS` and
+uses a smaller per-destination history. The 64-bit payload-only accounting receipt is 8,760
+bytes for a 32-destination, eight-blob board profile and 1,900,600 bytes for the host's
+4,096-by-16 profile. That includes table and `Vec` headers plus retained elements, but not
+allocator metadata or spare capacity; Phase D's board integration still owes a target heap
+receipt. Callers can choose narrower bounds.
+
+Phase C receive history is runtime state. Reconstructing an `Endpoint` or `Node`, configured
+retention expiry, and bounded eviction are the declared points at which an old blob may
+become a first sighting again. Durable receive replay state would need a separate storage,
+wear, corruption, and migration design; it does not ride on Phase D's outbound ordinal
+reservation.
+
+Tests have three layers: the pure core enumerates the 72 expected decision-table cells from
+the measured P8 dimensions, plus multi-step historical replay and tiny-capacity eviction
+cases. Context is deliberately repeated as a non-input there; signed `Endpoint` packets
+carry the ordinary/path-response context proof. `Endpoint` proves zero address-book, route,
+publication, sequence, or relay mutation on rejection, including a real held-release task
+ordered behind newer direct ingress. `Node` proves the same through its bounded action list
+and `no_std` build. Both consumers prove that an accepted newer equal/worse route replaces
+the incumbent, an expired stale worse candidate is admitted, an expired stale better/equal
+candidate is refused, and packet-loop dedup remains a later independent relay mechanism.
 
 ---
 
@@ -551,3 +606,11 @@ noise rather than a stronger boundary.
   harness and packet-loop isolation diagnostic answered the receive matrix without reading
   RNS source. Phase C receive code remains unimplemented; natural elapsed-expiry behavior
   is explicitly outside the P8 receipt rather than being claimed from the loaded-state arm.
+- **2026-08-26:** Phase C is implemented in one `no_std + alloc` freshness core and the
+  `Endpoint`/`Node` consumers. The receive rule is applied before address-book, route,
+  publication, and relay effects; refused address-book admission leaves no tombstone;
+  accepted equal/worse routes replace the incumbent; packet-loop de-duplication remains a
+  later relay concern. Runtime retention, row/blob bounds, policy reconfiguration, expiry
+  and eviction counters, and process-lifetime reset are explicit. Exact-tree gates passed
+  197 library tests, 167 feature-minimal library tests, `cargo check --no-default-features`,
+  and checks of `radio-hand`, `postilion`, and `signalman`, all locked, offline, and `-j 1`.
