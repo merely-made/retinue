@@ -1,9 +1,13 @@
 # ARDC grant application lane
 
 **Date:** 2026-07-31
-**Status:** lane opened. Next window closes **September 1, 2026**; applications
-after that wait for February 1, 2027. Review runs 60-120 days after the due
-date, so a decision lands roughly November-December.
+**Status:** dormant by decision, 2026-08-26. Mark passed the September 1, 2026
+window with gates G0–G4 unstarted: FIVCO, contacted directly, is actively
+trying to facilitate grant funding of its own for the Boyd County work, and
+that lane now leads. ARDC remains a fit; the next window closes
+**February 1, 2027**, and the G0 pre-application email below keeps its option
+value for it — sent without deadline pressure, it banks the MPL-2.0 and
+ADD-sponsor-class answers. Review runs 60-120 days after a due date.
 **Facts below verified against ardc.net and its application instructions on
 2026-07-31.** Submission portal: <https://grants.ardc.net>.
 

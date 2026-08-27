@@ -13,7 +13,7 @@ pub(crate) fn parse_progress_line(line: &str) -> Option<ProcessProgress> {
         .rsplit(|character: char| !character.is_ascii_digit())
         .find(|part| !part.is_empty())?;
     let percent = digits.parse::<u64>().ok()?;
-    (percent <= 100).then(|| ProcessProgress {
+    (percent <= 100).then_some(ProcessProgress {
         written: percent,
         total: 100,
     })

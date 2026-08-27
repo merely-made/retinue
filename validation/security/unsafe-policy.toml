@@ -14,9 +14,9 @@ exception_crate_lint = "#![deny(unsafe_op_in_unsafe_fn)]"
 # Counts are deliberate drift detection: a new unsafe token needs a new reviewed entry.
 [[exception]]
 path = "firmware/t114-phy/src/heap.rs"
-expected_unsafe = 2
-reason = "Fixed allocator initialization is a one-time startup operation before allocations."
-review_by = "2027-08-10"
+expected_unsafe = 9
+reason = "One-time fixed-allocator initialization, plus the TrackingHeap high-water wrapper: an unsafe GlobalAlloc impl whose alloc/dealloc/init forward to the wrapped LlffHeap under the caller's contract."
+review_by = "2027-08-26"
 
 [[exception]]
 path = "firmware/t114-phy/src/crash.rs"

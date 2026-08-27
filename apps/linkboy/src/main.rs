@@ -1,4 +1,6 @@
 #![forbid(unsafe_code)]
+// Same posture as the library root: large Err payloads are deliberate on this cold path.
+#![allow(clippy::result_large_err)]
 
 //! The linkboy, as a terminal.
 //!
@@ -242,10 +244,10 @@ fn run_command() -> Result<(), Error> {
                     Ok(())
                 }
                 Err(error) => {
-                    if let Some(path) = receipt_path {
-                        if let linkboy::ExecutionError::RecoveryRequired { receipt, .. } = &error {
-                            receipt.save_json(path)?;
-                        }
+                    if let Some(path) = receipt_path
+                        && let linkboy::ExecutionError::RecoveryRequired { receipt, .. } = &error
+                    {
+                        receipt.save_json(path)?;
                     }
                     Err(error.into())
                 }
@@ -311,10 +313,10 @@ fn run_command() -> Result<(), Error> {
                     Ok(())
                 }
                 Err(error) => {
-                    if let Some(path) = receipt_path {
-                        if let linkboy::ExecutionError::RecoveryRequired { receipt, .. } = &error {
-                            receipt.save_json(path)?;
-                        }
+                    if let Some(path) = receipt_path
+                        && let linkboy::ExecutionError::RecoveryRequired { receipt, .. } = &error
+                    {
+                        receipt.save_json(path)?;
                     }
                     Err(error.into())
                 }

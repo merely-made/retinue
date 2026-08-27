@@ -197,6 +197,10 @@ name = "endpoint_single"
 required-features = ["tokio"]
 
 [[test]]
+name = "interface_saturation"
+required-features = ["tokio"]
+
+[[test]]
 name = "tulle_interface"
 required-features = ["tulle-radio"]
 

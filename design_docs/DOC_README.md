@@ -30,7 +30,7 @@ gate without its family is ambiguous and has already produced wrong readings.
 
 | Namespace | Family | Meaning |
 | --- | --- | --- |
-| `G0`–`G4` **(ARDC)** | [ARDC lane](2026-07-31_ardc_application_lane.md) | Grant application gates. All unstarted. |
+| `G0`–`G4` **(ARDC)** | [ARDC lane](2026-07-31_ardc_application_lane.md) | Grant application gates. All unstarted; lane dormant by decision 2026-08-26. |
 | `G0`–`G5` **(Signalman desktop)** | [Cambium scope](2026-08-09_signalman_cambium_desktop_scope.md) | Desktop GUI adoption gates. G0–G4 complete, G5 partial. |
 | `S0`–`S9` **(Signalman management)** | [Management surface plan](2026-08-15_signalman_management_surface_implementation_plan.md) | Real gates. |
 | `S1`–`S7` **(Linkboy sidequests)** | [Public flashing plan](2026-08-08_linkboy_public_flashing_plan.md) | **Not gates.** Explicitly labelled future-work sidequests, separate from that document's F0–F7 trunk gates. |
@@ -126,7 +126,7 @@ their gate. `UNKNOWN` means no document states a status — it does not mean ope
 
 | Gate | Status | Where |
 | --- | --- | --- |
-| **G0–G4 (ARDC)** | **All unstarted. Intake closes 2026-09-01.** G0 is still an unsent draft email; G1 needs an external fiscal sponsor with lead time. | [ARDC lane](2026-07-31_ardc_application_lane.md) |
+| **G0–G4 (ARDC)** | **Dormant by decision 2026-08-26.** The Sep 1 window was deliberately passed; FIVCO-facilitated funding now leads. Next window Feb 1, 2027; the G0 draft email keeps option value for it. | [ARDC lane](2026-07-31_ardc_application_lane.md) |
 | CV1–CV7 | Open, pre-decision, post-deadline | [Civic deployment](2026-08-11_civic_deployment_prescribed_paths.md) |
 | D1, D2, D3 | Ruled 2026-08-12 (decisions, not implementations) | Same |
 | D4 | Partial — ruled, still needs a spike receipt | Same |
@@ -168,9 +168,6 @@ disagrees with the tree.
   not this count.
 - **The root [`README.md`](../README.md)** still says the T114 image's on-metal
   RF receipt is open; AIR3's on-air receipt landed 2026-08-13.
-- **The [sequencing doc](2026-08-12_program_sequencing_and_deadline_order.md)**
-  still describes a dirty-tree crisis — "79 dirty entries, 5 unpushed commits,
-  25 untracked" — as live.
 - **The [flake lane](2026-08-23_live_gate_flake_lane.md)** cites
   `scratchpad/flake_census.py`; the tool was committed to
   `crates/retinue/oracle/flake_census.py`.
@@ -212,7 +209,8 @@ supplying data-graph and identity crates.
 | [`DOC_POLICY.md`](DOC_POLICY.md) | Documentation governance; canonical core plus Retinue addendum. |
 | [Work lanes](2026-08-09_retinue_work_lanes.md) | Four-lane split and shared source lock. Lane split authoritative; ordering superseded. |
 | [Program sequencing](2026-08-12_program_sequencing_and_deadline_order.md) | Ordering authority since 2026-08-12. Deadline order, not dependency depth. |
-| [ARDC application lane](2026-07-31_ardc_application_lane.md) | Grant lane, G0–G4, intake 2026-09-01. All gates unstarted. |
+| [ARDC application lane](2026-07-31_ardc_application_lane.md) | Grant lane, G0–G4. Dormant by decision 2026-08-26: Sep 1 window passed, FIVCO-facilitated funding leads, next window Feb 1, 2027. |
+| [Project prospectus](2026-08-26_project_prospectus.md) | Grant-agnostic funding prospectus compressed from the corpus; serves FIVCO-facilitated applications and any future window. Draft pending Mark's review. |
 | [Prns harvest brief](2026-08-09_prns_harvest_brief.md) | Donor and external-peer programme; H-gate catalogue. |
 | [Prns donor ledger](2026-08-10_prns_donor_ledger.md) | Every donor debt itemised with elected inbound licence. |
 | [Prns mobile adoption brief](2026-08-11_prns_mobile_adoption_brief.md) | Mobile lane collaboration, dependency-first recommendation. |

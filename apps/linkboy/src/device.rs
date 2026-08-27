@@ -193,15 +193,14 @@ impl DeviceObservation {
         let family = selection.family.clone();
         self.selected_board = Some(selection);
         self.confidence = EvidenceConfidence::OwnerConfirmed;
-        if let Some(expected_processor) = expected_processor(&family) {
-            if self.hardware.processor.as_ref() != Some(&expected_processor) {
-                if let Some(observed) = &self.hardware.processor {
-                    self.contradictions.push(format!(
-                        "selected {} requires {}, loader reported {}",
-                        family, expected_processor, observed
-                    ));
-                }
-            }
+        if let Some(expected_processor) = expected_processor(&family)
+            && self.hardware.processor.as_ref() != Some(&expected_processor)
+            && let Some(observed) = &self.hardware.processor
+        {
+            self.contradictions.push(format!(
+                "selected {} requires {}, loader reported {}",
+                family, expected_processor, observed
+            ));
         }
         self
     }

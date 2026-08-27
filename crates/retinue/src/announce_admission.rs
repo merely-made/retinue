@@ -442,10 +442,12 @@ mod tests {
 
     #[test]
     fn destination_violations_escalate_to_a_block_and_recover() {
-        let mut policy = AnnounceIngressPolicy::default();
-        policy.destination_target = Duration::from_secs(10);
-        policy.destination_grace = 2;
-        policy.destination_penalty = Duration::from_secs(60);
+        let policy = AnnounceIngressPolicy {
+            destination_target: Duration::from_secs(10),
+            destination_grace: 2,
+            destination_penalty: Duration::from_secs(60),
+            ..AnnounceIngressPolicy::default()
+        };
         let mut admission = AnnounceAdmission::new(policy);
         assert_eq!(
             admission.observe_destination(destination(1), 0),

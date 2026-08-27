@@ -251,15 +251,17 @@ async fn announce_ingress_burst_is_bounded_attributed_and_does_not_silence_a_nei
     let quiet_sink = quiet.sink();
     let _egress = hub.attach_interface();
 
-    let mut policy = AnnounceIngressPolicy::default();
-    policy.held_capacity = 4;
-    policy.burst_hold = Duration::from_millis(20);
-    policy.burst_penalty = Duration::from_millis(20);
-    policy.held_release_interval = Duration::from_millis(5);
     // Keep the production 3/10 Hz defaults in the policy tests. This accelerated receipt
     // preserves the same burst/release relationship without waiting several real seconds.
-    policy.new_interface_hz = 50;
-    policy.established_interface_hz = 50;
+    let policy = AnnounceIngressPolicy {
+        held_capacity: 4,
+        burst_hold: Duration::from_millis(20),
+        burst_penalty: Duration::from_millis(20),
+        held_release_interval: Duration::from_millis(5),
+        new_interface_hz: 50,
+        established_interface_hz: 50,
+        ..AnnounceIngressPolicy::default()
+    };
     hub.set_announce_ingress_policy(policy);
 
     let mut burst_destinations = Vec::new();

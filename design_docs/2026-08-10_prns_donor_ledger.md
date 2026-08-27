@@ -38,6 +38,19 @@ Three kinds of debt appear below, and they are not interchangeable.
   independently. The format is a protocol fact; the code is ours.
 - **Quoted.** Prns's text is reproduced verbatim.
 
+### H1, announce-ingress admission (design derived; row added 2026-08-26)
+
+| File | Prns counterpart | Debt |
+| --- | --- | --- |
+| `crates/retinue/src/announce_admission.rs` | `prns-core/src/routing/announce/interface_announce_limit/`, `destination_announce_limit/` | State-machine design read and reimplemented |
+
+The harvest brief called H1 the cleanest seam, and it was harvested as one:
+the 3/10 Hz new/established thresholds, the burst latch and penalty, and the
+held-announce drip release are Prns's design, restated over Retinue's bounded
+host tables and public diagnostics. The module header declares the derivation.
+No Prns text was copied. This row was owed from the moment the module landed;
+the 2026-08-12 sequencing doc flagged the omission and it is discharged here.
+
 ### H5, the validation hub (design derived)
 
 | File | Prns counterpart | Overlap |

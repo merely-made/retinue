@@ -382,6 +382,10 @@ pub fn build(
     }
 }
 
+// Silence an unused-import warning when the crate is built without the token module's
+// consumers; KEY_LEN documents that a ratchet is an X25519 public key.
+const _: () = assert!(RATCHET_LEN == KEY_LEN);
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -447,11 +451,7 @@ mod tests {
         let decoded = AnnounceBlob::from_wire(wire);
 
         assert_eq!(decoded.nonce(), [0xf2, 0xd0, 0x91, 0xf8, 0x87]);
-        assert_eq!(decoded.timebase(), 0x006a_55a7_8a);
+        assert_eq!(decoded.timebase(), 0x00_6a_55_a7_8a);
         assert_eq!(decoded.into_bytes(), wire);
     }
 }
-
-// Silence an unused-import warning when the crate is built without the token module's
-// consumers; KEY_LEN documents that a ratchet is an X25519 public key.
-const _: () = assert!(RATCHET_LEN == KEY_LEN);

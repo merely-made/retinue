@@ -412,6 +412,9 @@ impl Message {
 ///
 /// Peer discovery remains a radio fact rather than a message, and a refused
 /// frame remains visible without manufacturing a conversation record.
+// Incoming carries the full message event inline: observations are handed straight to the
+// store and the face, and a per-message Box buys nothing at this rate.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug)]
 pub enum MessageObservation {
     Incoming(MessageEvent),

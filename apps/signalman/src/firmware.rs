@@ -4,6 +4,10 @@
 //! view with its own controls while Linkboy remains the only owner of package policy, plans, and
 //! execution events.
 
+// Firmware errors inherit Linkboy's deliberately large recovery payloads; flashing is a
+// cold path where truncated evidence costs more than a wide Err.
+#![allow(clippy::result_large_err)]
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, TryRecvError};
@@ -350,6 +354,8 @@ pub struct FirmwareCatalog {
 /// particular GUI or actor runtime.
 pub type InstallerWake = Arc<dyn Fn() + Send + Sync>;
 
+// FlashEvent's recovery variant is deliberately wide; see linkboy's ExecutionError.
+#[allow(clippy::large_enum_variant)]
 enum WorkerMessage {
     Event(FlashEvent),
     Failed(String),
@@ -492,10 +498,9 @@ impl FirmwareInstallWorker {
                 .handle
                 .as_ref()
                 .is_some_and(|handle| handle.is_finished())
+            && let Some(handle) = self.handle.take()
         {
-            if let Some(handle) = self.handle.take() {
-                let _ = handle.join();
-            }
+            let _ = handle.join();
         }
         updates
     }
@@ -527,6 +532,8 @@ impl FirmwareCatalog {
     }
 }
 
+// Inherits Linkboy's deliberately large recovery payloads; see linkboy's ExecutionError.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum FirmwareError {
     Catalog(CatalogError),
@@ -813,7 +820,7 @@ mod tests {
                 .package("retinue.heltec-v4")
                 .expect("V4 should be catalogued")
                 .state,
-            linkboy::CatalogState::Partial
+            linkboy::CatalogState::ProvenRecipe
         );
         let package = catalog
             .load_package("retinue.t114")

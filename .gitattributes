@@ -44,3 +44,9 @@
 *.kojo merge=weave
 *.mill merge=weave
 *.dart merge=weave
+
+# Signed and hashed release artifacts must check out byte-identical everywhere:
+# a CRLF-normalizing checkout (Windows autocrlf) silently breaks minisig and
+# sha256 verification of these files.
+firmware/packages/** -text
+crates/tinyssb-core/fixtures/** -text

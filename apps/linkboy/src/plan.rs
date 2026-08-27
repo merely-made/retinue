@@ -334,13 +334,13 @@ pub fn plan_flash(
     if !board.confirmed_by_owner {
         refusals.push(RefusalReason::BoardConfirmationRequired);
     }
-    if let FirmwareState::Retinue { family: observed } = &observation.firmware {
-        if observed != &board.family {
-            refusals.push(RefusalReason::RunningBoardConflict {
-                selected: board.family.clone(),
-                observed: observed.clone(),
-            });
-        }
+    if let FirmwareState::Retinue { family: observed } = &observation.firmware
+        && observed != &board.family
+    {
+        refusals.push(RefusalReason::RunningBoardConflict {
+            selected: board.family.clone(),
+            observed: observed.clone(),
+        });
     }
 
     let Some(target) = manifest

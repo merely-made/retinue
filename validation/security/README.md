@@ -7,7 +7,7 @@ only approved unsafe surface is the board-runtime machinery listed in
 
 | File | Tokens | Reachability | Reason |
 | --- | ---: | --- | --- |
-| `firmware/t114-phy/src/heap.rs` | 2 | normal startup | installs the fixed allocator once before allocation |
+| `firmware/t114-phy/src/heap.rs` | 9 | normal startup / every allocation | installs the fixed allocator once before allocation; the TrackingHeap high-water wrapper forwards GlobalAlloc alloc/dealloc to the wrapped LlffHeap |
 | `firmware/t114-phy/src/crash.rs` | 9 | fault handling / reset inspection | preserves the crash record in its reserved linker section |
 | `firmware/t114-phy/src/main.rs` | 1 | normal startup | invokes the checked allocator handoff |
 | `firmware/heltec-v4-phy/src/wake_input.rs` | 2 | low-power RX | accesses only the GPIO14 PAC bits owned by the wake adapter |

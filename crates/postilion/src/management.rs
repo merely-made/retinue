@@ -328,8 +328,10 @@ mod tests {
     async fn one_fixture_captures_the_management_boundary_without_invention() {
         let local = PrivateIdentity::from_secret_bytes(&[0x31; 64]);
         let endpoint = Endpoint::new(local.clone());
-        let mut ingress_policy = AnnounceIngressPolicy::default();
-        ingress_policy.enabled = false;
+        let ingress_policy = AnnounceIngressPolicy {
+            enabled: false,
+            ..AnnounceIngressPolicy::default()
+        };
         endpoint.set_announce_ingress_policy(ingress_policy);
         let interface = endpoint.attach_interface();
         let interface_id = interface.id();

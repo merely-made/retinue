@@ -25,6 +25,14 @@ for the second stream.
 
 ## Action zero, before any gate
 
+> **Aged out; noted 2026-08-26.** True when written, since discharged: the tree
+> was committed and pushed, Format runs green in CI, and the licensing pass
+> landed 2026-08-26 (Meshtastic GPL-3.0 text and notice, Hopspot redistribution
+> notice, donor-ledger H1 row for `announce_admission.rs`). The remaining CI
+> failures this section did not know about were repaired the same day in a
+> working-tree packet pending commit. The section stays as the record of what
+> day zero was.
+
 The first work item is not in any lane.
 
 - **The tree is 79 dirty entries, 5 unpushed commits, 25 untracked**, and the
@@ -48,6 +56,12 @@ Order: licensing pass, commit the whole tree, fix `cargo fmt`, push, bump
 mere's lock in its own commit.
 
 ## The deadline nobody scheduled
+
+> **Aged out; noted 2026-08-26.** The window was deliberately passed on
+> 2026-08-26: FIVCO, contacted directly, is facilitating grant funding of its
+> own, and that lane now leads. See the
+> [ARDC lane](2026-07-31_ardc_application_lane.md) status. The LB stack ruling
+> and LOCK4 paragraphs below are not covered by this note.
 
 **ARDC intake closes 2026-09-01. That is 20 days.** Its five gates are
 unstarted, the G0 pre-application email is still an unsent draft in the lane

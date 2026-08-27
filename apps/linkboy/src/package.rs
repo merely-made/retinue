@@ -742,16 +742,15 @@ fn validate_manifest(manifest: &FlashPackageManifest) -> Result<(), PackageError
     {
         return Err(PackageError::ProtectedRangeOverlap);
     }
-    if let Some(signature) = &manifest.publisher_signature {
-        if signature.key_id.trim().is_empty()
+    if let Some(signature) = &manifest.publisher_signature
+        && (signature.key_id.trim().is_empty()
             || !signature.signed_manifest_url.starts_with("https://")
             || !is_sha256(&signature.signed_manifest_sha256)
-            || signature.signature.trim().is_empty()
-        {
-            return Err(PackageError::InvalidField(
-                "publisher_signature".to_string(),
-            ));
-        }
+            || signature.signature.trim().is_empty())
+    {
+        return Err(PackageError::InvalidField(
+            "publisher_signature".to_string(),
+        ));
     }
     Ok(())
 }

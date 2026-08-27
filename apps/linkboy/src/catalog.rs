@@ -206,12 +206,12 @@ impl PackageIndex {
                 "packages cannot be empty".to_string(),
             ));
         }
-        if let Some(signature) = &self.publisher_signature {
-            if signature.key_id.trim().is_empty() || signature.signature.trim().is_empty() {
-                return Err(CatalogError::Invalid(
-                    "publisher_signature fields cannot be empty".to_string(),
-                ));
-            }
+        if let Some(signature) = &self.publisher_signature
+            && (signature.key_id.trim().is_empty() || signature.signature.trim().is_empty())
+        {
+            return Err(CatalogError::Invalid(
+                "publisher_signature fields cannot be empty".to_string(),
+            ));
         }
 
         let mut package_ids = Vec::with_capacity(self.packages.len());
@@ -474,7 +474,7 @@ fn validate_receipts(package: &CatalogPackage) -> Result<(), CatalogError> {
                 package.package_id, host
             )));
         }
-        if receipt_hosts.iter().any(|known| *known == host) {
+        if receipt_hosts.contains(&host) {
             return Err(CatalogError::Invalid(format!(
                 "package {:?} repeats receipt host {:?}",
                 package.package_id, host

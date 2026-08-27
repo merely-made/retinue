@@ -43,21 +43,21 @@ pub fn verify_application(
             actual: observed.version.clone(),
         });
     }
-    if let Some(region) = &observed.region {
-        if !supported_regions.is_empty() && !supported_regions.iter().any(|value| value == region) {
-            return Err(VerificationFailure::Region {
-                region: region.clone(),
-            });
-        }
+    if let Some(region) = &observed.region
+        && !supported_regions.is_empty()
+        && !supported_regions.iter().any(|value| value == region)
+    {
+        return Err(VerificationFailure::Region {
+            region: region.clone(),
+        });
     }
-    if let Some(channel) = &observed.channel {
-        if !channel_capabilities.is_empty()
-            && !channel_capabilities.iter().any(|value| value == channel)
-        {
-            return Err(VerificationFailure::Channel {
-                channel: channel.clone(),
-            });
-        }
+    if let Some(channel) = &observed.channel
+        && !channel_capabilities.is_empty()
+        && !channel_capabilities.iter().any(|value| value == channel)
+    {
+        return Err(VerificationFailure::Channel {
+            channel: channel.clone(),
+        });
     }
     Ok(())
 }

@@ -29,6 +29,15 @@ Prns Authors.
   corresponding Prns files is 3.5% to 8.1% and consists of import statements
   and generic control flow, so no Prns text was copied. Attribution is for the
   design.
+- **`crates/retinue/src/announce_admission.rs`** — the announce-ingress
+  admission state machines are adapted from Prns's interface and destination
+  announce-limit designs; see the donor ledger's H1 entry. No Prns text was
+  copied.
+- **`firmware/packages/hopspot-v4-0.3.4/`** — redistributes Prns's official
+  Hopspot v0.3.4 release binaries unmodified (application, bootloader,
+  partition table, signed manifests) as the foreign-firmware restore package
+  the cross-firmware receipts flash against. Prns's terms (MIT elected) apply;
+  full license text: [`crates/retinue/NOTICE`](crates/retinue/NOTICE).
 
 ## MeshCore (MIT)
 
@@ -41,6 +50,19 @@ built: [`crates/sennet/PROVENANCE.md`](crates/sennet/PROVENANCE.md).
 
 `vendor/lora-phy` is a vendored third-party fork and keeps its own terms. See
 the license files in that directory.
+
+## Meshtastic firmware (GPL-3.0)
+
+`firmware/packages/meshtastic-t114-2.7.26.54e0d8d/` redistributes the official
+unmodified Meshtastic release binary
+`firmware-heltec-mesh-node-t114-2.7.26.54e0d8d.uf2`, Copyright Meshtastic LLC
+and the Meshtastic firmware contributors, licensed GPL-3.0. It is carried as a
+restore package for boards this project tests against, not linked into any
+Retinue artifact; the license gate in CI exists precisely to keep GPL code out
+of the linked firmware. The full license text accompanies the binary as
+`LICENSE.GPL-3.0` in the same directory. Complete corresponding source for
+exactly this build:
+<https://github.com/meshtastic/firmware/tree/54e0d8d> (release v2.7.26).
 
 ## Reticulum
 

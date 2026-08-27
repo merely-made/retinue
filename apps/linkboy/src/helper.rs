@@ -168,9 +168,7 @@ fn parse_version(diagnostics: &str) -> Option<String> {
         if first.is_empty() || !first.chars().all(|character| character.is_ascii_digit()) {
             return None;
         }
-        if components.clone().next().is_none() {
-            return None;
-        }
+        components.clone().next()?;
         candidate
             .chars()
             .all(|character| character.is_ascii_alphanumeric() || matches!(character, '.' | '-'))
@@ -268,7 +266,7 @@ mod tests {
         };
         std::fs::write(&helper, b"packaged helper").unwrap();
 
-        let found = resolve_from_directories(&[directory.clone()], "espflash")
+        let found = resolve_from_directories(std::slice::from_ref(&directory), "espflash")
             .expect("packaged helper is resolved without PATH");
         assert_eq!(found, std::fs::canonicalize(&helper).unwrap());
         assert!(bundled_platform_directory().contains(env::consts::OS));

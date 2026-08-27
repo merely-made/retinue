@@ -1,4 +1,7 @@
 #![forbid(unsafe_code)]
+// Error values carry full recovery facts and receipts by design; flashing is a cold path
+// where a large Err costs nothing and truncated evidence costs an unrecoverable board.
+#![allow(clippy::result_large_err)]
 
 //! Linkboy: the firmware and link-update tool of the retinue family.
 //!
@@ -170,6 +173,8 @@ pub fn field(banner: &str, key: &str) -> Option<String> {
     Some(rest[..end].to_string())
 }
 
+// Inherits ExecutionError's deliberately large RecoveryRequired payload; see executor.rs.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("no serial ports found")]

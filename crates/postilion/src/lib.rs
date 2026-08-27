@@ -401,7 +401,6 @@ impl Station {
 
         tasks.push(tokio::spawn({
             let endpoint = Arc::clone(&endpoint);
-            let resource_config = resource_config;
             async move {
                 loop {
                     let Ok(accepted) = endpoint.accept_resource().await else {

@@ -25,7 +25,7 @@ pub(crate) fn progress(line: &str) -> Option<ProcessProgress> {
         let percent = lower
             .split_whitespace()
             .find_map(|word| word.strip_suffix('%')?.parse::<u64>().ok())?;
-        (percent <= 100).then(|| ProcessProgress {
+        (percent <= 100).then_some(ProcessProgress {
             written: percent,
             total: 100,
         })

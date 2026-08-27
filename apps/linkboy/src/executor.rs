@@ -391,6 +391,9 @@ pub enum FlashEvent {
     },
 }
 
+// RecoveryRequired deliberately carries the full recovery facts, instructions and receipt
+// inline: it is the cold path, and the operator-facing surfaces need all of it at once.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub enum ExecutionError {
     #[error("execution requires a serial device")]
@@ -877,12 +880,12 @@ fn scale_progress(
     part_total: u64,
     total: u64,
 ) -> ProcessProgress {
-    let written = if progress.total == 0 {
-        0
-    } else {
-        progress.written.saturating_mul(part_total) / progress.total
-    }
-    .min(part_total);
+    let written = progress
+        .written
+        .saturating_mul(part_total)
+        .checked_div(progress.total)
+        .unwrap_or(0)
+        .min(part_total);
     ProcessProgress {
         written: completed + written,
         total,
