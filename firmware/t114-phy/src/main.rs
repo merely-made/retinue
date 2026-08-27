@@ -190,7 +190,7 @@ async fn main(spawner: Spawner) {
     // executive owns the board's flash and entropy, and both live here.
     let mut store = store::SettingsStore::new(p.NVMC, p.RNG);
     let mut identity_line = [0_u8; 48];
-    let (settings, identity_line_len) = match store.load_or_create() {
+    let (mut settings, identity_line_len) = match store.load_or_create() {
         Ok((settings, outcome)) => (Some(settings), store::describe(outcome, &mut identity_line)),
         Err(_) => {
             let message = b"identity=unavailable\r\n";
@@ -198,6 +198,24 @@ async fn main(spawner: Spawner) {
             (None, message.len())
         }
     };
+
+    // Byte 1 is the native-node choice shipped before durable announce leases. Arm the new
+    // channel guard in the settings A/B pair before reserving or initializing the radio. If
+    // that verified write fails, this boot stays in modem recovery: running the node would
+    // leave an ordinary downgrade able to resume the old random-blob emitter.
+    let mut native_guard_fault = false;
+    if let Some(current) = settings
+        && current.channel == BootChannel::LegacyNode
+    {
+        let guarded = radio_hand::settings::Settings {
+            channel: BootChannel::Node,
+            ..current
+        };
+        match store.save(&guarded) {
+            Ok(_) => settings = Some(guarded),
+            Err(_) => native_guard_fault = true,
+        }
+    }
 
     // The node this board answers as, built from the persisted identity.
     let node = settings.map(|settings| {
@@ -212,6 +230,26 @@ async fn main(spawner: Spawner) {
     });
     let mut node_line = [0_u8; 64];
     let node_line_len = describe_node(node.as_ref(), &mut node_line);
+
+    // Native-node emission gets one durable lease per boot, before any radio
+    // initialization. The reservation lives apart from identity settings: a
+    // damaged lease must select the recovery modem without ever replacing the
+    // identity peers know. Ordinary operation never touches flash again.
+    let native_node_requested = settings
+        .map(|settings| settings.channel.requests_native_node())
+        .unwrap_or(false)
+        && node.is_some()
+        && !boot_crash.fallback;
+    let lease = (native_node_requested && !native_guard_fault)
+        .then(|| store.reserve_announce_timebase())
+        .transpose();
+    let mut timebase_fault = native_node_requested && (native_guard_fault || lease.is_err());
+    let lease = lease.ok().flatten();
+    let native_channel = node.zip(lease).and_then(|(node, lease)| {
+        NodeChannel::new(node, lease)
+            .map_err(|_| timebase_fault = true)
+            .ok()
+    });
 
     let mut display_config = SpimConfig::default();
     display_config.frequency = Frequency::M8;
@@ -368,19 +406,34 @@ async fn main(spawner: Spawner) {
     let _ = write!(
         &mut online_line,
         "tulle/t114 phy online; version={}; sx1262 online; spi=software; irq=poll; \
-         sync=2b reg=24b4; region={} freq={} reset={} crash={}{}\r\n",
+         sync=2b reg=24b4; region={} freq={} reset={} crash={} timebase={}{}\r\n",
         env!("CARGO_PKG_VERSION"),
         region.name(),
         boot_frequency,
         boot_crash.reset,
         boot_crash.count,
+        if timebase_fault {
+            "fault"
+        } else if native_node_requested {
+            "active"
+        } else {
+            "inactive"
+        },
         if boot_crash.fallback {
+            " FALLBACK=modem"
+        } else if timebase_fault {
             " FALLBACK=modem"
         } else {
             ""
         },
     );
     publish_online(&mut local_status);
+    if timebase_fault {
+        // The modem stays available for repair, but native-node announces are
+        // denied for this boot. The banner carries the same fact for a host
+        // that attaches after the face has redrawn.
+        publish_fault(&mut local_status, 7, "TIMEBASE");
+    }
 
     // Past every path that hands `class` to `serve_status_only`, so the CDC endpoint can
     // become the host link and the radio can pass to the executive that owns it.
@@ -420,8 +473,14 @@ async fn main(spawner: Spawner) {
     // A crash loop distrusts the persisted personality: three consecutive crash boots and
     // the board takes the channel that needs nothing, and says so on the banner. The count
     // clears after a clean minute, so the fallback is a refuge, not a trap.
-    let mut channel = match (settings.map(|s| s.channel), node, boot_crash.fallback) {
-        (Some(BootChannel::Node), Some(node), false) => Personality::Node(NodeChannel::new(node)),
+    let mut channel = match (
+        settings.map(|s| s.channel),
+        native_channel,
+        boot_crash.fallback,
+    ) {
+        (Some(channel), Some(node), false) if channel.requests_native_node() => {
+            Personality::Node(node)
+        }
         // The RNode channel needs no identity of its own: the host holds one, which is the
         // point of it. So it is offered on the settings alone, and only a crash loop takes
         // it away.

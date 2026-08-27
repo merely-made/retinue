@@ -5,7 +5,7 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use retinue::Ifac;
-use retinue::announce::{self, Announce, RAND_HASH_LEN};
+use retinue::announce::{self, Announce, AnnounceBlob, TimebaseGenerator};
 use retinue::destination::DestinationName;
 use retinue::identity::PrivateIdentity;
 use retinue::iface::tcp::{RecvError, TcpInterfaceListener};
@@ -13,15 +13,13 @@ use retinue::packet::PacketType;
 
 const RETINUE_SEED: [u8; 64] = [0x21; 64];
 
-fn rand_hash() -> [u8; RAND_HASH_LEN] {
-    let nanos = SystemTime::now()
+fn announce_blob(generator: &mut TimebaseGenerator) -> AnnounceBlob {
+    let seconds = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("clock is after 1970")
-        .as_nanos()
-        .to_le_bytes();
-    let mut out = [0_u8; RAND_HASH_LEN];
-    out.copy_from_slice(&nanos[..RAND_HASH_LEN]);
-    out
+        .as_secs();
+    let ordinal = generator.next(seconds).expect("announce timebase");
+    AnnounceBlob::mint([0x21; 5], ordinal).expect("announce timebase fits")
 }
 
 #[tokio::main]
@@ -40,10 +38,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let identity = PrivateIdentity::from_secret_bytes(&RETINUE_SEED);
     let name = DestinationName::new("retinue", ["interop_ifac"]);
+    let mut timebase = TimebaseGenerator::host(0).expect("valid host timebase");
+    let blob = announce_blob(&mut timebase);
     let packet = announce::build(
         &identity,
         name.name_hash(),
-        &rand_hash(),
+        &blob,
         None,
         b"hello-from-retinue-ifac",
     );

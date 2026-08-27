@@ -23,7 +23,7 @@
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use retinue::announce::{self, RAND_HASH_LEN};
+use retinue::announce::{self, AnnounceBlob, TimebaseGenerator};
 use retinue::destination::DestinationName;
 use retinue::hash::{AddressHash, NameHash, full_hash};
 use retinue::identity::PrivateIdentity;
@@ -39,15 +39,13 @@ const EPHEMERAL_SEED: [u8; 64] = [0x22; 64];
 /// our link request at.
 const ORACLE_DEST: &str = "a8725a7e212dace39e9f99a8ac5da28c";
 
-fn rand_hash() -> [u8; RAND_HASH_LEN] {
-    let nanos = SystemTime::now()
+fn announce_blob(generator: &mut TimebaseGenerator) -> AnnounceBlob {
+    let seconds = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("clock is after 1970")
-        .as_nanos()
-        .to_le_bytes();
-    let mut out = [0u8; RAND_HASH_LEN];
-    out.copy_from_slice(&nanos[..RAND_HASH_LEN]);
-    out
+        .as_secs();
+    let ordinal = generator.next(seconds).expect("announce timebase");
+    AnnounceBlob::mint([0x11; 5], ordinal).expect("announce timebase fits")
 }
 
 fn parse_hash(hex: &str) -> AddressHash {
@@ -74,12 +72,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let identity = PrivateIdentity::from_secret_bytes(&RETINUE_SEED);
     let name = DestinationName::new("retinue", ["interop"]);
     let our_dest = name.destination_hash(identity.public());
+    let mut timebase = TimebaseGenerator::host(0).expect("valid host timebase");
 
     // 1. Announce, so RNS learns us and can link to us.
     let ann = announce::build(
         &identity,
         name.name_hash(),
-        &rand_hash(),
+        &announce_blob(&mut timebase),
         None,
         b"link-probe",
     );

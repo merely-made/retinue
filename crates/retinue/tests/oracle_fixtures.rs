@@ -7,7 +7,7 @@
 //! are committed, so this suite needs no Python.
 
 use retinue::Error;
-use retinue::announce::{self, Announce, RAND_HASH_LEN};
+use retinue::announce::{self, Announce, AnnounceBlob, RAND_HASH_LEN};
 use retinue::destination::{DestinationName, destination_hash};
 use retinue::hash::NameHash;
 use retinue::identity::PrivateIdentity;
@@ -203,10 +203,11 @@ fn announces_we_build_match_rns_byte_for_byte() {
         // Reuse the oracle's rand_hash and ratchet so the output is comparable; those are
         // the only non-deterministic inputs.
         let rand_hash: [u8; RAND_HASH_LEN] = decoded.rand_hash;
+        let blob = AnnounceBlob::from_wire(rand_hash);
         let rebuilt = announce::build(
             &identity(),
             decoded.name_hash,
-            &rand_hash,
+            &blob,
             decoded.ratchet.as_ref(),
             &decoded.app_data,
         );

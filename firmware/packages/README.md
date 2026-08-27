@@ -32,6 +32,20 @@ The V4 routes have Windows, Intel-macOS, Apple-silicon-macOS, and Linux physical
 The public T114 UF2 route has a Windows physical receipt. The index records those exact host
 boundaries instead of extrapolating support from a helper's portability.
 
+The Phase D package shape is `persistent_state.schema = 1` with the
+`native_node_guard` and preserved `0xE8000..0xEC000` reservation. Linkboy refuses to flash a
+known armed native-node device with a package that lacks that declaration. The retained v47 and
+v51 binaries predate this guard, so they declare the preserved range in their manifests but do
+not claim guard support. A rebuilt package must not be published with that claim until its
+immutable firmware artifact emits and honors the guard. First-flash, unarmed, unknown, and
+foreign running states remain eligible for an explicitly compatible package. Legacy and
+external packages intentionally omit the declaration.
+
+The guard is based on the running application's `state=node-timebase-v1` status token. A
+bootloader-only observation cannot recover the prior application state; callers carrying that
+fact across a loader transition must retain it in the serialized device observation. Linkboy
+does not invent a hardware read for it.
+
 Inspect the catalog and a package before connecting a board:
 
 ```text

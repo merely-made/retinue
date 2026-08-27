@@ -5,14 +5,13 @@
 //! protocol work with the shell removed:
 //!
 //! ```text
-//! node.ingest(interface, packet, now) -> Actions
-//! node.poll(now)                      -> Actions
+//! node.ingest(interface, packet, now)       -> Actions
+//! node.poll(now, interface, announce_blob?) -> Actions
 //! ```
 //!
 //! Nothing here reads a clock, allocates without a bound, or performs I/O. Time arrives as
-//! a `now` argument, entropy arrives as caller-supplied bytes (the same discipline
-//! [`crate::announce::build`] already follows so fixtures reproduce byte
-//! for byte), and everything the node wants to happen leaves as an [`Action`] for a shell
+//! a `now` argument, and announce ordinals arrive as caller-supplied [`AnnounceBlob`] values.
+//! Everything the node wants to happen leaves as an [`Action`] for a shell
 //! to carry out. That is what makes it testable at a desk and runnable under embassy
 //! without either knowing about the other.
 //!
@@ -28,7 +27,7 @@ use alloc::vec::Vec;
 use heapless::Vec as BoundedVec;
 
 use crate::address_book::{AddressBook, Ingested};
-use crate::announce::{self, Announce, RAND_HASH_LEN, RATCHET_LEN};
+use crate::announce::{self, Announce, AnnounceBlob, RATCHET_LEN};
 use crate::announce_freshness::{
     AnnounceFreshness, AnnounceFreshnessCandidate, AnnounceFreshnessConfig,
     AnnounceFreshnessDecision, AnnounceFreshnessReject,
@@ -1356,16 +1355,29 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         seed
     }
 
+    /// Whether the node should attempt its own announce at `now`.
+    ///
+    /// This predicate is separate from blob availability. A shell may be due to announce
+    /// while it is still waiting for a reservation-backed blob; in that case [`Self::poll`]
+    /// runs maintenance and leaves this predicate true for the next poll.
+    pub fn announce_due(&self, now: u64) -> bool {
+        match self.last_announce {
+            None => true,
+            Some(last) => now.saturating_sub(last) >= self.announce_interval,
+        }
+    }
+
     /// Advance the node's own timers.
     ///
-    /// `rand_hash` is caller-supplied entropy for the announce, kept out of here for the
-    /// same reason [`announce::build`] keeps it out: no RNG in the protocol layer, and
-    /// fixtures stay reproducible.
+    /// The shell supplies an optional typed announce blob. Clock acquisition, durable
+    /// reservation, and nonce policy stay outside this executor-neutral layer. If an announce
+    /// is due but no blob is available, the announce is skipped and remains due on the next
+    /// poll; maintenance still runs.
     pub fn poll(
         &mut self,
         now: u64,
         interface: InterfaceId,
-        rand_hash: &[u8; RAND_HASH_LEN],
+        blob: Option<&AnnounceBlob>,
     ) -> Actions<ACTIONS> {
         let mut actions = Actions::new();
 
@@ -1386,16 +1398,14 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             self.expired_links = self.expired_links.saturating_add(1);
         }
 
-        let due = match self.last_announce {
-            None => true,
-            Some(last) => now.saturating_sub(last) >= self.announce_interval,
-        };
-        if due {
-            self.last_announce = Some(now);
-            actions.push(Action::Send {
-                interface,
-                packet: self.announce(rand_hash, None),
-            });
+        if self.announce_due(now) {
+            if let Some(blob) = blob {
+                self.last_announce = Some(now);
+                actions.push(Action::Send {
+                    interface,
+                    packet: self.announce(blob, None),
+                });
+            }
         }
 
         // Loss recovery. A transfer that has heard nothing for a retry interval is
@@ -1450,15 +1460,11 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
     }
 
     /// Build this node's announce packet.
-    pub fn announce(
-        &self,
-        rand_hash: &[u8; RAND_HASH_LEN],
-        ratchet: Option<&[u8; RATCHET_LEN]>,
-    ) -> Packet {
+    pub fn announce(&self, blob: &AnnounceBlob, ratchet: Option<&[u8; RATCHET_LEN]>) -> Packet {
         announce::build(
             &self.identity,
             self.name_hash,
-            rand_hash,
+            blob,
             ratchet,
             &self.app_data,
         )
@@ -1470,6 +1476,7 @@ mod tests {
     use alloc::vec;
 
     use super::*;
+    use crate::announce::RAND_HASH_LEN;
     use crate::destination::DestinationName;
     use crate::identity::PrivateIdentity;
 
@@ -1487,6 +1494,10 @@ mod tests {
             Action::Send { packet, .. } => Some(packet.clone()),
             _ => None,
         })
+    }
+
+    fn blob(bytes: [u8; RAND_HASH_LEN]) -> AnnounceBlob {
+        AnnounceBlob::from_wire(bytes)
     }
 
     /// The link id a set of actions reports coming up.
@@ -1514,7 +1525,7 @@ mod tests {
     /// Two nodes with a link already established between them.
     fn linked() -> (Node<32, 8, 4>, Node<32, 8, 4>, AddressHash) {
         let (mut a, mut b) = pair();
-        a.ingest(IFACE, &b.announce(&[2; RAND_HASH_LEN], None), 0);
+        a.ingest(IFACE, &b.announce(&blob([2; RAND_HASH_LEN]), None), 0);
         let request = sent(&a.open_link(b.destination(), IFACE, &[0x31; 64]).unwrap()).unwrap();
         let proof = sent(&b.ingest(IFACE, &request, 0)).unwrap();
         let id = link_up(&a.ingest(IFACE, &proof, 0)).expect("link did not come up");
@@ -1568,21 +1579,49 @@ mod tests {
     #[test]
     fn announces_on_boot_then_waits_for_the_interval() {
         let mut n = node().with_announce_interval(1_000);
-        let rand = [0x55; RAND_HASH_LEN];
+        let announce_blob = blob([0x55; RAND_HASH_LEN]);
 
-        let first = n.poll(0, IFACE, &rand);
+        assert!(n.announce_due(0), "a fresh node is due on boot");
+        let first = n.poll(0, IFACE, Some(&announce_blob));
         assert_eq!(first.len(), 1, "a fresh node announces without waiting");
 
-        assert!(n.poll(1, IFACE, &rand).is_empty(), "not due yet");
-        assert!(n.poll(999, IFACE, &rand).is_empty(), "still not due");
-        assert_eq!(n.poll(1_000, IFACE, &rand).len(), 1, "due at the interval");
+        assert!(!n.announce_due(1), "the interval has not elapsed");
+        assert!(
+            n.poll(1, IFACE, Some(&announce_blob)).is_empty(),
+            "not due yet"
+        );
+        assert!(
+            n.poll(999, IFACE, Some(&announce_blob)).is_empty(),
+            "still not due"
+        );
+        assert!(n.announce_due(1_000), "the interval has elapsed");
+        assert_eq!(
+            n.poll(1_000, IFACE, Some(&announce_blob)).len(),
+            1,
+            "due at the interval"
+        );
+    }
+
+    #[test]
+    fn a_due_announce_without_a_blob_stays_due_until_supplied() {
+        let mut n = node().with_announce_interval(1_000);
+
+        assert!(n.announce_due(0));
+        assert!(n.poll(0, IFACE, None).is_empty());
+        assert!(n.announce_due(1), "missing blob must not consume due state");
+        assert!(n.poll(1, IFACE, None).is_empty());
+
+        let announce_blob = blob([0x56; RAND_HASH_LEN]);
+        assert!(sent(&n.poll(1, IFACE, Some(&announce_blob))).is_some());
+        assert!(!n.announce_due(2), "successful emission consumes due state");
+        assert!(n.poll(2, IFACE, Some(&announce_blob)).is_empty());
     }
 
     /// Our own announce is a real one: it decodes, verifies, and names us.
     #[test]
     fn our_announce_round_trips_through_the_decoder() {
         let n = node().with_app_data(b"retinue-node");
-        let packet = n.announce(&[0x22; RAND_HASH_LEN], None);
+        let packet = n.announce(&blob([0x22; RAND_HASH_LEN]), None);
 
         let decoded = Announce::decode(&packet).expect("our own announce must verify");
         assert_eq!(decoded.destination, n.destination());
@@ -1602,8 +1641,8 @@ mod tests {
             DestinationName::new("retinue", ["b"]).name_hash(),
         );
 
-        let from_a = a.announce(&[1; RAND_HASH_LEN], None);
-        let from_b = b.announce(&[2; RAND_HASH_LEN], None);
+        let from_a = a.announce(&blob([1; RAND_HASH_LEN]), None);
+        let from_b = b.announce(&blob([2; RAND_HASH_LEN]), None);
 
         assert_eq!(b.ingest(IFACE, &from_a, 0).len(), 1);
         assert_eq!(a.ingest(IFACE, &from_b, 0).len(), 1);
@@ -1629,7 +1668,7 @@ mod tests {
             PrivateIdentity::from_secret_bytes(&[0xC3; 64]),
             DestinationName::new("retinue", ["other"]).name_hash(),
         )
-        .announce(&[9; RAND_HASH_LEN], None);
+        .announce(&blob([9; RAND_HASH_LEN]), None);
         assert!(n.ingest(IFACE, &other, 0).is_empty());
         assert_eq!(n.peers().len(), 1, "the established peer survives");
         assert_eq!(n.peers().refused(), 1, "and the refusal is counted");
@@ -1647,25 +1686,25 @@ mod tests {
             DestinationName::new("retinue", ["peer"]).name_hash(),
         );
 
-        let mut first = peer.announce(&[1, 0, 0, 0, 0, 0, 0, 0, 0, 10], None);
+        let mut first = peer.announce(&blob([1, 0, 0, 0, 0, 0, 0, 0, 0, 10]), None);
         first.hops = 1;
         let accepted = relay.ingest(IFACE, &first, 0);
         assert_eq!(accepted.len(), 2, "learn plus relay");
         assert_eq!(relay.route_to(peer.destination(), 0), Some((IFACE, 1)));
 
-        let mut newer_equal = peer.announce(&[2, 0, 0, 0, 0, 0, 0, 0, 0, 11], None);
+        let mut newer_equal = peer.announce(&blob([2, 0, 0, 0, 0, 0, 0, 0, 0, 11]), None);
         newer_equal.hops = 1;
         let accepted = relay.ingest(IFACE + 1, &newer_equal, 1);
         assert_eq!(accepted.len(), 2, "newer equal-hop announce replaces");
         assert_eq!(relay.route_to(peer.destination(), 1), Some((IFACE + 1, 1)));
 
-        let mut newer_worse = peer.announce(&[3, 0, 0, 0, 0, 0, 0, 0, 0, 12], None);
+        let mut newer_worse = peer.announce(&blob([3, 0, 0, 0, 0, 0, 0, 0, 0, 12]), None);
         newer_worse.hops = 7;
         let accepted = relay.ingest(IFACE + 2, &newer_worse, 2);
         assert_eq!(accepted.len(), 2, "newer announce still learns and relays");
         assert_eq!(relay.route_to(peer.destination(), 2), Some((IFACE + 2, 7)));
 
-        let mut stale = peer.announce(&[4, 0, 0, 0, 0, 0, 0, 0, 0, 11], None);
+        let mut stale = peer.announce(&blob([4, 0, 0, 0, 0, 0, 0, 0, 0, 11]), None);
         stale.hops = 0;
         assert!(relay.ingest(IFACE, &stale, 3).is_empty());
         assert_eq!(relay.peers().len(), 1);
@@ -1699,23 +1738,23 @@ mod tests {
             DestinationName::new("retinue", ["worse"]).name_hash(),
         );
         for peer in [&better_peer, &equal_peer, &worse_peer] {
-            let mut first = peer.announce(&[1, 0, 0, 0, 0, 0, 0, 0, 0, 20], None);
+            let mut first = peer.announce(&blob([1, 0, 0, 0, 0, 0, 0, 0, 0, 20]), None);
             first.hops = 2;
             assert_eq!(relay.ingest(IFACE, &first, 0).len(), 2);
         }
         assert_eq!(relay.route_count(), 3);
-        let _ = relay.poll(10, IFACE, &[0; RAND_HASH_LEN]);
+        let _ = relay.poll(10, IFACE, Some(&blob([0; RAND_HASH_LEN])));
         assert_eq!(
             relay.route_count(),
             0,
             "route TTL evicted the physical route"
         );
 
-        let mut better = better_peer.announce(&[2, 0, 0, 0, 0, 0, 0, 0, 0, 19], None);
+        let mut better = better_peer.announce(&blob([2, 0, 0, 0, 0, 0, 0, 0, 0, 19]), None);
         better.hops = 1;
-        let mut equal = equal_peer.announce(&[2, 0, 0, 0, 0, 0, 0, 0, 0, 19], None);
+        let mut equal = equal_peer.announce(&blob([2, 0, 0, 0, 0, 0, 0, 0, 0, 19]), None);
         equal.hops = 2;
-        let mut worse = worse_peer.announce(&[2, 0, 0, 0, 0, 0, 0, 0, 0, 19], None);
+        let mut worse = worse_peer.announce(&blob([2, 0, 0, 0, 0, 0, 0, 0, 0, 19]), None);
         worse.hops = 3;
 
         assert!(relay.ingest(IFACE + 1, &better, 11).is_empty());
@@ -1745,8 +1784,12 @@ mod tests {
             PrivateIdentity::from_secret_bytes(&[0x87; 64]),
             DestinationName::new("retinue", ["second"]).name_hash(),
         );
-        n.ingest(IFACE, &first_peer.announce(&[1; RAND_HASH_LEN], None), 0);
-        let packet = second_peer.announce(&[2; RAND_HASH_LEN], None);
+        n.ingest(
+            IFACE,
+            &first_peer.announce(&blob([1; RAND_HASH_LEN]), None),
+            0,
+        );
+        let packet = second_peer.announce(&blob([2; RAND_HASH_LEN]), None);
         let candidate = AnnounceFreshnessCandidate {
             destination: second_peer.destination(),
             blob: crate::announce::AnnounceBlob::from_wire([2; RAND_HASH_LEN]),
@@ -1773,7 +1816,7 @@ mod tests {
             PrivateIdentity::from_secret_bytes(&[0x89; 64]),
             DestinationName::new("retinue", ["peer"]).name_hash(),
         );
-        let packet = peer.announce(&[4; RAND_HASH_LEN], None);
+        let packet = peer.announce(&blob([4; RAND_HASH_LEN]), None);
         assert!(relay.transit_is_new(packet.hash(), 0));
         let actions = relay.ingest(IFACE, &packet, 1);
         assert_eq!(
@@ -1794,8 +1837,8 @@ mod tests {
             DestinationName::new("retinue", ["peer"]).name_hash(),
         )
         .with_app_data(b"current");
-        let rand = [9; RAND_HASH_LEN];
-        let current = peer.announce(&rand, Some(&[0xA1; RATCHET_LEN]));
+        let announce_blob = blob([9; RAND_HASH_LEN]);
+        let current = peer.announce(&announce_blob, Some(&[0xA1; RATCHET_LEN]));
         assert_eq!(n.ingest(IFACE, &current, 0).len(), 1);
         assert_eq!(
             n.peers().resolve(peer.destination()).unwrap().app_data,
@@ -1811,7 +1854,7 @@ mod tests {
             DestinationName::new("retinue", ["peer"]).name_hash(),
         )
         .with_app_data(b"rollback");
-        let rollback = older.announce(&rand, Some(&[0xB2; RATCHET_LEN]));
+        let rollback = older.announce(&announce_blob, Some(&[0xB2; RATCHET_LEN]));
         assert!(n.ingest(IFACE, &rollback, 1).is_empty());
         let retained = n.peers().resolve(peer.destination()).unwrap();
         assert_eq!(retained.app_data, b"current");
@@ -1846,8 +1889,8 @@ mod tests {
             PrivateIdentity::from_secret_bytes(&[0x8D; 64]),
             DestinationName::new("retinue", ["b"]).name_hash(),
         );
-        n.ingest(IFACE, &a.announce(&[5; RAND_HASH_LEN], None), 0);
-        n.ingest(IFACE, &b.announce(&[6; RAND_HASH_LEN], None), 1);
+        n.ingest(IFACE, &a.announce(&blob([5; RAND_HASH_LEN]), None), 0);
+        n.ingest(IFACE, &b.announce(&blob([6; RAND_HASH_LEN]), None), 1);
         assert_eq!(n.freshness.config().destination_capacity, 8);
         assert!(
             n.set_freshness_policy(
@@ -1867,7 +1910,7 @@ mod tests {
             n.freshness.evaluate(
                 AnnounceFreshnessCandidate {
                     destination: a.destination(),
-                    blob: crate::announce::AnnounceBlob::from_wire([5; RAND_HASH_LEN]),
+                    blob: blob([5; RAND_HASH_LEN]),
                     hops: 0,
                 },
                 1,
@@ -1878,7 +1921,7 @@ mod tests {
 
         // The remaining destination's second accepted blob now exercises per-row history
         // pressure independently of destination-row pressure.
-        let mut b_again = b.announce(&[7; RAND_HASH_LEN], None);
+        let mut b_again = b.announce(&blob([7; RAND_HASH_LEN]), None);
         b_again.hops = 1;
         n.ingest(IFACE, &b_again, 2);
         assert_eq!(n.transport_counters().evicted_freshness_blobs, 1);
@@ -1920,7 +1963,7 @@ mod tests {
         let (mut a, mut b) = pair();
 
         // Discovery first: a must have heard b announce before it can address b.
-        a.ingest(IFACE, &b.announce(&[2; RAND_HASH_LEN], None), 0);
+        a.ingest(IFACE, &b.announce(&blob([2; RAND_HASH_LEN]), None), 0);
 
         let opened = a
             .open_link(b.destination(), IFACE, &[0x31; 64])
@@ -1950,7 +1993,7 @@ mod tests {
     #[test]
     fn a_retransmitted_request_is_answered_with_the_same_proof() {
         let (mut a, mut b) = pair();
-        a.ingest(IFACE, &b.announce(&[2; RAND_HASH_LEN], None), 0);
+        a.ingest(IFACE, &b.announce(&blob([2; RAND_HASH_LEN]), None), 0);
         let request = sent(&a.open_link(b.destination(), IFACE, &[0x31; 64]).unwrap()).unwrap();
 
         let first = sent(&b.ingest(IFACE, &request, 0)).expect("first proof");
@@ -1989,7 +2032,7 @@ mod tests {
     #[test]
     fn a_link_request_for_another_destination_is_ignored() {
         let (mut a, b) = pair();
-        a.ingest(IFACE, &b.announce(&[2; RAND_HASH_LEN], None), 0);
+        a.ingest(IFACE, &b.announce(&blob([2; RAND_HASH_LEN]), None), 0);
         let request = sent(&a.open_link(b.destination(), IFACE, &[0x31; 64]).unwrap()).unwrap();
 
         let mut c = Node::<32, 8, 4>::new(
@@ -2032,7 +2075,7 @@ mod tests {
             PrivateIdentity::from_secret_bytes(&[0xDD; 64]),
             DestinationName::new("retinue", ["d"]).name_hash(),
         );
-        let ann = server.announce(&[2; RAND_HASH_LEN], None);
+        let ann = server.announce(&blob([2; RAND_HASH_LEN]), None);
         first.ingest(IFACE, &ann, 0);
         second.ingest(IFACE, &ann, 0);
 
@@ -2189,18 +2232,24 @@ mod tests {
         let (mut a, _b) = pair();
 
         assert!(
-            sent(&a.poll(0, IFACE, &[1; RAND_HASH_LEN])).is_some(),
+            sent(&a.poll(0, IFACE, Some(&blob([1; RAND_HASH_LEN])))).is_some(),
             "the first poll announces"
         );
         assert!(
-            a.poll(1_000, IFACE, &[2; RAND_HASH_LEN]).is_empty(),
+            a.poll(1_000, IFACE, Some(&blob([2; RAND_HASH_LEN])))
+                .is_empty(),
             "and the next is not due for a whole interval"
         );
+        assert!(!a.announce_due(1_000), "the interval is not elapsed yet");
 
         // The shell reports that the frame never reached the air.
         a.retry_announce();
         assert!(
-            sent(&a.poll(1_001, IFACE, &[3; RAND_HASH_LEN])).is_some(),
+            a.announce_due(1_001),
+            "retry makes the announce due immediately"
+        );
+        assert!(
+            sent(&a.poll(1_001, IFACE, Some(&blob([3; RAND_HASH_LEN])))).is_some(),
             "so the node announces again rather than waiting out the interval"
         );
     }
@@ -2213,7 +2262,7 @@ mod tests {
     fn a_lost_part_is_re_requested_on_poll() {
         let (mut a, mut b, id) = linked();
         // Drain the boot announce, so later polls answer only for the transfer.
-        let _ = b.poll(0, IFACE, &[0; RAND_HASH_LEN]);
+        let _ = b.poll(0, IFACE, Some(&blob([0; RAND_HASH_LEN])));
         let payload: Vec<u8> = (0..1_024u32).map(|i| (i.wrapping_mul(7)) as u8).collect();
 
         let started = a
@@ -2254,12 +2303,20 @@ mod tests {
 
         // Before the retry interval: silence. At it: the re-request, unprompted.
         assert!(
-            b.poll(RESOURCE_RETRY_INTERVAL - 1, IFACE, &[0; RAND_HASH_LEN])
-                .is_empty(),
+            b.poll(
+                RESOURCE_RETRY_INTERVAL - 1,
+                IFACE,
+                Some(&blob([0; RAND_HASH_LEN]))
+            )
+            .is_empty(),
             "no retry before its time"
         );
-        let retry = sent(&b.poll(RESOURCE_RETRY_INTERVAL, IFACE, &[0; RAND_HASH_LEN]))
-            .expect("the poll re-requests the missing part");
+        let retry = sent(&b.poll(
+            RESOURCE_RETRY_INTERVAL,
+            IFACE,
+            Some(&blob([0; RAND_HASH_LEN])),
+        ))
+        .expect("the poll re-requests the missing part");
 
         // The sender answers with the missing part, and the transfer completes.
         let served: Vec<Packet> = a
@@ -2324,7 +2381,7 @@ mod tests {
     fn a_lost_advertisement_is_re_offered_on_poll() {
         let (mut a, mut b, id) = linked();
         // Drain the boot announce, so the retry poll answers only for the transfer.
-        let _ = a.poll(0, IFACE, &[0; RAND_HASH_LEN]);
+        let _ = a.poll(0, IFACE, Some(&blob([0; RAND_HASH_LEN])));
         let payload: Vec<u8> = (0..600u32).map(|i| i as u8).collect();
 
         // The advertisement from publish is LOST: b never hears it.
@@ -2340,8 +2397,12 @@ mod tests {
             .unwrap();
         assert!(a.transfer_active(id));
 
-        let again = sent(&a.poll(RESOURCE_RETRY_INTERVAL, IFACE, &[0; RAND_HASH_LEN]))
-            .expect("the poll re-advertises the unanswered offer");
+        let again = sent(&a.poll(
+            RESOURCE_RETRY_INTERVAL,
+            IFACE,
+            Some(&blob([0; RAND_HASH_LEN])),
+        ))
+        .expect("the poll re-advertises the unanswered offer");
         let request = sent(&b.ingest(IFACE, &again, 0));
         assert!(request.is_some(), "and the re-offer starts the transfer");
     }
@@ -2423,7 +2484,7 @@ mod tests {
 
         // Nobody says anything for longer than the timeout, then the node's clock ticks.
         let later = LINK_IDLE_TIMEOUT + 1;
-        let _ = a.poll(later, IFACE, &[0x11; RAND_HASH_LEN]);
+        let _ = a.poll(later, IFACE, Some(&blob([0x11; RAND_HASH_LEN])));
 
         assert_eq!(a.link_count(), 0, "a silent slot must come back");
         assert_eq!(
@@ -2448,7 +2509,7 @@ mod tests {
         for _ in 0..4 {
             now += LINK_IDLE_TIMEOUT - 1;
             a.ingest(IFACE, &keepalive, now);
-            let _ = a.poll(now, IFACE, &[0x22; RAND_HASH_LEN]);
+            let _ = a.poll(now, IFACE, Some(&blob([0x22; RAND_HASH_LEN])));
             assert_eq!(a.link_count(), 1, "a live peer keeps its slot at {now}");
         }
         assert_eq!(a.expired_links(), 0, "nothing reclaimed from a live peer");
@@ -2493,11 +2554,11 @@ mod tests {
         let b = peer(0x22, "b");
         let c = peer(0x33, "c");
 
-        relay.ingest(IFACE, &a.announce(&[1; RAND_HASH_LEN], None), 0);
-        relay.ingest(IFACE, &b.announce(&[2; RAND_HASH_LEN], None), 1);
+        relay.ingest(IFACE, &a.announce(&blob([1; RAND_HASH_LEN]), None), 0);
+        relay.ingest(IFACE, &b.announce(&blob([2; RAND_HASH_LEN]), None), 1);
         assert_eq!(relay.route_count(), 2, "the typed route bound is full");
 
-        relay.ingest(IFACE, &c.announce(&[3; RAND_HASH_LEN], None), 2);
+        relay.ingest(IFACE, &c.announce(&blob([3; RAND_HASH_LEN]), None), 2);
         assert_eq!(
             relay.route_count(),
             2,
@@ -2510,7 +2571,7 @@ mod tests {
         );
         assert_eq!(relay.transport_counters().evicted_routes, 1);
 
-        let _ = relay.poll(102, IFACE, &[0; RAND_HASH_LEN]);
+        let _ = relay.poll(102, IFACE, Some(&blob([0; RAND_HASH_LEN])));
         assert_eq!(relay.route_count(), 0, "stale routes are reclaimed by poll");
         assert_eq!(relay.transport_counters().expired_routes, 2);
     }
@@ -2528,7 +2589,7 @@ mod tests {
         )
         .with_transport_config(TransportConfig::transit());
 
-        let announce = destination.announce(&[0x77; RAND_HASH_LEN], None);
+        let announce = destination.announce(&blob([0x77; RAND_HASH_LEN]), None);
         let relayed_announce = sent(&relay.ingest(IFACE, &announce, 0))
             .expect("a transport node re-broadcasts a verified announce");
         assert_eq!(relayed_announce.header_type, HeaderType::Type2);
@@ -2586,7 +2647,7 @@ mod tests {
             );
             let actions = relay.ingest(
                 IFACE,
-                &peer.announce(&[seed; RAND_HASH_LEN], None),
+                &peer.announce(&blob([seed; RAND_HASH_LEN]), None),
                 seed.into(),
             );
             assert!(actions.len() <= 2, "one learn and one relay at most");

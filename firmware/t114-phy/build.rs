@@ -5,17 +5,45 @@ fn main() {
     let source = include_str!("memory.x");
     fs::write(out.join("memory.x"), source).expect("write memory.x");
 
-    // The Rust side needs the store's address, and the linker needs it kept
-    // clear of code. Deriving both from the same lines means they cannot drift.
+    // The Rust side needs both persistent-pair addresses, and the linker needs
+    // both kept clear of code. Deriving all of them from the same lines means
+    // the reservation cannot drift into identity storage or application code.
     let (flash_origin, flash_length) = region(source, "FLASH");
+    let (reservation_origin, reservation_length) = region(source, "RESERVATION");
     let (store_origin, store_length) = region(source, "STORE");
     let page = 4096;
+    let announce_lease = env::var("RETINUE_ANNOUNCE_LEASE_ORDINALS")
+        .map(|value| {
+            value
+                .parse::<u64>()
+                .unwrap_or_else(|_| panic!("RETINUE_ANNOUNCE_LEASE_ORDINALS must be a decimal u64"))
+        })
+        .unwrap_or(65_536);
+    assert!(
+        (1..=(1_u64 << 40) - 1).contains(&announce_lease),
+        "RETINUE_ANNOUNCE_LEASE_ORDINALS must fit the nonzero 40-bit timebase range"
+    );
 
     assert_eq!(
         flash_origin + flash_length,
+        reservation_origin,
+        "FLASH must end exactly where RESERVATION begins, or the linker can place code \
+         into durable state; adjust memory.x together"
+    );
+    assert_eq!(
+        reservation_origin + reservation_length,
         store_origin,
-        "FLASH must end exactly where STORE begins, or the linker can place code \
-         into the store; adjust both in memory.x together"
+        "RESERVATION must end exactly where STORE begins"
+    );
+    assert_eq!(
+        reservation_origin % page,
+        0,
+        "RESERVATION must begin on a flash page boundary; NVMC erases whole pages"
+    );
+    assert_eq!(
+        reservation_length,
+        2 * page,
+        "RESERVATION is an A/B pair, so it is exactly two pages"
     );
     assert_eq!(
         store_origin % page,
@@ -43,8 +71,30 @@ fn main() {
     )
     .expect("write store_region.rs");
 
+    fs::write(
+        out.join("reservation_region.rs"),
+        format!(
+            "/// Absolute flash address of the announce-reservation pair, from `memory.x`.\n\
+             pub const RESERVATION_ORIGIN: u32 = {reservation_origin:#010X};\n\
+             /// Bytes the reservation pair spans, from `memory.x`.\n\
+             pub const RESERVATION_LENGTH: u32 = {reservation_length:#010X};\n"
+        ),
+    )
+    .expect("write reservation_region.rs");
+
+    fs::write(
+        out.join("announce_lease.rs"),
+        format!(
+            "/// Ordinals reserved per native-node boot. Set by \
+             `RETINUE_ANNOUNCE_LEASE_ORDINALS`, defaulting to 65,536.\n\
+             pub const ANNOUNCE_TIMEBASE_LEASE: u64 = {announce_lease};\n"
+        ),
+    )
+    .expect("write announce_lease.rs");
+
     println!("cargo:rustc-link-search={}", out.display());
     println!("cargo:rerun-if-changed=memory.x");
+    println!("cargo:rerun-if-env-changed=RETINUE_ANNOUNCE_LEASE_ORDINALS");
 }
 
 /// Read one `NAME : ORIGIN = 0x…, LENGTH = 0x…` line out of a linker memory map.

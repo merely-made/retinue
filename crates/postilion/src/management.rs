@@ -231,7 +231,7 @@ fn classify(app_data: &[u8]) -> AnnounceKind {
 mod tests {
     use super::*;
     use outrider::{PropagationCosts, delivery_destination, delivery_name};
-    use retinue::announce;
+    use retinue::announce::{self, AnnounceBlob};
     use retinue::announce_admission::AnnounceIngressPolicy;
     use retinue::destination::DestinationName;
     use retinue::endpoint::{LinkDirection, LinkRemoteFact};
@@ -346,7 +346,7 @@ mod tests {
         let first_packet = announce::build(
             &direct,
             delivery_name().name_hash(),
-            &[0x41; 10],
+            &AnnounceBlob::from_wire([0x41; 10]),
             None,
             &old_delivery,
         );
@@ -368,7 +368,7 @@ mod tests {
         let refreshed_packet = announce::build(
             &direct,
             delivery_name().name_hash(),
-            &[0x42; 10],
+            &AnnounceBlob::from_wire([0x42; 10]),
             None,
             &refreshed_delivery,
         );
@@ -388,7 +388,7 @@ mod tests {
         let mut transported_packet = announce::build(
             &unknown,
             unknown_name.name_hash(),
-            &[0x43; 10],
+            &AnnounceBlob::from_wire([0x43; 10]),
             None,
             &[0xc1],
         );

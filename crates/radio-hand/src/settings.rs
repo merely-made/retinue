@@ -34,11 +34,20 @@ pub enum Channel {
     /// the one that always works and needs no on-board protocol state.
     #[default]
     Modem = 0,
-    /// The native Retinue node. The board holds the identity and answers for itself.
-    Node = 1,
+    /// The native-node encoding shipped before announce timebases had durable leases.
+    ///
+    /// New firmware reads this only to migrate it before radio use. It never writes the
+    /// byte again: retaining it would let an older firmware resume random-blob announces
+    /// after a downgrade.
+    LegacyNode = 1,
     /// The board as an RNode: the same host-driven radio the modem is, speaking the protocol
     /// stock Reticulum software already knows how to drive.
     Rnode = 2,
+    /// The native Retinue node with the durable announce-timebase guard armed.
+    ///
+    /// Firmware from before the guard does not know byte 3, so its existing unknown-channel
+    /// rule selects the recovery modem instead of emitting from the old random-blob path.
+    Node = 3,
 }
 
 impl Channel {
@@ -49,14 +58,36 @@ impl Channel {
     pub fn from_byte(byte: u8) -> Option<Self> {
         match byte {
             0 => Some(Channel::Modem),
-            1 => Some(Channel::Node),
+            1 => Some(Channel::LegacyNode),
             2 => Some(Channel::Rnode),
+            3 => Some(Channel::Node),
             _ => None,
         }
     }
 
     pub fn as_byte(self) -> u8 {
         self as u8
+    }
+
+    /// Whether this setting asks the current firmware to run its native node.
+    pub const fn requests_native_node(self) -> bool {
+        matches!(self, Self::LegacyNode | Self::Node)
+    }
+
+    /// Whether an older firmware will reject this setting into modem recovery.
+    pub const fn native_node_guarded(self) -> bool {
+        matches!(self, Self::Node)
+    }
+
+    /// The byte new firmware persists.
+    ///
+    /// A settings write is itself a quiet, verified A/B transaction. Normalizing the legacy
+    /// node value here means a region change cannot accidentally preserve the downgrade hole.
+    const fn persisted_byte(self) -> u8 {
+        match self {
+            Self::LegacyNode => Self::Node as u8,
+            other => other as u8,
+        }
     }
 }
 
@@ -126,7 +157,7 @@ impl Settings {
     /// Write settings into a record body, returning the bytes used.
     pub fn encode(&self, out: &mut [u8; ENCODED_LEN]) -> usize {
         out[..IDENTITY_LEN].copy_from_slice(&self.identity);
-        out[IDENTITY_LEN] = self.channel.as_byte();
+        out[IDENTITY_LEN] = self.channel.persisted_byte();
         out[IDENTITY_LEN + 1] = self.region.as_byte();
         // Reserved, written as zero so a later field has a defined starting value rather
         // than whatever the erase left.
@@ -202,6 +233,24 @@ mod tests {
     }
 
     #[test]
+    fn legacy_node_byte_is_read_but_every_rewrite_arms_the_guard() {
+        let mut legacy = [0_u8; ENCODED_LEN];
+        legacy[..IDENTITY_LEN].copy_from_slice(&identity());
+        legacy[IDENTITY_LEN] = 1;
+
+        let read = Settings::decode(&legacy).expect("legacy node settings remain readable");
+        assert_eq!(read.identity, identity());
+        assert_eq!(read.channel, Channel::LegacyNode);
+        assert!(read.channel.requests_native_node());
+        assert!(!read.channel.native_node_guarded());
+
+        let mut rewritten = [0_u8; ENCODED_LEN];
+        read.encode(&mut rewritten);
+        assert_eq!(rewritten[IDENTITY_LEN], Channel::Node.as_byte());
+        assert_eq!(Settings::decode(&rewritten).unwrap().channel, Channel::Node);
+    }
+
+    #[test]
     fn a_body_shorter_than_an_identity_is_refused() {
         assert_eq!(
             Settings::decode(&[0_u8; IDENTITY_LEN - 1]),
@@ -224,5 +273,12 @@ mod tests {
             assert_eq!(Settings::decode(&body[..len]).unwrap().channel, channel);
             assert_eq!(Channel::from_byte(channel.as_byte()), Some(channel));
         }
+    }
+
+    #[test]
+    fn old_firmware_unknown_channel_rule_will_recover_from_guarded_node() {
+        assert_eq!(Channel::Node.as_byte(), 3);
+        assert_ne!(Channel::Node.as_byte(), 1);
+        assert!(Channel::Node.native_node_guarded());
     }
 }

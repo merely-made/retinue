@@ -213,6 +213,7 @@ mod tests {
             },
             confidence: EvidenceConfidence::OwnerConfirmed,
             contradictions: Vec::new(),
+            native_node_state: crate::device::NativeNodeState::Unknown,
         }
     }
 
@@ -276,6 +277,7 @@ mod tests {
                 before_write: "Keep cable attached.".into(),
                 after_failure: "Use the ROM loader.".into(),
             },
+            persistent_state: None,
         };
         FlashPackage::from_parts(manifest, "manifest", "payload", bytes).unwrap()
     }

@@ -507,6 +507,7 @@ where
             (None, _) => &b"channel unavailable: no identity\r\n"[..],
             (Some(current), ChannelProbe::Report) => match current.channel {
                 BootChannel::Modem => &b"channel=modem\r\n"[..],
+                BootChannel::LegacyNode => &b"channel=node state=node-unarmed\r\n"[..],
                 BootChannel::Node => &b"channel=node\r\n"[..],
                 BootChannel::Rnode => &b"channel=rnode\r\n"[..],
             },

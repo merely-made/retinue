@@ -184,6 +184,7 @@ mod tests {
                 },
                 confidence: EvidenceConfidence::OwnerConfirmed,
                 contradictions: Vec::new(),
+                native_node_state: crate::device::NativeNodeState::Unknown,
             },
             PackageIdentity {
                 package_id: "test".into(),

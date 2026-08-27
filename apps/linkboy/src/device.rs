@@ -8,6 +8,47 @@ use serde::{Deserialize, Serialize};
 
 use crate::package::{BoardFamily, ProcessorKind};
 
+/// The durable native-node reservation state observed from a running status reply.
+///
+/// `Armed` is only produced by the concrete `state=node-timebase-v1` token. An absent or
+/// unfamiliar token stays `Unknown`, which keeps first-flash and legacy observations usable.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum NativeNodeState {
+    #[default]
+    Unknown,
+    Unarmed,
+    Armed,
+}
+
+impl NativeNodeState {
+    pub const ARMED_TOKEN: &'static str = "state=node-timebase-v1";
+    pub const UNARMED_TOKEN: &'static str = "state=node-unarmed";
+
+    pub fn from_status_reply(status: &str) -> Self {
+        let has_token = |token: &str| {
+            status
+                .split(|character: char| character.is_whitespace() || character == ';')
+                .any(|part| part == token)
+        };
+        if has_token(Self::ARMED_TOKEN) {
+            Self::Armed
+        } else if has_token(Self::UNARMED_TOKEN) {
+            Self::Unarmed
+        } else {
+            Self::Unknown
+        }
+    }
+
+    pub fn describe(&self) -> &'static str {
+        match self {
+            Self::Unknown => "unknown",
+            Self::Unarmed => "unarmed",
+            Self::Armed => Self::ARMED_TOKEN,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum DeviceTransport {
@@ -139,6 +180,11 @@ pub struct DeviceObservation {
     pub firmware: FirmwareState,
     pub confidence: EvidenceConfidence,
     pub contradictions: Vec<String>,
+    /// A running status token can survive a loader transition when the caller carries it
+    /// forward. Bootloader-only discovery leaves this unknown because Linkboy cannot invent a
+    /// prior application's state from loader bytes.
+    #[serde(default)]
+    pub native_node_state: NativeNodeState,
 }
 
 impl DeviceObservation {
@@ -157,6 +203,7 @@ impl DeviceObservation {
             firmware: FirmwareState::Bootloader,
             confidence: EvidenceConfidence::Unknown,
             contradictions: Vec::new(),
+            native_node_state: NativeNodeState::Unknown,
         }
     }
 
@@ -179,6 +226,7 @@ impl DeviceObservation {
             firmware,
             confidence,
             contradictions: Vec::new(),
+            native_node_state: NativeNodeState::from_status_reply(&found.banner),
         }
     }
 
@@ -221,5 +269,41 @@ fn expected_processor(family: &BoardFamily) -> Option<ProcessorKind> {
     match family {
         BoardFamily::T114 => Some(ProcessorKind::Nrf52840),
         BoardFamily::HeltecV4 => Some(ProcessorKind::Esp32S3),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn native_node_state_requires_the_exact_running_guard_token() {
+        assert_eq!(
+            NativeNodeState::from_status_reply(
+                "tulle/t114 phy online; channel=node; state=node-timebase-v1"
+            ),
+            NativeNodeState::Armed
+        );
+        assert_eq!(
+            NativeNodeState::from_status_reply("channel=node; state=node-unarmed"),
+            NativeNodeState::Unarmed
+        );
+        assert_eq!(
+            NativeNodeState::from_status_reply("state=node-timebase-v10"),
+            NativeNodeState::Unknown
+        );
+    }
+
+    #[test]
+    fn armed_state_survives_serialized_loader_handoff() {
+        let mut observation = DeviceObservation::from_bootloader(
+            DeviceTransport::SerialDfuPort("COM10".into()),
+            BootloaderObservation::default(),
+        );
+        observation.native_node_state = NativeNodeState::Armed;
+        let encoded = serde_json::to_string(&observation).expect("observation serializes");
+        let restored: DeviceObservation =
+            serde_json::from_str(&encoded).expect("observation deserializes");
+        assert_eq!(restored.native_node_state, NativeNodeState::Armed);
     }
 }

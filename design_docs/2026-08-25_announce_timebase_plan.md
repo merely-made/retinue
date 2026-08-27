@@ -1,9 +1,11 @@
 # Announce timebase plan
 
 **Date:** 2026-08-25
-**Status (2026-08-26):** in progress. P1/P2/P3 and the 72-cell P8 matrix are answered,
-and Phase C receive freshness is implemented. The additive Phase B blob/timebase primitive
-has landed; emission-caller migration and Phase D firmware durability remain.
+**Status (2026-08-26):** in progress. Phases A, B, and C are implemented. Phase D's
+software slice now has separate A/B reservation stores on both boards, reservation-backed
+native-node emission on T114, and a guarded downgrade policy. Physical power-cut/on-air
+receipts, explicit rekey recovery, a rebuilt guard-aware firmware package, and the V4's
+separate native-node successor remain open.
 **Owns:** the announce `rand_hash` field, receive-side announce freshness, and the
 firmware tier's durable monotonic timebase. The Peer lane owns black-box evidence, the Air
 lane owns protocol and firmware code, and Assurance owns any central validation or
@@ -52,7 +54,7 @@ decision. This corrects the broader authority implied by earlier wording in this
 | **A. Black-box decisions** | Peer: `crates/retinue/oracle/` and captured local evidence | Run P1, P2, P3, and the receive matrix P8 against pinned stock RNS with persistent, per-destination state. | Exact RNS version, inputs, order, config lifetime, shared-global-state scope, and destination-table state are recorded. Poison cases use their own destination/config. No implementation source is read. |
 | **B. Typed emission** | Air: `crates/retinue/src/announce.rs`, host emission, `Node` caller seam, examples and owner tests | Introduce the structured wire type; make host and board callers supply five nonce bytes plus a monotonic ordinal. | Byte-order KATs pass; deterministic injected-clock tests cover same-second emission, backward host-clock movement, and 40-bit exhaustion; no emission site fills bytes 5..10 with entropy. The already-dirty `reqresp_interop.rs` is coordinated rather than overwritten. |
 | **C. Receive freshness** | Air: shared bounded freshness model plus `Endpoint` and `Node` consumers | Apply the P8 acceptance matrix before every observable announce effect. | Host and `no_std` tests cover stale time, duplicate blob, changed context, better-hop copies, ratchet/app-data rollback, expiry, and bounded eviction. Retention scope is explicit; packet-loop dedup stays separate. |
-| **D. Durable firmware reservation** | Air, with board-specific storage adapters and a declared quiet-write seam | Persist a reservation before radio use, fail closed on storage fault/exhaustion, and preserve identity across upgrade. | Torn writes, corrupt timebase with valid identity, first upgrade, explicit rekey, and downgrade posture are tested. Both boards survive a power cut and emit a value above every possibly transmitted pre-cut value; stock RNS accepts it and completes a link. Flash cadence and receive blanking meet a stated bound. |
+| **D. Durable firmware reservation** | Air, with board-specific storage adapters and a declared quiet-write seam | Persist a reservation before radio use, fail closed on storage fault/exhaustion, and preserve identity across upgrade. | Torn writes, corrupt timebase with valid identity, first upgrade, explicit rekey, and downgrade posture are tested. Both boards prove reservation recovery across a power cut. T114 then emits above every possibly transmitted pre-cut value, and stock RNS accepts it and completes a link. V4 on-air proof belongs to its native-node successor because V4 currently ships modem and RNode only. Flash cadence and receive blanking meet a stated bound. |
 | **E. Reconciliation and receipt** | Owning docs plus Assurance-owned registry work | Correct the wire reference, source boundary, index, and final status from measured behavior. | O-20 is closed by observed bytes; open equality or migration points move to a named plan; this plan has dated Findings and Progress; hardware and software claims remain separate. |
 
 Phases B and C may share one protocol-core commit after Phase A answers the matrix. Phase D
@@ -310,6 +312,46 @@ The corrected shape is:
    board can move from ordinal to epoch-derived values but cannot silently move backward.
    Ratchet expiry, link-request freshness, and cross-node log correlation need their own
    wall-clock decision; this field does not supply one.
+
+### Phase D software shape implemented 2026-08-26
+
+The reservation is not appended to `Settings`. It has its own `RHR0` v1 body inside the
+existing generic A/B record framing: versioned body magic, one reserved zero byte, and an
+inclusive 40-bit big-endian `reserved_through`. An adapter may treat the pair as
+uncommissioned only when both outer slots are erased. A valid older slot survives a torn
+newer write. No valid slot plus any nonblank/corrupt data is a fault, not permission to
+recommission.
+
+Boot plans `new_ceiling = prior_ceiling + lease_size`, writes the inactive slot, re-reads the
+authoritative pair, and constructs `TimebaseGenerator::firmware_lease` only after exact body
+verification. The default is 65,536 logical ordinals and remains caller-configurable. T114
+advances by exactly one for each attempted announce; heartbeat uptime is scheduling input,
+not ordinal input. At the current ten-minute cadence, an uninterrupted default lease covers
+about 455 days. Reboot abandons the unused part and reserves above the old durable ceiling,
+so ordinary runtime performs no flash writes and has zero reservation-induced receive
+blanking. Lease exhaustion refuses announces until a reset/authorized reservation.
+
+Storage is board-owned and identity-independent:
+
+| board | reservation pair | settings pair | current emission use |
+| --- | --- | --- | --- |
+| T114 | `0xE8000..0xEA000` | `0xEA000..0xEC000` | Reserved and verified before radio initialization when native node is requested. Fault selects modem recovery and reports `timebase=fault`. |
+| Heltec V4 | `0x3F2000..0x3F4000` | `0x3F0000..0x3F2000` | Storage-only `timebase` / `timebase reserve [lease]` probe, committed immediately before reset. V4 has no native-node personality and makes no emission claim. |
+
+Downgrade has two barriers. Native-node settings now persist guarded channel byte `3`; old
+firmware knows only legacy byte `1`, treats `3` as unknown, and selects modem. New firmware
+reads byte `1` only as a migration state and verifies a settings rewrite to byte `3` before
+reserving or using the radio. An active native channel reports
+`state=node-timebase-v1`. Linkboy carries that observed state into its immutable plan and
+refuses packages without a matching persistent-state declaration and a real preserved range.
+The retained v47/v51 artifacts correctly remain undeclared because their immutable binaries
+predate Phase D, even though their manifests now preserve all four pages.
+
+This closes the software storage, torn-write, first-upgrade, exhaustion, and ordinary
+downgrade paths. Still open: explicit rekey recovery tests; a rebuilt, immutable
+guard-declaring package; physical cuts before/during/after reservation; T114 stock-RNS
+announce/link after the cut; and a future V4 native-node implementation before any V4
+on-air claim.
 
 ---
 
@@ -584,6 +626,24 @@ noise rather than a stronger boundary.
 - **2026-08-25, migration review:** the settings body is intentionally append-only and old
   firmware ignores later fields. That preserves identity but makes downgrade to a
   pre-timebase image a protocol-safety case that Phase D must expose or refuse.
+- **2026-08-26, board audit:** T114 is the only current native-node target. Heltec V4 ships
+  modem and RNode and explicitly refuses `channel node`. Phase D therefore separates the
+  two-board storage/power-cut receipt from T114's on-air receipt; V4 native emission is a
+  successor implementation, not a persistence side effect.
+- **2026-08-26, package audit:** the retained T114 v47/v51 payloads predate durable leases.
+  Their manifests may truthfully preserve the expanded state range, but cannot declare
+  `node-timebase-v1` support until a new immutable artifact is built and hashed.
+- **2026-08-26, CI regression on `eaff89e` (filed from the CI-repair lane):**
+  `current_and_retained_ratchets_deliver_without_opening_a_link`
+  (`crates/retinue/tests/endpoint_single.rs:71`) fails deterministically on GitHub CI with
+  `rotated announce arrives: Elapsed(())` — the refreshed announce after `update_ratchets`
+  misses its 2 s window on a loaded runner. Two independent CI executions failed
+  identically (run 33031356328, first pass and rerun, check job; msrv fails the same test),
+  while 10/10 local runs pass in ~1.1 s. The failure appeared with the receive-freshness
+  enforcement and is the sole reason main CI is red at `8d47542` — every other job and
+  every pre-existing failure is green there. Per the flake-lane rule, the 2 s constant
+  should not simply be refitted under load; the hold/release mechanism on a slow runner is
+  the thing to look at.
 
 ## 12. Progress
 
@@ -614,3 +674,14 @@ noise rather than a stronger boundary.
   and eviction counters, and process-lifetime reset are explicit. Exact-tree gates passed
   197 library tests, 167 feature-minimal library tests, `cargo check --no-default-features`,
   and checks of `radio-hand`, `postilion`, and `signalman`, all locked, offline, and `-j 1`.
+- **2026-08-26:** Phase B caller migration is complete. Endpoint announces and owned path
+  responses use per-destination host generators; `Node::announce` accepts only
+  `AnnounceBlob`; `Node::poll(None)` runs maintenance while leaving a due announce due; and
+  direct-emission examples mint the typed 5+5 form. Exact-tree gates passed 201 default
+  library tests, 168 feature-minimal library tests, and both example builds.
+- **2026-08-26:** Phase D's software slice is implemented as described in §4. Both board
+  adapters use independent A/B reservation pairs and exact readback. T114's actual embedded
+  target and both Heltec V4 ESP target configurations check successfully; the default
+  `radio-hand` suite passes 63 tests, its node-feature test target checks, and Linkboy passes
+  84 tests. Hardware power-cut/on-air receipts, explicit rekey, the rebuilt package, and V4
+  native-node work remain open and are not inferred from these software gates.

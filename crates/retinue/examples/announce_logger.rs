@@ -4,22 +4,19 @@
 
 use std::time::Duration;
 
-use retinue::announce::{self, RAND_HASH_LEN};
+use retinue::announce::{self, AnnounceBlob, TimebaseGenerator};
 use retinue::destination::DestinationName;
 use retinue::identity::PrivateIdentity;
 use retinue::packet::{Packet, PacketType};
 
-fn rh(salt: u8) -> [u8; RAND_HASH_LEN] {
+fn next_blob(generator: &mut TimebaseGenerator, nonce: u8) -> AnnounceBlob {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let n = SystemTime::now()
+    let seconds = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
-        .as_nanos()
-        .to_le_bytes();
-    let mut o = [0u8; RAND_HASH_LEN];
-    o.copy_from_slice(&n[..RAND_HASH_LEN]);
-    o[0] ^= salt;
-    o
+        .as_secs();
+    let ordinal = generator.next(seconds).expect("announce timebase");
+    AnnounceBlob::mint([nonce; 5], ordinal).expect("announce timebase fits")
 }
 
 #[tokio::main]
@@ -39,7 +36,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut iface = TcpInterface::connect(addr).await?;
 
     // Announce ourselves a few times.
-    let mut salt = 0u8;
+    let mut nonce = 0u8;
+    let mut timebase = TimebaseGenerator::host(0).expect("valid host timebase");
     tokio::spawn({
         // separate connection for announcing would need a second socket; instead announce
         // inline before the receive loop and periodically.
@@ -55,7 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .send(&announce::build(
             &identity,
             name.name_hash(),
-            &rh(salt),
+            &next_blob(&mut timebase, nonce),
             None,
             label.as_bytes(),
         ))
@@ -67,8 +65,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         tokio::select! {
             _ = ticker.tick() => {
-                salt = salt.wrapping_add(1);
-                let _ = iface.send(&announce::build(&identity, name.name_hash(), &rh(salt), None, label.as_bytes())).await;
+                nonce = nonce.wrapping_add(1);
+                let blob = next_blob(&mut timebase, nonce);
+                let _ = iface.send(&announce::build(&identity, name.name_hash(), &blob, None, label.as_bytes())).await;
             }
             r = iface.recv() => {
                 match r {

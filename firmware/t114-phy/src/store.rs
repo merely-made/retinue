@@ -1,8 +1,9 @@
-//! Board glue for the `radio-hand` identity store.
+//! Board glue for the `radio-hand` identity and announce-reservation stores.
 //!
 //! `radio-hand` owns the record format and the A/B decision. This module owns
-//! the two flash pages the records live in and the nRF52840 peripherals that
-//! reach them, because those are board facts rather than portable ones.
+//! the two independent A/B flash pairs the records live in and the nRF52840
+//! peripherals that reach them, because those are board facts rather than
+//! portable ones.
 //!
 //! # When this writes, and why that is the whole of pressure point 3
 //!
@@ -36,6 +37,8 @@ use radio_hand::settings::{self, Settings};
 use radio_hand::store::{self, HEADER_LEN, Slot, SlotError};
 
 include!(concat!(env!("OUT_DIR"), "/store_region.rs"));
+include!(concat!(env!("OUT_DIR"), "/reservation_region.rs"));
+include!(concat!(env!("OUT_DIR"), "/announce_lease.rs"));
 
 // build.rs checks the store against the linker's FLASH region. This checks it
 // against the erase granularity the code assumes, so both halves of the claim
@@ -43,6 +46,11 @@ include!(concat!(env!("OUT_DIR"), "/store_region.rs"));
 const _: () = assert!(
     STORE_LENGTH as usize == 2 * PAGE_SIZE,
     "the store spans exactly the A and B pages"
+);
+
+const _: () = assert!(
+    RESERVATION_LENGTH as usize == 2 * PAGE_SIZE,
+    "the announce reservation spans exactly the A and B pages"
 );
 
 /// Bytes of a device identity, re-exported so callers do not reach past this
@@ -54,6 +62,11 @@ pub const IDENTITY_LEN: usize = settings::IDENTITY_LEN;
 /// past what we understand is how a downgrade keeps someone else's fields
 /// instead of truncating them into nonsense.
 const SLOT_READ_LEN: usize = HEADER_LEN + settings::ENCODED_LEN + 32;
+
+/// The header plus the fixed, small reservation body. This is deliberately a
+/// different record pair from settings: an announce lease is disposable state,
+/// while settings contain the identity a failed reservation must never replace.
+const RESERVATION_SLOT_READ_LEN: usize = HEADER_LEN + radio_hand::announce_reservation::BODY_LEN;
 
 /// What the boot path found in flash.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -78,6 +91,20 @@ pub enum Error {
     Write,
     /// The record was written but did not read back. Flash is failing, or the
     /// region is not the one the linker reserved.
+    Verify,
+}
+
+/// Why the reservation pair cannot authorize native-node emission.
+///
+/// These faults do not go through `load_or_create`: that API repairs identity
+/// storage, whereas an existing but damaged reservation must fail closed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReservationError {
+    Read,
+    Corrupt,
+    Exhausted,
+    Erase,
+    Write,
     Verify,
 }
 
@@ -156,6 +183,62 @@ impl<'d> SettingsStore<'d> {
         ))
     }
 
+    /// Reserve a new durable announce-timebase lease before the radio is
+    /// initialized. No identity bytes are read, generated, or written here.
+    ///
+    /// A completely erased pair is a first commission. Any other pair that
+    /// cannot yield one valid reservation body is corrupt and denies the node
+    /// personality for this boot. A torn new record is fine when the older
+    /// slot remains valid; a pair with no valid predecessor is not quietly
+    /// reset into a possible ordinal reuse.
+    pub fn reserve_announce_timebase(
+        &mut self,
+    ) -> Result<radio_hand::announce_reservation::ActiveLease, ReservationError> {
+        self.reserve_announce_timebase_with_lease(ANNOUNCE_TIMEBASE_LEASE)
+    }
+
+    /// Reserve an explicitly selected boot lease. The production boot uses
+    /// [`ANNOUNCE_TIMEBASE_LEASE`]; this form exists for board policy and
+    /// deterministic storage tests without weakening the write-before-use
+    /// boundary.
+    pub fn reserve_announce_timebase_with_lease(
+        &mut self,
+        lease: u64,
+    ) -> Result<radio_hand::announce_reservation::ActiveLease, ReservationError> {
+        use radio_hand::announce_reservation::{ReservationPlan, ReservationState};
+
+        let (page_a, page_b) = self.read_reservation_pages()?;
+        let both_blank =
+            page_a.iter().all(|byte| *byte == 0xFF) && page_b.iter().all(|byte| *byte == 0xFF);
+        let selection = store::select(&page_a, &page_b);
+        let prior = match selection.active {
+            Some((_, record)) => ReservationState::decode(Some(record.body))
+                .map_err(|_| ReservationError::Corrupt)?,
+            None if both_blank => ReservationState::uncommissioned(),
+            None => return Err(ReservationError::Corrupt),
+        };
+        let plan =
+            ReservationPlan::for_boot(prior, lease).map_err(|_| ReservationError::Exhausted)?;
+
+        self.persist_reservation(
+            selection.next,
+            selection.next_sequence,
+            &plan.encoded_body(),
+        )?;
+
+        // Re-read the winning pair, not merely the write buffer. This is the
+        // authorization boundary: until this exact body is authoritative in
+        // NVMC, there is no generator and therefore no native-node announce.
+        let (page_a, page_b) = self.read_reservation_pages()?;
+        let selection = store::select(&page_a, &page_b);
+        let body = selection
+            .active
+            .map(|(_, record)| record.body)
+            .ok_or(ReservationError::Verify)?;
+        plan.verify_body(Some(body))
+            .map_err(|_| ReservationError::Verify)
+    }
+
     /// Write new settings, keeping the identity that is already stored.
     ///
     /// Erase stalls the CPU for tens of milliseconds, blanking receive. Every caller must
@@ -211,6 +294,58 @@ impl<'d> SettingsStore<'d> {
         match store::decode(&check) {
             Ok(record) if record.sequence == sequence && record.body == &body[..body_len] => Ok(()),
             _ => Err(Error::Verify),
+        }
+    }
+
+    fn read_reservation_pages(
+        &mut self,
+    ) -> Result<
+        (
+            [u8; RESERVATION_SLOT_READ_LEN],
+            [u8; RESERVATION_SLOT_READ_LEN],
+        ),
+        ReservationError,
+    > {
+        let mut page_a = [0_u8; RESERVATION_SLOT_READ_LEN];
+        let mut page_b = [0_u8; RESERVATION_SLOT_READ_LEN];
+        if self.nvmc.read(RESERVATION_ORIGIN, &mut page_a).is_err()
+            || self
+                .nvmc
+                .read(RESERVATION_ORIGIN + PAGE_SIZE as u32, &mut page_b)
+                .is_err()
+        {
+            return Err(ReservationError::Read);
+        }
+        Ok((page_a, page_b))
+    }
+
+    fn persist_reservation(
+        &mut self,
+        slot: Slot,
+        sequence: u32,
+        body: &[u8; radio_hand::announce_reservation::BODY_LEN],
+    ) -> Result<(), ReservationError> {
+        let offset = match slot {
+            Slot::A => RESERVATION_ORIGIN,
+            Slot::B => RESERVATION_ORIGIN + PAGE_SIZE as u32,
+        };
+        let mut encoded = [0_u8; store::encoded_len(radio_hand::announce_reservation::BODY_LEN)];
+        let written =
+            store::encode(sequence, body, &mut encoded).map_err(|_| ReservationError::Write)?;
+        self.nvmc
+            .erase(offset, offset + PAGE_SIZE as u32)
+            .map_err(|_| ReservationError::Erase)?;
+        self.nvmc
+            .write(offset, &encoded[..written])
+            .map_err(|_| ReservationError::Write)?;
+
+        let mut check = [0_u8; RESERVATION_SLOT_READ_LEN];
+        self.nvmc
+            .read(offset, &mut check)
+            .map_err(|_| ReservationError::Verify)?;
+        match store::decode(&check) {
+            Ok(record) if record.sequence == sequence && record.body == body => Ok(()),
+            _ => Err(ReservationError::Verify),
         }
     }
 

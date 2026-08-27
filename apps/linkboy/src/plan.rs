@@ -5,7 +5,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::device::{BoardSelection, DeviceObservation, FirmwareState};
+use crate::device::{BoardSelection, DeviceObservation, FirmwareState, NativeNodeState};
 use crate::package::{
     BoardFamily, FirmwarePartKind, FlashPackage, FlashRange, FlashRoute, ProcessorKind,
     PublisherSignature, StateImpact,
@@ -295,6 +295,10 @@ pub enum RefusalReason {
     RecoveryMissing,
     #[error("helper {program} has no admitted release artifact for {platform}")]
     HelperPlatformUnsupported { program: String, platform: String },
+    #[error(
+        "running native-node state is durably guarded, but this package does not declare node-timebase-v1 support"
+    )]
+    PersistentStateCompatibilityRequired,
 }
 
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
@@ -362,6 +366,15 @@ pub fn plan_flash(
         }
         return Err(Refusal::new(refusals));
     };
+
+    if observation.native_node_state == NativeNodeState::Armed
+        && !manifest
+            .persistent_state
+            .as_ref()
+            .is_some_and(|state| state.supports_native_node_guard())
+    {
+        refusals.push(RefusalReason::PersistentStateCompatibilityRequired);
+    }
 
     let hardware = &observation.hardware;
     let running_identity_is_authoritative = matches!(
@@ -497,6 +510,35 @@ pub fn plan_flash(
             value: target.bootloader.clone(),
             source: fact_source.into(),
         },
+        CompatibilityFact {
+            name: "native-node persistent state".into(),
+            value: observation.native_node_state.describe().into(),
+            source: match observation.native_node_state {
+                NativeNodeState::Armed => "running status token state=node-timebase-v1",
+                NativeNodeState::Unarmed => "running status token state=node-unarmed",
+                NativeNodeState::Unknown => {
+                    "running status; absent or non-guard token remains non-authoritative"
+                }
+            }
+            .into(),
+        },
+        CompatibilityFact {
+            name: "package node-timebase support".into(),
+            value: manifest
+                .persistent_state
+                .as_ref()
+                .filter(|state| state.supports_native_node_guard())
+                .map(|state| {
+                    format!(
+                        "schema {}; preserves {:#x}..{:#x}",
+                        state.schema,
+                        state.preserved_range.start,
+                        state.preserved_range.end().unwrap_or(u32::MAX)
+                    )
+                })
+                .unwrap_or_else(|| "not declared".into()),
+            source: "package manifest".into(),
+        },
     ];
     Ok(FlashPlan {
         observation: observation.clone(),
@@ -553,8 +595,9 @@ mod tests {
     use super::*;
     use crate::device::{DeviceTransport, HardwareFacts};
     use crate::package::{
-        ExpectedApplication, FirmwarePartKind, FlashPackageManifest, PACKAGE_SCHEMA, PackagePart,
-        PackagePayload, PackageTarget, PayloadFormat, RecoveryInstructions,
+        ExpectedApplication, FirmwarePartKind, FlashPackageManifest, NODE_TIMEBASE_PRESERVED_RANGE,
+        PACKAGE_SCHEMA, PERSISTENT_STATE_SCHEMA, PackagePart, PackagePayload, PackageTarget,
+        PayloadFormat, PersistentStateCompatibility, RecoveryInstructions,
     };
 
     fn package() -> FlashPackage {
@@ -622,6 +665,7 @@ mod tests {
                 before_write: "Keep cable attached.".into(),
                 after_failure: "Use ROM entry.".into(),
             },
+            persistent_state: None,
         };
         FlashPackage::from_parts(manifest, "manifest", "payload", bytes).unwrap()
     }
@@ -664,10 +708,13 @@ mod tests {
                 start: 0x26000,
                 length: bytes.len() as u32,
             }],
-            preserved_ranges: vec![FlashRange {
-                start: 0x26000 + bytes.len() as u32,
-                length: 1,
-            }],
+            preserved_ranges: vec![
+                FlashRange {
+                    start: 0x26000 + bytes.len() as u32,
+                    length: 1,
+                },
+                NODE_TIMEBASE_PRESERVED_RANGE,
+            ],
             regions: vec!["US915".into()],
             channel_capabilities: vec!["modem".into(), "node".into(), "rnode".into()],
             state_impact: StateImpact::Preserved,
@@ -686,6 +733,11 @@ mod tests {
                 before_write: "Keep cable attached.".into(),
                 after_failure: "Use DFU entry.".into(),
             },
+            persistent_state: Some(PersistentStateCompatibility {
+                schema: PERSISTENT_STATE_SCHEMA,
+                native_node_guard: true,
+                preserved_range: NODE_TIMEBASE_PRESERVED_RANGE,
+            }),
         };
         FlashPackage::from_parts(manifest, "manifest", "payload", bytes).unwrap()
     }
@@ -774,6 +826,7 @@ mod tests {
                 before_write: "Keep cable attached.".into(),
                 after_failure: "Use ROM entry.".into(),
             },
+            persistent_state: None,
         };
         FlashPackage::from_verified_parts(
             manifest,
@@ -806,6 +859,7 @@ mod tests {
             },
             confidence: crate::device::EvidenceConfidence::OwnerConfirmed,
             contradictions: Vec::new(),
+            native_node_state: NativeNodeState::Unknown,
         }
     }
 
@@ -830,6 +884,55 @@ mod tests {
         assert_eq!(plan.state_impact(), &StateImpact::Preserved);
         assert!(plan.describe().contains("recovery before write"));
         assert!(plan.describe().contains(&platform));
+    }
+
+    #[test]
+    fn armed_native_node_refuses_a_package_without_guard_support() {
+        let mut observation = observation();
+        observation.native_node_state = NativeNodeState::Armed;
+        let refusal = plan_flash(&observation, &package())
+            .expect_err("an armed node cannot be replaced by a legacy package");
+        assert!(
+            refusal
+                .reasons
+                .contains(&RefusalReason::PersistentStateCompatibilityRequired)
+        );
+    }
+
+    #[test]
+    fn armed_native_node_accepts_a_package_that_preserves_the_guard_range() {
+        let mut observation = observation();
+        observation.selected_board =
+            Some(BoardSelection::owner_confirmed(BoardFamily::T114, "2.x"));
+        observation.firmware = FirmwareState::Retinue {
+            family: BoardFamily::T114,
+        };
+        observation.hardware = HardwareFacts {
+            processor: Some(ProcessorKind::Nrf52840),
+            flash_size: Some(1024 * 1024),
+            bootloader: Some("s140-v6".into()),
+            loader_route: Some("serial-dfu".into()),
+            bootloader_usb: None,
+        };
+        observation.native_node_state = NativeNodeState::Armed;
+        let plan = plan_flash(&observation, &t114_package())
+            .expect("the current T114 package carries the durable-state declaration");
+        assert!(
+            plan.compatibility()
+                .iter()
+                .any(|fact| fact.name == "package node-timebase support"
+                    && fact.value.contains("0xe8000..0xec000"))
+        );
+    }
+
+    #[test]
+    fn unarmed_and_unknown_states_keep_legacy_packages_eligible() {
+        for state in [NativeNodeState::Unknown, NativeNodeState::Unarmed] {
+            let mut observation = observation();
+            observation.native_node_state = state;
+            plan_flash(&observation, &package())
+                .expect("a non-armed observation does not assert durable-state continuity");
+        }
     }
 
     #[test]
@@ -877,6 +980,8 @@ mod tests {
         assert!(plan.compatibility().iter().all(|fact| {
             fact.name == "board family"
                 || fact.name == "board revision"
+                || fact.name == "native-node persistent state"
+                || fact.name == "package node-timebase support"
                 || fact.source == "running Retinue identity; checked against package"
         }));
     }
@@ -897,6 +1002,7 @@ mod tests {
             firmware: FirmwareState::Unknown,
             confidence: crate::device::EvidenceConfidence::OwnerConfirmed,
             contradictions: Vec::new(),
+            native_node_state: NativeNodeState::Unknown,
         };
         let plan = plan_flash(&observation, &t114_package())
             .expect("a captured loader record can support the owner-selected current T114");

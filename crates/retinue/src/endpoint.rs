@@ -26,14 +26,14 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::task::{Context, Poll};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, DuplexStream, ReadBuf};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{Mutex as AsyncMutex, mpsc, oneshot};
 
 use crate::address_book::AddressBook;
-use crate::announce::{self, Announce, AnnounceBlob, RAND_HASH_LEN};
+use crate::announce::{self, ANNOUNCE_NONCE_LEN, Announce, AnnounceBlob, TimebaseGenerator};
 use crate::announce_admission::{
     AnnounceAdmission, AnnounceIngressCounters, AnnounceIngressPolicy, DestinationVerdict,
     InterfaceVerdict,
@@ -1846,6 +1846,9 @@ struct Shared {
     address_book: Mutex<AddressBook>,
     links: Links,
     registered: Mutex<Vec<Registered>>,
+    /// Per-destination host announce ordinals. A destination needs its own strictly increasing
+    /// timebase, because it is the destination's signed blob that receivers retain.
+    announce_timebases: Mutex<HashMap<AddressHash, TimebaseGenerator>>,
     /// Every attached interface. Announces broadcast to all; link traffic targets one.
     interfaces: Mutex<Vec<Iface>>,
     /// The router's inbound channel: every interface's reader feeds `(interface, packet)`.
@@ -2260,18 +2263,52 @@ impl Shared {
     /// we do not own `target` — we hold no announce cache, so we cannot answer for others and
     /// stay silent rather than guess.
     fn path_response(&self, target: AddressHash) -> Option<Packet> {
+        self.path_response_at(target, host_announce_seconds())
+    }
+
+    /// The deterministic half of [`Self::path_response`]. Keeping the clock source at this
+    /// seam lets the production path and its boundary cases share the same blob minting rule.
+    fn path_response_at(&self, target: AddressHash, source_seconds: u64) -> Option<Packet> {
         let reg = self.registered.lock().unwrap();
         let r = reg.iter().find(|r| r.dest == target)?;
         let ratchet = r.ratchets.as_ref().and_then(RatchetStore::current_public);
-        let mut pkt = announce::build(
-            &self.identity,
-            r.name.name_hash(),
-            &rand_hash(),
-            ratchet.as_ref(),
-            &r.app_data,
-        );
+        let mut pkt =
+            self.build_announce_at(&r.name, ratchet.as_ref(), &r.app_data, source_seconds);
         pkt.context = crate::path::CTX_PATH_RESPONSE;
         Some(pkt)
+    }
+
+    /// Build one locally owned announce from a typed blob. The generator is keyed by the
+    /// derived destination rather than the endpoint identity, so two registered names do not
+    /// consume one another's ordinal space.
+    fn build_announce_at(
+        &self,
+        name: &DestinationName,
+        ratchet: Option<&[u8; crate::announce::RATCHET_LEN]>,
+        app_data: &[u8],
+        source_seconds: u64,
+    ) -> Packet {
+        let destination = name.destination_hash(self.identity.public());
+        let blob = self.next_announce_blob(destination, source_seconds);
+        announce::build(&self.identity, name.name_hash(), &blob, ratchet, app_data)
+    }
+
+    fn next_announce_blob(&self, destination: AddressHash, source_seconds: u64) -> AnnounceBlob {
+        let ordinal = self
+            .announce_timebases
+            .lock()
+            .unwrap()
+            .entry(destination)
+            .or_insert_with(|| {
+                TimebaseGenerator::host(0)
+                    .expect("the host announce timebase starts within its wire range")
+            })
+            .next(source_seconds)
+            .expect("host announce timebase is representable and not exhausted");
+        let mut nonce = [0_u8; ANNOUNCE_NONCE_LEN];
+        fill_random(&mut nonce);
+        AnnounceBlob::mint(nonce, ordinal)
+            .expect("TimebaseGenerator only returns timebases representable on the announce wire")
     }
 
     /// Record that `dest` is reachable via `iface` at `hops`.
@@ -2482,6 +2519,7 @@ impl Endpoint {
             address_book: Mutex::new(AddressBook::new()),
             links: Arc::new(Mutex::new(HashMap::new())),
             registered: Mutex::new(Vec::new()),
+            announce_timebases: Mutex::new(HashMap::new()),
             interfaces: Mutex::new(Vec::new()),
             router_tx,
             accepted_tx,
@@ -3155,6 +3193,19 @@ impl Endpoint {
 
     /// Emit an announce for a destination on every interface.
     pub fn announce(&self, name: &DestinationName, app_data: &[u8]) {
+        let pkt = self.build_announce_at(name, app_data, host_announce_seconds());
+        self.shared.broadcast(pkt);
+    }
+
+    /// The deterministic half of [`Self::announce`]. It is kept private because host callers
+    /// obtain wall-clock seconds here; firmware must supply its own reservation-backed
+    /// ordinal rather than inherit this unbounded host generator.
+    fn build_announce_at(
+        &self,
+        name: &DestinationName,
+        app_data: &[u8],
+        source_seconds: u64,
+    ) -> Packet {
         let dest = name.destination_hash(self.shared.identity.public());
         let ratchet = self
             .shared
@@ -3165,14 +3216,8 @@ impl Endpoint {
             .find(|registration| registration.dest == dest)
             .and_then(|registration| registration.ratchets.as_ref())
             .and_then(RatchetStore::current_public);
-        let pkt = announce::build(
-            &self.shared.identity,
-            name.name_hash(),
-            &rand_hash(),
-            ratchet.as_ref(),
-            app_data,
-        );
-        self.shared.broadcast(pkt);
+        self.shared
+            .build_announce_at(name, ratchet.as_ref(), app_data, source_seconds)
     }
 
     /// Encrypt and queue one link-less packet to a destination's advertised ratchet.
@@ -4816,11 +4861,15 @@ fn fill_random(buf: &mut [u8]) {
     getrandom::getrandom(buf).expect("OS CSPRNG unavailable");
 }
 
-/// A fresh 10-byte announce randomness value.
-fn rand_hash() -> [u8; RAND_HASH_LEN] {
-    let mut out = [0u8; RAND_HASH_LEN];
-    fill_random(&mut out);
-    out
+/// Whole seconds from the host clock for a local announce ordinal.
+///
+/// [`TimebaseGenerator`] prevents a backward or repeated source clock from reusing an ordinal.
+/// A host clock before the Unix epoch cannot supply the required non-negative wire value.
+fn host_announce_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("host clock is before the Unix epoch")
+        .as_secs()
 }
 
 /// A fresh 64-byte link ephemeral seed (`x25519_secret(32) || ed25519_seed(32)`), unique and
@@ -4853,17 +4902,76 @@ mod tests {
         let blob = AnnounceBlob::mint([nonce; crate::announce::ANNOUNCE_NONCE_LEN], timebase)
             .expect("test timebase fits");
         let name = DestinationName::new("retinue", [destination_name]);
-        let mut packet = announce::build(
-            peer,
-            name.name_hash(),
-            &blob.into_bytes(),
-            None,
-            b"freshness-test",
-        );
+        let mut packet = announce::build(peer, name.name_hash(), &blob, None, b"freshness-test");
         packet.context = context;
         packet.hops = hops;
         let decoded = Announce::decode(&packet).expect("locally built announce verifies");
         (packet, decoded)
+    }
+
+    fn emitted_timebase(packet: &Packet) -> u64 {
+        AnnounceBlob::from_wire(
+            Announce::decode(packet)
+                .expect("locally emitted announce verifies")
+                .rand_hash,
+        )
+        .timebase()
+    }
+
+    #[tokio::test]
+    async fn endpoint_announce_advances_within_one_source_second() {
+        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x90; 64]));
+        let name = DestinationName::new("retinue", ["endpoint-same-second"]);
+
+        let first = ep.build_announce_at(&name, b"cap", 4_000);
+        let second = ep.build_announce_at(&name, b"cap", 4_000);
+
+        assert_eq!(emitted_timebase(&first), 4_000);
+        assert_eq!(emitted_timebase(&second), 4_001);
+    }
+
+    #[tokio::test]
+    async fn endpoint_announce_ignores_a_backward_source_clock() {
+        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x91; 64]));
+        let name = DestinationName::new("retinue", ["endpoint-backward-clock"]);
+
+        let first = ep.build_announce_at(&name, b"cap", 9_000);
+        let second = ep.build_announce_at(&name, b"cap", 8_999);
+
+        assert_eq!(emitted_timebase(&first), 9_000);
+        assert_eq!(emitted_timebase(&second), 9_001);
+    }
+
+    #[tokio::test]
+    async fn endpoint_and_owned_path_response_keep_timebases_per_destination() {
+        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x92; 64]));
+        let first_name = DestinationName::new("retinue", ["endpoint-first"]);
+        let second_name = DestinationName::new("retinue", ["endpoint-second"]);
+        let second_destination = second_name.destination_hash(ep.identity());
+        ep.shared.registered.lock().unwrap().push(Registered {
+            dest: second_destination,
+            kind: RegistrationKind::BestEffort,
+            name: second_name.clone(),
+            app_data: b"path-cap".to_vec(),
+            ratchets: None,
+        });
+
+        let first = ep.build_announce_at(&first_name, b"first-cap", 700);
+        let path_response = ep
+            .shared
+            .path_response_at(second_destination, 700)
+            .expect("owned destination answers a path request");
+        let first_again = ep.build_announce_at(&first_name, b"first-cap", 700);
+        let path_response_again = ep
+            .shared
+            .path_response_at(second_destination, 700)
+            .expect("owned destination answers a second path request");
+
+        assert_eq!(emitted_timebase(&first), 700);
+        assert_eq!(emitted_timebase(&path_response), 700);
+        assert_eq!(emitted_timebase(&first_again), 701);
+        assert_eq!(emitted_timebase(&path_response_again), 701);
+        assert_eq!(path_response.context, crate::path::CTX_PATH_RESPONSE);
     }
 
     #[test]
@@ -5029,7 +5137,8 @@ mod tests {
         let interface = ep.attach_interface().id();
         let peer = PrivateIdentity::from_secret_bytes(&[0x14; 64]);
         let name = DestinationName::new("retinue", ["management-fact"]);
-        let mut packet = announce::build(&peer, name.name_hash(), &[0x22; 10], None, b"opaque");
+        let blob = AnnounceBlob::from_wire([0x22; 10]);
+        let mut packet = announce::build(&peer, name.name_hash(), &blob, None, b"opaque");
         packet.hops = 2;
         packet.header_type = crate::packet::HeaderType::Type2;
         packet.transport = Some(AddressHash::from_bytes([0x55; 16]));

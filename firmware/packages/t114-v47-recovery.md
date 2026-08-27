@@ -30,5 +30,6 @@ If the application does not return after a transfer:
    immutable-package or graphical installation receipt.
 
 The package writes the application range beginning at `0x26000`. The S140 bootloader and the
-declared preserved ranges are outside that write. Do not erase the whole device or choose a
-different board family when recovering.
+declared preserved ranges, including the native-node reservation at `0xE8000..0xEC000`, are
+outside that write. Do not erase the whole device or choose a different board family when
+recovering.

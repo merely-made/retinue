@@ -22,7 +22,7 @@ use embassy_time::{Duration, Instant};
 use lora_phy::DelayNs;
 use lora_phy::mod_traits::RadioKind;
 use radio_face::{EventKind, Text, UiEvent};
-use retinue::announce::RAND_HASH_LEN;
+use retinue::announce::{ANNOUNCE_NONCE_LEN, AnnounceBlob, RAND_HASH_LEN, TimebaseGenerator};
 use retinue::hash::AddressHash;
 use retinue::node::{Action, Actions, InterfaceId, Node};
 use retinue::packet::Packet;
@@ -81,6 +81,12 @@ pub struct NodeChannel<const PEERS: usize = 32, const ACTIONS: usize = 8, const 
     pub(super) unsent: u16,
     /// Announces skipped because the board could not produce entropy.
     unseeded: u16,
+    /// Announces denied because this boot's durable lease is spent. This is a
+    /// terminal condition until a reboot successfully reserves another lease;
+    /// it must never turn into an uptime or entropy fallback.
+    timebase_exhausted: u16,
+    /// The checked generator built only from an already verified durable lease.
+    timebase: TimebaseGenerator,
     /// Frames that arrived but did not decode as a packet. Ordinary weather on a shared
     /// band, where any Meshtastic or MeshCore traffic on the same sync word lands here.
     undecoded: u16,
@@ -104,14 +110,19 @@ pub struct NodeChannel<const PEERS: usize = 32, const ACTIONS: usize = 8, const 
 impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
     NodeChannel<PEERS, ACTIONS, LINKS>
 {
-    pub fn new(node: Node<PEERS, ACTIONS, LINKS>) -> Self {
-        Self {
+    pub fn new(
+        node: Node<PEERS, ACTIONS, LINKS>,
+        lease: crate::announce_reservation::ActiveLease,
+    ) -> Result<Self, retinue::announce::TimebaseError> {
+        Ok(Self {
             node,
             line: heapless::Vec::new(),
             line_lost: false,
             replay: None,
             unsent: 0,
             unseeded: 0,
+            timebase_exhausted: 0,
+            timebase: TimebaseGenerator::firmware_lease(lease.floor(), lease.reserved_through())?,
             undecoded: 0,
             echoes: 0,
             echo_refused: 0,
@@ -119,7 +130,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
             last_event: None,
             announce_retry_in: 0,
             announce_retry_wait: 0,
-        }
+        })
     }
 
     /// The node, for a host that wants to report on it. N6's panels read through here.
@@ -130,6 +141,36 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
     /// The board's clock, in the unit the node counts in.
     fn now() -> u64 {
         Instant::now().as_millis()
+    }
+
+    /// Mint one announce blob from the already durable lease.
+    ///
+    /// `now` schedules the node, but it is deliberately not the ordinal
+    /// source. A hardware uptime or future real clock would otherwise jump
+    /// through a whole lease without emits. The timebase is a logical sequence:
+    /// each attempted announce advances it exactly once.
+    fn next_announce_blob(
+        timebase: &mut TimebaseGenerator,
+        _scheduled_at: u64,
+        nonce: [u8; ANNOUNCE_NONCE_LEN],
+    ) -> Result<AnnounceBlob, retinue::announce::TimebaseError> {
+        let ordinal = timebase.next(0)?;
+        AnnounceBlob::mint(nonce, ordinal)
+    }
+
+    /// Only an announce the node has declared due may consume a lease ordinal.
+    /// Keeping this pure makes the difference between a timer wake and an
+    /// attempted send explicit, including the retry path.
+    fn announce_blob_if_due(
+        timebase: &mut TimebaseGenerator,
+        due: bool,
+        scheduled_at: u64,
+        nonce: [u8; ANNOUNCE_NONCE_LEN],
+    ) -> Result<Option<AnnounceBlob>, retinue::announce::TimebaseError> {
+        if !due {
+            return Ok(None);
+        }
+        Self::next_announce_blob(timebase, scheduled_at, nonce).map(Some)
     }
 
     /// Carry out what the node decided.
@@ -256,7 +297,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
                 "node tx={} rx={} peers={} links={} refusedlinks={} refusedpeers={} \
                  refusedoffers={} routes={} transport={} fwdannounce={} fwdpacket={} \
                  routeexpired={} routeevicted={} hopdrop={} noroute={} unsent={} unseeded={} \
-                 undecoded={} echoes={} echorefused={}\r\n",
+                 timebaseexhausted={} timebase={} undecoded={} echoes={} echorefused={}\r\n",
                 status.tx_frames,
                 status.rx_frames,
                 self.node.peers().len(),
@@ -274,6 +315,8 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
                 transport.unroutable_packets,
                 self.unsent,
                 self.unseeded,
+                self.timebase_exhausted,
+                self.timebase.reserved_through(),
                 self.undecoded,
                 self.echoes,
                 self.echo_refused,
@@ -336,11 +379,11 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
         Flow::Continue
     }
 
-    /// `replay poll <now> <hex-seed>` — advance the replay node's own timers.
+    /// `replay poll <now> <hex-blob>` — advance the replay node's own timers.
     ///
-    /// The seed comes from the host rather than the board's RNG, which is the only way the
-    /// announce it builds can be compared to anything. The protocol layer already refuses to
-    /// hold an RNG for exactly this reason; here that decision pays.
+    /// The exact typed blob comes from the host rather than this board's durable generator,
+    /// which keeps replay deterministic and prevents a test harness from consuming a live
+    /// ordinal lease.
     async fn on_replay_poll<L: HostLink>(&mut self, link: &mut L, rest: &[u8]) -> Flow {
         let Some((now, hex)) = split_once(rest, b' ') else {
             return Flow::from(link.write_all(b"replay malformed\r\n").await);
@@ -348,15 +391,16 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
         let Some(now) = parse_u64(now) else {
             return Flow::from(link.write_all(b"replay bad clock\r\n").await);
         };
-        let mut seed = [0_u8; RAND_HASH_LEN];
-        if replay::from_hex(hex, &mut seed) != Some(RAND_HASH_LEN) {
-            return Flow::from(link.write_all(b"replay bad seed\r\n").await);
+        let mut wire = [0_u8; RAND_HASH_LEN];
+        if replay::from_hex(hex, &mut wire) != Some(RAND_HASH_LEN) {
+            return Flow::from(link.write_all(b"replay bad blob\r\n").await);
         }
 
         let node = self
             .replay
             .get_or_insert_with(|| alloc::boxed::Box::new(replay::replay_node()));
-        let encoded = replay::encode_actions(&node.poll(now, RADIO, &seed));
+        let blob = AnnounceBlob::from_wire(wire);
+        let encoded = replay::encode_actions(&node.poll(now, RADIO, Some(&blob)));
         self.report_actions(link, &encoded).await
     }
 
@@ -453,8 +497,8 @@ where
         exec.request_rx();
         // The panels are live from the first moment of a session rather than a beat later.
         exec.publish_host(self.face_snapshot(Self::now()));
-        let mut line = [0_u8; 32];
-        let text = b"channel=node dest=";
+        let mut line = [0_u8; 64];
+        let text = b"channel=node state=node-timebase-v1 dest=";
         line[..text.len()].copy_from_slice(text);
         let mut at = text.len();
         for byte in &self.node.destination().as_slice()[..4] {
@@ -498,13 +542,6 @@ where
                 // snapshot's 15 s validity spans three beats of slack.
                 exec.publish_host(self.face_snapshot(Self::now()));
 
-                let mut rand_hash = [0_u8; RAND_HASH_LEN];
-                if exec.random(&mut rand_hash).is_err() {
-                    // No entropy, so no announce. The node's timer is untouched, so the next
-                    // beat tries again rather than the board going quiet forever.
-                    self.unseeded = self.unseeded.saturating_add(1);
-                    return Flow::Continue;
-                }
                 // A pending re-attempt comes due before the poll that would carry it.
                 if self.announce_retry_in > 0 {
                     self.announce_retry_in -= 1;
@@ -513,7 +550,29 @@ where
                     }
                 }
 
-                let actions = self.node.poll(Self::now(), RADIO, &rand_hash);
+                let now = Self::now();
+                let due = self.node.announce_due(now);
+                let blob = if due {
+                    let mut nonce = [0_u8; ANNOUNCE_NONCE_LEN];
+                    if exec.random(&mut nonce).is_err() {
+                        // No entropy, so no announce. The node's timer is untouched, so the
+                        // next beat tries again rather than the board going quiet forever.
+                        self.unseeded = self.unseeded.saturating_add(1);
+                        None
+                    } else {
+                        match Self::announce_blob_if_due(&mut self.timebase, due, now, nonce) {
+                            Ok(blob) => blob,
+                            Err(_) => {
+                                self.timebase_exhausted = self.timebase_exhausted.saturating_add(1);
+                                self.note_event(EventKind::Failed, "timebase exhausted");
+                                None
+                            }
+                        }
+                    }
+                } else {
+                    None
+                };
+                let actions = self.node.poll(now, RADIO, blob.as_ref());
                 let unsent_before = self.unsent;
                 let flow = self.perform(exec, link, actions).await;
 
@@ -571,5 +630,70 @@ fn hex_digit(nibble: u8) -> u8 {
     match nibble {
         0..=9 => b'0' + nibble,
         _ => b'a' + (nibble - 10),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn far_future_heartbeat_does_not_jump_the_logical_lease() {
+        // A node may be scheduled after any wall-clock or uptime value. Its
+        // announce ordinal stays a one-per-attempt sequence, leaving a 65,536
+        // entry boot lease useful for attempts rather than seconds of uptime.
+        let mut timebase =
+            TimebaseGenerator::firmware_lease(65_536, 131_072).expect("representable test lease");
+        let blob = NodeChannel::<32, 8, 4>::next_announce_blob(
+            &mut timebase,
+            u64::MAX,
+            [0xa5; ANNOUNCE_NONCE_LEN],
+        )
+        .expect("first attempted announce fits the lease");
+
+        assert_eq!(blob.timebase(), 65_537);
+        assert_eq!(timebase.last_emitted(), 65_537);
+    }
+
+    #[test]
+    fn non_due_beat_does_not_consume_an_ordinal() {
+        let mut timebase = TimebaseGenerator::firmware_lease(12, 20).unwrap();
+        let blob = NodeChannel::<32, 8, 4>::announce_blob_if_due(
+            &mut timebase,
+            false,
+            u64::MAX,
+            [0; ANNOUNCE_NONCE_LEN],
+        )
+        .expect("a non-due beat is valid");
+
+        assert_eq!(blob, None);
+        assert_eq!(timebase.last_emitted(), 12);
+    }
+
+    #[test]
+    fn retry_attempt_mints_a_distinct_next_ordinal() {
+        let mut timebase = TimebaseGenerator::firmware_lease(12, 20).unwrap();
+        let first = NodeChannel::<32, 8, 4>::announce_blob_if_due(
+            &mut timebase,
+            true,
+            5_000,
+            [1; ANNOUNCE_NONCE_LEN],
+        )
+        .unwrap()
+        .expect("due announce");
+        // This models `retry_announce`: it makes the node due again after a
+        // rejected transmit, and the retry must not reuse the first stamp.
+        let retry = NodeChannel::<32, 8, 4>::announce_blob_if_due(
+            &mut timebase,
+            true,
+            5_005,
+            [2; ANNOUNCE_NONCE_LEN],
+        )
+        .unwrap()
+        .expect("due retry");
+
+        assert_eq!(first.timebase(), 13);
+        assert_eq!(retry.timebase(), 14);
+        assert_ne!(first, retry);
     }
 }

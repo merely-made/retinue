@@ -47,7 +47,7 @@ pub use catalog::{
 };
 pub use device::{
     BoardSelection, BoardSelectionEvidence, BootloaderObservation, DeviceObservation,
-    DeviceTransport, HardwareFacts,
+    DeviceTransport, HardwareFacts, NativeNodeState,
 };
 pub use discovery::{
     DiscoveryError, T114LoaderSnapshot, is_first_flash, needs_esp_rom_probe, stock_device,
@@ -61,8 +61,9 @@ pub use flow::{FlowError, OwnerFlow, OwnerStage};
 pub use helper::verify_installed as verify_helper;
 pub use package::{
     BoardFamily, FirmwarePartKind, FlashPackage, FlashRange, FlashRoute, HelperArtifact,
-    HelperRequirement, PackagePart, ProcessorKind, PublisherSignature, PublisherSignatureFormat,
-    StateImpact, VerifiedPackagePart, helper_platform,
+    HelperRequirement, NODE_TIMEBASE_GUARD, NODE_TIMEBASE_PRESERVED_RANGE, PERSISTENT_STATE_SCHEMA,
+    PackagePart, PersistentStateCompatibility, ProcessorKind, PublisherSignature,
+    PublisherSignatureFormat, StateImpact, VerifiedPackagePart, helper_platform,
 };
 pub use plan::{FlashPlan, PackagePartIdentity, Refusal, RefusalReason, plan_flash};
 pub use receipt::{ApplicationVerification, FlashReceipt, ReceiptResult, ReceiptStage};

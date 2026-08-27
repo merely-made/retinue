@@ -1,7 +1,7 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
 
-use retinue::announce;
+use retinue::announce::{self, AnnounceBlob};
 use retinue::destination::DestinationName;
 use retinue::endpoint::Endpoint;
 use retinue::identity::PrivateIdentity;
@@ -33,7 +33,7 @@ async fn routing_verifies_ingress_and_reapplies_the_egress_ifac() {
     let announce = announce::build(
         &peer,
         name.name_hash(),
-        &[0x55; announce::RAND_HASH_LEN],
+        &AnnounceBlob::from_wire([0x55; announce::RAND_HASH_LEN]),
         None,
         b"private ingress",
     );
@@ -82,7 +82,7 @@ async fn tcp_interface_authenticates_both_directions() {
     let packet = announce::build(
         &identity,
         name.name_hash(),
-        &[0x19; announce::RAND_HASH_LEN],
+        &AnnounceBlob::from_wire([0x19; announce::RAND_HASH_LEN]),
         None,
         b"authenticated",
     );

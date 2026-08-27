@@ -384,6 +384,7 @@ mod tests {
             firmware: FirmwareState::Bootloader,
             confidence: EvidenceConfidence::OwnerConfirmed,
             contradictions: Vec::new(),
+            native_node_state: crate::device::NativeNodeState::Unknown,
         };
         assert!(is_first_flash(&observation));
     }

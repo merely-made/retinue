@@ -8,7 +8,7 @@
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use retinue::announce::{self, RAND_HASH_LEN};
+use retinue::announce::{self, AnnounceBlob, TimebaseGenerator};
 use retinue::destination::DestinationName;
 use retinue::identity::PrivateIdentity;
 use retinue::iface::tcp::{RecvError, TcpInterface, TcpInterfaceListener};
@@ -18,15 +18,13 @@ use retinue::packet::{Packet, PacketType};
 const IDENTITY_SEED: [u8; 64] = [0x11; 64];
 const EPHEMERAL_SEED: [u8; 64] = [0x77; 64];
 
-fn rand_hash() -> [u8; RAND_HASH_LEN] {
-    let n = SystemTime::now()
+fn announce_blob(generator: &mut TimebaseGenerator) -> AnnounceBlob {
+    let seconds = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
-        .as_nanos()
-        .to_le_bytes();
-    let mut o = [0u8; RAND_HASH_LEN];
-    o.copy_from_slice(&n[..RAND_HASH_LEN]);
-    o
+        .as_secs();
+    let ordinal = generator.next(seconds).expect("announce timebase");
+    AnnounceBlob::mint([0x11; 5], ordinal).expect("announce timebase fits")
 }
 
 fn iv(n: u8) -> [u8; 16] {
@@ -54,9 +52,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let identity = PrivateIdentity::from_secret_bytes(&IDENTITY_SEED);
     let name = DestinationName::new("retinue", ["reqresp"]);
     let our_dest = name.destination_hash(identity.public());
+    let mut timebase = TimebaseGenerator::host(0).expect("valid host timebase");
     send(
         &mut iface,
-        &announce::build(&identity, name.name_hash(), &rand_hash(), None, b"rr"),
+        &announce::build(
+            &identity,
+            name.name_hash(),
+            &announce_blob(&mut timebase),
+            None,
+            b"rr",
+        ),
     )
     .await;
     println!("SENT_ANNOUNCE {our_dest}");

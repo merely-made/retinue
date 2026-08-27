@@ -18,7 +18,7 @@
 use std::io::Write as _;
 use std::time::Duration;
 
-use retinue::announce::{self, RAND_HASH_LEN};
+use retinue::announce::{self, AnnounceBlob};
 use retinue::destination::DestinationName;
 use retinue::endpoint::{Endpoint, PeerAnnounce, ResourceTransferConfig};
 use retinue::identity::PrivateIdentity;
@@ -82,9 +82,9 @@ async fn flood_wave(
         seed[1..3].copy_from_slice(&ordinal.to_le_bytes());
         let identity = PrivateIdentity::from_secret_bytes(&seed);
         let name = DestinationName::new("retinue", ["floodpeer"]);
-        let mut rand_hash = [0_u8; RAND_HASH_LEN];
-        rand_hash[..4].copy_from_slice(&u32::from(ordinal).to_le_bytes());
-        let packet = announce::build(&identity, name.name_hash(), &rand_hash, None, &[]);
+        let blob = AnnounceBlob::mint([0xF0; 5], u64::from(ordinal) + 1)
+            .expect("flood ordinal fits announce timebase");
+        let packet = announce::build(&identity, name.name_hash(), &blob, None, &[]);
         radio.send_frame(packet.encode()).await?;
     }
     // This board is also the independent RF witness. The direct-PHY pump has kept receiving

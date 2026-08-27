@@ -30,6 +30,10 @@ use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
 use esp_hal::peripherals::{ADC1, FLASH, RNG};
 use esp_hal::rng::{Trng, TrngSource};
 use esp_storage::FlashStorage;
+use radio_hand::announce_reservation::{
+    ActiveLease, DecodeError as ReservationDecodeError, PlanError as ReservationPlanError,
+    ReservationPlan, ReservationState, VerifyBodyError,
+};
 use radio_hand::executive::{BoardStore, StoreFault};
 use radio_hand::settings::{self, Settings};
 use radio_hand::store::{self, HEADER_LEN, Slot, SlotError};
@@ -42,8 +46,16 @@ use radio_hand::store::{self, HEADER_LEN, Slot, SlotError};
 /// same way re-carving the T114's `memory.x` would.
 const STORE_ORIGIN: u32 = 0x3F_0000;
 
+/// The V4's independent announce-reservation pair.  It is deliberately after
+/// the settings pair: a reservation is disposable protocol state and must not
+/// be allowed to damage the identity record during recovery or downgrade.
+pub const ANNOUNCE_RESERVATION_ORIGIN: u32 = 0x3F_2000;
+
 /// The flash sector size the ESP32-S3 erases in.
 const SECTOR: u32 = 4096;
+
+const ANNOUNCE_RESERVATION_SLOT_READ_LEN: usize =
+    HEADER_LEN + radio_hand::announce_reservation::BODY_LEN + 16;
 
 /// Bytes read out of each slot: the header, the largest body this build writes, and room for
 /// a longer body a later firmware might have left.
@@ -70,6 +82,32 @@ pub enum Error {
     /// No true-random source, so no identity was generated. Refusing beats minting a
     /// predictable key.
     NoEntropy,
+}
+
+/// Why the independent announce-reservation pair cannot authorize a lease.
+///
+/// A pair with two erased outer records is a new, uncommissioned pair. A
+/// nonblank pair with no valid record is a fault. An invalid inactive slot is
+/// tolerated when the other slot remains valid, which preserves the last
+/// durable ceiling after a torn write. Settings and identity remain untouched
+/// in every error case.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReservationError {
+    Read,
+    Erase,
+    Write,
+    Verify,
+    CorruptSlot { slot: Slot, error: SlotError },
+    CorruptBody(ReservationDecodeError),
+    Plan(ReservationPlanError),
+    Readback(VerifyBodyError),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ReservationSnapshot {
+    state: ReservationState,
+    next: Slot,
+    next_sequence: u32,
 }
 
 /// The two flash sectors, and the entropy source that seeds an identity.
@@ -189,6 +227,222 @@ impl SettingsStore {
             Slot::A => STORE_ORIGIN,
             Slot::B => STORE_ORIGIN + SECTOR,
         }
+    }
+
+    /// Report the durable reservation state without changing flash.
+    ///
+    /// This is intentionally available on the V4 despite its lack of a native
+    /// Node personality. It gives a bench a way to inspect the independent
+    /// reservation pair before and after a power cut without claiming that the
+    /// modem emits Reticulum announces.
+    pub fn announce_reservation_state(&mut self) -> Result<ReservationState, ReservationError> {
+        Ok(self.read_reservation_snapshot()?.state)
+    }
+
+    /// Reserve an announce ordinal lease, verify the authoritative body, and
+    /// return the only value from which a firmware generator may be built.
+    ///
+    /// V4 currently does not construct such a generator. The modem-side probe
+    /// calls this immediately before reset so the flash erase/write remains
+    /// inside the existing quiet-write contract and can be power-cut tested.
+    pub fn reserve_announce_lease(&mut self, lease: u64) -> Result<ActiveLease, ReservationError> {
+        let snapshot = self.read_reservation_snapshot()?;
+        let plan =
+            ReservationPlan::for_boot(snapshot.state, lease).map_err(ReservationError::Plan)?;
+        let body = plan.encoded_body();
+        let slot = snapshot.next;
+        let sequence = snapshot.next_sequence;
+        let offset = self.reservation_offset(slot);
+
+        let mut encoded =
+            [0_u8; radio_hand::store::encoded_len(radio_hand::announce_reservation::BODY_LEN)];
+        let written = radio_hand::store::encode(sequence, &body, &mut encoded)
+            .map_err(|_| ReservationError::Write)?;
+        self.flash
+            .erase(offset, offset + SECTOR)
+            .map_err(|_| ReservationError::Erase)?;
+        self.flash
+            .write(offset, &encoded[..written])
+            .map_err(|_| ReservationError::Write)?;
+
+        let mut check = [0_u8; ANNOUNCE_RESERVATION_SLOT_READ_LEN];
+        self.flash
+            .read(offset, &mut check)
+            .map_err(|_| ReservationError::Verify)?;
+        let record = radio_hand::store::decode(&check)
+            .map_err(|error| ReservationError::CorruptSlot { slot, error })?;
+        if record.sequence != sequence || record.body != &body {
+            return Err(ReservationError::Verify);
+        }
+        plan.verify_body(Some(record.body))
+            .map_err(ReservationError::Readback)
+    }
+
+    fn read_reservation_snapshot(&mut self) -> Result<ReservationSnapshot, ReservationError> {
+        let mut a = [0_u8; ANNOUNCE_RESERVATION_SLOT_READ_LEN];
+        let mut b = [0_u8; ANNOUNCE_RESERVATION_SLOT_READ_LEN];
+        self.flash
+            .read(ANNOUNCE_RESERVATION_ORIGIN, &mut a)
+            .map_err(|_| ReservationError::Read)?;
+        self.flash
+            .read(ANNOUNCE_RESERVATION_ORIGIN + SECTOR, &mut b)
+            .map_err(|_| ReservationError::Read)?;
+
+        reservation_snapshot(&a, &b)
+    }
+
+    fn reservation_offset(&self, slot: Slot) -> u32 {
+        match slot {
+            Slot::A => ANNOUNCE_RESERVATION_ORIGIN,
+            Slot::B => ANNOUNCE_RESERVATION_ORIGIN + SECTOR,
+        }
+    }
+}
+
+/// Classify a reservation pair without touching board peripherals.
+///
+/// Keeping this transition pure makes the important distinction testable on a
+/// host: erased A+B means uncommissioned, while a nonblank pair with no valid
+/// slot is a corruption fault and never becomes a fresh reservation.
+fn reservation_snapshot(a: &[u8], b: &[u8]) -> Result<ReservationSnapshot, ReservationError> {
+    let decoded_a = radio_hand::store::decode(a);
+    let decoded_b = radio_hand::store::decode(b);
+    let selection = radio_hand::store::select(a, b);
+    let state = match selection.active {
+        // An intact record remains authoritative after a torn write to the
+        // other slot. This is the A/B contract: the invalid inactive slot is
+        // retried on the next reservation rather than discarding the last
+        // durable ceiling.
+        Some((_, record)) => {
+            ReservationState::decode(Some(record.body)).map_err(ReservationError::CorruptBody)?
+        }
+        None if slot_is_erased(a) && slot_is_erased(b) => ReservationState::uncommissioned(),
+        None => {
+            if let Some(error) = nonblank_slot_error(decoded_a, a) {
+                return Err(ReservationError::CorruptSlot {
+                    slot: Slot::A,
+                    error,
+                });
+            }
+            if let Some(error) = nonblank_slot_error(decoded_b, b) {
+                return Err(ReservationError::CorruptSlot {
+                    slot: Slot::B,
+                    error,
+                });
+            }
+            unreachable!("store::select has no active record only when both decode fail")
+        }
+    };
+    Ok(ReservationSnapshot {
+        state,
+        next: selection.next,
+        next_sequence: selection.next_sequence,
+    })
+}
+
+fn slot_is_erased(slot: &[u8]) -> bool {
+    slot.iter().all(|byte| *byte == 0xFF)
+}
+
+fn nonblank_slot_error(
+    decoded: Result<radio_hand::store::Record<'_>, SlotError>,
+    bytes: &[u8],
+) -> Option<SlotError> {
+    match decoded {
+        Ok(_) => None,
+        Err(SlotError::Blank) if slot_is_erased(bytes) => None,
+        Err(SlotError::Blank) => Some(SlotError::BadMagic),
+        Err(error) => Some(error),
+    }
+}
+
+#[cfg(test)]
+mod reservation_tests {
+    use super::*;
+
+    const SLOT_LEN: usize = ANNOUNCE_RESERVATION_SLOT_READ_LEN;
+
+    fn blank() -> [u8; SLOT_LEN] {
+        [0xFF; SLOT_LEN]
+    }
+
+    fn written(sequence: u32, body: &[u8]) -> [u8; SLOT_LEN] {
+        let mut slot = blank();
+        radio_hand::store::encode(sequence, body, &mut slot).expect("reservation fits");
+        slot
+    }
+
+    #[test]
+    fn only_two_erased_slots_are_uncommissioned() {
+        let snapshot = reservation_snapshot(&blank(), &blank()).expect("fresh pair");
+        assert_eq!(snapshot.state, ReservationState::Uncommissioned);
+        assert_eq!(snapshot.next, Slot::A);
+        assert_eq!(snapshot.next_sequence, 0);
+    }
+
+    #[test]
+    fn a_nonblank_corrupt_slot_is_not_a_fresh_pair() {
+        let mut corrupt = blank();
+        corrupt[0] = 0;
+        assert_eq!(
+            reservation_snapshot(&corrupt, &blank()),
+            Err(ReservationError::CorruptSlot {
+                slot: Slot::A,
+                error: SlotError::BadMagic,
+            })
+        );
+    }
+
+    #[test]
+    fn a_partially_erased_header_is_not_a_blank_slot() {
+        let mut partial = blank();
+        partial[HEADER_LEN] = 0;
+        assert_eq!(
+            reservation_snapshot(&partial, &blank()),
+            Err(ReservationError::CorruptSlot {
+                slot: Slot::A,
+                error: SlotError::BadMagic,
+            })
+        );
+    }
+
+    #[test]
+    fn valid_outer_record_decodes_the_authoritative_ceiling() {
+        let plan = ReservationPlan::with_default_lease(ReservationState::Uncommissioned).unwrap();
+        let a = written(7, &plan.encoded_body());
+        let snapshot = reservation_snapshot(&a, &blank()).expect("valid pair");
+        assert_eq!(
+            snapshot.state.through(),
+            Some(radio_hand::announce_reservation::DEFAULT_LEASE)
+        );
+        assert_eq!(snapshot.next, Slot::B);
+        assert_eq!(snapshot.next_sequence, 8);
+    }
+
+    #[test]
+    fn valid_outer_record_with_bad_body_is_corrupt() {
+        let a = written(0, &[0; radio_hand::announce_reservation::BODY_LEN]);
+        assert!(matches!(
+            reservation_snapshot(&a, &blank()),
+            Err(ReservationError::CorruptBody(
+                ReservationDecodeError::BadMagic
+            ))
+        ));
+    }
+
+    #[test]
+    fn a_torn_newer_slot_leaves_the_older_ceiling_authoritative() {
+        let plan = ReservationPlan::with_default_lease(ReservationState::Uncommissioned).unwrap();
+        let a = written(3, &plan.encoded_body());
+        let mut torn_b = written(4, &plan.encoded_body());
+        torn_b[HEADER_LEN + 1] ^= 1;
+        let snapshot = reservation_snapshot(&a, &torn_b).expect("older record survives");
+        assert_eq!(
+            snapshot.state.through(),
+            Some(radio_hand::announce_reservation::DEFAULT_LEASE)
+        );
+        assert_eq!(snapshot.next, Slot::B);
+        assert_eq!(snapshot.next_sequence, 4);
     }
 }
 

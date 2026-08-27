@@ -8,7 +8,7 @@
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use retinue::announce::{self, RAND_HASH_LEN};
+use retinue::announce::{self, AnnounceBlob, TimebaseGenerator};
 use retinue::destination::DestinationName;
 use retinue::identity::PrivateIdentity;
 use retinue::iface::tcp::{RecvError, TcpInterface, TcpInterfaceListener};
@@ -40,15 +40,13 @@ fn iv(n: u8) -> [u8; 16] {
     v[15] = n;
     v
 }
-fn rh() -> [u8; RAND_HASH_LEN] {
-    let n = SystemTime::now()
+fn next_blob(generator: &mut TimebaseGenerator) -> AnnounceBlob {
+    let seconds = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
-        .as_nanos()
-        .to_le_bytes();
-    let mut o = [0u8; RAND_HASH_LEN];
-    o.copy_from_slice(&n[..RAND_HASH_LEN]);
-    o
+        .as_secs();
+    let ordinal = generator.next(seconds).expect("announce timebase");
+    AnnounceBlob::mint([0x55; 5], ordinal).expect("announce timebase fits")
 }
 async fn send(iface: &mut TcpInterface, p: &Packet) {
     iface.send(p).await.expect("send");
@@ -81,13 +79,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let our_id = PrivateIdentity::from_secret_bytes(&OUR_SEED);
     let our_name = DestinationName::new("retinue", ["svc"]);
     let our_dest = our_name.destination_hash(our_id.public());
-    // Each announce gets a FRESH rand_hash. Byte-identical repeats are the one
-    // thing that cannot be used as evidence here: this repo has already observed
+    // Each announce gets a fresh typed blob. Byte-identical repeats are the one thing
+    // that cannot be used as evidence here: this repo has already observed
     // RNS suppressing repeats from a destination it already knows (see the small
     // plan's 2026-08-06 entry), and `interop_tcp.rs` says so outright. Every other
     // example that re-announces varies it; this one did not, which silently
     // confounded the conclusion that a dropped peer "stays dropped".
-    let fresh_announce = || announce::build(&our_id, our_name.name_hash(), &rh(), None, b"svc");
+    let mut timebase = TimebaseGenerator::host(0).expect("valid host timebase");
+    let mut fresh_announce = || {
+        let blob = next_blob(&mut timebase);
+        announce::build(&our_id, our_name.name_hash(), &blob, None, b"svc")
+    };
 
     // --- Direction 1: retinue -> RNS request.
     let peer = *PrivateIdentity::from_secret_bytes(&DEST_SEED).public();

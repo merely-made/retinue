@@ -76,6 +76,12 @@ adafruit-nrfutil dfu genpkg --dev-type 0x52 --application firmware/t114-phy/tull
 python path/to/uf2conv.py -c -b 0x26000 -f 0xADA52840 -o firmware/t114-phy/tulle-t114-phy-v15.uf2 firmware/t114-phy/tulle-t114-phy-v15.bin
 ```
 
+Native-node builds reserve 65,536 announce ordinals per boot by default. An owner building
+for a different reboot/erase-cadence tradeoff can set the decimal Cargo build environment
+variable `RETINUE_ANNOUNCE_LEASE_ORDINALS`; the build rejects zero and values outside the
+40-bit wire range. The selected lease is compiled into the board policy. Changing it does
+not alter the reservation record format.
+
 The Heltec bootloader's documented path is to double-press reset and copy the
 UF2 onto the `HT-n5262` drive. Serial DFU also accepts the ZIP. The application
 address is `0x26000` for the board's S140 v6 bootloader. The same SoftDevice

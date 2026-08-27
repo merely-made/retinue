@@ -8,6 +8,7 @@ channel_capabilities = ["modem", "node", "rnode"]
 state_impact = "preserved"
 license = "MPL-2.0"
 notices = "See apps/linkboy/NOTICES.md; Retinue workspace notices and the repository MPL-2.0 license apply."
+
 source_revision = "tulle-t114-phy package v47"
 source_url = "https://github.com/merely-made/retinue/tree/main/firmware/t114-phy"
 origin_url = "https://github.com/merely-made/retinue"
@@ -40,8 +41,8 @@ start = 0x26000
 length = 270818
 
 [[preserved_ranges]]
-start = 0xea000
-length = 0x2000
+start = 0xe8000
+length = 0x4000
 
 [[preserved_ranges]]
 start = 0xec000

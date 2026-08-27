@@ -6,7 +6,7 @@
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use retinue::announce::{self, RAND_HASH_LEN};
+use retinue::announce::{self, AnnounceBlob, TimebaseGenerator};
 use retinue::destination::DestinationName;
 use retinue::identity::PrivateIdentity;
 use retinue::iface::tcp::{RecvError, TcpInterface, TcpInterfaceListener};
@@ -16,15 +16,13 @@ use retinue::packet::{Packet, PacketType};
 const IDENTITY_SEED: [u8; 64] = [0x11; 64];
 const EPHEMERAL_SEED: [u8; 64] = [0x77; 64];
 
-fn rh() -> [u8; RAND_HASH_LEN] {
-    let n = SystemTime::now()
+fn next_blob(generator: &mut TimebaseGenerator) -> AnnounceBlob {
+    let seconds = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
-        .as_nanos()
-        .to_le_bytes();
-    let mut o = [0u8; RAND_HASH_LEN];
-    o.copy_from_slice(&n[..RAND_HASH_LEN]);
-    o
+        .as_secs();
+    let ordinal = generator.next(seconds).expect("announce timebase");
+    AnnounceBlob::mint([0x11; 5], ordinal).expect("announce timebase fits")
 }
 async fn send(iface: &mut TcpInterface, p: &Packet) {
     iface.send(p).await.expect("send");
@@ -39,9 +37,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let identity = PrivateIdentity::from_secret_bytes(&IDENTITY_SEED);
     let name = DestinationName::new("retinue", ["resource"]);
     let our_dest = name.destination_hash(identity.public());
+    let mut timebase = TimebaseGenerator::host(0).expect("valid host timebase");
     send(
         &mut iface,
-        &announce::build(&identity, name.name_hash(), &rh(), None, b"res"),
+        &announce::build(
+            &identity,
+            name.name_hash(),
+            &next_blob(&mut timebase),
+            None,
+            b"res",
+        ),
     )
     .await;
 
@@ -58,7 +63,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
         let packet = tokio::select! {
             _ = cadence.tick(), if link.is_none() => {
-                send(&mut iface, &announce::build(&identity, name.name_hash(), &rh(), None, b"res")).await;
+                let blob = next_blob(&mut timebase);
+                send(&mut iface, &announce::build(&identity, name.name_hash(), &blob, None, b"res")).await;
                 continue;
             }
             r = tokio::time::timeout(remaining, iface.recv()) => match r {

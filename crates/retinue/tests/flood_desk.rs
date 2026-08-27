@@ -6,7 +6,7 @@
 //! collapses into five distinct keys — so the "flood" was five peers refreshing, and the
 //! hardware that reported peers=5 was right while the harness was wrong.
 
-use retinue::announce::{self, RAND_HASH_LEN};
+use retinue::announce::{self, AnnounceBlob, RAND_HASH_LEN};
 use retinue::destination::DestinationName;
 use retinue::identity::PrivateIdentity;
 use retinue::node::Node;
@@ -31,7 +31,8 @@ fn a_flood_fills_the_book_to_its_cap_and_refusals_are_counted() {
         let name = DestinationName::new("retinue", ["floodpeer"]);
         let mut rand_hash = [0_u8; RAND_HASH_LEN];
         rand_hash[..4].copy_from_slice(&u32::from(index).to_le_bytes());
-        let packet = announce::build(&identity, name.name_hash(), &rand_hash, None, &[]);
+        let blob = AnnounceBlob::from_wire(rand_hash);
+        let packet = announce::build(&identity, name.name_hash(), &blob, None, &[]);
         let _ = node.ingest(0, &packet, 0);
     }
 

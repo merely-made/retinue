@@ -10,6 +10,7 @@ use embassy_futures::select::{Either, select};
 use lora_phy::mod_params::RadioError;
 use lora_phy::mod_traits::RadioKind;
 use lora_phy::{DelayNs, LoRa, RxMode};
+use radio_hand::announce_reservation::DEFAULT_LEASE;
 use radio_hand::channel::rnode::RNodeChannel;
 use radio_hand::channel::{Channel as _, ChannelInfo as _, Event};
 use radio_hand::executive::{Executive, Face, RadioState};
@@ -62,7 +63,68 @@ pub enum Outcome {
     Served,
 }
 
-/// Answer the probes both channels share: `status`, `sync`, `ui`, `region`, `channel`.
+fn timebase_reserve_lease(packet: &[u8]) -> Option<Result<u64, ()>> {
+    let line = packet
+        .strip_suffix(b"\r\n")
+        .or_else(|| packet.strip_suffix(b"\n"))?;
+    let argument = line.strip_prefix(b"timebase reserve")?;
+    if argument.is_empty() {
+        return Some(Ok(DEFAULT_LEASE));
+    }
+    let digits = argument.strip_prefix(b" ")?;
+    if digits.is_empty() {
+        return Some(Err(()));
+    }
+    let mut value = 0_u64;
+    for byte in digits {
+        if !byte.is_ascii_digit() {
+            return Some(Err(()));
+        }
+        let digit = u64::from(byte - b'0');
+        value = match value
+            .checked_mul(10)
+            .and_then(|value| value.checked_add(digit))
+        {
+            Some(value) => value,
+            None => return Some(Err(())),
+        };
+    }
+    Some(Ok(value))
+}
+
+fn timebase_probe(packet: &[u8]) -> Option<TimebaseProbe> {
+    let line = packet
+        .strip_suffix(b"\r\n")
+        .or_else(|| packet.strip_suffix(b"\n"))?;
+    if line == b"timebase" {
+        return Some(TimebaseProbe::Report);
+    }
+    timebase_reserve_lease(packet).map(|lease| TimebaseProbe::Reserve(lease))
+}
+
+enum TimebaseProbe {
+    Report,
+    Reserve(Result<u64, ()>),
+}
+
+fn decimal(mut value: u64, out: &mut [u8; 20]) -> usize {
+    let mut len = 0;
+    loop {
+        out[len] = b'0' + (value % 10) as u8;
+        len += 1;
+        value /= 10;
+        if value == 0 {
+            break;
+        }
+    }
+    out[..len].reverse();
+    len
+}
+
+/// Answer the probes both channels share: `status`, `sync`, `ui`, `region`, `channel`, and
+/// the V4's storage-only `timebase` report/reservation probe. The on-air successor gate remains
+/// open: this board still has no native Node channel, so a verified lease is an inspectable
+/// persistence artifact rather than permission for the modem to emit announces.
 ///
 /// `region` and `channel` persist and reset. The reply is a courtesy and the reboot is the
 /// contract, same as the T114: once the settings are committed the board must come back on
@@ -82,6 +144,56 @@ pub async fn probe<L: HostLink>(
     }
     if packet == b"sync\n" || packet == b"sync\r\n" {
         let _ = host.write_all(b"2b 24b4\r\n").await;
+        return Outcome::Served;
+    }
+    if let Some(wanted) = timebase_probe(packet) {
+        use core::fmt::Write as _;
+        let mut reply = radio_face::Text::<96>::empty();
+        match wanted {
+            TimebaseProbe::Report => match store.announce_reservation_state() {
+                Ok(state) => match state.through() {
+                    Some(through) => {
+                        let mut digits = [0_u8; 20];
+                        let len = decimal(through, &mut digits);
+                        let _ = write!(
+                            &mut reply,
+                            "timebase through={}\r\n",
+                            core::str::from_utf8(&digits[..len]).unwrap_or("?")
+                        );
+                    }
+                    None => {
+                        let _ = write!(&mut reply, "timebase uncommissioned\r\n");
+                    }
+                },
+                Err(_) => {
+                    let _ = write!(&mut reply, "timebase unavailable: reservation corrupt\r\n");
+                }
+            },
+            TimebaseProbe::Reserve(Err(())) => {
+                let _ = write!(&mut reply, "timebase reserve invalid lease\r\n");
+            }
+            TimebaseProbe::Reserve(Ok(lease)) => match store.reserve_announce_lease(lease) {
+                Ok(active) => {
+                    let mut floor = [0_u8; 20];
+                    let mut through = [0_u8; 20];
+                    let floor_len = decimal(active.floor(), &mut floor);
+                    let through_len = decimal(active.reserved_through(), &mut through);
+                    let _ = write!(
+                        &mut reply,
+                        "timebase reserved floor={} through={}; rebooting\r\n",
+                        core::str::from_utf8(&floor[..floor_len]).unwrap_or("?"),
+                        core::str::from_utf8(&through[..through_len]).unwrap_or("?"),
+                    );
+                    let _ = host.write_all(reply.as_str().as_bytes()).await;
+                    embassy_time::Timer::after_millis(250).await;
+                    esp_hal::system::software_reset();
+                }
+                Err(_) => {
+                    let _ = write!(&mut reply, "timebase reserve failed\r\n");
+                }
+            },
+        }
+        let _ = host.write_all(reply.as_str().as_bytes()).await;
         return Outcome::Served;
     }
     if packet == b"ui\n" || packet == b"ui\r\n" {
@@ -138,7 +250,9 @@ pub async fn probe<L: HostLink>(
             (_, ChannelProbe::Unavailable) => &b"channel node unavailable on this board\r\n"[..],
             (Some(current), ChannelProbe::Report) => match current.channel {
                 BootChannel::Modem => &b"channel=modem\r\n"[..],
-                BootChannel::Node => &b"channel=node\r\n"[..],
+                BootChannel::LegacyNode | BootChannel::Node => {
+                    &b"channel=node unavailable on this board\r\n"[..]
+                }
                 BootChannel::Rnode => &b"channel=rnode\r\n"[..],
             },
             (Some(current), ChannelProbe::Set(channel)) => {
@@ -302,5 +416,48 @@ where
                     .await;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn timebase_probe_defaults_to_the_shared_lease() {
+        assert!(matches!(
+            timebase_probe(b"timebase reserve\n"),
+            Some(TimebaseProbe::Reserve(Ok(DEFAULT_LEASE)))
+        ));
+    }
+
+    #[test]
+    fn timebase_probe_accepts_a_decimal_lease_and_rejects_bad_input() {
+        assert!(matches!(
+            timebase_probe(b"timebase reserve 123\r\n"),
+            Some(TimebaseProbe::Reserve(Ok(123)))
+        ));
+        assert!(matches!(
+            timebase_probe(b"timebase reserve nope\n"),
+            Some(TimebaseProbe::Reserve(Err(())))
+        ));
+        assert!(matches!(
+            timebase_probe(b"timebase reserve 123x\n"),
+            Some(TimebaseProbe::Reserve(Err(())))
+        ));
+        assert!(timebase_probe(b"timebase reserver\n").is_none());
+        assert!(matches!(
+            timebase_probe(b"timebase\n"),
+            Some(TimebaseProbe::Report)
+        ));
+    }
+
+    #[test]
+    fn decimal_is_small_and_deterministic() {
+        let mut out = [0_u8; 20];
+        let len = decimal(65_536, &mut out);
+        assert_eq!(&out[..len], b"65536");
+        let len = decimal(0, &mut out);
+        assert_eq!(&out[..len], b"0");
     }
 }

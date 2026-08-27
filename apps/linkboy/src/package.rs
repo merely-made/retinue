@@ -13,6 +13,15 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 pub const PACKAGE_SCHEMA: u32 = 2;
+/// Schema for the persistent native-node reservation record described by a package.
+pub const PERSISTENT_STATE_SCHEMA: u32 = 1;
+/// Concrete running-state token emitted after a board has verified its durable lease.
+pub const NODE_TIMEBASE_GUARD: &str = "node-timebase-v1";
+/// The T114 flash interval that a guarded native-node image must preserve.
+pub const NODE_TIMEBASE_PRESERVED_RANGE: FlashRange = FlashRange {
+    start: 0xe8000,
+    length: 0x4000,
+};
 const ESP_FLASH_SECTOR_SIZE: u32 = 0x1000;
 
 /// A carrier-board family, not a processor family.
@@ -296,6 +305,26 @@ pub struct RecoveryInstructions {
     pub after_failure: String,
 }
 
+/// Compatibility evidence for a firmware image that can safely continue a durable native-node
+/// announce sequence after a reset. An absent declaration means that the image makes no such
+/// claim. The declaration is intentionally small and additive so schema-2 manifests remain
+/// readable by older Linkboy builds.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PersistentStateCompatibility {
+    pub schema: u32,
+    pub native_node_guard: bool,
+    pub preserved_range: FlashRange,
+}
+
+impl PersistentStateCompatibility {
+    pub fn supports_native_node_guard(&self) -> bool {
+        self.schema == PERSISTENT_STATE_SCHEMA
+            && self.native_node_guard
+            && self.preserved_range == NODE_TIMEBASE_PRESERVED_RANGE
+    }
+}
+
 /// The strict on-disk shape. Unknown keys are rejected so a typo cannot silently weaken a plan.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -331,6 +360,10 @@ pub struct FlashPackageManifest {
     pub origin_url: String,
     pub publisher_signature: Option<PublisherSignature>,
     pub recovery: RecoveryInstructions,
+    /// Optional additive declaration. Foreign and legacy packages omit it and therefore never
+    /// accidentally claim support for the guarded Retinue native-node state.
+    #[serde(default)]
+    pub persistent_state: Option<PersistentStateCompatibility>,
 }
 
 impl FlashPackageManifest {
@@ -526,6 +559,7 @@ impl FlashPackage {
              \n  regions: {}\
              \n  channel capabilities: {}\
              \n  state impact: {}\
+             \n  persistent state: {}\
              \n  license: {}\
              \n  source: {} @ {}\
              \n  recovery: {}",
@@ -566,6 +600,18 @@ impl FlashPackage {
             self.manifest.regions.join(", "),
             self.manifest.channel_capabilities.join(", "),
             self.manifest.state_impact,
+            self.manifest
+                .persistent_state
+                .as_ref()
+                .map(|state| {
+                    format!(
+                        "schema {} native-node-guard={} preserved {}",
+                        state.schema,
+                        state.native_node_guard,
+                        ranges_description(std::slice::from_ref(&state.preserved_range))
+                    )
+                })
+                .unwrap_or_else(|| "not declared".into()),
             self.manifest.license,
             self.manifest.source_url,
             self.manifest.source_revision,
@@ -588,6 +634,28 @@ fn ranges_description(ranges: &[FlashRange]) -> String {
 fn validate_manifest(manifest: &FlashPackageManifest) -> Result<(), PackageError> {
     if manifest.schema != PACKAGE_SCHEMA {
         return Err(PackageError::UnsupportedSchema(manifest.schema));
+    }
+    if let Some(state) = &manifest.persistent_state {
+        if state.schema != PERSISTENT_STATE_SCHEMA {
+            return Err(PackageError::InvalidField(
+                "unsupported persistent state schema".to_string(),
+            ));
+        }
+        if state.native_node_guard && state.preserved_range != NODE_TIMEBASE_PRESERVED_RANGE {
+            return Err(PackageError::InvalidField(
+                "native-node guard must preserve the T114 reservation range".to_string(),
+            ));
+        }
+        if state.native_node_guard
+            && !manifest
+                .preserved_ranges
+                .iter()
+                .any(|range| fully_covers(range, &state.preserved_range))
+        {
+            return Err(PackageError::InvalidField(
+                "native-node guard range must be covered by preserved_ranges".to_string(),
+            ));
+        }
     }
     for (name, value) in [
         ("package_id", &manifest.package_id),
@@ -986,6 +1054,15 @@ fn has_overlap(ranges: &[FlashRange]) -> bool {
     })
 }
 
+fn fully_covers(container: &FlashRange, required: &FlashRange) -> bool {
+    match (container.end(), required.end()) {
+        (Some(container_end), Some(required_end)) => {
+            container.start <= required.start && container_end >= required_end
+        }
+        _ => false,
+    }
+}
+
 fn is_sha256(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
@@ -1092,6 +1169,7 @@ mod tests {
                 before_write: "Keep the cable connected.".into(),
                 after_failure: "Enter the ROM loader again.".into(),
             },
+            persistent_state: None,
         }
     }
 
@@ -1152,6 +1230,22 @@ mod tests {
             FlashPackage::from_parts(value, "manifest.toml", "payload.bin", b"payload".to_vec())
                 .expect_err("a write crossing a preserved range must be refused");
         assert!(matches!(error, PackageError::ProtectedRangeOverlap));
+    }
+
+    #[test]
+    fn native_node_guard_must_match_a_real_preserved_range() {
+        let mut value = manifest(b"payload");
+        value.persistent_state = Some(PersistentStateCompatibility {
+            schema: PERSISTENT_STATE_SCHEMA,
+            native_node_guard: true,
+            preserved_range: NODE_TIMEBASE_PRESERVED_RANGE,
+        });
+        let error =
+            FlashPackage::from_parts(value, "manifest.toml", "payload.bin", b"payload".to_vec())
+                .expect_err("a guard claim without a preserved range must be refused");
+        assert!(
+            matches!(error, PackageError::InvalidField(message) if message.contains("preserved_ranges"))
+        );
     }
 
     #[test]

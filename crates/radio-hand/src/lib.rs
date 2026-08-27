@@ -16,6 +16,7 @@
 //! crates, because the T114 reaches them through `embassy-nrf` and the V4 through `esp-hal`;
 //! only the byte formats and the decisions over them are portable.
 
+pub mod announce_reservation;
 pub mod board_status;
 #[cfg(feature = "radio")]
 pub mod channel;

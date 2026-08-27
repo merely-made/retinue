@@ -136,7 +136,7 @@ pub fn decode(slot: &[u8]) -> Result<Record<'_>, SlotError> {
     if slot.len() < HEADER_LEN {
         return Err(SlotError::Truncated);
     }
-    if slot[0..4] == [0xFF; 4] {
+    if slot.iter().all(|byte| *byte == 0xFF) {
         return Err(SlotError::Blank);
     }
     if slot[0..4] != MAGIC {
@@ -273,6 +273,20 @@ mod tests {
     #[test]
     fn erased_flash_is_blank_not_corrupt() {
         assert_eq!(decode(&blank()), Err(SlotError::Blank));
+    }
+
+    #[test]
+    fn erased_magic_with_programmed_body_is_corrupt() {
+        let mut page = blank();
+        page[HEADER_LEN] = 0x00;
+        assert_eq!(decode(&page), Err(SlotError::BadMagic));
+    }
+
+    #[test]
+    fn erased_magic_with_programmed_header_tail_is_corrupt() {
+        let mut page = blank();
+        page[HEADER_LEN - 1] = 0x00;
+        assert_eq!(decode(&page), Err(SlotError::BadMagic));
     }
 
     #[test]

@@ -11,7 +11,7 @@
 //! not about packets this workspace invented.
 
 use radio_hand::replay::{encode_actions, encode_nothing, replay_node, to_hex};
-use retinue::announce::RAND_HASH_LEN;
+use retinue::announce::{AnnounceBlob, RAND_HASH_LEN};
 use retinue::packet::Packet;
 
 /// The clock every replay runs at. Fixed, so neither side depends on when it ran.
@@ -95,7 +95,8 @@ fn the_corpus_produces_the_committed_actions() {
 #[test]
 fn a_first_poll_announces_reproducibly() {
     let mut node = replay_node::<32, 8, 4>();
-    let actions = node.poll(NOW, IFACE, &SEED);
+    let blob = AnnounceBlob::from_wire(SEED);
+    let actions = node.poll(NOW, IFACE, Some(&blob));
     assert_eq!(hex(&encode_actions(&actions)), POLL_ANNOUNCE);
 }
 

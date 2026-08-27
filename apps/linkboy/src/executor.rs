@@ -1142,6 +1142,7 @@ mod tests {
                 before_write: "Keep cable attached.".into(),
                 after_failure: "Use bootloader recovery.".into(),
             },
+            persistent_state: None,
         };
         let payload_path = match route {
             FlashRoute::Uf2MassStorage => "payload.uf2",
@@ -1252,6 +1253,7 @@ mod tests {
                 before_write: "Keep the cable attached.".into(),
                 after_failure: "Enter the ROM loader again.".into(),
             },
+            persistent_state: None,
         };
         FlashPackage::from_verified_parts(
             manifest,
@@ -1306,6 +1308,7 @@ mod tests {
                 },
                 confidence: EvidenceConfidence::OwnerConfirmed,
                 contradictions: Vec::new(),
+                native_node_state: crate::device::NativeNodeState::Unknown,
             },
             PackageIdentity {
                 package_id: "test".into(),
@@ -1354,6 +1357,7 @@ mod tests {
                 firmware: FirmwareState::Bootloader,
                 confidence: EvidenceConfidence::OwnerConfirmed,
                 contradictions: Vec::new(),
+                native_node_state: crate::device::NativeNodeState::Unknown,
             },
             PackageIdentity {
                 package_id: "test".into(),

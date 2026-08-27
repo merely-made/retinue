@@ -9,7 +9,7 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use retinue::address_book::AddressBook;
-use retinue::announce::{self, Announce, RAND_HASH_LEN};
+use retinue::announce::{self, Announce, AnnounceBlob, TimebaseGenerator};
 use retinue::destination::DestinationName;
 use retinue::identity::PrivateIdentity;
 use retinue::iface::tcp::{RecvError, TcpInterface, TcpInterfaceListener};
@@ -21,16 +21,13 @@ const OUR_SEED: [u8; 64] = [0x22; 64];
 /// The target's identity, known so retinue can compute its destination hash and ask for it.
 const TARGET_SEED: [u8; 64] = [0x44; 64];
 
-fn rand_hash(salt: u8) -> [u8; RAND_HASH_LEN] {
-    let n = SystemTime::now()
+fn next_blob(generator: &mut TimebaseGenerator, nonce: u8) -> AnnounceBlob {
+    let seconds = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
-        .as_nanos()
-        .to_le_bytes();
-    let mut o = [0u8; RAND_HASH_LEN];
-    o.copy_from_slice(&n[..RAND_HASH_LEN]);
-    o[0] ^= salt;
-    o
+        .as_secs();
+    let ordinal = generator.next(seconds).expect("announce timebase");
+    AnnounceBlob::mint([nonce; 5], ordinal).expect("announce timebase fits")
 }
 
 #[tokio::main]
@@ -42,6 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let our_id = PrivateIdentity::from_secret_bytes(&OUR_SEED);
     let our_name = DestinationName::new("retinue", ["r2"]);
+    let mut timebase = TimebaseGenerator::host(0).expect("valid host timebase");
 
     // The target we want a path to, computed from its known identity.
     let target_id = *PrivateIdentity::from_secret_bytes(&TARGET_SEED).public();
@@ -51,7 +49,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut book = AddressBook::new();
 
     // Announce ourselves up front so the transport node learns our path.
-    let ann = announce::build(&our_id, our_name.name_hash(), &rand_hash(0), None, b"r2");
+    let blob = next_blob(&mut timebase, 0);
+    let ann = announce::build(&our_id, our_name.name_hash(), &blob, None, b"r2");
     iface.send(&ann).await?;
     println!(
         "ANNOUNCED_SELF {}",
@@ -83,7 +82,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         tokio::select! {
             _ = cadence.tick() => {
-                let a = announce::build(&our_id, our_name.name_hash(), &rand_hash(1), None, b"r2");
+                let blob = next_blob(&mut timebase, 1);
+                let a = announce::build(&our_id, our_name.name_hash(), &blob, None, b"r2");
                 let _ = iface.send(&a).await;
                 re_announced = true;
                 println!("RE_ANNOUNCED");

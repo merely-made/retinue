@@ -327,16 +327,17 @@ impl Announce {
 
 /// Build a signed announce packet.
 ///
-/// `rand_hash` is supplied by the caller rather than generated here, which keeps this
-/// module free of any RNG and lets fixtures be reproduced byte for byte. The runtime layer
-/// is responsible for producing a fresh random one per announce.
+/// The typed blob is supplied by the caller rather than generated here, which keeps this
+/// module free of clocks and RNGs while preventing runtime emission from treating all ten
+/// bytes as entropy. Exact fixtures remain reproducible through [`AnnounceBlob::from_wire`].
 pub fn build(
     identity: &PrivateIdentity,
     name_hash: NameHash,
-    rand_hash: &[u8; RAND_HASH_LEN],
+    blob: &AnnounceBlob,
     ratchet: Option<&[u8; RATCHET_LEN]>,
     app_data: &[u8],
 ) -> Packet {
+    let rand_hash = blob.as_bytes();
     let public = identity.public().to_public_bytes();
     let destination = destination_hash(name_hash, identity.hash());
 

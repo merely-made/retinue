@@ -3,13 +3,15 @@
    and the MBR parameter page sit above 0xEC000, so the application region is
    0x26000..0xEC000. Writing outside that window destroys DFU.
 
-   The top two pages of the application region hold the radio-hand identity
-   store. FLASH is shortened by exactly those two pages so the linker can never
-   place code into them; build.rs asserts that FLASH ends where STORE begins,
-   which fails the build if one moves without the other. */
+   The top four pages of the application region are two independent A/B pairs:
+   the durable announce reservation at 0xE8000..0xEA000, then the identity
+   store at 0xEA000..0xEC000. FLASH is shortened by exactly those four pages so
+   the linker can never place code into either pair; build.rs asserts every
+   boundary, which fails the build if one moves without the other. */
 MEMORY
 {
-  FLASH : ORIGIN = 0x00026000, LENGTH = 0x000C4000
+  FLASH : ORIGIN = 0x00026000, LENGTH = 0x000C2000
+  RESERVATION : ORIGIN = 0x000E8000, LENGTH = 0x00002000
   STORE : ORIGIN = 0x000EA000, LENGTH = 0x00002000
   RAM   : ORIGIN = 0x20006000, LENGTH = 232K
 }
