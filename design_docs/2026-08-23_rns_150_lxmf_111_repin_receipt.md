@@ -4,6 +4,11 @@
 **Pins moved:** `rns==1.4.2` → `rns==1.5.0`; `lxmf==0.9.6` → `lxmf==1.1.1`
 **Verdict:** both landed. One outrider defect found and fixed; no upstream regression found.
 
+**Superseded for the current pin:** see the
+[RNS 1.5.2 re-pin receipt](2026-08-29_rns_152_repin_receipt.md). This body is preserved as
+the evidence available on 2026-08-23; upstream has since published a public 1.5.0 release
+page, so its contemporary “no release notes” claim is historical rather than current.
+
 ---
 
 ## What RNS 1.5.0 is, and how that was established without a changelog

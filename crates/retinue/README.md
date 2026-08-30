@@ -3,7 +3,7 @@
 An endpoint-scoped Rust implementation of the
 [Reticulum](https://reticulum.network/) protocol: identity, announces, links,
 resources, request/response, and a reliable byte stream, built for embedding as
-a library. Live-interoperable with RNS 1.5.0.
+a library. Live-interoperable with RNS 1.5.2.
 
 **Status: working, wire-verified, pre-1.0.** Not the reference implementation,
 and not yet hardened for adversarial deployment (see *Maturity* below). The plan
@@ -14,7 +14,7 @@ and wire notes live in [`design_docs/`](design_docs/).
 Every layer below is implemented and checked against a black-box RNS oracle
 (never read). The committed byte fixtures under [`tests/fixtures/`](tests/fixtures/)
 retain their observed RNS 1.3.8 provenance; the live mixed-runtime gates pass
-against the current RNS 1.5.0 pin:
+against the current RNS 1.5.2 pin:
 
 - **Wire vocabulary** — identities, hashes, destination naming, the packet
   codec, announces, identity and ratchet tokens, and caller-persisted receive
@@ -37,7 +37,7 @@ against the current RNS 1.5.0 pin:
 - **Interface access codes** — network-name/passphrase identity derivation,
   1–64-byte codes, outbound masking, and inbound verification at the carrier
   boundary. TCP, raw interfaces, routed egress, and Tulle share the same
-  sans-I/O codec. A pinned RNS 1.5.0 gate passes in both directions.
+  sans-I/O codec. A pinned RNS 1.5.2 gate passes in both directions.
 - **Transport-node routing** — opt-in (`enable_routing`). The default posture is
   endpoint-scoped — a retinue accompanies a peer — but a node can forward
   announces and link traffic between its interfaces when asked to.
@@ -45,7 +45,7 @@ against the current RNS 1.5.0 pin:
   ratchet from a validated announce; registered destinations receive against
   retained epochs, with explicit rotation and versioned caller-owned snapshots.
   Current and retained epochs pass endpoint tests, a transport hop, and stock
-  RNS 1.5.0 in both crypto directions.
+  RNS 1.5.2 in both crypto directions.
 
 ## Maturity
 

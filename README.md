@@ -23,8 +23,8 @@ but here's a generated overview.
   The T114 image gained a bounded transport profile for the channel-node
   role on 2026-08-12 (~275 KB flash); its on-metal RF receipt is still open.
 - On-air Reticulum-over-LoRa milestones landed July 2026; interop is
-  receipt-driven against reference Reticulum (RNS 1.5.0) and Prns.
-- Validation inventory: `python validation/run.py verify` (12 suites).
+  receipt-driven against reference Reticulum (RNS 1.5.2) and Prns.
+- Validation inventory: `python validation/run.py verify` (14 suites).
 
 Current plans live in `design_docs/`: close the on-metal receipts for the new
 T114 image, then build out the resident listener-executive boundary in which

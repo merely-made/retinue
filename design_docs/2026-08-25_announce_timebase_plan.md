@@ -1,11 +1,14 @@
 # Announce timebase plan
 
 **Date:** 2026-08-25
-**Status (2026-08-26):** in progress. Phases A, B, and C are implemented. Phase D's
-software slice now has separate A/B reservation stores on both boards, reservation-backed
-native-node emission on T114, and a guarded downgrade policy. Physical power-cut/on-air
-receipts, explicit rekey recovery, a rebuilt guard-aware firmware package, and the V4's
-separate native-node successor remain open.
+**Status (2026-08-29):** in progress. Phases A, B, and C are implemented. Phase A is
+re-receipted against RNS 1.5.2 after replacing P8's disconnected settle delay with a
+connected passive drain, adding cross-arm contamination checks, and waiting on live receiver
+acceptance before stage-one shutdown. The corrected 72-cell matrix and six-cell packet-loop
+diagnostic are green. Phase D's software slice has separate A/B reservation stores on both
+boards, reservation-backed native-node emission on T114, and a guarded downgrade policy.
+Physical power-cut/on-air receipts, explicit rekey recovery, a rebuilt guard-aware firmware
+package, and the V4's separate native-node successor remain open.
 **Owns:** the announce `rand_hash` field, receive-side announce freshness, and the
 firmware tier's durable monotonic timebase. The Peer lane owns black-box evidence, the Air
 lane owns protocol and firmware code, and Assurance owns any central validation or
@@ -13,7 +16,8 @@ provenance registry change. Evidence supplied by one lane does not close another
 gate.
 
 **Related authority:** [wire format reference](2026-07-13_rns_wire_format_reference.md)
-(needs the corrections in §6 below), [RNS 1.5.0 re-pin
+(needs the corrections in §6 below), [current RNS 1.5.2 re-pin
+receipt](2026-08-29_rns_152_repin_receipt.md), [historical RNS 1.5.0 re-pin
 receipt](2026-08-23_rns_150_lxmf_111_repin_receipt.md), [live-gate flake
 lane](2026-08-23_live_gate_flake_lane.md), [Prns harvest
 brief](2026-08-09_prns_harvest_brief.md), [work lanes](2026-08-09_retinue_work_lanes.md),
@@ -51,7 +55,7 @@ decision. This corrects the broader authority implied by earlier wording in this
 
 | phase | owner and write surface | target | done-conditions |
 | --- | --- | --- | --- |
-| **A. Black-box decisions** | Peer: `crates/retinue/oracle/` and captured local evidence | Run P1, P2, P3, and the receive matrix P8 against pinned stock RNS with persistent, per-destination state. | Exact RNS version, inputs, order, config lifetime, shared-global-state scope, and destination-table state are recorded. Poison cases use their own destination/config. No implementation source is read. |
+| **A. Black-box decisions** | Peer: `crates/retinue/oracle/` and captured local evidence | Run P1, P2, P3, and the receive matrix P8 against pinned stock RNS with persistent, per-destination state. | Exact RNS version, inputs, order, config lifetime, shared-global-state scope, and destination-table state are recorded. Poison cases use their own destination/config. Before a path-response measurement, seeded traffic is drained through a connected passive client until an observed quiet window, and every pre-request capture is checked against every seeded candidate across all arms. No implementation source is read. |
 | **B. Typed emission** | Air: `crates/retinue/src/announce.rs`, host emission, `Node` caller seam, examples and owner tests | Introduce the structured wire type; make host and board callers supply five nonce bytes plus a monotonic ordinal. | Byte-order KATs pass; deterministic injected-clock tests cover same-second emission, backward host-clock movement, and 40-bit exhaustion; no emission site fills bytes 5..10 with entropy. The already-dirty `reqresp_interop.rs` is coordinated rather than overwritten. |
 | **C. Receive freshness** | Air: shared bounded freshness model plus `Endpoint` and `Node` consumers | Apply the P8 acceptance matrix before every observable announce effect. | Host and `no_std` tests cover stale time, duplicate blob, changed context, better-hop copies, ratchet/app-data rollback, expiry, and bounded eviction. Retention scope is explicit; packet-loop dedup stays separate. |
 | **D. Durable firmware reservation** | Air, with board-specific storage adapters and a declared quiet-write seam | Persist a reservation before radio use, fail closed on storage fault/exhaustion, and preserve identity across upgrade. | Torn writes, corrupt timebase with valid identity, first upgrade, explicit rekey, and downgrade posture are tested. Both boards prove reservation recovery across a power cut. T114 then emits above every possibly transmitted pre-cut value, and stock RNS accepts it and completes a link. V4 on-air proof belongs to its native-node successor because V4 currently ships modem and RNode only. Flash cadence and receive blanking meet a stated bound. |
@@ -374,8 +378,9 @@ holding stale path-response entries at four hops that fresh one-hop announces co
 overwrite. reticulum-swift carries a comment from someone who hit the mirror failure:
 without a proper timestamp "the relay's deduplication logic will reject our announces".
 
-P8 now establishes the branches against stock RNS 1.5.0. “Worse” below means a larger
-calibrated hop count; the expired/worse result is not a typo.
+P8 established these branches against stock RNS 1.5.0 and revalidated them against RNS
+1.5.2. “Worse” below means a larger calibrated hop count; the expired/worse result is not
+a typo.
 
 | loaded route | candidate blob | timebase | hops | stock outcome |
 | --- | --- | --- | --- | --- |
@@ -511,9 +516,10 @@ was confirmed. It is the default instrument.
 P1 and P3 gate emission. P8 gates receive behavior. P2 measures remediation severity. P5
 belongs to the later wall-clock decision, not this implementation trunk.
 
-P8 is answered by the RNS 1.5.0 receipts in §11. The expired arm is a loaded-state
-perturbation with a byte-identical MessagePack round trip before changing selected expiry
-values; natural elapsed expiry remains a distinct lifecycle measurement.
+P8 is answered by the current RNS 1.5.2 and historical RNS 1.5.0 receipts in §11. The
+expired arm is a loaded-state perturbation with a byte-identical MessagePack round trip
+before changing selected expiry values; natural elapsed expiry remains a distinct lifecycle
+measurement.
 
 **Every stateful probe needs a persistent RNS config directory, and poison probes need
 isolated destinations/configs.** Every current gate uses
@@ -613,6 +619,27 @@ noise rather than a stronger boundary.
   better/equal/worse. The ignored receipt is
   `validation/results/route-freshness-same-blob-diagnostic-20260826T212136Z/result.json`,
   SHA-256 `7b9680456492d7577b78fdd5b0007ad17934ebb966b50eb5549c2f2b83c269fc`.
+- **2026-08-29, black-box RNS 1.5.2 P1/P2/P3 revalidation:** the persistent probe
+  reproduced the 1.5.0 decisions. P1 rejected equal timebase, P2 rejected `2` after a
+  `2^39` high-water announce, and P3 accepted `1` followed by `2^39`. The ignored receipt
+  is `validation/results/announce-timebase-20260830T024551Z/result.json`, SHA-256
+  `252c29b40dc4b972f1615935e434a8a1802cccf6f2db6ec641f4bae851b5fef0`.
+- **2026-08-29, RNS 1.5.2 P8 harness correction and receipt:** the first re-pin run found
+  path-response candidates before any request. Inspection showed the old 15-second settle
+  elapsed while terminal transports had no downstream connection, so it could not drain
+  egress. That run is setup evidence only. The corrected harness connects a passive drain
+  to every terminal until an observed quiet window and scans every arm for every seeded
+  candidate. The final full receipt has 72/72 valid rows, 72 signature-valid forwarded
+  frames, and zero conflicting-frame cells at
+  `validation/results/route-freshness-full-20260830T030952Z/result.json`, SHA-256
+  `14601b688fe72e1763e8d022915c468d1f9b164715bc47aee726050b905aaf39`.
+- **2026-08-29, RNS 1.5.2 packet-loop isolation:** stage-one shutdown now waits until the
+  live stock receiver has accepted every incumbent rather than sleeping after socket
+  delivery. With all six incumbent packet hashes then removed from the loaded loop window,
+  all six exact-same-blob rows remained valid and showed no admission or route transition.
+  The ignored receipt is
+  `validation/results/route-freshness-same-blob-diagnostic-20260830T030802Z/result.json`,
+  SHA-256 `d660ea18f6ce38d0029672d85829a257d25f53dd30ae2df9cec63fe2f6972550`.
 - **2026-08-25, live code:** host `PathEntry` and firmware `Route` retain no announce blob
   or timebase, so neither can implement freshness without a new bounded state model.
 - **2026-08-25, live code:** `announce_is_new`/`seen_transit` are relay-loop windows applied
@@ -685,3 +712,9 @@ noise rather than a stronger boundary.
   `radio-hand` suite passes 63 tests, its node-feature test target checks, and Linkboy passes
   84 tests. Hardware power-cut/on-air receipts, explicit rekey, the rebuilt package, and V4
   native-node work remain open and are not inferred from these software gates.
+- **2026-08-29:** Phase A was revalidated at the current RNS 1.5.2 pin. The P1/P2/P3
+  decisions are unchanged. P8's corrected connected-drain harness passed all 72 route rows,
+  and its receiver-event-gated packet-loop diagnostic passed all six exact-same-blob rows.
+  The first contaminated re-pin attempt carries no route-semantic claim. The current-pin
+  package, live-gate, Resource, Outrider, and peer evidence is collected in the
+  [RNS 1.5.2 re-pin receipt](2026-08-29_rns_152_repin_receipt.md).

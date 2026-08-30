@@ -6,7 +6,7 @@ revision-pinned survey, not a new delivery lane and not a gate receipt.
 **Related authority:** [mesh household](2026-07-20_mesh_household_tulle_tucket_sennet.md),
 [listener executive and protocol leases](2026-08-10_listener_executive_and_protocol_leases.md),
 [Prns harvest brief](2026-08-09_prns_harvest_brief.md), and
-[current RNS/LXMF re-pin receipt](2026-08-23_rns_150_lxmf_111_repin_receipt.md).
+[current RNS/LXMF re-pin receipt](2026-08-29_rns_152_repin_receipt.md).
 Those documents retain authority over landed architecture and gate status.
 
 **Coverage:** named projects, active public implementations found through the
@@ -88,15 +88,15 @@ inventories, but they are not donors.
 
 ## Reticulum implementations
 
-Retinue is already at RNS 1.5.0. The current local H8 receipt runs the pinned
+Retinue is already at RNS 1.5.2. The current local H8 receipt runs the pinned
 Prns 0.3.4 peer at `72b6b30d27cac910ce20d370e1dc711fe9b95955`
-against Retinue and stock RNS 1.5.0, with seven full runs and 35/35 matrix
-checks passing. Upstream Prns has since moved, so its newer revision is a new
-pin rather than an automatic upgrade.
+against Retinue and stock RNS 1.5.2, with three full runs and 15/15 case checks
+passing. Upstream Prns has since moved, so its newer revision is a new pin rather
+than an automatic upgrade.
 
 | Implementation | Survey pin and licence | Useful surface | Retinue posture |
 | --- | --- | --- | --- |
-| [Prns 0.3.7](https://github.com/KenAKAFrosty/Prns/tree/7b40d7dff1c7b95cee87c38a713719f086f8b4a7) | `7b40d7d`, MIT OR Apache-2.0 | Ground-up Rust; `no_std` fixed-capacity core; host-owned entropy, persistence and interfaces; Tokio and Embassy runtimes; TCP, serial/KISS/RNode, WebSocket, I2P, LoRa, USB and Bluetooth work | **Clean donor and independent peer.** Keep the receipted 0.3.4 pin until 0.3.7 has its own donor diff and peer receipt. Its stated RNS target remains 1.4.2, so exercise every claimed seam against Retinue's 1.5.0 baseline. |
+| [Prns 0.3.7](https://github.com/KenAKAFrosty/Prns/tree/7b40d7dff1c7b95cee87c38a713719f086f8b4a7) | `7b40d7d`, MIT OR Apache-2.0 | Ground-up Rust; `no_std` fixed-capacity core; host-owned entropy, persistence and interfaces; Tokio and Embassy runtimes; TCP, serial/KISS/RNode, WebSocket, I2P, LoRa, USB and Bluetooth work | **Clean donor and independent peer.** Keep the receipted 0.3.4 pin until 0.3.7 has its own donor diff and peer receipt. Its stated RNS target remains 1.4.2, so exercise every claimed seam against Retinue's 1.5.2 baseline. |
 | [Quad4 Reticulum-Go 1.0.2](https://github.com/Quad4-Software/Reticulum-Go/tree/2a114d0099bfc6e7daa0784c2da0e129efea6885) | `2a114d0`, Apache-2.0 | Host stack with transport, links, resources, channels and buffers; bounded ingress workers | **Executable peer only.** Its cross-reference tests clone the restricted reference. RNode, KISS, AX.25-KISS and Weave are absent. |
 | [thatSFguy reticulum-go 0.1.1](https://github.com/thatSFguy/reticulum-go/tree/770c570d908e826da06cb6f21944411128f30c47) | `770c570`, MIT | Go RNS plus partial LXMF; TCP/HDLC, links, announces, proofs, opportunistic/direct messages and propagation submission | **Peer only, provenance unresolved.** Transit routing and multi-segment Resource remain incomplete. Its selected specification repository is CC-BY-4.0, outside this survey's readable set. |
 | [Beechat Reticulum-rs 0.1.0](https://github.com/BeechatNetworkSystemsLtd/Reticulum-rs/tree/151e3b6c77a8c7d33fafa3971a084ae02510ef39) | `151e3b6`, MIT | Rust core with TCP/UDP/HDLC, paths, links and channels | **Source-derived peer.** It identifies itself as a Rust port. Several advertised daemon interfaces are not implemented, and the core still requires allocation. |

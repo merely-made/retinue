@@ -45,9 +45,9 @@ their gate. `UNKNOWN` means no document states a status — it does not mean ope
 
 | Gate | Status | Where |
 | --- | --- | --- |
-| H8 | **Closed**, local-TCP scope only | [2026-08-11 receipt](2026-08-11_prns_peer_matrix_receipt.md), re-receipted at RNS 1.5.0 in [2026-08-23](2026-08-23_prns_peer_matrix_rns150_receipt.md) |
+| H8 | **Closed**, local-TCP scope only | [2026-08-11 receipt](2026-08-11_prns_peer_matrix_receipt.md), re-receipted at RNS 1.5.0 in [2026-08-23](2026-08-23_prns_peer_matrix_rns150_receipt.md), and at RNS 1.5.2 in the [current re-pin receipt](2026-08-29_rns_152_repin_receipt.md) |
 | H1–H7, H9, H10 | UNKNOWN — catalogue entries, no status stated | [Prns harvest brief](2026-08-09_prns_harvest_brief.md) |
-| O-10 | **Partial** — local TCP resolved; RF forwarding receipt still owed | Both peer-matrix receipts |
+| O-10 | **Partial** — local TCP resolved; RF forwarding receipt still owed | The three current and historical peer receipts |
 
 ### Air lane — radio, firmware, scaling
 
@@ -220,13 +220,14 @@ supplying data-graph and identity crates.
 | Document | What it is |
 | --- | --- |
 | [Retinue v0 plan](2026-07-06_retinue_v0_plan.md) | Historical protocol ledger. R0–R10 all closed. Its "next actions" block is not a queue. |
-| [RNS wire format reference](2026-07-13_rns_wire_format_reference.md) | Wire reference, byte-fixture corpus, pinned at RNS 1.3.8. |
+| [RNS wire format reference](2026-07-13_rns_wire_format_reference.md) | Wire reference. Historical byte-fixture corpus is pinned at RNS 1.3.8; current announce and route probes use RNS 1.5.2. |
 | [Announce timebase plan](2026-08-25_announce_timebase_plan.md) | Active phased plan for the 5+5 announce blob, persistent stock-RNS decision probes, bounded receive freshness, and crash-monotonic firmware reservations. |
-| [Re-pin receipt, RNS 1.5.0 / LXMF 1.1.1](2026-08-23_rns_150_lxmf_111_repin_receipt.md) | Current oracle pin. Records the flake finding and one outrider defect fixed. |
+| [Re-pin receipt, RNS 1.5.2 / LXMF 1.1.1](2026-08-29_rns_152_repin_receipt.md) | Current oracle pin. Records the upstream maintenance delta, narrower fixture boundary, Resource stress, Outrider gates, route-freshness probes, and H8 peer matrix. |
+| [Historical re-pin receipt, RNS 1.5.0 / LXMF 1.1.1](2026-08-23_rns_150_lxmf_111_repin_receipt.md) | Superseded pin receipt. Records the earlier flake finding and one Outrider defect fixed. |
 | [Permissive radio protocol compatibility survey](2026-08-25_permissive_radio_protocol_compatibility_survey.md) | Revision-pinned Reticulum, MeshChat, MeshCore and adjacent LoRa survey; separates donors, executable peers, radio adapters, bearers and semantic bridges. Opens no gates. |
 | [Compact signed feed and local control plan](2026-08-25_compact_signed_feed_and_local_control_plan.md) | Active cross-repository plan: exact allocation-free tinySSB core first; Mere foreign-source probe, ULCP extraction, Noise attach and radio personality behind explicit gates. |
 | [Peer matrix receipt](2026-08-11_prns_peer_matrix_receipt.md) | H8 three-corner interop at RNS 1.4.2. |
-| [Peer matrix at RNS 1.5.0](2026-08-23_prns_peer_matrix_rns150_receipt.md) | H8 re-receipted. Seven runs, 35/35. Establishes that capture byte counts are not constants. |
+| [Peer matrix at RNS 1.5.0](2026-08-23_prns_peer_matrix_rns150_receipt.md) | Historical H8 re-receipt. Seven runs, 35/35. Establishes that capture byte counts are not constants. Current H8 evidence is in the RNS 1.5.2 re-pin receipt. |
 | [Live-gate flake lane](2026-08-23_live_gate_flake_lane.md) | FLK1–FLK5. Per-gate rates, mechanisms, and what a suite run may prove. |
 | [IFAC interop](2026-07-28_ifac_interop.md) | R8 complete. |
 | [Ratchet / stamp cost and roles](2026-08-07_stamp_cost_and_roles.md) | Stamp cost measurements from T114 receipts. |
@@ -421,7 +422,7 @@ dependency move.
   `critical-section` feature-unification clash between firmware and host crates.
   *Reported, not verified here.*
 - The oracle's live gates need its virtualenv at `crates/retinue/oracle/.venv`,
-  pinned by `requirements.txt` (`rns==1.5.0`, `lxmf==1.1.1`).
+  pinned by `requirements.txt` (`rns==1.5.2`, `lxmf==1.1.1`).
 - **The Prns peer daemon must be built from inside its own worktree.** Cargo
   resolves `.cargo/config.toml` from the working directory, and Prns pins a
   256 MiB Windows stack there. Built from anywhere else the daemon overflows a

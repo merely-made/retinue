@@ -1,4 +1,4 @@
-"""Prove stock LXMF 0.9.6 submits to and fetches from Outrider's server."""
+"""Prove pinned stock LXMF submits to and fetches from Outrider's server."""
 
 from __future__ import annotations
 

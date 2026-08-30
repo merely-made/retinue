@@ -38,23 +38,30 @@ py -m venv .venv
 ./.venv/Scripts/python.exe -m pip install -r requirements.txt
 ```
 
-`requirements.txt` pins `rns==1.5.0`, Retinue's current compatibility target, and
-`lxmf==1.1.1`, which the Outrider oracle drives. Re-pin
-deliberately, not on every upstream release.
+`requirements.txt` pins `rns==1.5.2`, Retinue's current compatibility target, and
+`lxmf==1.1.1`, which the Outrider oracle drives. Re-pin deliberately, not on every upstream
+release.
 
-Re-pinned 2026-08-23 from `rns==1.4.2` / `lxmf==0.9.6`. Eighteen of eighteen deterministic
-fixtures re-captured byte-identical on RNS 1.5.0, and the live gates passed twelve of twelve
-on a single suite run. **The fixture result is what carries the claim; the gate count is
-quoted beside it rather than on its own**, because these gates flake at a rate this
-repository has not yet bounded — see the flake note further down and
-[the live-gate flake lane](../../../design_docs/2026-08-23_live_gate_flake_lane.md).
-Deterministic fixtures do not flake, so eighteen of eighteen means what it says. On that
-evidence the wire has not moved across 1.3.8 → 1.4.2 → 1.5.0; the only difference in a
-re-captured fixture is the `rns_version` string each manifest records. 1.5.0 ships no changelog
-anywhere public, so what it changes was established from package metadata and runtime
-constants: it is an ingress-scheduling release (traffic classes, bounded per-class inbound
-queues, path-request suppression tightened) that also added per-interface protocol- and
-IFAC-violation accounting. Nothing in it touches a header, flag, or size constant.
+Re-pinned 2026-08-29 from RNS 1.5.0 to 1.5.2 while holding LXMF at 1.1.1. One complete
+stock-RNS live suite passed 12/12; four Resource-sensitive gates passed 12/12 across three
+interleaved rounds; seven Outrider gates passed; the announce-timebase probe reproduced
+P1/P2/P3; the corrected route probe passed 72/72 full cells and 6/6 packet-loop-isolated
+same-blob cells; and the pinned-Prns H8 matrix passed 15/15 case executions across three
+runs. The deterministic `ifac_packet.bin` was byte-identical between fresh 1.5.0 and 1.5.2
+captures, and eight JSON records differed only in recorded version metadata after
+normalisation. Other captures carry fresh entropy or require attached RNodes, so this is
+deliberately narrower than the old 18/18 byte-identity claim. Queue saturation, I2P,
+interface-discovery metadata, and physical RNode capture remain outside the measured scope.
+See the [current re-pin receipt](../../../design_docs/2026-08-29_rns_152_repin_receipt.md).
+
+The historical 2026-08-23 re-pin moved from `rns==1.4.2` / `lxmf==0.9.6` to RNS 1.5.0 /
+LXMF 1.1.1. Eighteen deterministic fixtures re-captured byte-identically and one live suite
+passed 12/12. The fixture result carried that claim because these live gates flake at a rate
+this repository has not bounded; see the
+[live-gate flake lane](../../../design_docs/2026-08-23_live_gate_flake_lane.md). The old
+receipt reconstructed the release from package metadata and runtime constants because a
+public release page was unavailable during that work. Upstream has since published one, so
+the old document's “no public release notes” sentence is historical rather than current.
 
 LXMF 1.1.1 did move a wire shape: the delivery announce grew a third element, a
 supported-features array. Outrider refused it and had to be fixed; see
@@ -167,9 +174,9 @@ streams under `validation/results/` with SHA-256 digests.
 
 The matrix covers:
 
-- Retinue ↔ stock RNS 1.5.0, as the control pairing;
+- Retinue ↔ stock RNS 1.5.2, as the control pairing;
 - Retinue ↔ Prns at the pinned H8 commit;
-- Prns ↔ stock RNS 1.5.0; and
+- Prns ↔ stock RNS 1.5.2; and
 - stock RNS and Prns transport forwarding, independently, so O-10 compares
   their forwarded hop byte rather than relying on donor-source interpretation.
 
@@ -210,8 +217,8 @@ ports, raw captures, and exact clean-commit state.
 
 | file | what |
 | --- | --- |
-| `requirements.txt` | the current live-oracle pin: `rns==1.5.0`, `lxmf==1.1.1` |
-| `run_live.py` | the complete eleven-gate mixed-runtime matrix |
+| `requirements.txt` | the current live-oracle pin: `rns==1.5.2`, `lxmf==1.1.1` |
+| `run_live.py` | the complete twelve-gate mixed-runtime matrix |
 | `flake_census.py` | census one gate by failure **mode**, not rate; see below |
 | `capture.py` | R0 fixtures: identity vector, announces, negatives, a token |
 | `capture_tcp.py` | R1 fixtures: the raw TCP stream, and the framing rules |
@@ -272,7 +279,7 @@ Exemplar logs land in `census/`, which is not committed.
 
 ## Announce timebase probe
 
-`probe_announce_timebase.py` is a clean-room, black-box RNS 1.5.0 probe for
+`probe_announce_timebase.py` is a clean-room, black-box probe at the current RNS 1.5.2 pin for
 the P1/P2/P3 matrix. It creates each signed packet in a sender child, injects
 it into a fresh receiver child, and reuses the receiver's persistent config
 between cases. The post-shutdown `storage/destination_table` is authoritative;
@@ -283,12 +290,14 @@ measurement. Run it from this directory:
 .\.venv\Scripts\python.exe -u probe_announce_timebase.py
 ```
 
-The local, ignored 2026-08-25 RNS 1.5.0 receipt is under the repository root at
-`validation/results/announce-timebase-final2/result.json`, SHA-256
-`639dda1d1d4f8ef9128a6a4f4ceeda00444524a62c1da234c7c167d5a6ab1ac1`. P1 rejected a
+The current local, ignored receipt is
+`validation/results/announce-timebase-20260830T024551Z/result.json`, SHA-256
+`252c29b40dc4b972f1615935e434a8a1802cccf6f2db6ec641f4bae851b5fef0`. P1 rejected a
 fresh nonce with an equal timebase at the same one-hop route, P2 rejected timebase `2`
 after accepting `2^39`, and P3 accepted both `1` and `2^39`. All first sightings persisted
-with valid packets.
+with valid packets. The historical RNS 1.5.0 receipt is
+`validation/results/announce-timebase-final2/result.json`, SHA-256
+`639dda1d1d4f8ef9128a6a4f4ceeda00444524a62c1da234c7c167d5a6ab1ac1`.
 
 ## Route/freshness probe
 
@@ -299,7 +308,10 @@ frames at a persistent receiver, and treats the receiver's post-shutdown
 two, three, and four transport hops against a three-hop incumbent. Path-response rows are
 seeded while the receiver is disconnected and then requested with public
 `RNS.Transport.request_path`; context `0x0b` is never synthesised.
-Each cell has a distinct destination. Cells share one persistent receiver and one candidate
+Before stage two, each terminal is connected to a passive drain until an observed quiet
+window; every arm is then checked for every seeded candidate before requests begin. Stage
+one also waits on live receiver acceptance events before shutdown. Each cell has a distinct
+destination. Cells share one persistent receiver and one candidate
 chain per hop relation; the result records that shared-global-state scope explicitly.
 
 Run the smoke matrix, the full 72-cell matrix, and the packet-loop isolation diagnostic
@@ -311,9 +323,9 @@ from this directory:
 .\.venv\Scripts\python.exe -u probe_route_freshness.py --profile same-blob-diagnostic
 ```
 
-The ignored RNS 1.5.0 full receipt is
-`validation/results/route-freshness-full-20260826T211647Z/result.json`, SHA-256
-`bcb83e38b9d840926f2ee3a7093a37877fa6f84e2d2c4ed1290c4290c2a17a38`. All 72 rows have a
+The current ignored RNS 1.5.2 full receipt is
+`validation/results/route-freshness-full-20260830T030952Z/result.json`, SHA-256
+`14601b688fe72e1763e8d022915c468d1f9b164715bc47aee726050b905aaf39`. All 72 rows have a
 publicly signature-validated forwarded Type-2 frame and calibrated hop relation. No
 row has a matching signature-valid frame with an unexpected header type or context.
 Ordinary and real path-response
@@ -327,12 +339,19 @@ contexts behave identically:
 | loaded expired | new blob with an equal or older timebase | admit only at worse hops |
 | loaded expired | exact-same blob | no observable admission at any hop relation |
 
+The historical RNS 1.5.0 full receipt is
+`validation/results/route-freshness-full-20260826T211647Z/result.json`, SHA-256
+`bcb83e38b9d840926f2ee3a7093a37877fa6f84e2d2c4ed1290c4290c2a17a38`.
+
 The six exact-same ordinary rows could otherwise be hidden by RNS's packet-loop window.
 The separate receipt moves the observed `packet_hashlist.raw` aside while preserving the
 destination table, then reloads stock RNS and repeats live/expired by better/equal/worse.
 The original list contained all six incumbent route packet hashes. The pre-candidate list
 contained one reload-generated hash and none of those six. All six measurements remained
-no-admission. Its result is
+no-admission. The current RNS 1.5.2 result is
+`validation/results/route-freshness-same-blob-diagnostic-20260830T030802Z/result.json`,
+SHA-256 `d660ea18f6ce38d0029672d85829a257d25f53dd30ae2df9cec63fe2f6972550`.
+The historical RNS 1.5.0 result is
 `validation/results/route-freshness-same-blob-diagnostic-20260826T212136Z/result.json`,
 SHA-256 `7b9680456492d7577b78fdd5b0007ad17934ebb966b50eb5549c2f2b83c269fc`.
 

@@ -42,7 +42,7 @@ wider mesh.
 - LXMF messaging over real RF between the two proven boards, with published
   acceptance receipts (the AIR gate family, including on-air).
 - Interoperability receipts against the reference Reticulum implementation
-  (RNS 1.5.0, local-TCP scope), and against Meshtastic and MeshCore stacks,
+  (RNS 1.5.2, local-TCP scope), and against Meshtastic and MeshCore stacks,
   including cross-firmware flash and restore of foreign images.
 - Owner-grade tooling: Linkboy (flashing with immutable plans and machine
   receipts), Signalman (graphical owner flow), and a receipted firmware

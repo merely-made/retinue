@@ -4,6 +4,10 @@
 **Status:** H8 Peer lane re-receipted at the current pin
 **Supersedes:** the version claim of the 2026-08-11 receipt, not its lane boundary
 
+**Superseded for the current pin:** H8 at RNS 1.5.2 is recorded in the
+[2026-08-29 re-pin receipt](2026-08-29_rns_152_repin_receipt.md). This receipt remains the
+historical RNS 1.5.0 baseline.
+
 The oracle re-pin of 2026-08-23 (`d93751b`) moved the compatibility target from
 RNS 1.4.2 to 1.5.0. H8's software receipt was taken on 2026-08-12 against 1.4.2,
 so it no longer described the version Retinue claims compatibility with. This

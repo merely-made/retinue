@@ -18,7 +18,7 @@
 //!
 //! The message codec, ratcheted opportunistic lane, stamped direct-delivery
 //! lane, propagation submit/fetch client, and bounded in-memory propagation
-//! server are interoperable with pinned LXMF 1.1.1 / RNS 1.5.0 black-box
+//! server are interoperable with pinned LXMF 1.1.1 / RNS 1.5.2 black-box
 //! oracles. Node peering remains open. Propagation-store state is versioned
 //! and caller-persisted.
 //! The founding scope, provenance discipline, and ordered gates live in

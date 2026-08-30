@@ -68,8 +68,9 @@ The source lock has four items:
 
 1. Pin Prns at `72b6b30d27cac910ce20d370e1dc711fe9b95955` and record the
    exact stock RNS peer version in each receipt. It was 1.4.2 when this
-   document was written and is 1.5.0 since the 2026-08-23 re-pin; the duty is
-   to record whichever version actually ran, not to hold a particular one.
+   document was written, moved to 1.5.0 on 2026-08-23, and is 1.5.2 since the
+   2026-08-29 re-pin; the duty is to record whichever version actually ran,
+   not to hold a particular one.
 2. Add the itemized Prns donor ledger and the intended inbound license for each
    copied seam.
 3. Preserve a clean, untouched Prns executable for black-box peer work.
@@ -97,7 +98,9 @@ be built from **inside its own worktree**, because Prns pins a 256 MiB Windows
 stack in its own `.cargo/config.toml` and Cargo resolves that file relative to
 the working directory rather than to `--manifest-path`. Built from anywhere
 else the daemon overflows a 1 MiB stack before it can parse an argument. See the
-[RNS 1.5.0 peer matrix receipt](2026-08-23_prns_peer_matrix_rns150_receipt.md).
+historical [RNS 1.5.0 peer matrix
+receipt](2026-08-23_prns_peer_matrix_rns150_receipt.md) and the [current RNS
+1.5.2 re-pin receipt](2026-08-29_rns_152_repin_receipt.md).
 
 Item 4 is still owed: the donor ledger records that no private disclosure record
 has been sent, and no disclosure directory exists in the tree. This blocks
@@ -110,10 +113,9 @@ its closure.
 **Owns:** H8, mixed-runtime interop, independent discrepancy records.
 **Primary write surface:** `crates/retinue/oracle/`, oracle scripts, captured
 receipts.
-**Current receipt:** [RNS 1.5.0 peer
-matrix](2026-08-23_prns_peer_matrix_rns150_receipt.md), seven runs all passing,
-which supersedes the version claim of the 2026-08-11 receipt but not its lane
-boundary.
+**Current receipt:** [RNS 1.5.2 re-pin and peer
+matrix](2026-08-29_rns_152_repin_receipt.md), which supersedes the version claim
+of both earlier peer receipts but not their lane boundary.
 
 Sequence:
 

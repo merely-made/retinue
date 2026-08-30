@@ -8,9 +8,9 @@ between the two implementations.
 
 The three cases are:
 
-* stock RNS 1.5.0 <-> Retinue (the control pairing),
+* stock RNS 1.5.2 <-> Retinue (the control pairing),
 * pinned Prns <-> Retinue, and
-* pinned Prns <-> stock RNS 1.5.0.
+* pinned Prns <-> stock RNS 1.5.2.
 
 Each case proves an announce in both directions.  A localhost relay writes one
 raw stream per direction and the result manifest records its SHA-256, the exact
@@ -243,6 +243,8 @@ class RecordingRelay:
                             data = source.recv(64 * 1024)
                         except BlockingIOError:
                             continue
+                        except ConnectionResetError:
+                            return
                         if not data:
                             return
                         capture.write(data)

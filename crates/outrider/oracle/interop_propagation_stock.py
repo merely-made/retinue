@@ -1,4 +1,4 @@
-"""Drive stock LXMF 0.9.6 through a stock propagation node over Retinue.
+"""Drive pinned stock LXMF through a stock propagation node over Retinue.
 
 This establishes the public-API workflow before Outrider captures and
 implements either side of the propagation session.

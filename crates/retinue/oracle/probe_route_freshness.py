@@ -86,6 +86,12 @@ def write_json(path: Path, value: object) -> None:
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def write_json_atomic(path: Path, value: object) -> None:
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    write_json(temporary, value)
+    os.replace(temporary, path)
+
+
 def wait_for_path(path: Path, process: subprocess.Popen[str], description: str, timeout: float = ROLE_TIMEOUT) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -315,8 +321,9 @@ class PersistentRecordingRelay:
 class ReceiverHandler:
     aspect_filter = None
 
-    def __init__(self) -> None:
+    def __init__(self, events_path: Path | None = None) -> None:
         self.events: list[dict[str, object]] = []
+        self.events_path = events_path
         self.lock = threading.Lock()
 
     def received_announce(self, destination_hash: bytes, announced_identity: Any, app_data: Any) -> None:
@@ -328,6 +335,18 @@ class ReceiverHandler:
                     "app_data_hex": bytes(app_data).hex() if app_data else "",
                     "observed_monotonic": time.monotonic(),
                 }
+            )
+            self._write_events_locked()
+
+    def write_events(self) -> None:
+        with self.lock:
+            self._write_events_locked()
+
+    def _write_events_locked(self) -> None:
+        if self.events_path is not None:
+            write_json_atomic(
+                self.events_path,
+                {"events": self.events, "rns_version": RNS.__version__},
             )
 
 
@@ -354,7 +373,7 @@ def receiver_child(args: argparse.Namespace) -> int:
     assert args.config_dir is not None and args.ready is not None and args.stop is not None
     interfaces = json.loads(args.interfaces_json or "[]")
     write_receiver_config(args.config_dir, interfaces)
-    handler = ReceiverHandler()
+    handler = ReceiverHandler(args.receiver_events)
     RNS.Reticulum(configdir=str(args.config_dir))
     RNS.Transport.register_announce_handler(handler)
     time.sleep(0.75)
@@ -401,8 +420,7 @@ def receiver_child(args: argparse.Namespace) -> int:
     deadline = time.monotonic() + 600.0
     while not args.stop.exists() and time.monotonic() < deadline:
         time.sleep(0.05)
-    if args.receiver_events is not None:
-        write_json(args.receiver_events, {"events": handler.events, "rns_version": RNS.__version__})
+    handler.write_events()
     bounded_rns_exit()
     os._exit(0 if args.stop.exists() else 1)
 
@@ -618,6 +636,73 @@ def send_packets(port: int, packets: list[bytes], capture_path: Path, interval: 
         time.sleep(0.75)
 
 
+def drain_until_quiet(
+    port: int,
+    capture_path: Path,
+    quiet_seconds: float,
+    timeout: float = 120.0,
+) -> dict[str, object]:
+    """Attach real downstream egress and retain everything emitted until quiet."""
+
+    if quiet_seconds <= 0:
+        raise ValueError("drain quiet window must be positive")
+    capture_path.parent.mkdir(parents=True, exist_ok=True)
+    chunks: list[bytes] = []
+    started = time.monotonic()
+    last_data = started
+    deadline = started + timeout
+    failure: Exception | None = None
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=5.0) as connection:
+            connection.settimeout(min(0.25, quiet_seconds))
+            while True:
+                now = time.monotonic()
+                if now - last_data >= quiet_seconds:
+                    break
+                if now >= deadline:
+                    raise RuntimeError(
+                        f"downstream drain on port {port} did not become quiet within {timeout:.1f}s"
+                    )
+                try:
+                    data = connection.recv(64 * 1024)
+                except TimeoutError:
+                    continue
+                except ConnectionResetError as error:
+                    raise RuntimeError(
+                        f"downstream drain on port {port} reset before the quiet window"
+                    ) from error
+                if not data:
+                    raise RuntimeError(
+                        f"downstream drain on port {port} closed before the quiet window"
+                    )
+                chunks.append(data)
+                last_data = time.monotonic()
+    except Exception as error:
+        failure = error
+    finally:
+        raw = b"".join(chunks)
+        capture_path.write_bytes(raw)
+    if failure is not None:
+        raise RuntimeError(
+            f"{failure}; retained {len(raw)} bytes at {capture_path}"
+        ) from failure
+
+    parsed_announces = [
+        parsed
+        for frame_bytes in decode_hdlc_stream(raw)
+        if (parsed := parse_forwarded_announce(frame_bytes)) is not None
+    ]
+    return {
+        "path": str(capture_path),
+        "bytes": len(raw),
+        "sha256": sha256_bytes(raw),
+        "hdlc_frame_count": len(decode_hdlc_stream(raw)),
+        "forwarded_announce_count": len(parsed_announces),
+        "quiet_seconds": quiet_seconds,
+        "elapsed_seconds": time.monotonic() - started,
+    }
+
+
 def wait_for_cached_blobs(chain: TransportChain, blob_hexes: list[str], timeout: float = 90.0) -> None:
     if not blob_hexes:
         return
@@ -654,6 +739,34 @@ def wait_for_forwarded_announces(
     raise RuntimeError(
         f"terminal relay did not record {len(missing)} of {len(expected)} expected announces"
     )
+
+
+def wait_for_receiver_events(
+    events_path: Path,
+    expected_destination_hashes: list[str],
+    process: subprocess.Popen[str],
+    timeout: float = 90.0,
+) -> None:
+    """Wait until the stock receiver has accepted every expected announce."""
+
+    deadline = time.monotonic() + timeout
+    missing = set(expected_destination_hashes)
+    while time.monotonic() < deadline:
+        if events_path.is_file():
+            try:
+                observed = {
+                    event["destination_hash"]
+                    for event in json.loads(events_path.read_text(encoding="utf-8"))["events"]
+                }
+            except (json.JSONDecodeError, KeyError, TypeError):
+                observed = set()
+            missing = set(expected_destination_hashes) - observed
+            if not missing:
+                return
+        if process.poll() is not None:
+            raise RuntimeError(f"receiver exited before accepting {len(missing)} incumbents")
+        time.sleep(0.1)
+    raise RuntimeError(f"receiver did not accept {len(missing)} incumbents within {timeout:.1f}s")
 
 
 def pack_msgpack(value: Any) -> bytes:
@@ -876,7 +989,12 @@ def start_receiver(
             ]
         )
     process = start_role(command, role_dir / "receiver.log")
-    wait_for_path(paths["ready"], process, label)
+    try:
+        wait_for_path(paths["ready"], process, label)
+    except Exception:
+        cleanup_process(process, paths["stop"])
+        close_role_log(process)
+        raise
     return process, paths
 
 
@@ -968,7 +1086,14 @@ def run_probe(args: argparse.Namespace) -> int:
             for spec in specs
         ],
     )
-    time.sleep(max(1.0, args.settle_seconds))
+    wait_for_receiver_events(
+        receiver_one_paths["events"],
+        [
+            packets["cells"][spec.cell_id]["incumbent"]["destination_hash"]
+            for spec in specs
+        ],
+        receiver_one,
+    )
     stop_process(receiver_one, receiver_one_paths["stop"], "stage-one receiver")
     close_role_log(receiver_one)
     stage_one_capture_path = incumbent_dir / "transport-to-receiver.stage-one.bin"
@@ -1128,11 +1253,6 @@ def run_probe(args: argparse.Namespace) -> int:
                 if spec.hop_relation == relation
             ],
         )
-    # Cache persistence precedes the transport's paced rebroadcast queue.  The
-    # four-hop calibration observed a queued ordinary announce 9.4 seconds
-    # after injection, so hold the receiver disconnected for a conservative
-    # interval after every terminal cache is complete.
-    time.sleep(max(15.0, args.settle_seconds))
     cache_artifacts: list[dict[str, object]] = []
     for relation, chain in candidate_chains.items():
         cache_dir = chain.terminal_dir / "rns-config" / "storage" / "cache" / "announces"
@@ -1147,35 +1267,59 @@ def run_probe(args: argparse.Namespace) -> int:
             if path.is_file()
         )
 
-    candidate_relays = {
-        relation: RecordingRelay(
-            chain.terminal_port,
-            chain.terminal_dir,
-            "receiver-to-transport",
-            "transport-to-receiver",
-        )
-        for relation, chain in candidate_chains.items()
-    }
-    request_destinations = [
-        {
-            "destination_hash": packets["cells"][spec.cell_id]["candidate"]["destination_hash"],
-            "interface_name": f"P8Candidate{spec.hop_relation.title()}",
-            "recursive": True,
+    # A disconnected wait cannot establish that a transport's egress queue is
+    # empty: the terminal has no downstream interface to drain through.  Give
+    # every terminal a real passive TCP peer, retain the emitted bytes, and
+    # require an observed quiet window before the persistent receiver connects.
+    candidate_relays: dict[str, RecordingRelay] = {}
+    try:
+        drain_artifacts = {
+            relation: drain_until_quiet(
+                chain.terminal_port,
+                chain.terminal_dir / "pre-receiver-drain.bin",
+                args.settle_seconds,
+            )
+            for relation, chain in candidate_chains.items()
         }
-        for spec in path_specs
-    ]
-    receiver_two, receiver_two_paths = start_receiver(
-        base,
-        "receiver-stage-two",
-        receiver_config,
-        [{"name": "P8Incumbent", "port": incumbent_relay.port}]
-        + [
-            {"name": f"P8Candidate{relation.title()}", "port": candidate_relays[relation].port}
-            for relation in ("better", "equal", "worse")
-        ],
-        requests=request_destinations,
-        request_interval=args.request_interval,
-    )
+
+        for relation, chain in candidate_chains.items():
+            candidate_relays[relation] = RecordingRelay(
+                chain.terminal_port,
+                chain.terminal_dir,
+                "receiver-to-transport",
+                "transport-to-receiver",
+            )
+        request_destinations = [
+            {
+                "destination_hash": packets["cells"][spec.cell_id]["candidate"]["destination_hash"],
+                "interface_name": f"P8Candidate{spec.hop_relation.title()}",
+                "recursive": True,
+            }
+            for spec in path_specs
+        ]
+        receiver_two, receiver_two_paths = start_receiver(
+            base,
+            "receiver-stage-two",
+            receiver_config,
+            [{"name": "P8Incumbent", "port": incumbent_relay.port}]
+            + [
+                {
+                    "name": f"P8Candidate{relation.title()}",
+                    "port": candidate_relays[relation].port,
+                }
+                for relation in ("better", "equal", "worse")
+            ],
+            requests=request_destinations,
+            request_interval=args.request_interval,
+        )
+    except Exception:
+        for relay in candidate_relays.values():
+            relay.close()
+        for chain in candidate_chains.values():
+            chain.cleanup()
+        incumbent_chain.cleanup()
+        incumbent_relay.close()
+        raise
     try:
         if not all(relay.accepted.wait(8.0) for relay in candidate_relays.values()):
             raise RuntimeError("stage-two receiver did not connect through every recording relay")
@@ -1194,11 +1338,9 @@ def run_probe(args: argparse.Namespace) -> int:
                 if (parsed := parse_forwarded_announce(raw)) is not None
             ]
             for spec in path_specs:
-                if spec.hop_relation != relation:
-                    continue
                 packet = packets["cells"][spec.cell_id]["candidate"]
                 if matching_frames(pre_request_frames, packet["destination_hash"], packet["blob_hex"]):
-                    contamination.append(spec.cell_id)
+                    contamination.append(f"{relation}:{spec.cell_id}")
         if contamination:
             raise RuntimeError(f"path-response candidates arrived before request: {contamination}")
         receiver_two_paths["request_go"].write_text("go\n", encoding="utf-8")
@@ -1376,6 +1518,7 @@ def run_probe(args: argparse.Namespace) -> int:
             "incumbent": incumbent_capture,
             "candidate_by_hop_relation": candidate_captures,
             "path_cache": cache_artifacts,
+            "pre_receiver_drain": drain_artifacts,
         },
         "cells": cells,
         "cell_count": len(cells),

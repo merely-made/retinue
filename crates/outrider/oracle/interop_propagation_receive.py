@@ -1,4 +1,4 @@
-"""Prove a production Outrider submission through stock LXMF 0.9.6."""
+"""Prove a production Outrider submission through pinned stock LXMF."""
 
 from __future__ import annotations
 

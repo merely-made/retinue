@@ -16,7 +16,7 @@
 # in the merge is how a fresh resolution picked `fixed` 1.31.0 (rustc >= 1.93)
 # and broke the t114 build on an older default toolchain.
 
-# The oracle's Python venv. Recreate with oracle/requirements.txt (currently rns==1.4.0);
+# The oracle's Python venv. Recreate with oracle/requirements.txt (currently rns==1.5.2);
 # see oracle/README.md. The fixtures it produces ARE committed, so tests need no Python.
 oracle/.venv/
 # Python's bytecode cache for the local Reticulum oracle drivers.
