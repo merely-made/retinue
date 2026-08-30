@@ -1,8 +1,15 @@
 # Prns donor ledger
 
-**Date:** 2026-08-10. **Closes:** shared source lock items 1 through 4.
+**Date:** 2026-08-10. **Closes:** shared source lock items 1 through 3.
 **Scope:** every place in this repository that owes anything to Prns, itemized,
 with the inbound license elected for each.
+
+**Corrected 2026-08-25.** This line read "items 1 through 4". It never closed
+item 4: §5 of this same document has said from the first draft that disclosure
+was owed and unpaid, so the header contradicted the body for a fortnight. The
+2026-08-12 sequencing document flagged both this sentence and the matching one
+in the assurance status and asked for them to be fixed together; this is that
+fix. Item 4's current state is in §5.
 
 The [work lanes](2026-08-09_retinue_work_lanes.md) hold all four lanes behind a
 provenance and evidence boundary. This is that boundary. It is deliberately
@@ -161,6 +168,20 @@ either, which is the correct posture until a report has gone through Prns's
 `design_docs/private/` is now gitignored so the record has a safe home in this
 working tree without risking a commit. Writing it belongs to whoever holds the
 reproduction; this ledger's job is to say that it is owed and unpaid.
+
+**State as of 2026-08-25: reported.** The paragraphs above are kept as written
+because they record the posture at the time. The finding was re-reviewed against
+current upstream, where it is still present, a disclosure record was written to
+`design_docs/private/`, and the report was sent through Prns's `SECURITY.md`
+private vulnerability reporting. Lock item 4's duty is discharged: this
+repository is no longer holding an unreported finding.
+
+**The publication embargo is not lifted, and item 4 is not closed.** The
+affected board, source path, reproduction and impact stay out of this document
+and every other committed one until the maintainer has triaged it and a
+disclosure is agreed. What is recorded here is only that a record exists and a
+report has been sent. Awaiting acknowledgement, remediation timeline, and
+agreement on public disclosure; the private record carries those as they land.
 
 Retinue keeps its hardware RNG live and does not copy the affected pattern. The
 V4's entropy note in `firmware/heltec-v4-phy/src/store.rs` already refuses to

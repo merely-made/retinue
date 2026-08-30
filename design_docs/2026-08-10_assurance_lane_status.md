@@ -4,8 +4,15 @@
 **Status:** ASSURE1 and ASSURE2 verified. ASSURE3, ASSURE4, and ASSURE5
 implemented; see [the FS2 carrier decision](2026-08-10_fs2_command_carrier_decision.md)
 and [FS4 custody and FS5 seizure](2026-08-10_fs4_custody_and_fs5_seizure.md).
-The shared source lock is cleared by the
-[Prns donor ledger](2026-08-10_prns_donor_ledger.md).
+Shared source lock: items 1 through 3 are cleared by the
+[Prns donor ledger](2026-08-10_prns_donor_ledger.md). **Item 4, disclosure, is
+not.** It was reported to the maintainer on 2026-08-25 and stays open until that
+is resolved; see §5 of the ledger.
+
+**Corrected 2026-08-25.** This line read "the shared source lock is cleared",
+which was never true: the ledger it cites recorded disclosure as owed and unpaid
+in the same breath. The 2026-08-12 sequencing document asked for this sentence
+and the ledger's header to be fixed together, which is what this is.
 
 ## ASSURE1, validation minimum: substantially closed
 
@@ -119,10 +126,12 @@ to an unallowlisted key is ever accepted, and no command is ever accepted twice.
   supplies the process policy and the release checklist, and FS5's inventory is
   now an enforced check (`flash-classification`) rather than a paragraph. FS4's
   physical receipts remain Distribution's.
-- **Shared source lock: cleared.** The
+- **Shared source lock: items 1 through 3 cleared, item 4 open.** The
   [Prns donor ledger](2026-08-10_prns_donor_ledger.md) itemizes every seam with
-  measured overlap figures, elects MIT inbound, and records the disclosure state
-  as owed and unpaid.
+  measured overlap figures and elects MIT inbound. Disclosure was reported to
+  the maintainer on 2026-08-25, which discharges the duty but does not close the
+  item: the publication embargo holds until it is resolved. This bullet said
+  "cleared" until 2026-08-25 while its own last clause said "owed and unpaid".
 
 What the lane has not produced is on-metal evidence. Every claim here is
 host-side or CI-side. No board has verified a command over RF, and the CI fuzz
