@@ -58,7 +58,6 @@ cpal = "=0.18.2"
 # not cross duplicate package instances.
 mere-signalman = { git = "https://github.com/merely-made/mere.git", rev = "1609cb904766de40c771e8559b89e8fbcc098a60" }
 chartulary = { git = "https://github.com/merely-made/mere.git", rev = "1609cb904766de40c771e8559b89e8fbcc098a60" }
-codicil = { git = "https://github.com/merely-made/mere.git", rev = "1609cb904766de40c771e8559b89e8fbcc098a60" }
 gaz = { git = "https://github.com/merely-made/mere.git", rev = "1609cb904766de40c771e8559b89e8fbcc098a60" }
 muniment = { git = "https://github.com/merely-made/mere.git", rev = "1609cb904766de40c771e8559b89e8fbcc098a60", features = ["redb"] }
 sceno = { git = "https://github.com/merely-made/mere.git", rev = "1609cb904766de40c771e8559b89e8fbcc098a60" }

@@ -5500,7 +5500,6 @@ dependencies = [
  "cambium",
  "cambium-genet-winit-host",
  "chartulary",
- "codicil",
  "cpal",
  "euclid",
  "gaz",

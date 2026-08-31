@@ -491,7 +491,7 @@ fn messages_page(state: &DesktopState) -> Child {
             (
                 heading(
                     "Messages",
-                    "Conversation history is replayed from the local Codicil log.",
+                    "Conversation history is replayed from the local journal.",
                 ),
                 el(
                     "div",
