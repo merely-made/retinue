@@ -85,7 +85,13 @@ Canonical, versioned, bounded. Address hash to disclosure level.
 
 - **Bounded and refusing, not evicting.** Follow `AnnounceIngressPolicy`: explicit
   capacity, refuse at the limit, count refusals. Silently evicting a kin entry
-  to make room is a privacy failure that presents as a bug.
+  to make room is a privacy failure that presents as a bug. The refusal must
+  also surface **at projection time**, where the owner compiles the table, not
+  only as an on-node counter discovered after a grant silently failed to take.
+- **No table is a defined state.** A freshly commissioned node with no ACL yet
+  pushed answers every directed request at the broadcast tier. It never invents
+  a default grant, and it never refuses to answer at all, because a node that
+  goes silent on first boot is indistinguishable from a broken one.
 - **Absent-identity default is a field, not a convention.** Whitelist and
   blacklist semantics are both defensible; the case that dominates in practice is
   the identity nobody has ever seen, and it must be answerable by reading the
@@ -105,9 +111,17 @@ rollback, which is correct for firmware and **wrong for an ACL**: a node that
 reverts to yesterday's table re-grants whoever was just revoked. This is a new
 mode, not a reuse.
 
+**What makes no-rollback safe, stated so nobody has to rediscover it:** the
+ACL governs disclosure only. It never governs who may command the node. Command
+authority is the owner's FS2 key, independent of any table, so a bad ACL push
+is always correctable by the next command. If a future change ever let this
+table gate command authority, a bad push with no rollback would lock the owner
+out permanently. That combination is forbidden, and PD2 fails if it appears.
+
 **Done when:** an ACL write is accepted only with a higher counter, a replayed
-or older table is refused and counted, and no path exists by which the node
-reverts to a previous ACL.
+or older table is refused and counted, no path exists by which the node reverts
+to a previous ACL, and a test proves the owner can still push a corrected table
+after pushing one that refuses every identity including the owner's own.
 
 ### PD3. GNSS driver
 
@@ -146,9 +160,13 @@ The stationary node logs received frames with `rssi_dbm`, `snr_db`, reported
 position and timestamp. This is the walk-test instrument and the customer-facing
 coverage map, and it is one artefact.
 
-**Done when:** a single CSV from one placed node reconstructs a carried node's
-route with signal strength, and drop and pickup are visible as gaps with a last
-known position on each edge.
+The placed node's own position is part of the record. Without it the RSSI
+column has no spatial anchor and cannot be read against distance, which is the
+whole reason to log it rather than presence alone.
+
+**Done when:** a single CSV from one placed node, carrying that node's position
+in its header, reconstructs a carried node's route with signal strength, and
+drop and pickup are visible as gaps with a last known position on each edge.
 
 ## Findings, verified 2026-09-01
 
@@ -165,7 +183,7 @@ known position on each edge.
 - **PD-F3. An ACL entry is cheap.** `ADDRESS_HASH_LEN` is 16
   (`crates/retinue/src/hash.rs:24`). Sixty-four entries is 1,088 bytes against a
   firmware that already carries `destination_capacity: 4_096`
-  (`crates/retinue/src/announce_admission.rs:52`).
+  (`crates/retinue/src/announce_admission.rs:51`).
 - **PD-F4. The bounded-table precedent exists.** `AnnounceIngressPolicy`
   (`announce_admission.rs:15`) carries explicit capacities and counters and
   refuses at the limit.
@@ -214,3 +232,10 @@ started opportunistically.
 
 - **2026-09-01.** Plan written. No code. Findings PD-F1 through PD-F9 verified
   against the tree on this date.
+- **2026-09-01, review pass.** One citation corrected (PD-F3 cited
+  `announce_admission.rs:52`; `destination_capacity` is at line 51). Three
+  safety arguments that were implied are now stated: PD2 records *why*
+  no-rollback is safe (the ACL never governs command authority) and adds a
+  lockout test to its done-condition; PD1 requires capacity refusal to surface
+  at projection time and defines the no-table state; PD6 requires the placed
+  node's own position in the record. No gate changed status.
