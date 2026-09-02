@@ -49,7 +49,7 @@ current plan set sorts as follows.
 | [Field node security posture](2026-08-09_field_node_security_posture.md) | Active security authority. FS1 through FS6 own ingest, command authorization, replay, custody, seizure, and bounded tables. |
 | [Prns harvest brief](2026-08-09_prns_harvest_brief.md) | Active donor and external-peer program. It supplies candidates and evidence; it does not take ownership from FT, CM, FS, Linkboy, or Signalman. |
 | [Assurance lane status](2026-08-10_assurance_lane_status.md), [FS2 carrier decision](2026-08-10_fs2_command_carrier_decision.md), and [FS4/FS5](2026-08-10_fs4_custody_and_fs5_seizure.md) | Current assurance evidence. ASSURE1 and the unsafe audit pass; ASSURE3 through ASSURE5 are complete in software. A first green Linux fuzz run, FS3, on-metal command verification, physical FS4, and disclosure remain open. |
-| [Bluetooth capability scoping](2026-08-11_bluetooth_capability_scoping.md) | Pre-decision candidate lane. LB1 through LB6 do not become active gates until the stack ruling is accepted; LB1 is the only opening hardware risk. |
+| [Wall-node management plan](2026-08-30_wall_node_management_plan.md) | Active WN0 through WN8 authority for the standalone V4, transport-agnostic management, safe configuration, firmware selection, and later resident adapter control. It replaces the retired LB pre-decision ladder without taking LE, Signalman, or Linkboy authority. |
 | [Civic deployment](2026-08-11_civic_deployment_prescribed_paths.md) | Phase-two program consuming FT/FS/LE/LB facts. CV1 through CV6 and D1 through D5 are not pilot-critical engineering gates. |
 | [Live-gate flake lane](2026-08-23_live_gate_flake_lane.md) | Active measurement lane, opened 2026-08-23. FLK1 through FLK5 own the per-gate failure rates of the live RNS/LXMF oracle gates and what a suite run is allowed to prove. Until it closes, a bare "twelve of twelve" count is not evidence. Does not cover the peer matrix, which never runs the flaking gates. |
 | [Signalman management surface plan](2026-08-15_signalman_management_surface_implementation_plan.md) | Active product authority for the Signalman desktop beyond flashing: Devices, Network, Messages, Map, and Browse. S0/S1 and the S2/S3 software slices are verified, and S2's live bench leg completed 2026-08-20 through Mere `1609cb90`'s lease-checked station getter and the desktop's live station actor. The owner-driven S2 headed interactive judgement, G5 hide/reopen receipt, and S5 headed two-site audible voice remain open. Presentation code takes no radio or flashing authority. |
@@ -332,10 +332,12 @@ test cannot be promoted to that claim.
   qualification follow the board contribution. A separate modest proposal may
   expose one configurable LoRa sync word; Retinue's multi-ReceiveProfile
   scheduler is not smuggled into Prns with it.
-- **Bluetooth, pre-decision:** if the LB ruling is accepted, LB1 is the opening
-  proof: enable the resident T114 SoftDevice, record RAM, and rerun counted
-  SX1262 receipts. LB2 through LB6 remain gated by that result. BLE transport,
-  BLE firmware update, and LoRa ReceiveProfile scanning are separate claims.
+- **Wall node:** WN0 and WN1 freeze the carrier-neutral control contract and
+  safe configuration state. The V4 standalone node and WiFi interface follow
+  before BLE bootstrap. The old T114 SoftDevice spike is now a portability
+  receipt after the V4 target, not the opening gate. BLE control, Bluetooth
+  Auto, firmware update, and LoRa ReceiveProfile scanning remain separate
+  claims.
 - **Civic deployment, phase two:** CV1 through CV6 consume measured FT facts.
   The pilot ships the open mesh and measurement machinery first; prescriptions,
   emergency precedence, remote shaping, and the atlas do not jump that gate.

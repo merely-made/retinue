@@ -34,6 +34,7 @@ gate without its family is ambiguous and has already produced wrong readings.
 | `G0`–`G5` **(Signalman desktop)** | [Cambium scope](2026-08-09_signalman_cambium_desktop_scope.md) | Desktop GUI adoption gates. G0–G4 complete, G5 partial. |
 | `S0`–`S9` **(Signalman management)** | [Management surface plan](2026-08-15_signalman_management_surface_implementation_plan.md) | Real gates. |
 | `S1`–`S7` **(Linkboy sidequests)** | [Public flashing plan](2026-08-08_linkboy_public_flashing_plan.md) | **Not gates.** Explicitly labelled future-work sidequests, separate from that document's F0–F7 trunk gates. |
+| `WN0`–`WN8` **(wall node)** | [Wall-node management plan](2026-08-30_wall_node_management_plan.md) | Standalone V4, control carriers, safe configuration, image selection, and resident adapter gates. |
 
 ## Gate index
 
@@ -112,6 +113,9 @@ their gate. `UNKNOWN` means no document states a status — it does not mean ope
 | S4 | Partial — process boundary closed, not a headed serial-radio receipt | Same |
 | S5 | Partial — file-backed and host-audio rungs done; headed two-site audible run remains | Same |
 | S6–S9 | UNKNOWN — defined, never statused | Same |
+| WN0 | **Partial** — deliberately revised to `RHC0` v2 with `transaction_sequence` before shipment; host and source-level target consumers exist, but target execution is unreceipted | [Wall-node management plan](2026-08-30_wall_node_management_plan.md) |
+| WN1 | **Partial** — portable durable authority and the V4 pre-radio physical USB first-write slice exist. Its always-compiled fixed Inspect/Claim/Resume/Abandon codec verifies an Ed25519 proof over version/domain, opaque board `NodeId`, fresh 32-byte true-RNG nonce, and full canonical `OwnerClaim`, which creates one implicit Owner. The writable pending A/B pair at `0x3F6000`/`0x3F7000` is separate from ordinary control rollback at `0x3F4000`/`0x3F5000`; staging is read back, resume commits ordinary control before pending cleanup and preserves outer-record sequencing, including `u32::MAX`, while abandon requires blank control. GPIO0 must be released, newly pressed, and held for three seconds within 20 seconds. The literal USB Serial/JTAG KISS session has 45 seconds, eight requests, three parse failures, explicit wall-time checks, and safe read-error/zero termination; terminal resume/abandon replies reset. All of it runs before SplitHost/RNode/RX/power. A host-side `postilion::control::first_owner` controller and `signalman-first-owner` literal USB bench client also exist; the carrier receives only portable public claim bytes and never a private identity. Blank+blank with no witnessed mutation continues ordinary modem/RNode compatibility; unresolved pending/corrupt/storage uncertainty is status-only outside that claim-only path. V4 feasibility remains USB-only, empty credentials, and non-relay. Exactly one host transport is compile-enforced: the mixed default plus UART build gets its intended diagnostic, and USB claim/recovery is cfg-closed out of UART. Resume first reads and decodes exact pending A/B, then applies that V4 feasibility gate before mutation; rejection preserves both journals and portable recovery shape. Receipts: `portable_first_write` 12, base `radio-hand` 161, `control-retinue` 170, Rustfmt, and three serial locked Xtensa core-only checks for default, `host-uart-low-power`, and `host-uart-low-power+rf-sleep-proof`; `cargo test -p postilion first_owner -j1` ran 11 tests green; `cargo check --manifest-path apps/signalman/Cargo.toml --bin signalman-first-owner -j1` passed. Portable and independent V4 review are GO. Optional Xtensa `cargo test --no-run` cannot build because core-only lacks a `test` crate; this existing harness limit is not a required gate and does not establish V4 cfg unit-test execution. Evidence is source/host/compile only. Open: phone UI, physical GPIO/USB/flash/power-cut/reset proof, package rebuild/flash, live carrier/verifier-restore dispatch, BLE/WiFi/IP/Reticulum management, native V4 node/transport, credentials/vault, and headed/on-air proof. WN2–WN8 remain Open. | Same |
+| WN2–WN8 | Open | Same |
 
 ### Live-gate flake lane
 
@@ -131,7 +135,6 @@ their gate. `UNKNOWN` means no document states a status — it does not mean ope
 | D1, D2, D3 | Ruled 2026-08-12 (decisions, not implementations) | Same |
 | D4 | Partial — ruled, still needs a spike receipt | Same |
 | D5 | Dissolved; CV7 carries the primitive | Same |
-| LB1–LB6 | Open — not active gates until the stack ruling is accepted | [Bluetooth scoping](2026-08-11_bluetooth_capability_scoping.md) |
 
 ## Known divergences
 
@@ -185,7 +188,10 @@ stream. `selvage` — clean-room LoRa PHY profiles shared by host and firmware.
 `sennet` — clean-room Meshtastic-compatible mesh protocol. `tucket` — MeshCore
 interop. `tulle` — the shared radio interface layer beneath retinue, sennet and
 tucket. `radio-face` — firmware crate rendering bounded on-device UI status.
-`radio-hand` — board-agnostic firmware crate that works the radio.
+`radio-hand` — board-agnostic firmware crate that owns the shared board
+executive, radio work, and durable control decisions. Retinue is its RNS
+adapter/router, not the executive. Firmware slot activation remains Linkboy
+authority and is not a `selvage` responsibility.
 
 **This project's applications.** `linkboy` — CLI that identifies firmware by
 asking rather than trusting USB IDs, then verifies and flashes packages.
@@ -213,7 +219,7 @@ supplying data-graph and identity crates.
 | [Project prospectus](2026-08-26_project_prospectus.md) | Grant-agnostic funding prospectus compressed from the corpus; serves FIVCO-facilitated applications and any future window. Draft pending Mark's review. |
 | [Prns harvest brief](2026-08-09_prns_harvest_brief.md) | Donor and external-peer programme; H-gate catalogue. |
 | [Prns donor ledger](2026-08-10_prns_donor_ledger.md) | Every donor debt itemised with elected inbound licence. |
-| [Prns mobile adoption brief](2026-08-11_prns_mobile_adoption_brief.md) | Mobile lane collaboration, dependency-first recommendation. |
+| [Prns mobile adoption brief](2026-08-11_prns_mobile_adoption_brief.md) | Mobile lane collaboration and dependency-first recommendation; WN5 now owns the wall-node board ordering. |
 
 ### Protocol core and wire compatibility
 
@@ -233,7 +239,7 @@ supplying data-graph and identity crates.
 | [Ratchet / stamp cost and roles](2026-08-07_stamp_cost_and_roles.md) | Stamp cost measurements from T114 receipts. |
 | [RNode RX leading byte](2026-08-07_rnode_rx_leading_byte.md) | Leading byte from stock peer diagnosed; RF opacity question closed. |
 | [RNode bulk frame loss](2026-07-26_rnode_bulk_frame_loss.md) | Stock RNode silently drops long frames — reproducible upstream defect. |
-| [Receive future cancellation](2026-08-08_receive_future_cancellation.md) | Characterised, deliberately not fixed. |
+| [Receive future cancellation](2026-08-08_receive_future_cancellation.md) | Current V4 receive-phase implementation; physical and live-ownership proof remains open. |
 
 ### LXMF and Outrider
 
@@ -249,6 +255,7 @@ supplying data-graph and identity crates.
 | Document | What it is |
 | --- | --- |
 | [Retinue Small plan](2026-07-31_retinue_small_plan.md) | Native-node authority. N0–N6; unplug leg and current figures open. |
+| [Wall-node management plan](2026-08-30_wall_node_management_plan.md) | WN0–WN8. Active authority for the standalone V4, management carriers, safe configuration, board capability classes, and later resident adapter control. |
 | [On-device UI plan](2026-07-28_on_device_ui_implementation_plan.md) | U0–U5, all closed. |
 | [On-device UI direction](2026-07-25_on_device_ui.md) | PANEL×LEDGER face, accepted direction. |
 | [Mesh household](2026-07-20_mesh_household_tulle_tucket_sennet.md) | Crate topology and naming authority. **Its "no code exists yet" status line is false** — all three crates exist. |
@@ -271,7 +278,8 @@ supplying data-graph and identity crates.
 | [Listener executive and protocol leases](2026-08-10_listener_executive_and_protocol_leases.md) | LE1–LE5. Supersedes retinue-small's channel-ownership clause. |
 | [Channel murmuration](2026-08-09_channel_murmuration.md) | CM1–CM5. Framing superseded 2026-08-10; rules survive translated. |
 | [LE3 T114 scan-physics receipt](2026-08-20_le3_t114_scan_physics_receipt.md) | LE3a/LE3b complete. |
-| [Field node security posture](2026-08-09_field_node_security_posture.md) | FS1–FS6 authority. |
+| [Field node security posture](2026-08-09_field_node_security_posture.md) | FS1–FS6 authority. Also owns the PD0 disclosure-tier ruling. |
+| [Position disclosure](2026-09-01_position_disclosure_plan.md) | PD0–PD6. Whether a node reports position, to whom, at what precision, by what authority. Plan only, no code. Rides FS2's envelope as config authority. |
 | [Assurance lane status](2026-08-10_assurance_lane_status.md) | ASSURE1–ASSURE5. |
 | [FS2 command carrier decision](2026-08-10_fs2_command_carrier_decision.md) · [FS4 custody and FS5 seizure](2026-08-10_fs4_custody_and_fs5_seizure.md) | Assurance decisions and receipts. |
 
@@ -336,7 +344,6 @@ their filenames says so — see the `result` column.
 | --- | --- |
 | [Smolweb over Reticulum](2026-08-04_smolweb_over_reticulum_plan.md) | Independent application bridge. Not started; R-A/R-B/R-C serial. |
 | [Civic deployment](2026-08-11_civic_deployment_prescribed_paths.md) | CV1–CV7, D1–D5. Phase two, post-deadline. |
-| [Bluetooth capability scoping](2026-08-11_bluetooth_capability_scoping.md) | LB1–LB6. Pre-decision; awaits the stack ruling. |
 | [IoT device concepts](2026-08-13_iot_device_concepts.md) | Brainstorm record. |
 | [Lofi voice codec scoping](2026-08-13_lofi_voice_codec_scoping.md) · [Rung 2 codec2 decision](2026-08-13_rung2_codec2_class_decision.md) | Pipit founding and codec choice. |
 | [Hopspot demo receipts](2026-08-11_hopspot_v4_com7_demo_receipt.md) · [Meshtastic T114 UF2 demo](2026-08-11_meshtastic_t114_uf2_demo_receipt.md) | Phone-app BLE demos. **Not Retinue capability claims.** |
@@ -362,6 +369,10 @@ trusted by default.
 - **Captured bytes are not constants.** HDLC byte-stuffing over freshly minted
   ephemeral identities changes the raw length of every capture, every run.
   Unstuff before comparing; the unstuffed length is the invariant.
+- **Stateful protocol fixtures must retain state.** Reconstructing a sender with
+  the same identity can reset a monotonic ordinal or replay ledger. Repeats and
+  retries use one stateful producer or explicit ordered inputs, and the fixture
+  proves that semantic precondition before testing a later gate.
 - **A done-condition must establish what it is read as establishing.** "Each
   consumer names the dependency in its manifest" cannot establish that any
   consumer uses it.
@@ -412,6 +423,83 @@ dependency move.
 - `validation/results/` is gitignored deliberately: transient identities, ports
   and raw captures.
 
+### Command authority and control meaning are separate
+
+`retinue::command` owns the signed outer statement: target, controller key,
+replay counter, opcode, bounded payload, and signature. `radio-hand::control`
+owns the bounded semantic payload and capability vocabulary. Do not copy outer
+authority fields into the inner request, and never accept a role claimed by the
+controller; derive it from the board-local grant for the verified key.
+
+Exact command-byte replay and semantic retry are different facts. The former is
+refused by the monotonic outer counter. A retry uses the same transaction and
+request under a fresh counter, then receives the cached prior result from the
+durable control journal. A volatile duplicate detector is not that journal.
+
+A signature is not encryption. Secret-bearing control operations require a
+confidential carrier session or a separately sealed payload bound to the signed
+request. Never infer confidentiality from a valid command signature.
+
+Durable control state does not belong in the extensible identity/settings body.
+It uses a separate fail-closed A/B pair because grants, generation high-water,
+rollback state, and cached results have different corruption and downgrade
+semantics. A nonblank corrupt control pair is recovery state, not a blank board.
+
+Semantic retry tags are keyed over the canonical verified request. Storing raw
+arguments or an unkeyed credential digest creates a secret leak or an offline
+guessing oracle. Cache eviction must refuse older transactions instead of making
+their side effects executable again.
+
+Durable grants bind the controller id to its SHA-256 public identity. An
+unparsable identity is a boot refusal before any apply, and raw grant creation
+stays internal to the durable authority. `Blank` says only that the A/B facts
+are erased, never that a caller may commission the board. Once the outer
+verifier accepts a counter, persist it even when later semantic checks refuse a
+malformed, wrong-opcode, or non-node command. An Observer is authenticated but
+has no mutation authority.
+
+### Durable control transitions have separate meanings
+
+`Changed` means the durable state machine performed the requested transition.
+`Replayed` means it returned the one retained terminal result for the same
+semantic transaction under a fresh outer counter; it must not apply the work
+again. Treating both as generic success loses the receipt needed to diagnose a
+controller retry.
+
+Retiring a cached result advances a durable monotonic mutation-sequence
+watermark. A transaction at or below that watermark is refused rather than
+becoming executable again after eviction or reboot. The watermark is part of
+the journal's safety boundary, not an in-memory cache hint.
+
+`Ready` means the durable journal belongs to the expected node and its applied
+state is the known-good state. A mismatched node or an unapplied/provisional
+state is recovery or poison handling, not a routine ready boot. Poison requires
+discarding and rebuilding the verifier from durable grants and counters.
+
+### Live durable work requires a board quiet witness
+
+The portable `QuietWindow` must enter at a radio frame boundary, disarm live
+RX/TX/IRQ work, and lend a `QuietGuard` through every live erase, program,
+readback, and configuration apply. After entry, `ActiveQuietGuard` aborts on a
+dropped operation or finish. If an entry future is dropped before it returns a
+guard, the board-owned `QuietWindow` implementation must synchronously leave
+radio work stopped or latch reset, because the runtime has no guard yet. Boot is
+pre-radio and does not need that witness. `ResetRequired` blocks later work on
+the runtime instance; its unsafe replacement constructor is reserved for the
+board startup owner once after an actual hardware reset. The host model covers
+guard ordering and adversarial entry cancellation, not a real board witness.
+
+A pre-entry busy refusal is retryable because stopping has not begun. Once the
+board stops the radio, it must clear latched chip IRQ flags and prove the
+physical IRQ line low before lending flash or configuration access; any later
+cancellation, uncertain hardware apply, or failed resume resets rather than
+claiming that the live owner returned to service.
+
+WN0's carrier-agnostic semantic payload is carried by compatible transports;
+the authenticated `VerifiedCommand` conversion is a handoff. Reserve a bridge
+or semantic gateway for terminating one protocol and re-originating another.
+A foreign-mesh bearer carries an opaque Reticulum frame instead.
+
 ### Build notes
 
 - `apps/signalman-desktop` roots its own workspace and is deliberately excluded
@@ -442,6 +530,7 @@ Founded 2026-08-24 to meet `DOC_POLICY.md` core §6, which this repository did
 not satisfy: 93 markdown documents and 19 JSON receipts were unindexed, and the
 only index-shaped artefact was a table inside a dated lane document.
 
-Not yet done: `PROJECT_DESCRIPTION.md` (core §7, maintainer-reserved), an
-`archive_docs/` checkpoint (core §4 — nothing has been retired yet), and the
-FLK5 audit of the remaining documents that quote bare gate counts.
+Not yet done: `PROJECT_DESCRIPTION.md` (core §7, maintainer-reserved) and the
+FLK5 audit of the remaining documents that quote bare gate counts. The first
+`archive_docs/` checkpoint was created 2026-08-30 when the pre-decision
+Bluetooth capability brief was superseded by the wall-node plan.

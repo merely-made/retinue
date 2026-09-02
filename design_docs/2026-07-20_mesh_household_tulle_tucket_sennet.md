@@ -114,8 +114,8 @@ therefore that the bearer interface rides *through* the participant stack: a
 real, traffic-relaying mesh node that pulls its weight on the mesh it uses.
 Interop first, bearer second; being a good mesh citizen is what makes the
 bearer honest. Among our own nodes, native Reticulum over LoRa (Tulle/RNode) is
-simpler than tunneling; the bearer earns its keep bridging into existing meshes
-we also serve.
+simpler than tunneling; the bearer earns its keep as compatible transport
+through existing meshes in which we also participate.
 
 The bearer stacks two independent routers by design: the mesh floods the frame
 hop by hop in its own terms while retinue's Transport does destination routing
@@ -147,19 +147,15 @@ accordingly:
   does — a license you do not need cannot be withheld. Expect scrutiny anyway
   (there is active violation-hunting in that community), so the provenance record
   must be the front door, not an appendix.
-- **Personality flipping:** one radio speaks one protocol at a time. ESP32-S3
-  boards (Heltec V4, 8MB flash, A/B partitions) can hold dual personalities and
-  flip remotely; nRF52840 (T114, 1MB flash) flips by local reflash only. The
-  switch command must arrive over a channel that survives the switch.
-
-  > **Superseded (2026-08-01, again 2026-08-09):** the flip mechanism is no
-  > longer images at all. The retinue-small plan's structural decision 4 made
-  > personalities boot-selected **channels in one image** on both boards
-  > (switch-by-reboot, no A/B partitions, no reflash), and the
-  > [channel murmuration design](2026-08-09_channel_murmuration.md) takes up
-  > runtime switching. The first sentence stands; the mechanism sentences do
-  > not. "The switch command must arrive over a channel that survives the
-  > switch" remains true and is inherited by both successors.
+- **Personality residency and firmware selection:** one radio speaks under one
+  exact profile at a time. The
+  [listener executive](2026-08-10_listener_executive_and_protocol_leases.md)
+  schedules resident protocol adapters within one image. The
+  [wall-node management plan](2026-08-30_wall_node_management_plan.md)
+  separately governs verified image slots, trial boot, durable selection, and
+  rollback on boards that measure enough capacity. A board may support either
+  mechanism or both. A remote change must preserve a management path or revert
+  to the last known-good state.
 
 ## Sequencing
 

@@ -54,6 +54,77 @@ fn a_signed_command_verifies_and_reports_what_it_said() {
 }
 
 #[test]
+fn verified_command_is_an_authenticated_read_only_projection() {
+    let op = operator(0x11);
+    let mut verifier = verifier_for(&op);
+    let wire = command(&op, 1, b"restart").sign(&op).unwrap();
+
+    let verified = verifier.verify(&wire).unwrap();
+    assert_eq!(verified.key_id(), op.hash());
+    assert_eq!(verified.class(), TargetClass::Node);
+    assert_eq!(verified.target(), node());
+    assert_eq!(verified.counter(), 1);
+    assert_eq!(verified.opcode(), 7);
+    assert_eq!(verified.payload(), b"restart");
+    assert_eq!(verified.as_command().payload, b"restart");
+    assert_eq!(verifier.accepted(), 1);
+    assert_eq!(verifier.refusals(), 0);
+}
+
+#[test]
+fn a_refused_verification_leaves_the_counter_unchanged() {
+    let op = operator(0x11);
+    let mut verifier = verifier_for(&op);
+    let mut wrong_target = command(&op, 1, b"restart");
+    wrong_target.target = AddressHash::from_bytes([0xbb; ADDRESS_HASH_LEN]);
+
+    assert!(matches!(
+        verifier.verify(&wrong_target.sign(&op).unwrap()),
+        Err(Refusal::WrongTarget)
+    ));
+    assert_eq!(verifier.accepted(), 0);
+    assert_eq!(verifier.refusals(), 1);
+    assert_eq!(verifier.ledger().next().unwrap().counter, 0);
+
+    assert!(
+        verifier
+            .verify(&command(&op, 1, b"restart").sign(&op).unwrap())
+            .is_ok()
+    );
+    assert_eq!(verifier.accepted(), 1);
+    assert_eq!(verifier.refusals(), 1);
+    assert_eq!(verifier.ledger().next().unwrap().counter, 1);
+}
+
+#[test]
+fn command_debug_redacts_payload_but_reports_metadata() {
+    let op = operator(0x11);
+    let secret = b"SUPER_SECRET_WIFI_PASSWORD_7f2c";
+    let rendered = format!("{:?}", command(&op, 1, secret));
+
+    assert!(!rendered.contains("SUPER_SECRET_WIFI_PASSWORD_7f2c"));
+    assert!(rendered.contains("opcode"));
+    assert!(rendered.contains("payload_len"));
+    assert!(rendered.contains(&secret.len().to_string()));
+}
+
+#[test]
+fn verified_command_debug_redacts_payload_but_reports_metadata() {
+    let op = operator(0x11);
+    let secret = b"SUPER_SECRET_WIFI_PASSWORD_7f2c";
+    let mut verifier = verifier_for(&op);
+    let wire = command(&op, 1, secret).sign(&op).unwrap();
+    let verified = verifier.verify(&wire).unwrap();
+    let rendered = format!("{verified:?}");
+
+    assert!(!rendered.contains("SUPER_SECRET_WIFI_PASSWORD_7f2c"));
+    assert!(rendered.contains("VerifiedCommand"));
+    assert!(rendered.contains("opcode"));
+    assert!(rendered.contains("payload_len"));
+    assert!(rendered.contains(&secret.len().to_string()));
+}
+
+#[test]
 fn the_same_bytes_verify_no_matter_which_bearer_carried_them() {
     // FS2's transport-independence claim, made structurally: there is one entry point
     // and it takes bytes. Two verifiers in identical state accept identical bytes.

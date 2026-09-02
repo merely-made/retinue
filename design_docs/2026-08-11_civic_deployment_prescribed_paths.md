@@ -8,7 +8,7 @@ session; the D-numbered items were ruled by Mark on 2026-08-12 (see Rulings). Co
 [field node security posture](2026-08-09_field_node_security_posture.md) (FS),
 [listener executive](2026-08-10_listener_executive_and_protocol_leases.md)
 (LE), [stamp cost doc](2026-08-07_stamp_cost_and_roles.md), and the
-[BLE scoping brief](2026-08-11_bluetooth_capability_scoping.md) (LB).
+[wall-node management plan](2026-08-30_wall_node_management_plan.md) (WN).
 
 ## Doctrine
 

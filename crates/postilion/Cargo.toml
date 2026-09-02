@@ -15,7 +15,9 @@ path = "src/lib.rs"
 [dependencies]
 getrandom = "0.3"
 outrider = { version = "0.1.1", path = "../outrider", features = ["tulle-radio"] }
+radio-hand = { version = "0.0.1", path = "../radio-hand" }
 retinue = { version = "0.1.1", path = "../retinue", features = ["tulle-radio"] }
+serial2-tokio = "0.1.24"
 thiserror = "2"
-tokio = { version = "1.53.1", features = ["macros", "rt", "sync", "time"] }
+tokio = { version = "1.53.1", features = ["io-util", "macros", "rt", "sync", "time"] }
 tulle = { version = "0.1.0", path = "../tulle", features = ["serial-async"] }

@@ -20,9 +20,14 @@ node = ["radio", "replay"]
 # The fixture-replay codec. Radio-free on purpose: nothing here touches `lora-phy`, so a
 # host test can link it and assert the bytes a board must reproduce.
 replay = ["dep:retinue"]
+# The WN1 bridge from Retinue's verified outer authority into the radio-free control grammar.
+# Carrier implementations opt in explicitly; ordinary board-control users do not link Retinue.
+control-retinue = ["dep:retinue"]
 
 [dependencies]
+ed25519-dalek = { version = "3", default-features = false }
 heapless = "0.9"
+hmac = "0.13"
 lora-modulation = "0.1.5"
 lora-phy = { path = "../../vendor/lora-phy", optional = true }
 embassy-futures = { version = "0.1.2", optional = true }
@@ -30,8 +35,10 @@ embassy-time = { version = "0.5.1", optional = true }
 radio-face = { path = "../radio-face" }
 retinue = { path = "../retinue", default-features = false, optional = true }
 selvage = { path = "../selvage" }
+sha2 = { version = "0.11", default-features = false }
 
 [dev-dependencies]
+futures = { version = "0.3", default-features = false, features = ["executor"] }
 retinue = { path = "../retinue", default-features = false }
 # Reads the RNode oracle capture. The fixture lives with `tulle`, which holds the other half
 # of the same conversation; a third copy is a copy that can drift.
@@ -40,3 +47,7 @@ serde_json = "1.0.151"
 [[test]]
 name = "replay_corpus"
 required-features = ["replay"]
+
+[[test]]
+name = "retinue_command"
+required-features = ["control-retinue"]

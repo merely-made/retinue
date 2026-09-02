@@ -33,6 +33,7 @@ use static_cell::StaticCell;
 use crate::radio::{Sx126xDiagnostics, T114Interface, T114Spi};
 
 mod board;
+mod control_fixture;
 mod crash;
 mod heap;
 mod host;
@@ -152,6 +153,7 @@ async fn usb_task(mut device: UsbDevice<'static, UsbDriver>) {
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
+    control_fixture::verify();
     // First statement: everything after this may allocate.
     // SAFETY: called once, before any allocation.
     unsafe { heap::init() };

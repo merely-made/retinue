@@ -11,6 +11,14 @@ for a narrower reusable seam where they do not. Use source as a donor only
 when a dependency boundary is genuinely impractical, and use it only as an
 oracle when independent implementation is itself the requirement.
 
+**Scope correction, 2026-08-30:** the dependency-first mobile recommendation
+stands. The [wall-node management plan](2026-08-30_wall_node_management_plan.md)
+now owns the board-control contract and implementation order. Its WN5 starts
+with the target V4's management GATT service and uses a real phone as one
+controller face; this brief's P3 T114-first ordering is historical. References
+below to one boot `Channel` describe the current tree. WN7 separately governs
+the resident-adapter target.
+
 ## Executive decision
 
 There is no good reason to build a second iOS Reticulum host and a second

@@ -16,12 +16,17 @@ path = "src/lib.rs"
 name = "signalman"
 path = "src/main.rs"
 
+[[bin]]
+name = "signalman-first-owner"
+path = "src/bin/signalman-first-owner.rs"
+
 [dependencies]
 hex = "0.4"
 linkboy = { version = "0.1.0", path = "../linkboy" }
 outrider = { version = "0.1.1", path = "../../crates/outrider", features = ["voice"] }
 pipit = "0.2"
 postilion = { version = "0.1.0", path = "../../crates/postilion" }
+radio-hand = { version = "0.0.1", path = "../../crates/radio-hand" }
 retinue = { version = "0.1.1", path = "../../crates/retinue", features = ["tulle-radio"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

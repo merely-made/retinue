@@ -37,6 +37,8 @@
 //! so FS3 can make it durable across reboots. Until FS3 lands, a reboot resets the ledger and
 //! the replay window with it; [`Verifier::restore`] is the seam that closes.
 
+use core::fmt;
+
 use heapless::Vec as FixedVec;
 
 use crate::hash::{ADDRESS_HASH_LEN, AddressHash};
@@ -100,7 +102,7 @@ impl TargetClass {
 }
 
 /// A command, either about to be signed or just verified.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Command<'a> {
     /// The operator identity hash that signed, or will sign. On [`Command::sign`] this field
     /// is overwritten with the signer's own hash, so the two can never disagree on the wire.
@@ -112,6 +114,20 @@ pub struct Command<'a> {
     /// What to do. Opcode semantics belong to the consuming firmware, not to this module.
     pub opcode: u8,
     pub payload: &'a [u8],
+}
+
+impl fmt::Debug for Command<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("Command")
+            .field("key_id", &self.key_id)
+            .field("class", &self.class)
+            .field("target", &self.target)
+            .field("counter", &self.counter)
+            .field("opcode", &self.opcode)
+            .field("payload_len", &self.payload.len())
+            .finish()
+    }
 }
 
 impl<'a> Command<'a> {
@@ -188,6 +204,71 @@ impl<'a> Command<'a> {
             envelope,
             signature,
         ))
+    }
+}
+
+/// A command whose target, signer, counter window, and signature have all been checked.
+///
+/// Only [`Verifier::verify`] constructs this witness. Its borrowed payload is still the caller's
+/// input, but its metadata is authenticated and its counter has already advanced in the
+/// verifier's ledger. Carrier adapters can inspect it or project it as a read-only [`Command`],
+/// but cannot manufacture authority by constructing one themselves.
+pub struct VerifiedCommand<'a> {
+    command: Command<'a>,
+}
+
+impl fmt::Debug for VerifiedCommand<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("VerifiedCommand")
+            .field("key_id", &self.key_id())
+            .field("class", &self.class())
+            .field("target", &self.target())
+            .field("counter", &self.counter())
+            .field("opcode", &self.opcode())
+            .field("payload_len", &self.payload().len())
+            .finish()
+    }
+}
+
+impl<'a> VerifiedCommand<'a> {
+    /// The allowlisted operator that signed this command.
+    pub const fn key_id(&self) -> AddressHash {
+        self.command.key_id
+    }
+
+    /// Whether this was addressed to one node or to its configured fleet.
+    pub const fn class(&self) -> TargetClass {
+        self.command.class
+    }
+
+    /// The authenticated node or fleet target.
+    pub const fn target(&self) -> AddressHash {
+        self.command.target
+    }
+
+    /// The accepted, monotonic operator counter.
+    pub const fn counter(&self) -> u64 {
+        self.command.counter
+    }
+
+    /// The authenticated firmware-defined operation code.
+    pub const fn opcode(&self) -> u8 {
+        self.command.opcode
+    }
+
+    /// The authenticated operation body.
+    pub const fn payload(&self) -> &'a [u8] {
+        self.command.payload
+    }
+
+    /// Project the authenticated command for read-only consumers.
+    pub const fn as_command(&self) -> &Command<'a> {
+        &self.command
+    }
+
+    fn into_command(self) -> Command<'a> {
+        self.command
     }
 }
 
@@ -309,7 +390,7 @@ impl<const N: usize> Verifier<N> {
         self.accepted
     }
 
-    /// Verify a command and, if it holds up, advance the operator's counter.
+    /// Verify a command and return the proof that may authorize a consumer to act.
     ///
     /// Checks run cheapest first: shape, then version, then allowlist, then addressing, then
     /// the counter window, and only then the signature. An unsigned flood therefore costs
@@ -317,17 +398,25 @@ impl<const N: usize> Verifier<N> {
     /// live key id and a plausible counter still forces one verification per attempt, which
     /// is a rate-limiting problem for the interface admission layer and not something a
     /// signature scheme can solve here.
-    pub fn accept<'a>(&mut self, bytes: &'a [u8]) -> Result<Command<'a>, Refusal> {
+    pub fn verify<'a>(&mut self, bytes: &'a [u8]) -> Result<VerifiedCommand<'a>, Refusal> {
         match self.check(bytes) {
             Ok(command) => {
                 self.accepted = self.accepted.saturating_add(1);
-                Ok(command)
+                Ok(VerifiedCommand { command })
             }
             Err(refusal) => {
                 self.refusals = self.refusals.saturating_add(1);
                 Err(refusal)
             }
         }
+    }
+
+    /// Verify a command and project it into the historical command result.
+    ///
+    /// This compatibility API follows [`Self::verify`]'s single verification path; it does not
+    /// parse, validate, or advance the counter a second time.
+    pub fn accept<'a>(&mut self, bytes: &'a [u8]) -> Result<Command<'a>, Refusal> {
+        self.verify(bytes).map(VerifiedCommand::into_command)
     }
 
     fn check<'a>(&mut self, bytes: &'a [u8]) -> Result<Command<'a>, Refusal> {

@@ -1,24 +1,22 @@
 //! Channel selection and the RNode serve loop, plus the text probes both loops share.
 //!
 //! The V4 keeps its bespoke modem loop in `main` because the low-power work needs its own
-//! hand on the radio. The channel selector therefore lives beside it rather than replacing
+//! sleep policy. The channel selector therefore lives beside it rather than replacing
 //! it: the persisted channel byte picks which loop the boot enters, switching is by reboot,
 //! and the probe vocabulary is the T114's exactly, because a bench should not have to
 //! remember which board it is talking to.
 
 use embassy_futures::select::{Either, select};
-use lora_phy::mod_params::RadioError;
+use lora_phy::DelayNs;
 use lora_phy::mod_traits::RadioKind;
-use lora_phy::{DelayNs, LoRa, RxMode};
 use radio_hand::announce_reservation::DEFAULT_LEASE;
 use radio_hand::channel::rnode::RNodeChannel;
 use radio_hand::channel::{Channel as _, ChannelInfo as _, Event};
-use radio_hand::executive::{Executive, Face, RadioState};
 use radio_hand::link::HostLink;
 use radio_hand::region::Region;
 use radio_hand::settings::{Channel as BootChannel, Settings};
 
-use crate::{power, store, ui};
+use crate::{power, radio_owner::V4RadioOwner, store, ui};
 
 /// What a `region` line asked for: report, or set-and-reboot.
 pub fn region_probe(packet: &[u8]) -> Option<Option<Region>> {
@@ -284,12 +282,7 @@ pub async fn probe<L: HostLink>(
 /// port expects KISS frames from the first byte, and text in that stream is corruption.
 /// Faults still reach the screen.
 pub async fn serve_rnode<RK, DLY, L>(
-    mut lora: LoRa<RK, DLY>,
-    mut radio: RadioState,
-    mut local_status: radio_face::LocalStatus,
-    face: Face,
-    mut store: store::SettingsStore,
-    settings: Option<Settings>,
+    mut owner: V4RadioOwner<RK, DLY>,
     online: &'static [u8],
     identity_line: &[u8],
     mut host: L,
@@ -299,38 +292,32 @@ where
     DLY: DelayNs,
     L: HostLink,
 {
-    let region = settings.map(|s| s.region).unwrap_or_default();
     let mut channel = RNodeChannel::new();
 
     loop {
-        if radio.prepare_rx {
+        {
             let _awake = power::Awake::new();
-            if lora
-                .prepare_for_rx(RxMode::Continuous, &radio.modulation, &radio.rx)
-                .await
-                .is_err()
-            {
-                local_status.radio = radio_face::RadioState::Fault;
-                local_status.fault = Some(radio_face::Fault {
-                    code: 5,
-                    message: radio_face::Text::from_truncated("RX SETUP"),
-                });
-                ui::publish(local_status, radio_face::LedSignal::Idle);
-                embassy_time::Timer::after_millis(250).await;
-                continue;
+            match owner.ensure_rx().await {
+                Ok(true) => owner.radio_online(),
+                Ok(false) => {}
+                Err(crate::radio_owner::RxSetupFault::Prepare) => {
+                    owner.radio_fault(5, "RX SETUP");
+                    embassy_time::Timer::after_millis(250).await;
+                    continue;
+                }
+                Err(crate::radio_owner::RxSetupFault::Arm) => {
+                    owner.radio_fault(5, "RX ARM");
+                    embassy_time::Timer::after_millis(250).await;
+                    continue;
+                }
             }
-            local_status.radio = radio_face::RadioState::Online;
-            local_status.fault = None;
-            ui::publish(local_status, radio_face::LedSignal::Idle);
-            radio.prepare_rx = false;
         }
 
         let mut host_packet = [0_u8; 64];
         let mut radio_frame = [0_u8; selvage::MAX_RADIO_FRAME_LEN];
-        let outcome = select(
-            host.read(&mut host_packet),
-            lora.rx(&radio.rx, &mut radio_frame),
-        );
+        // The radio is already in continuous receive. Race only the interrupt wait. Once it
+        // wins, the frame remains in the chip until the un-raced collection below completes.
+        let outcome = select(host.read(&mut host_packet), owner.wait_rx_irq());
         let outcome = if channel.at_boundary() {
             outcome.await
         } else {
@@ -339,78 +326,49 @@ where
         };
         let _awake = power::Awake::new();
         match outcome {
-            Either::Second(Ok((length, packet_status))) => {
-                let length = usize::from(length);
-                local_status.rx_frames = local_status.rx_frames.saturating_add(1);
-                local_status.last_rx = Some(radio_face::RxSummary {
-                    frame_len: length as u16,
-                    rssi_dbm: packet_status.rssi,
-                    snr_tenths_db: packet_status.snr.saturating_mul(10),
-                });
-                local_status.last_wake = radio_face::WakeSource::Radio;
-                ui::publish(local_status, radio_face::LedSignal::Activity);
-                let mut exec = Executive::new(
-                    &mut lora,
-                    &mut radio,
-                    &mut local_status,
-                    &face,
-                    &mut store,
-                    region,
-                );
+            Either::Second(Ok(())) => {
+                // Deliberately not raced: the IRQ has already been consumed and the frame is in
+                // the radio until it is read out. A preamble-only IRQ is reported as pending;
+                // continuous RX remains armed and the outer loop waits for the next IRQ.
+                let Some(frame) = (match owner.collect(&mut radio_frame).await {
+                    Ok(frame) => frame,
+                    Err(_) => {
+                        owner.radio_fault(6, "RADIO RX");
+                        continue;
+                    }
+                }) else {
+                    continue;
+                };
+                owner.note_radio_frame(&frame);
+                let mut exec = owner.executive();
                 let _ = channel
                     .serve(
                         &mut exec,
                         &mut host,
                         Event::RadioFrame {
-                            frame: &radio_frame[..length],
-                            rssi: packet_status.rssi,
-                            snr: packet_status.snr,
+                            frame: &radio_frame[..frame.len],
+                            rssi: frame.rssi,
+                            snr: frame.snr,
                         },
                     )
                     .await;
             }
-            // A packet that failed its CRC. The air's fault, not the radio's: dropped and
-            // the receiver is still listening, so there is nothing to repair.
-            Either::Second(Err(RadioError::PayloadCrcError | RadioError::HeaderError)) => {}
             Either::Second(Err(_)) => {
-                local_status.radio = radio_face::RadioState::Fault;
-                local_status.fault = Some(radio_face::Fault {
-                    code: 6,
-                    message: radio_face::Text::from_truncated("RADIO RX"),
-                });
-                ui::publish(local_status, radio_face::LedSignal::Idle);
-                radio.prepare_rx = true;
+                owner.radio_fault(6, "RADIO RX");
             }
             Either::First(Err(_)) | Either::First(Ok(0)) => {}
             Either::First(Ok(length)) => {
-                local_status.host = radio_face::HostState::Attached;
-                local_status.last_wake = radio_face::WakeSource::Host;
-                ui::publish(local_status, radio_face::LedSignal::Idle);
+                owner.note_host_activity();
                 let packet = &host_packet[..length];
                 if channel.at_boundary()
                     && matches!(
-                        probe(
-                            packet,
-                            online,
-                            identity_line,
-                            settings,
-                            &mut store,
-                            &mut host
-                        )
-                        .await,
+                        owner.probe(packet, online, identity_line, &mut host).await,
                         Outcome::Served
                     )
                 {
                     continue;
                 }
-                let mut exec = Executive::new(
-                    &mut lora,
-                    &mut radio,
-                    &mut local_status,
-                    &face,
-                    &mut store,
-                    region,
-                );
+                let mut exec = owner.executive();
                 let _ = channel
                     .serve(&mut exec, &mut host, Event::HostBytes(packet))
                     .await;

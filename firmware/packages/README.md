@@ -46,6 +46,19 @@ bootloader-only observation cannot recover the prior application state; callers 
 fact across a loader transition must retain it in the serialized device observation. Linkboy
 does not invent a hardware read for it.
 
+The 2026-08-31 WN1 software-only check does not update either immutable package. The current
+V4 package writes `0x0..0x3F0000` and preserves `0x3F0000..0x400000`, which includes the
+settings pair, announce-reservation pair, ordinary control rollback pair
+(`0x3F4000..0x3F6000`), and the writable pending first-write A/B pair
+(`0x3F6000..0x3F8000`). The remaining preserved tail (`0x3F8000..0x400000`)
+is unallocated future-vault space, not a pending claim or a credential-vault
+implementation; any vault needs its own selected range and overlap guard. The
+current immutable package artifacts were not rebuilt for this claim-only slice
+and gain no capability claim. T114 v51's immutable payload stops at `0x69400`; its native-node
+preserved/guard declaration begins at `0xE8000`, so it does not contractually cover the new
+`0xE6000..0xE8000` control pair. This is preserved-tail inventory only, not a rebuilt-package,
+flash-contents, physical-reset, or on-air receipt.
+
 Inspect the catalog and a package before connecting a board:
 
 ```text

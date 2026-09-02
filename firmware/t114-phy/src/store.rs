@@ -32,11 +32,15 @@ use embassy_nrf::nvmc::{Nvmc, PAGE_SIZE};
 use embassy_nrf::peripherals::{NVMC, RNG};
 use embassy_nrf::rng::Rng;
 use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
+use radio_hand::control::{
+    self, AbSlotStore, DurableError, DurableLoadError, DurableState, JournalWrite, MAX_DURABLE_BODY,
+};
 use radio_hand::executive::{BoardStore, StoreFault};
 use radio_hand::settings::{self, Settings};
 use radio_hand::store::{self, HEADER_LEN, Slot, SlotError};
 
 include!(concat!(env!("OUT_DIR"), "/store_region.rs"));
+include!(concat!(env!("OUT_DIR"), "/control_region.rs"));
 include!(concat!(env!("OUT_DIR"), "/reservation_region.rs"));
 include!(concat!(env!("OUT_DIR"), "/announce_lease.rs"));
 
@@ -46,6 +50,20 @@ include!(concat!(env!("OUT_DIR"), "/announce_lease.rs"));
 const _: () = assert!(
     STORE_LENGTH as usize == 2 * PAGE_SIZE,
     "the store spans exactly the A and B pages"
+);
+
+const CONTROL_SLOT_LEN: usize = store::encoded_len(MAX_DURABLE_BODY);
+const _: () = assert!(
+    MAX_DURABLE_BODY <= u16::MAX as usize,
+    "the durable body must fit the outer record length field"
+);
+const _: () = assert!(
+    CONTROL_LENGTH as usize == 2 * PAGE_SIZE,
+    "the control journal spans exactly the A and B pages"
+);
+const _: () = assert!(
+    CONTROL_SLOT_LEN <= PAGE_SIZE,
+    "the maximum WN1 body plus its record header fits in one page"
 );
 
 const _: () = assert!(
@@ -103,6 +121,23 @@ pub enum ReservationError {
     Read,
     Corrupt,
     Exhausted,
+    Erase,
+    Write,
+    Verify,
+}
+
+/// Why the independent WN1 control journal could not be read or written.
+///
+/// Unlike settings, a nonblank corrupt pair is never repaired here: replacing it could
+/// discard owner grants, a known-good configuration, or a cached replay result.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum ControlError {
+    Buffer,
+    Read,
+    Blank,
+    Corrupt,
+    State(DurableError),
     Erase,
     Write,
     Verify,
@@ -264,6 +299,44 @@ impl<'d> SettingsStore<'d> {
         })
     }
 
+    /// Read the WN1 durable control state from its independent A/B pair.
+    #[allow(dead_code)]
+    pub fn load_control(&mut self) -> Result<DurableState, ControlError> {
+        let (a, b) = self.read_control_slots()?;
+        control::load(&a, &b).map_err(|error| match error {
+            DurableLoadError::Blank => ControlError::Blank,
+            DurableLoadError::Corrupt => ControlError::Corrupt,
+            DurableLoadError::State(error) => ControlError::State(error),
+        })
+    }
+
+    /// Persist one WN1 state to the inactive control slot and verify it from flash.
+    ///
+    /// The returned sequence belongs to the outer A/B journal. It is deliberately separate
+    /// from the state's `ConfigGeneration`, which is semantic configuration state.
+    #[allow(dead_code)]
+    pub fn save_control(&mut self, state: &DurableState) -> Result<JournalWrite, ControlError> {
+        let (a, b) = self.read_control_slots()?;
+        let mut body = [0_u8; MAX_DURABLE_BODY];
+        let mut encoded = [0xFF_u8; CONTROL_SLOT_LEN];
+        let write = control::next_record(&a, &b, state, &mut body, &mut encoded)
+            .map_err(ControlError::State)?;
+        let expected = store::decode(&encoded).map_err(|_| ControlError::Verify)?;
+
+        self.erase_slot(write.slot)?;
+        self.program_slot(write.slot, &encoded[..write.len])?;
+
+        let mut check = [0_u8; CONTROL_SLOT_LEN];
+        self.read_slot(write.slot, &mut check)
+            .map_err(|_| ControlError::Verify)?;
+        let actual = store::decode(&check).map_err(|_| ControlError::Verify)?;
+        if actual.sequence != write.sequence || actual.body != expected.body {
+            return Err(ControlError::Verify);
+        }
+        control::decode_durable(actual.body).map_err(ControlError::State)?;
+        Ok(write)
+    }
+
     /// Erase one slot, write the record, and read it back.
     fn persist(&mut self, slot: Slot, sequence: u32, settings: &Settings) -> Result<(), Error> {
         let offset = self.offset(slot);
@@ -354,6 +427,54 @@ impl<'d> SettingsStore<'d> {
             Slot::A => STORE_ORIGIN,
             Slot::B => STORE_ORIGIN + PAGE_SIZE as u32,
         }
+    }
+
+    fn read_control_slots(
+        &mut self,
+    ) -> Result<([u8; CONTROL_SLOT_LEN], [u8; CONTROL_SLOT_LEN]), ControlError> {
+        let mut a = [0_u8; CONTROL_SLOT_LEN];
+        let mut b = [0_u8; CONTROL_SLOT_LEN];
+        self.read_slot(Slot::A, &mut a)?;
+        self.read_slot(Slot::B, &mut b)?;
+        Ok((a, b))
+    }
+
+    fn control_offset(&self, slot: Slot) -> u32 {
+        match slot {
+            Slot::A => CONTROL_ORIGIN,
+            Slot::B => CONTROL_ORIGIN + PAGE_SIZE as u32,
+        }
+    }
+}
+
+/// Hardware implementation of the portable WN1 A/B slot seam. This pair is intentionally
+/// separate from the settings and announce-reservation pairs above.
+impl AbSlotStore for SettingsStore<'_> {
+    type Error = ControlError;
+
+    fn read_slot(&mut self, slot: Slot, out: &mut [u8]) -> Result<(), Self::Error> {
+        if out.len() != CONTROL_SLOT_LEN {
+            return Err(ControlError::Buffer);
+        }
+        self.nvmc
+            .read(self.control_offset(slot), out)
+            .map_err(|_| ControlError::Read)
+    }
+
+    fn erase_slot(&mut self, slot: Slot) -> Result<(), Self::Error> {
+        let offset = self.control_offset(slot);
+        self.nvmc
+            .erase(offset, offset + PAGE_SIZE as u32)
+            .map_err(|_| ControlError::Erase)
+    }
+
+    fn program_slot(&mut self, slot: Slot, record: &[u8]) -> Result<(), Self::Error> {
+        if record.is_empty() || record.len() > CONTROL_SLOT_LEN || !record.len().is_multiple_of(4) {
+            return Err(ControlError::Buffer);
+        }
+        self.nvmc
+            .write(self.control_offset(slot), record)
+            .map_err(|_| ControlError::Write)
     }
 }
 

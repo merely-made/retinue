@@ -119,6 +119,13 @@ impl InterfaceVariant for T114Interface<'_> {
         Ok(())
     }
 
+    async fn await_irq_low(&mut self) -> Result<(), RadioError> {
+        while self.dio1.is_high() {
+            Timer::after_millis(1).await;
+        }
+        Ok(())
+    }
+
     async fn enable_rf_switch_rx(&mut self) -> Result<(), RadioError> {
         Ok(())
     }

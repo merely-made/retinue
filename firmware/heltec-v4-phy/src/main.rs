@@ -2,6 +2,11 @@
 #![no_main]
 #![deny(unsafe_op_in_unsafe_fn)]
 
+#[cfg(all(feature = "host-usb", feature = "host-uart-low-power"))]
+compile_error!("select exactly one V4 host transport: host-usb or host-uart-low-power");
+#[cfg(not(any(feature = "host-usb", feature = "host-uart-low-power")))]
+compile_error!("select exactly one V4 host transport: host-usb or host-uart-low-power");
+
 #[cfg(all(feature = "host-uart-low-power", feature = "rf-sleep-proof"))]
 use core::future::{Future, poll_fn};
 #[cfg(all(feature = "host-uart-low-power", feature = "rf-sleep-proof"))]
@@ -26,14 +31,14 @@ use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
 #[cfg(feature = "host-uart-low-power")]
 use esp_hal::uart::{Config as UartConfig, Uart};
-#[cfg(feature = "host-usb")]
+#[cfg(all(feature = "host-usb", not(feature = "host-uart-low-power")))]
 use esp_hal::usb_serial_jtag::UsbSerialJtag;
 use lora_modulation::{Bandwidth, CodingRate, SpreadingFactor};
+use lora_phy::LoRa;
 use lora_phy::iv::GenericSx126xInterfaceVariant;
 use lora_phy::sx126x::{Config as Sx126xConfig, Sx126x, Sx1262, TcxoCtrlVoltage};
-use lora_phy::{LoRa, RxMode};
 use radio_hand::dispatch;
-use radio_hand::executive::{ChipDiagnostics, Executive, Face, RadioState};
+use radio_hand::executive::{ChipDiagnostics, Face, RadioState};
 use radio_hand::link::HostLink;
 use selvage::{
     CommandStream, EVENT_DIAGNOSTIC, EVENT_RX, MAX_COMMAND_LEN, MESHTASTIC_SYNC_WORD, WAKE_BYTE,
@@ -41,13 +46,21 @@ use selvage::{
 
 mod board;
 mod channels;
+mod commissioning_store;
+mod control_boot;
+mod control_fixture;
+mod control_store;
 mod host;
+#[cfg(all(feature = "host-usb", not(feature = "host-uart-low-power")))]
+mod physical_presence;
 mod power;
+mod radio_owner;
 #[cfg(feature = "rf-sleep-proof")]
 mod sleep_proof;
 mod store;
 mod ui;
 mod wake_input;
+mod wake_lease;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -130,6 +143,7 @@ async fn serve_status_only<R: embedded_io_async::Read, W: embedded_io_async::Wri
 
 #[esp_rtos::main]
 async fn main(spawner: Spawner) {
+    control_fixture::verify();
     let peripherals = esp_hal::init(Config::default());
     #[cfg(feature = "rf-sleep-proof")]
     let proof_reset_reason = esp_hal::system::reset_reason()
@@ -150,14 +164,16 @@ async fn main(spawner: Spawner) {
             (None, message.len())
         }
     };
-    let region = settings.map(|s| s.region).unwrap_or_default();
 
     let sw_int = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     let timg0 = TimerGroup::new(peripherals.TIMG0);
 
     // The USB personality keeps the stock idle loop: its host link cannot survive Light-sleep,
     // so there is nothing to gain and a re-enumeration failure to lose.
-    #[cfg(any(feature = "host-usb", feature = "rf-sleep-proof"))]
+    #[cfg(any(
+        all(feature = "host-usb", not(feature = "host-uart-low-power")),
+        feature = "rf-sleep-proof"
+    ))]
     esp_rtos::start(timg0.timer0, sw_int.software_interrupt0);
 
     // The low-power personality installs a gated idle hook instead. It only sleeps once
@@ -167,15 +183,15 @@ async fn main(spawner: Spawner) {
 
     // The host link. Both personalities implement `embedded_io_async::{Read, Write}`, so
     // everything below is written once and built twice.
-    #[cfg(feature = "host-usb")]
-    let (usb_rx, usb_tx) = UsbSerialJtag::new(peripherals.USB_DEVICE)
+    #[cfg(all(feature = "host-usb", not(feature = "host-uart-low-power")))]
+    let (mut usb_rx, mut usb_tx) = UsbSerialJtag::new(peripherals.USB_DEVICE)
         .into_async()
         .split();
 
     // UART0 on the exposed header: GPIO44 RX, GPIO43 TX. Unlike USB Serial/JTAG this survives
     // Light-sleep and can wake the chip, which is what the low-power personality needs.
     #[cfg(feature = "host-uart-low-power")]
-    let (usb_rx, usb_tx) = {
+    let (mut usb_rx, mut usb_tx) = {
         let uart = Uart::new(
             peripherals.UART0,
             UartConfig::default().with_baudrate(HOST_UART_BAUD),
@@ -203,7 +219,6 @@ async fn main(spawner: Spawner) {
     let vext = Output::new(peripherals.GPIO36, Level::Low, OutputConfig::default());
     let led = Output::new(peripherals.GPIO35, Level::Low, OutputConfig::default());
     let mut local_status = board::initial_status();
-    spawner.spawn(ui::button_task(button).unwrap());
     spawner.spawn(ui::screen_task(i2c, oled_reset, vext, led, local_status).unwrap());
 
     let spi = Spi::new(
@@ -327,8 +342,7 @@ async fn main(spawner: Spawner) {
 
     // Past every path that hands the halves to `serve_status_only`, so they can become the
     // host link and the radio settings become the state `radio-hand` drives.
-    let mut host = host::SplitHost::new(usb_rx, usb_tx);
-    let mut radio = RadioState {
+    let radio = RadioState {
         profile: selvage::PhyProfile::meshtastic_long_fast(board::DEFAULT_FREQUENCY_HZ),
         modulation,
         tx: tx_params,
@@ -340,6 +354,86 @@ async fn main(spawner: Spawner) {
         publish: ui::publish,
         publish_host: ui::publish_host,
     };
+    let mut owner =
+        radio_owner::V4RadioOwner::new(lora, radio, local_status, face, store, settings);
+
+    // WN1 durable recovery is a boot-only action: before a host exists, before RNode gets
+    // exclusive custody, and before any receive or sleep machinery starts. A missing settings
+    // record retains the existing recovery modem posture. Any WN1 error is a status-only boot;
+    // it never proceeds into modem or RNode service with uncertain durable state.
+    let button = if let Some(settings) = settings {
+        // Safety: board startup creates this exactly once after a real ESP reset, before host
+        // construction, RNode selection, RX arming, `power::arm`, or any radio service. The
+        // consumed token confines `ControlRuntime::new_after_hardware_reset` to boot recovery.
+        let reset = unsafe { control_boot::after_hardware_reset() };
+        let (button, boot) = control_boot::boot_pre_radio_owner(
+            reset,
+            &mut owner,
+            &settings.identity,
+            button,
+            &mut usb_rx,
+            &mut usb_tx,
+        )
+        .await;
+        match boot {
+            Ok(control_boot::ControlBootOutcome::ControlReady)
+            | Ok(control_boot::ControlBootOutcome::BlankUncommissioned) => {}
+            Ok(control_boot::ControlBootOutcome::FirstWritePending) => {
+                owner.radio_fault(8, "CONTROL PENDING");
+                serve_status_only(
+                    usb_rx,
+                    usb_tx,
+                    b"tulle/heltec-v4 phy control first-write pending\r\n",
+                )
+                .await
+            }
+            Err(control_boot::ControlBootError::FirstWriteStore(error)) => {
+                let _ = error;
+                owner.radio_fault(9, "FIRSTWRITE STORE");
+                serve_status_only(
+                    usb_rx,
+                    usb_tx,
+                    b"tulle/heltec-v4 phy first-write storage failed\r\n",
+                )
+                .await
+            }
+            Err(control_boot::ControlBootError::EntropyUnavailable) => {
+                owner.radio_fault(10, "CLAIM ENTROPY");
+                serve_status_only(
+                    usb_rx,
+                    usb_tx,
+                    b"tulle/heltec-v4 phy claim entropy unavailable\r\n",
+                )
+                .await
+            }
+            Err(control_boot::ControlBootError::OwnerUnavailable) => {
+                owner.radio_fault(11, "CONTROL OWNER");
+                serve_status_only(
+                    usb_rx,
+                    usb_tx,
+                    b"tulle/heltec-v4 phy control boot owner unavailable\r\n",
+                )
+                .await
+            }
+            Err(control_boot::ControlBootError::Runtime(error)) => {
+                let _ = error;
+                owner.radio_fault(12, "CONTROL BOOT");
+                serve_status_only(
+                    usb_rx,
+                    usb_tx,
+                    b"tulle/heltec-v4 phy control runtime boot failed\r\n",
+                )
+                .await
+            }
+        }
+        button
+    } else {
+        button
+    };
+
+    spawner.spawn(ui::button_task(button).unwrap());
+
+    let mut host = host::SplitHost::new(usb_rx, usb_tx);
 
     // The channel selector. The RNode loop never returns: switching back is a persisted
     // byte and a reboot, and no banner is written because a host opening that port expects
@@ -347,18 +441,7 @@ async fn main(spawner: Spawner) {
     // unconditionally; it is a bench, not a shipping personality.
     #[cfg(not(feature = "rf-sleep-proof"))]
     if settings.map(|s| s.channel) == Some(radio_hand::settings::Channel::Rnode) {
-        channels::serve_rnode(
-            lora,
-            radio,
-            local_status,
-            face,
-            store,
-            settings,
-            online,
-            &identity_line[..identity_line_len],
-            host,
-        )
-        .await
+        channels::serve_rnode(owner, online, &identity_line[..identity_line_len], host).await
     }
 
     let _ = host.write_all(online).await;
@@ -379,40 +462,23 @@ async fn main(spawner: Spawner) {
     power::arm(esp_hal::rtc_cntl::Rtc::new(peripherals.LPWR));
 
     loop {
-        if radio.prepare_rx {
+        {
             // Configuring the radio is SPI traffic; sleeping through it would abandon a
             // half-finished transaction.
             let _awake = power::Awake::new();
-            if lora
-                .prepare_for_rx(RxMode::Continuous, &radio.modulation, &radio.rx)
-                .await
-                .is_err()
-            {
-                local_status.radio = radio_face::RadioState::Fault;
-                local_status.fault = Some(radio_face::Fault {
-                    code: 5,
-                    message: radio_face::Text::from_truncated("RX SETUP"),
-                });
-                ui::publish(local_status, radio_face::LedSignal::Idle);
-                let _ = host.write_all(b"radio rx setup failed\r\n").await;
-                continue;
+            match owner.ensure_rx().await {
+                Ok(true) => owner.radio_online(),
+                Ok(false) => {}
+                Err(radio_owner::RxSetupFault::Prepare) => {
+                    owner.radio_fault(5, "RX SETUP");
+                    let _ = host.write_all(b"radio rx setup failed\r\n").await;
+                    continue;
+                }
+                Err(radio_owner::RxSetupFault::Arm) => {
+                    let _ = host.write_all(b"radio rx arm failed\n").await;
+                    continue;
+                }
             }
-            // Into continuous receive now, not on the first poll of a receive future.
-            // That is what makes abandoning the interrupt wait below safe: there is no
-            // half-finished arming left to cancel.
-            if lora.rx_arm().await.is_err() {
-                let _ = host
-                    .write_all(
-                        b"radio rx arm failed
-",
-                    )
-                    .await;
-                continue;
-            }
-            local_status.radio = radio_face::RadioState::Online;
-            local_status.fault = None;
-            ui::publish(local_status, radio_face::LedSignal::Idle);
-            radio.prepare_rx = false;
         }
 
         let mut usb_packet = [0_u8; 64];
@@ -428,10 +494,13 @@ async fn main(spawner: Spawner) {
         #[cfg(all(feature = "host-uart-low-power", feature = "rf-sleep-proof"))]
         let radio_receive = async {
             if !proof_sleep_enabled {
-                return lora.rx(&radio.rx, &mut radio_frame).await;
+                return owner.wait_rx_irq().await;
             }
 
-            let mut receive = core::pin::pin!(lora.rx(&radio.rx, &mut radio_frame));
+            // RX was prepared and armed before this wait. Keep the proof's sleep polling around
+            // the cancellation-safe IRQ waiter, then let the common match collect the frame
+            // without racing it.
+            let mut receive = core::pin::pin!(owner.wait_rx_irq());
             poll_fn(|cx| match receive.as_mut().poll(cx) {
                 Poll::Ready(outcome) => Poll::Ready(outcome),
                 Poll::Pending if wake_input::radio_wake_armed() && !wake_input::radio_is_high() => {
@@ -444,9 +513,8 @@ async fn main(spawner: Spawner) {
                     Poll::Pending
                 }
                 Poll::Pending => {
-                    // `lora.rx()` may first yield while its asynchronous SPI setup is still
-                    // putting the SX1262 into receive. Re-poll until the DIO1 waiter confirms
-                    // that both continuous receive and its CPU/wake interrupts are armed.
+                    // The IRQ waiter may still be registering the DIO1 interrupt and wake bit.
+                    // Re-poll until that registration is visible before sleeping.
                     cx.waker().wake_by_ref();
                     Poll::Pending
                 }
@@ -458,7 +526,7 @@ async fn main(spawner: Spawner) {
         // chip: interrupt consumed, bytes left for the next packet to overwrite, nothing
         // reported. This half holds no transaction and leaves the radio listening.
         #[cfg(not(all(feature = "host-uart-low-power", feature = "rf-sleep-proof")))]
-        let radio_receive = lora.wait_for_irq();
+        let radio_receive = owner.wait_rx_irq();
         let waiting = select(host_read, radio_receive);
         let outcome = if command_stream.is_boundary() {
             waiting.await
@@ -471,51 +539,22 @@ async fn main(spawner: Spawner) {
         match outcome {
             Either::Second(Ok(())) => {
                 // Deliberately not raced: the frame is in the radio until it is read out.
-                let (length, packet_status) =
-                    match lora.rx_collect(&radio.rx, &mut radio_frame).await {
-                        Ok(frame) => frame,
-                        // A CRC failure is the air, not the radio. The chip stays in continuous
-                        // receive, so the next frame is the whole recovery.
-                        Err(lora_phy::mod_params::RadioError::ReceivePending) => continue,
-                        Err(
-                            lora_phy::mod_params::RadioError::PayloadCrcError
-                            | lora_phy::mod_params::RadioError::HeaderError,
-                        ) => continue,
-                        Err(_) => {
-                            // Said out loud, matching the T114. A radio that stops
-                            // receiving is the whole failure on a board whose only job is
-                            // receiving, and swallowing it leaves a host unable to tell a
-                            // dead radio from a quiet band -- which is exactly the
-                            // ambiguity that cost a night of this project already.
-                            radio.prepare_rx = true;
-                            local_status.radio = radio_face::RadioState::Fault;
-                            local_status.fault = Some(radio_face::Fault {
-                                code: 6,
-                                message: radio_face::Text::from_truncated("RADIO RX"),
-                            });
-                            ui::publish(local_status, radio_face::LedSignal::Idle);
-                            if host
-                                .write_all(
-                                    b"radio rx failed
-",
-                                )
-                                .await
-                                .is_err()
-                            {
-                                break;
-                            }
-                            continue;
+                let Some(frame) = (match owner.collect(&mut radio_frame).await {
+                    Ok(frame) => frame,
+                    Err(_) => {
+                        // Said out loud, matching the T114. A radio that stops receiving is
+                        // the whole failure on a board whose only job is receiving.
+                        owner.radio_fault(6, "RADIO RX");
+                        if host.write_all(b"radio rx failed\r\n").await.is_err() {
+                            break;
                         }
-                    };
-                let length = usize::from(length);
-                local_status.rx_frames = local_status.rx_frames.saturating_add(1);
-                local_status.last_rx = Some(radio_face::RxSummary {
-                    frame_len: length as u16,
-                    rssi_dbm: packet_status.rssi,
-                    snr_tenths_db: packet_status.snr.saturating_mul(10),
-                });
-                local_status.last_wake = radio_face::WakeSource::Radio;
-                ui::publish(local_status, radio_face::LedSignal::Activity);
+                        continue;
+                    }
+                }) else {
+                    continue;
+                };
+                let length = frame.len;
+                owner.note_radio_frame(&frame);
 
                 // The low-power board's UART host is intentionally absent from this bench.
                 // A feature-gated RF challenge therefore returns the counters through the
@@ -524,11 +563,12 @@ async fn main(spawner: Spawner) {
                 #[cfg(feature = "rf-sleep-proof")]
                 if let Some(nonce) = sleep_proof::nonce(&radio_frame[..length]) {
                     let (sleep_entries, _) = power::counters();
+                    let status = owner.status();
                     let receipt = sleep_proof::receipt(
                         nonce,
                         sleep_entries,
                         wake_input::radio_wake_registrations(),
-                        local_status.rx_frames,
+                        status.rx_frames,
                         power::last_sleep_us(),
                         proof_sleep_enabled,
                         proof_reset_reason,
@@ -537,26 +577,8 @@ async fn main(spawner: Spawner) {
                     // This deliberately uses a blocking HAL delay rather than introducing
                     // an Embassy timer into the very clock behavior under examination.
                     BlockingDelay::new().delay_millis(250);
-                    let sent = lora
-                        .prepare_for_tx(
-                            &radio.modulation,
-                            &mut radio.tx,
-                            radio.tx_power_dbm,
-                            &receipt,
-                        )
-                        .await
-                        .is_ok()
-                        && lora.tx().await.is_ok();
-                    radio.prepare_rx = true;
-                    if sent {
-                        local_status.tx_frames = local_status.tx_frames.saturating_add(1);
-                        local_status.last_tx = radio_face::TxResult::Sent {
-                            frame_len: receipt.len() as u16,
-                        };
-                    } else {
-                        local_status.last_tx = radio_face::TxResult::Failed { code: 1 };
-                    }
-                    ui::publish(local_status, radio_face::LedSignal::Activity);
+                    let sent = owner.proof_transmit(&receipt).await;
+                    owner.note_proof_tx(receipt.len(), sent);
                     #[cfg(all(feature = "host-uart-low-power", feature = "rf-sleep-proof"))]
                     {
                         // The first matching challenge is the awake control. Every subsequent
@@ -568,35 +590,21 @@ async fn main(spawner: Spawner) {
                 let mut event = [0_u8; 7 + MAX_RADIO_FRAME];
                 event[0] = EVENT_RX;
                 event[1..3].copy_from_slice(&(length as u16).to_le_bytes());
-                event[3..5].copy_from_slice(&packet_status.rssi.to_le_bytes());
-                event[5..7].copy_from_slice(&packet_status.snr.to_le_bytes());
+                event[3..5].copy_from_slice(&frame.rssi.to_le_bytes());
+                event[5..7].copy_from_slice(&frame.snr.to_le_bytes());
                 event[7..7 + length].copy_from_slice(&radio_frame[..length]);
                 let _ = host.write_all(&event[..7 + length]).await;
             }
-            // A packet that failed its CRC: the air's fault, not the radio's. Dropped
-            // silently, because the receiver is still listening and the alternative is
-            // writing fault text into the host's byte stream once per damaged frame,
-            // which on the T114's bench is more than a third of everything heard.
-            Either::Second(Err(
-                lora_phy::mod_params::RadioError::PayloadCrcError
-                | lora_phy::mod_params::RadioError::HeaderError,
-            )) => {}
+            // `wait_for_irq()` reports waiter/interrupt errors here. CRC and header outcomes
+            // belong to the unraced `rx_collect()` above, where the frame is actually read.
             Either::Second(Err(_)) => {
-                local_status.radio = radio_face::RadioState::Fault;
-                local_status.fault = Some(radio_face::Fault {
-                    code: 6,
-                    message: radio_face::Text::from_truncated("RADIO RX"),
-                });
-                ui::publish(local_status, radio_face::LedSignal::Idle);
+                owner.radio_fault(6, "RADIO RX");
                 let _ = host.write_all(b"radio rx failed\r\n").await;
-                radio.prepare_rx = true;
             }
             Either::First(Err(_)) => {}
             Either::First(Ok(0)) => {}
             Either::First(Ok(length)) => {
-                local_status.host = radio_face::HostState::Attached;
-                local_status.last_wake = radio_face::WakeSource::Host;
-                ui::publish(local_status, radio_face::LedSignal::Idle);
+                owner.note_host_activity();
                 let mut packet = &usb_packet[..length];
                 // Discard host wake bytes, but only while the parser sits at a frame
                 // boundary: the same value is perfectly legal inside a length field or a
@@ -617,15 +625,14 @@ async fn main(spawner: Spawner) {
                 // carried rather than obeyed.
                 if at_boundary
                     && matches!(
-                        channels::probe(
-                            packet,
-                            online,
-                            &identity_line[..identity_line_len],
-                            settings,
-                            &mut store,
-                            &mut host,
-                        )
-                        .await,
+                        owner
+                            .probe(
+                                packet,
+                                online,
+                                &identity_line[..identity_line_len],
+                                &mut host
+                            )
+                            .await,
                         channels::Outcome::Served
                     )
                 {
@@ -633,20 +640,13 @@ async fn main(spawner: Spawner) {
                 }
                 #[cfg(feature = "ui-bench")]
                 if at_boundary && (packet == b"fault\n" || packet == b"fault\r\n") {
-                    local_status.radio = radio_face::RadioState::Fault;
-                    local_status.fault = Some(radio_face::Fault {
-                        code: 0xfe,
-                        message: radio_face::Text::from_truncated("BENCH FAULT"),
-                    });
-                    ui::publish(local_status, radio_face::LedSignal::Idle);
+                    owner.radio_fault(0xfe, "BENCH FAULT");
                     let _ = host.write_all(b"ui bench fault set\r\n").await;
                     continue;
                 }
                 #[cfg(feature = "ui-bench")]
                 if at_boundary && (packet == b"clear\n" || packet == b"clear\r\n") {
-                    local_status.radio = radio_face::RadioState::Online;
-                    local_status.fault = None;
-                    ui::publish(local_status, radio_face::LedSignal::Idle);
+                    owner.radio_online();
                     let _ = host.write_all(b"ui bench fault cleared\r\n").await;
                     continue;
                 }
@@ -664,20 +664,12 @@ async fn main(spawner: Spawner) {
                     continue;
                 }
 
-                // An executive per call rather than one for the whole loop. This board's
-                // receive path is still bespoke — the low-power proof polls `lora.rx()` by
-                // hand so it can enter Light-sleep from inside the future — so it keeps its
-                // own hand on the radio, and adopts the seam only where the shared command
-                // loop needs it. The T114 holds one for the whole of `main` and gets the full
-                // boundary; this board follows when the sleep work is settled.
-                let mut exec = Executive::new(
-                    &mut lora,
-                    &mut radio,
-                    &mut local_status,
-                    &face,
-                    &mut store,
-                    region,
-                );
+                // An executive per command inside the long-lived V4 owner. This board's
+                // receive path is still bespoke — the low-power proof polls the IRQ waiter by
+                // hand around Light-sleep and leaves frame collection to the common, unraced
+                // path — but it can no longer split radio or store custody from the command
+                // path.
+                let mut exec = owner.executive();
                 let outcome = dispatch::on_host_bytes(
                     &mut host,
                     &mut exec,

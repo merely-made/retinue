@@ -44,15 +44,24 @@ use radio_hand::store::{self, HEADER_LEN, Slot, SlotError};
 /// boundary. This board has no partition table this firmware honours — it is flashed as a
 /// bare image — so the region is a firmware fact, and moving it strands existing records the
 /// same way re-carving the T114's `memory.x` would.
-const STORE_ORIGIN: u32 = 0x3F_0000;
+pub(crate) const STORE_ORIGIN: u32 = 0x3F_0000;
 
 /// The V4's independent announce-reservation pair.  It is deliberately after
 /// the settings pair: a reservation is disposable protocol state and must not
 /// be allowed to damage the identity record during recovery or downgrade.
-pub const ANNOUNCE_RESERVATION_ORIGIN: u32 = 0x3F_2000;
+pub(crate) const ANNOUNCE_RESERVATION_ORIGIN: u32 = 0x3F_2000;
 
 /// The flash sector size the ESP32-S3 erases in.
-const SECTOR: u32 = 4096;
+pub(crate) const SECTOR: u32 = 4096;
+
+const _: () = assert!(
+    STORE_ORIGIN % SECTOR == 0,
+    "the settings pair must begin on an ESP flash-sector boundary"
+);
+const _: () = assert!(
+    ANNOUNCE_RESERVATION_ORIGIN % SECTOR == 0,
+    "the announce-reservation pair must begin on an ESP flash-sector boundary"
+);
 
 const ANNOUNCE_RESERVATION_SLOT_READ_LEN: usize =
     HEADER_LEN + radio_hand::announce_reservation::BODY_LEN + 16;
@@ -112,7 +121,7 @@ struct ReservationSnapshot {
 
 /// The two flash sectors, and the entropy source that seeds an identity.
 pub struct SettingsStore {
-    flash: FlashStorage<'static>,
+    pub(crate) flash: FlashStorage<'static>,
     /// Held for the life of the store: dropping it would disable the ADC entropy source and
     /// silently downgrade every later `random` call to pseudo-random.
     _trng_source: TrngSource<'static>,
@@ -124,6 +133,16 @@ impl SettingsStore {
             flash: FlashStorage::new(flash),
             _trng_source: TrngSource::new(rng, adc),
         }
+    }
+
+    /// Fill caller-owned commissioning bytes from the same ADC-backed true
+    /// entropy source that protects board identity generation. This is kept
+    /// board-local so a first-owner challenge cannot quietly fall back to an
+    /// uptime counter, HMAC, or pseudo-random ESP source.
+    pub(crate) fn fill_true_random(&mut self, out: &mut [u8]) -> Result<(), StoreFault> {
+        let trng = Trng::try_new().map_err(|_| StoreFault::Unavailable)?;
+        trng.read(out);
+        Ok(())
     }
 
     /// Read the board's settings, generating and persisting an identity if flash holds
@@ -451,9 +470,7 @@ impl BoardStore for SettingsStore {
     /// True random or nothing. [`Trng::try_new`] fails when no entropy source is active,
     /// which is the case this refuses rather than papering over — see the module header.
     fn random(&mut self, out: &mut [u8]) -> Result<(), StoreFault> {
-        let trng = Trng::try_new().map_err(|_| StoreFault::Unavailable)?;
-        trng.read(out);
-        Ok(())
+        self.fill_true_random(out)
     }
 
     fn save(&mut self, settings: &Settings) -> Result<(), StoreFault> {

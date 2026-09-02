@@ -1,17 +1,22 @@
 # Bluetooth Capability Scoping Brief
 
+> **Archived 2026-08-30.** The active
+> [wall-node management plan](../../2026-08-30_wall_node_management_plan.md)
+> replaces LB1 through LB6. This brief remains as stack research and historical
+> context; its pre-decision ladder is not active.
+
 Scoping brief, 2026-08-11. **Pre-decision: every ruling here awaits Mark.**
 Facts below are verified against the cited sources on this date; items marked
 *verify* are not. Context: the 2026-08-11 demo receipts
-([Hopspot BLE](2026-08-11_hopspot_v4_com7_demo_receipt.md),
-[Meshtastic T114](2026-08-11_meshtastic_t114_uf2_demo_receipt.md)) proved the
+([Hopspot BLE](../../2026-08-11_hopspot_v4_com7_demo_receipt.md),
+[Meshtastic T114](../../2026-08-11_meshtastic_t114_uf2_demo_receipt.md)) proved the
 phone apps pair to foreign firmware; Retinue firmware carries zero BLE code.
 Mark's directive: BLE must serve **all the channels, all the personalities**,
 not just Reticulum.
 
 ## Where BLE sits in the doctrine
 
-Per the [listener executive](2026-08-10_listener_executive_and_protocol_leases.md),
+Per the [listener executive](../../2026-08-10_listener_executive_and_protocol_leases.md),
 the executive owns radios and adapters hold bounded surfaces. BLE obeys the
 same ownership but different physics: unlike the SX1262, one BLE host stack
 serves several GATT services and several peers **concurrently**. The scarce
@@ -24,7 +29,7 @@ turns.
 Three facet classes cover "all the personalities":
 
 1. **HostLink-over-BLE, one facet that covers every host lane at a stroke.**
-   `HostLink` ([radio-hand `link.rs:61`](../crates/radio-hand/src/link.rs))
+   `HostLink` ([radio-hand `link.rs:61`](../../../crates/radio-hand/src/link.rs))
    is a byte pipe plus session, personality-agnostic by design; decision 3
    reserved exactly this slot. A NUS-style GATT pipe implementing it makes
    every host-controlled personality (RNode KISS today, any future host
@@ -35,7 +40,7 @@ Three facet classes cover "all the personalities":
    channel's BLE lane speaks the donor's GATT profile, so Retichat and every
    Bluetooth Auto peer dials Retinue boards directly. This is a port from the
    endorsed donor, entered in the
-   [Prns donor ledger](2026-08-10_prns_donor_ledger.md) per the work-lanes
+   [Prns donor ledger](../../2026-08-10_prns_donor_ledger.md) per the work-lanes
    shared source lock.
 3. **Foreign-app facets, behind their channels' own gates.** sennet's phone
    surface is the Meshtastic client API GATT service; tucket's is the

@@ -1369,6 +1369,7 @@ checksum = "a88cf1f829d945f548cf8fec32c61b1f202b6d93b45848602fc02af4b12ad218"
 dependencies = [
  "futures-channel",
  "futures-core",
+ "futures-executor",
  "futures-io",
  "futures-sink",
  "futures-task",
@@ -1390,6 +1391,17 @@ name = "futures-core"
 version = "0.3.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2cd50c473c80f6d7c3670a752354b8e569b1a7cbfdc0419ec88e5edad85e0dc7"
+
+[[package]]
+name = "futures-executor"
+version = "0.3.33"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6754879cc9f2c66f88c6e5c35344bb0bdb0708b0352b1201815667c7eabc7458"
+dependencies = [
+ "futures-core",
+ "futures-task",
+ "futures-util",
+]
 
 [[package]]
 name = "futures-io"
@@ -1415,10 +1427,14 @@ version = "0.3.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a77a90a256fce34da66415271e30f94ee91c57b04b8a2c042d9cf3220179deaa"
 dependencies = [
+ "futures-channel",
  "futures-core",
+ "futures-io",
  "futures-sink",
  "futures-task",
+ "memchr",
  "pin-project-lite",
+ "slab",
 ]
 
 [[package]]
@@ -2038,7 +2054,9 @@ version = "0.1.0"
 dependencies = [
  "getrandom 0.3.4",
  "outrider",
+ "radio-hand",
  "retinue",
+ "serial2-tokio",
  "thiserror",
  "tokio",
  "tulle",
@@ -2089,15 +2107,19 @@ dependencies = [
 name = "radio-hand"
 version = "0.0.1"
 dependencies = [
+ "ed25519-dalek",
  "embassy-futures",
  "embassy-time",
+ "futures",
  "heapless 0.9.3",
+ "hmac 0.13.0",
  "lora-modulation",
  "lora-phy",
  "radio-face",
  "retinue",
  "selvage",
  "serde_json",
+ "sha2 0.11.0",
 ]
 
 [[package]]
@@ -2498,6 +2520,7 @@ dependencies = [
  "outrider",
  "pipit",
  "postilion",
+ "radio-hand",
  "retinue",
  "serde",
  "serde_json",
@@ -2530,6 +2553,12 @@ name = "simd-adler32"
 version = "0.3.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
+
+[[package]]
+name = "slab"
+version = "0.4.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
 name = "smallvec"
@@ -2906,11 +2935,15 @@ dependencies = [
  "esp-rtos",
  "esp-storage",
  "esp32s3",
+ "heapless 0.9.3",
+ "hmac 0.13.0",
  "lora-modulation",
  "lora-phy",
  "radio-face",
  "radio-hand",
  "selvage",
+ "sha2 0.11.0",
+ "static_cell",
 ]
 
 [[package]]

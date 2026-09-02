@@ -91,6 +91,14 @@ change.
 | Linkboy | package trust, immutable plans, execution, recovery, receipts | graph or messaging policy |
 | Genet/Nematic/Pelt | document parsing, sessions, layout, rendering and content-surface mechanics | Reticulum addressing or security posture |
 
+**Scope split, 2026-08-30.** The
+[wall-node management plan](2026-08-30_wall_node_management_plan.md) owns the
+on-device control protocol, management carriers, ownership grants, provisional
+configuration, and rollback. This plan owns Signalman's presentation, durable
+device graph, owner choices, and actions over that protocol. Postilion adapts
+the board session into bounded facts and requests. WN gates do not close S
+gates, and S gates do not prove a remotely manageable board.
+
 The device-data mere begins as
 `apps/signalman-desktop/src/device_mere.rs`, using an exact-pinned Mere family:
 Chartulary for its logged graph and Seiche for force layout. A second host

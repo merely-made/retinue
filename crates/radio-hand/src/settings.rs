@@ -17,7 +17,9 @@
 //! working, and a board that downgrades keeps its identity because the first 64 bytes never
 //! move.
 
-/// Bytes of a device identity: an ed25519 signing key followed by an x25519 encryption key.
+use core::fmt;
+
+/// Bytes of a device identity: an X25519 secret followed by an Ed25519 seed.
 pub const IDENTITY_LEN: usize = 64;
 
 /// Bytes this module writes. Room for the identity and the fields after it.
@@ -92,7 +94,7 @@ impl Channel {
 }
 
 /// The persisted board settings.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Settings {
     /// The device identity. Never leaves the board.
     pub identity: [u8; IDENTITY_LEN],
@@ -100,6 +102,15 @@ pub struct Settings {
     pub channel: Channel,
     /// The regulatory region this board operates under. `Unset` means no transmit.
     pub region: crate::region::Region,
+}
+impl fmt::Debug for Settings {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Settings")
+            .field("identity", &"[redacted]")
+            .field("channel", &self.channel)
+            .field("region", &self.region)
+            .finish()
+    }
 }
 
 /// Why a stored body could not be read.
@@ -169,6 +180,8 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::fmt::Write;
+    use heapless::String;
 
     fn identity() -> [u8; IDENTITY_LEN] {
         let mut id = [0_u8; IDENTITY_LEN];
@@ -280,5 +293,21 @@ mod tests {
         assert_eq!(Channel::Node.as_byte(), 3);
         assert_ne!(Channel::Node.as_byte(), 1);
         assert!(Channel::Node.native_node_guarded());
+    }
+
+    #[test]
+    fn debug_redacts_private_identity_but_keeps_boot_metadata() {
+        let mut identity = [0; IDENTITY_LEN];
+        identity[..20].copy_from_slice(b"identity-secret-mark");
+        let settings = Settings {
+            identity,
+            channel: Channel::Node,
+            region: crate::region::Region::Us915,
+        };
+        let mut rendered = String::<256>::new();
+        write!(&mut rendered, "{settings:?}").unwrap();
+        assert!(!rendered.contains("identity-secret-mark"));
+        assert!(rendered.contains("Node"));
+        assert!(rendered.contains("Us915"));
     }
 }

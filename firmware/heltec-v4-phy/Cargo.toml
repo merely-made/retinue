@@ -39,8 +39,12 @@ esp-rtos = { version = "0.3.0", features = ["embassy", "esp32s3"] }
 esp-storage = { version = "0.9.0", features = ["esp32s3"] }
 esp32s3 = "0.35.2"
 embedded-storage = "0.3.1"
+heapless = "0.9"
+hmac = "0.13"
 lora-modulation = "0.1.5"
 lora-phy = { path = "../../vendor/lora-phy" }
 radio-face = { path = "../../crates/radio-face" }
 radio-hand = { path = "../../crates/radio-hand", features = ["radio"] }
 selvage = { path = "../../crates/selvage" }
+sha2 = { version = "0.11", default-features = false }
+static_cell = "2.1.1"

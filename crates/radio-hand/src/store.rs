@@ -19,6 +19,8 @@
 //! The body is bytes. This module does not know that a device identity lives in
 //! it, in the same way `selvage` does not know what a UI snapshot contains.
 
+use core::fmt;
+
 /// Marks a slot that holds a record. Erased flash reads as `0xFF`, so a blank
 /// slot is distinguishable from a corrupt one.
 pub const MAGIC: [u8; 4] = *b"RHS0";
@@ -74,10 +76,18 @@ pub enum EncodeError {
 }
 
 /// A record read out of a slot.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Record<'a> {
     pub sequence: u32,
     pub body: &'a [u8],
+}
+impl fmt::Debug for Record<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Record")
+            .field("sequence", &self.sequence)
+            .field("body_len", &self.body.len())
+            .finish()
+    }
 }
 
 /// What a pair of slots says to do next.
@@ -231,6 +241,8 @@ impl Crc32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::fmt::Write;
+    use heapless::String;
 
     const PAGE: usize = 4096;
 
@@ -438,5 +450,18 @@ mod tests {
         let mut crc = Crc32::new();
         crc.update(b"123456789");
         assert_eq!(crc.finish(), 0xCBF4_3926);
+    }
+
+    #[test]
+    fn record_debug_reports_only_sequence_and_body_length() {
+        let record = Record {
+            sequence: 23,
+            body: b"opaque-secret-marker",
+        };
+        let mut rendered = String::<128>::new();
+        write!(&mut rendered, "{record:?}").unwrap();
+        assert!(!rendered.contains("opaque-secret-marker"));
+        assert!(rendered.contains("23"));
+        assert!(rendered.contains("body_len"));
     }
 }

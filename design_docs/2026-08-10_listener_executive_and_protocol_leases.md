@@ -15,18 +15,27 @@ capture pair, and the driver defects found on air. The final unattended
 rotating executive and long-run miss-rate calibration remain outside that
 receipt.
 
+**Scope correction, 2026-08-30:** this document governs resident adapters in
+one running image. The
+[wall-node management plan](2026-08-30_wall_node_management_plan.md) separately
+admits durable selection among verified firmware images on boards with measured
+slot and rollback capacity. A boot-selected adapter channel still dies; a
+rollbackable image choice does not. The shared board executive is
+`radio-hand`; Retinue is its RNS adapter and router.
+
 ## The reframe
 
-Retinue is not a protocol personality among channels. It is the board's
-resident radio executive and protocol router:
+Retinue is not a durable board personality among channels. `radio-hand` is
+the board's resident radio executive; Retinue is its RNS protocol adapter and
+router:
 
 ```text
-Retinue listen (scan plan)
+radio-hand listen (scan plan)
   -> detect activity
   -> capture under one exact ReceiveProfile
   -> dispatch to adapter
   -> adapter speaks under a bounded radio lease
-  -> Retinue resumes listening
+  -> radio-hand resumes listening
 ```
 
 Sennet mode and Tucket mode are not durable board states. They are leases: an
@@ -209,7 +218,7 @@ From decision 4:
 | item | status |
 | --- | --- |
 | exactly one active channel; `start`/`serve`/`stop` | dies; adapters + leases |
-| switch-by-reboot; boot-selected channel field | dies; there is no switch |
+| switch-by-reboot; boot-selected adapter channel field | dies as the resident adapter scheduler; verified image selection is a separate wall-node capability |
 | channel selector UX | becomes participation-level config in signalman |
 | one GPLv3 image, MPL crates, licensing edge | stands unchanged |
 | trunk guard | stands, relocated to participation levels |

@@ -35,6 +35,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+pub mod control;
 pub mod management;
 
 use management::{DEFAULT_ANNOUNCE_HISTORY_BOUND, ManagementState};

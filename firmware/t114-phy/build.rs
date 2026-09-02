@@ -6,9 +6,10 @@ fn main() {
     fs::write(out.join("memory.x"), source).expect("write memory.x");
 
     // The Rust side needs both persistent-pair addresses, and the linker needs
-    // both kept clear of code. Deriving all of them from the same lines means
-    // the reservation cannot drift into identity storage or application code.
+    // all three kept clear of code. Deriving all of them from the same lines
+    // means the pairs cannot drift into one another or application code.
     let (flash_origin, flash_length) = region(source, "FLASH");
+    let (control_origin, control_length) = region(source, "CONTROL");
     let (reservation_origin, reservation_length) = region(source, "RESERVATION");
     let (store_origin, store_length) = region(source, "STORE");
     let page = 4096;
@@ -26,14 +27,28 @@ fn main() {
 
     assert_eq!(
         flash_origin + flash_length,
+        control_origin,
+        "FLASH must end exactly where CONTROL begins, or the linker can place code into durable state; adjust memory.x together"
+    );
+    assert_eq!(
+        control_origin + control_length,
         reservation_origin,
-        "FLASH must end exactly where RESERVATION begins, or the linker can place code \
-         into durable state; adjust memory.x together"
+        "CONTROL must end exactly where RESERVATION begins"
     );
     assert_eq!(
         reservation_origin + reservation_length,
         store_origin,
         "RESERVATION must end exactly where STORE begins"
+    );
+    assert_eq!(
+        control_origin % page,
+        0,
+        "CONTROL must begin on a flash page boundary; NVMC erases whole pages"
+    );
+    assert_eq!(
+        control_length,
+        2 * page,
+        "CONTROL is an A/B pair, so it is exactly two pages"
     );
     assert_eq!(
         reservation_origin % page,
@@ -56,6 +71,10 @@ fn main() {
         "the store is an A/B pair, so it is exactly two pages"
     );
     assert!(
+        control_origin + control_length <= 0x000E_C000,
+        "CONTROL must stay below the T114 bootloader region at 0xEC000"
+    );
+    assert!(
         store_origin + store_length <= 0x000E_C000,
         "STORE must stay below the T114 bootloader region at 0xEC000"
     );
@@ -70,6 +89,17 @@ fn main() {
         ),
     )
     .expect("write store_region.rs");
+
+    fs::write(
+        out.join("control_region.rs"),
+        format!(
+            "/// Absolute flash address of the control journal's first page, from `memory.x`.\n\
+             pub const CONTROL_ORIGIN: u32 = {control_origin:#010X};\n\
+             /// Bytes the control journal spans, from `memory.x`.\n\
+             pub const CONTROL_LENGTH: u32 = {control_length:#010X};\n"
+        ),
+    )
+    .expect("write control_region.rs");
 
     fs::write(
         out.join("reservation_region.rs"),
