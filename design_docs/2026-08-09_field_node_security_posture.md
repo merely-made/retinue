@@ -111,11 +111,19 @@ verification are in place.**
 > channel registry, a region table, and a replay counter. The keypair
 > impersonates one relay until it is de-listed. Everything else was already
 > public. Site inventory, contacts, and network credentials live in signalman
-> on the host, never on flash.
+> on the host, never on flash. If the owner has granted position disclosure to
+> specific identities, the node also yields how many grants exist and, for any
+> identity the seizer already knows, whether it was one of them. It never
+> yields the list.
 
 Every clause is currently true or cheap. The work is keeping it true as V4
 features arrive, WiFi credentials especially. When this paragraph needs a
 mitigations appendix, the design has drifted.
+
+The position-grant clause was added 2026-09-02 with PD0 below. It is an
+inventory item, not a mitigation: the table is stored blinded under a
+node-local secret precisely so that the sentence above stays true, and the
+residual cost it names is stated rather than hidden.
 
 ## Feature targets
 
@@ -158,6 +166,55 @@ flooding as the adversarial load.
 *Validation:* sustained announce flood on a T114 plateaus memory and the node
 keeps relaying; matches the scaling doc's FT2 validation on-metal.
 
+**PD0: Position disclosure tiers.** Ruled here, tracked in the
+[position disclosure plan](2026-09-01_position_disclosure_plan.md). Added
+2026-09-02.
+
+Three tiers, and two carriers that cannot be merged because an announce is a
+broadcast and cannot vary by recipient.
+
+*Broadcast tier.* One public value in the announce, owner-set: **off**,
+**coarse**, or **precise**. Precise-to-everyone is a legitimate setting and not
+a degraded one: a beacon that wants to be found, a public asset, an emergency
+deployment. The owner chooses; the firmware does not editorialise. The
+default on a fresh commission is **off**.
+
+*Directed tier.* Per-identity precision, answered over a link to a named
+destination, consulting a bounded owner-signed table of address hash to level.
+An identity absent from the table receives the broadcast tier, never more.
+That is whitelist semantics and it is the default; blacklist semantics are a
+field the owner may set, not a convention the node infers. A node with no
+table at all answers everything at the broadcast tier and never goes silent.
+
+*What coarse does not promise.* Coarse is quantised at the source, before
+encoding, never full precision truncated at render time. It is obscured against
+a single observation. It is **not** obscured against sustained observation by
+several receivers logging signal strength, which can trilaterate it back
+toward precise, and that apparatus is exactly what the coverage-mapping gate
+builds. Broadcast rate is therefore part of the disclosure surface, not a
+separate tuning knob, and the tier is named coarse rather than safe on purpose.
+
+*Storage.* The table lives on the node so that a headless placed node carries
+and enforces its owner's decisions with no host. That puts trusted identities
+on flash, which the seizure paragraph forbids for contacts. Resolution: entries
+are stored blinded, as a keyed hash of the address hash under a node-local
+secret, so a dump cannot enumerate who was granted. A seizer who already holds
+a candidate identity can still test it, because the secret is on the same
+flash; that residual is stated in the seizure paragraph rather than mitigated
+away. The alternative, keeping the table host-side only, was rejected because
+it removes the headless property the feature exists to deliver.
+
+*Authority.* The table is a command to a running node and rides the FS2
+envelope under config authority. Activation is monotonic-forward with no
+autonomous rollback, safe only because the table never governs command
+authority; see PD2 in the plan for why those two facts are inseparable.
+
+*Validation:* the same asker receives different answers by tier and the
+broadcast value is independent of any directed grant; a flash dump yields a
+grant count and no identity; a coarse value is shown underivable from what is
+transmitted; the absent-identity and no-table cases each return the broadcast
+tier and never silence.
+
 ## Open questions
 
 - Counter-window vs beacon-time expiry (the clock question above).
@@ -168,3 +225,9 @@ keeps relaying; matches the scaling doc's FT2 validation on-metal.
   are themselves signed commands, so the bootstrap and lockout stories need
   writing (who signs the command that revokes the only key).
 - Whether BLE maintenance access ships at all before FS2, given rule 4.
+- Position disclosure, from PD0: whether the coarse quantisation grain is fixed
+  or owner-selectable, and if selectable, whether the chosen grain is itself
+  disclosed. And whether a group-encrypted precise blob in the announce is
+  worth its revocation cost, since removing one identity rekeys the whole set.
+  Both share the allowlist-lifecycle gap above: revocation is a signed command,
+  and the lockout story is not yet written.

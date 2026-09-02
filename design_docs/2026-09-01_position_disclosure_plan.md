@@ -45,10 +45,19 @@ one group-encrypted blob and not one blob per trusted identity.
 across Knot, Moot and Signalman. The node must never need it.
 
 What ships to the node is a **compiled, owner-signed table of address hash to
-disclosure level**. Sixteen bytes and a level per entry. No names, no handles,
-no network dependency, no directory lookup. A headless placed node with no host
-therefore carries its owner's decisions and enforces them alone, which is the
-point of the owner-claim model.
+disclosure level**. No names, no handles, no network dependency, no directory
+lookup. A headless placed node with no host therefore carries its owner's
+decisions and enforces them alone, which is the point of the owner-claim model.
+
+**Corrected 2026-09-02: the entries are stored blinded, not as plaintext
+hashes.** The first draft said "sixteen bytes and a level per entry", which
+would put trusted identities on flash in the clear, and the seizure paragraph
+in the field-node security posture forbids contacts on flash. Each entry is a
+keyed hash of the address hash under a node-local secret, so a flash dump
+cannot enumerate who was granted. It can still confirm a candidate the seizer
+already holds, because the secret is on the same flash; PD0 states that
+residual in the seizure paragraph rather than mitigating it away. Lookup cost is
+one keyed hash per directed request. See PD-F10.
 
 ## Authority
 
@@ -206,6 +215,14 @@ drop and pickup are visible as gaps with a last known position on each edge.
   change still honours the old grant. Inherent to any offline ACL. A validity
   horizon on the projection would make a stale table degrade rather than persist,
   and is an open question rather than a decision.
+- **PD-F10. The seizure paragraph forbids what PD1 first proposed.** The
+  field-node security posture's design-target paragraph states that "contacts
+  ... live in signalman on the host, never on flash." A plaintext table of
+  trusted address hashes on the node is a contact graph on flash and violates
+  it. Found 2026-09-02 while drafting PD0 into that document; missed by the
+  2026-09-01 review pass, which read the FS gate definitions and not the
+  seizure paragraph above them. Resolved by blinded storage, with the residual
+  membership-test cost added to the paragraph as an inventory item.
 
 ## Open questions
 
@@ -239,3 +256,15 @@ started opportunistically.
   lockout test to its done-condition; PD1 requires capacity refusal to surface
   at projection time and defines the no-table state; PD6 requires the placed
   node's own position in the record. No gate changed status.
+- **2026-09-02. PD0 drafted, not done.** The tier ruling is written into the
+  field-node security posture as a feature target, with the seizure paragraph
+  amended and a new open question. It awaits Mark's approval before commit.
+  Drafting it surfaced PD-F10, which corrected PD1's storage model from
+  plaintext to blinded. PD0 closes when the ruling is approved and this plan's
+  citation of it stands.
+- **2026-09-02. PD0 closed.** Mark approved the ruling as written, including
+  the fresh-commission default of off, whitelist semantics as the
+  absent-identity default, and blinded-on-flash storage with its stated
+  membership-test residual over the host-only alternative. The ruling lives in
+  the field-node security posture as feature target PD0; this plan cites it
+  and that citation stands.
