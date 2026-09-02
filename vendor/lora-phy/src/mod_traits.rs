@@ -11,6 +11,12 @@ pub trait InterfaceVariant {
     async fn wait_on_busy(&mut self) -> Result<(), RadioError>;
     /// Wait for the LoRa chip to indicate an event has occurred
     async fn await_irq(&mut self) -> Result<(), RadioError>;
+    /// Wait for the physical IRQ input to be deasserted.
+    ///
+    /// This is used after the driver clears the radio's IRQ status to establish a board-owned
+    /// quiet boundary. Implementations must wait for the actual input level, not merely clear
+    /// a pending MCU interrupt.
+    async fn await_irq_low(&mut self) -> Result<(), RadioError>;
     /// Enable an antenna used for receive operations, disabling other antennas
     async fn enable_rf_switch_rx(&mut self) -> Result<(), RadioError>;
     /// Enable an antenna used for send operations, disabling other antennas
@@ -105,6 +111,13 @@ pub trait RadioKind {
 
     /// Await for an IRQ event. This is droppable and thus safe to use in a select branch.
     async fn await_irq(&mut self) -> Result<(), RadioError>;
+    /// Clear every IRQ flag currently latched by the radio.
+    ///
+    /// This is distinct from processing an IRQ: it deliberately discards the cause because an
+    /// exclusive board owner is settling the line before a bounded quiet operation.
+    async fn clear_irq_flags(&mut self) -> Result<(), RadioError>;
+    /// Wait for the board's physical IRQ input to be low after flags were cleared.
+    async fn await_irq_low(&mut self) -> Result<(), RadioError>;
     /// Process LoRa radio IRQs
     async fn process_irq_event(
         &mut self,

@@ -43,6 +43,39 @@ where
     calibrate_image: bool,
 }
 
+fn record_standby(radio_mode: &mut RadioMode, result: Result<(), RadioError>) -> Result<(), RadioError> {
+    match result {
+        Ok(()) => {
+            *radio_mode = RadioMode::Standby;
+            Ok(())
+        }
+        Err(err) => Err(err),
+    }
+}
+
+trait QuietIrqSettlement {
+    async fn clear_irq_flags(&mut self) -> Result<(), RadioError>;
+    async fn await_irq_low(&mut self) -> Result<(), RadioError>;
+}
+
+impl<RK> QuietIrqSettlement for RK
+where
+    RK: RadioKind,
+{
+    async fn clear_irq_flags(&mut self) -> Result<(), RadioError> {
+        RadioKind::clear_irq_flags(self).await
+    }
+
+    async fn await_irq_low(&mut self) -> Result<(), RadioError> {
+        RadioKind::await_irq_low(self).await
+    }
+}
+
+async fn settle_quiet_irq(radio: &mut impl QuietIrqSettlement) -> Result<(), RadioError> {
+    radio.clear_irq_flags().await?;
+    radio.await_irq_low().await
+}
+
 impl<RK, DLY> LoRa<RK, DLY>
 where
     RK: RadioKind,
@@ -163,9 +196,41 @@ where
         Ok(())
     }
 
-    /// Place the LoRa physical layer in standby mode
+    /// Place the LoRa physical layer in standby mode.
+    ///
+    /// The caller must be the radio owner and must first prove that no TX, SPI, IRQ, or receive
+    /// collection operation is in flight. This is a chip-side stop only; it does not cancel or
+    /// release any board-level interrupt or wake lease.
+    ///
+    /// `ensure_ready` performs the required busy wait and wakes chips whose current operation
+    /// may have put them to sleep, including duty-cycle receive. The driver's mode record changes
+    /// only after both that step and the standby command succeed. A standby-command or RF-switch
+    /// failure can leave the hardware state uncertain even though the record retains its previous
+    /// value; the owner must recover the radio before starting another operation.
     pub async fn enter_standby(&mut self) -> Result<(), RadioError> {
-        self.radio_kind.set_standby().await
+        self.radio_kind.ensure_ready(self.radio_mode).await?;
+        let result = self.radio_kind.set_standby().await;
+        record_standby(&mut self.radio_mode, result)
+    }
+
+    /// Settle the radio IRQ line before an exclusive, bounded board-level quiet operation.
+    ///
+    /// Call [`Self::enter_standby`] first, then call this method while exclusively owning the
+    /// radio, its SPI bus, and the IRQ input. It clears all latched chip IRQ flags before it
+    /// waits for the physical IRQ input to become low. It neither masks an MCU interrupt nor
+    /// establishes a lasting quiet lease: the board must keep exclusive ownership until its
+    /// flash or other quiet operation completes.
+    ///
+    /// The method refuses a non-standby logical radio mode. A clear failure leaves the radio's
+    /// IRQ state uncertain. A low-wait failure means flags may already be clear, but the board
+    /// has no proof that the physical line is low. Cancellation has the same consequence as a
+    /// failure: it never grants a quiet-work claim, and cancellation after clearing may require
+    /// a fresh settlement before work resumes.
+    pub async fn settle_irq_for_quiet_work(&mut self) -> Result<(), RadioError> {
+        if self.radio_mode != RadioMode::Standby {
+            return Err(RadioError::InvalidRadioMode);
+        }
+        settle_quiet_irq(&mut self.radio_kind).await
     }
 
     /// Place the LoRa physical layer in low power mode, specifying cold or warm start (if the Semtech chip supports it)
@@ -448,5 +513,104 @@ where
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::future::Future;
+    use core::task::{Context, Poll, Waker};
+
+    fn block_on_ready<F: Future>(future: F) -> F::Output {
+        let waker = Waker::noop();
+        let mut context = Context::from_waker(waker);
+        let mut future = core::pin::pin!(future);
+        match future.as_mut().poll(&mut context) {
+            Poll::Ready(output) => output,
+            Poll::Pending => panic!("test future unexpectedly pending"),
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    enum QuietFailure {
+        Clear,
+        Low,
+    }
+
+    struct TestQuietIrq {
+        calls: [u8; 2],
+        call_count: usize,
+        failure: Option<QuietFailure>,
+    }
+
+    impl TestQuietIrq {
+        fn new(failure: Option<QuietFailure>) -> Self {
+            Self {
+                calls: [0; 2],
+                call_count: 0,
+                failure,
+            }
+        }
+
+        fn record(&mut self, call: u8) {
+            self.calls[self.call_count] = call;
+            self.call_count += 1;
+        }
+    }
+
+    impl QuietIrqSettlement for TestQuietIrq {
+        async fn clear_irq_flags(&mut self) -> Result<(), RadioError> {
+            self.record(1);
+            match self.failure {
+                Some(QuietFailure::Clear) => Err(RadioError::SPI),
+                _ => Ok(()),
+            }
+        }
+
+        async fn await_irq_low(&mut self) -> Result<(), RadioError> {
+            self.record(2);
+            match self.failure {
+                Some(QuietFailure::Low) => Err(RadioError::Irq),
+                _ => Ok(()),
+            }
+        }
+    }
+
+    #[test]
+    fn record_standby_updates_mode_only_after_hardware_success() {
+        let mut mode = RadioMode::Receive(RxMode::Continuous);
+
+        assert_eq!(record_standby(&mut mode, Ok(())), Ok(()));
+        assert!(mode == RadioMode::Standby);
+
+        mode = RadioMode::Receive(RxMode::Continuous);
+        assert_eq!(record_standby(&mut mode, Err(RadioError::Busy)), Err(RadioError::Busy));
+        assert!(mode == RadioMode::Receive(RxMode::Continuous));
+    }
+
+    #[test]
+    fn quiet_irq_settlement_clears_before_awaiting_low() {
+        let mut irq = TestQuietIrq::new(None);
+
+        assert_eq!(block_on_ready(settle_quiet_irq(&mut irq)), Ok(()));
+        assert_eq!(irq.call_count, 2);
+        assert_eq!(irq.calls, [1, 2]);
+    }
+
+    #[test]
+    fn quiet_irq_settlement_propagates_failures_without_skipping_the_boundary() {
+        let mut clear_failure = TestQuietIrq::new(Some(QuietFailure::Clear));
+        assert_eq!(
+            block_on_ready(settle_quiet_irq(&mut clear_failure)),
+            Err(RadioError::SPI)
+        );
+        assert_eq!(clear_failure.call_count, 1);
+        assert_eq!(clear_failure.calls[0], 1);
+
+        let mut low_failure = TestQuietIrq::new(Some(QuietFailure::Low));
+        assert_eq!(block_on_ready(settle_quiet_irq(&mut low_failure)), Err(RadioError::Irq));
+        assert_eq!(low_failure.call_count, 2);
+        assert_eq!(low_failure.calls, [1, 2]);
     }
 }

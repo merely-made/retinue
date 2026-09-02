@@ -54,6 +54,9 @@ where
     async fn await_irq(&mut self) -> Result<(), RadioError> {
         self.irq.wait_for_high().await.map_err(|_| Irq)
     }
+    async fn await_irq_low(&mut self) -> Result<(), RadioError> {
+        self.irq.wait_for_low().await.map_err(|_| Irq)
+    }
 
     async fn enable_rf_switch_rx(&mut self) -> Result<(), RadioError> {
         match &mut self.rf_switch_tx {
@@ -138,6 +141,9 @@ where
     async fn await_irq(&mut self) -> Result<(), RadioError> {
         self.dio1.wait_for_high().await.map_err(|_| DIO1)?;
         Ok(())
+    }
+    async fn await_irq_low(&mut self) -> Result<(), RadioError> {
+        self.dio1.wait_for_low().await.map_err(|_| DIO1)
     }
 
     async fn enable_rf_switch_rx(&mut self) -> Result<(), RadioError> {

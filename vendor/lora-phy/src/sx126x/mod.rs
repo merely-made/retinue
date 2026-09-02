@@ -895,6 +895,16 @@ where
         self.intf.iv.await_irq().await
     }
 
+    async fn clear_irq_flags(&mut self) -> Result<(), RadioError> {
+        self.intf
+            .write(&[OpCode::ClrIrqStatus.value(), 0xff, 0xff], false)
+            .await
+    }
+
+    async fn await_irq_low(&mut self) -> Result<(), RadioError> {
+        self.intf.iv.await_irq_low().await
+    }
+
     /// Process the radio IRQ. Log unexpected interrupts. Packets from other
     /// devices can cause unexpected interrupts.
     ///
