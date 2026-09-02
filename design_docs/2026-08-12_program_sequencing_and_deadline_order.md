@@ -94,8 +94,8 @@ and the T114's session loop already runs through the Executive. Every physics
 unknown that prices the entire LE ladder (CAD hit/miss, retune and apply cost,
 CAD-to-RX handoff, receiver acquisition, worst-case off-time) is measurable on
 the firmware that is on the bench today. Measure first, then size LE1 and LE2
-against numbers instead of guesses. The same measurements are LB1's
-pre-SoftDevice A/B control, taken for free.
+against numbers instead of guesses. The same measurements are WN5's pre-BLE
+A/B control, taken for free.
 
 **FT5 is the cheapest civic-relevant gate and it is startable now.** The
 scaling doc's own build order says forwarder-side island policy first;
@@ -206,9 +206,9 @@ downstream work would inherit.
 Live enumeration: **one T114** (`VID_1915&PID_521F`, TULLE-T114-01, COM10,
 Retinue 0.0.1 / v47) and **two V4s** (COM6 on Retinue, COM7 still on Prns
 Hopspot 0.3.4). The T114 is the universal bottleneck for LE1 through LE5, FT1,
-FT2/FS6, LB1, and G4-T114. Every RF-pair gate additionally consumes a V4 as
-peer or unpatched control, so no V4-only distribution work runs while an Air
-pair gate is on the air.
+FT2/FS6, WN5's later T114 portability receipt, and G4-T114. Every RF-pair gate
+additionally consumes a V4 as peer or unpatched control, so no V4-only
+distribution work runs while an Air pair gate is on the air.
 
 **COM7 is double-booked in opposite directions**: DIST4 and F7 need it left
 foreign so the cross-firmware graphical restore has something to restore from,
@@ -224,14 +224,14 @@ once at the end.
 
 **Day zero (hours, not days).** Licensing pass, commit whole tree, fix
 `cargo fmt`, push, bump mere's lock. Send the three human-latency items: ARDC
-fiscal sponsor conversation and the G0 pre-application email, the LB stack
-ruling, the LOCK4 disclosure record. Correction pass over the five standing
-docs above.
+fiscal sponsor conversation and the G0 pre-application email, the WN0
+control-contract review, the LOCK4 disclosure record. Correction pass over the
+five standing docs above.
 
 **Window 1.** Stream A (bench, owns all three boards): build v48 carrying the
 bounded tables, take the FT2/FS6 flood receipt, take LE3's physics on today's
-firmware and label the numbers as LB1's control, close N0-UNPLUG and the FS5
-read-only flash dump. Stream B (host-side, zero bench, disjoint crates): the
+firmware and label the numbers as WN5's pre-BLE control, close N0-UNPLUG and
+the FS5 read-only flash dump. Stream B (host-side, zero bench, disjoint crates): the
 signalman-desktop self-drive harness on genet's existing `HostPointer` seam,
 which converts every remaining graphical receipt from the external-UIA lane
 the receipts record as failing into a repeatable run.

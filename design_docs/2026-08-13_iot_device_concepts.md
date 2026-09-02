@@ -101,7 +101,7 @@ smolweb framing:
   renderable, but the phone's browser doesn't speak them. The answer is the
   knot: the beacon's content is authored as a djot knot in which gemtext,
   gopher, and feed blocks embed in their idiomatic spec-faithful form
-  (per the [polyglot knot design](../../mere/design_docs/nematic_docs/implementation_strategy/2026-05-08_polyglot_knot_design.md)),
+  (per the [polyglot knot design](../../genet/design_docs/nematic_docs/implementation_strategy/2026-05-08_polyglot_knot_design.md)),
   and the beacon serves a **projection** of it: plain HTML for Safari/Chrome,
   raw `text/vnd.knot` for a Mere-aware client that wants the real container.
   "Read gemtext even in Safari" is exactly the HTML projection of a knot
@@ -130,9 +130,9 @@ waterer). Takes enumerated in session:
 
 - **Bearer per zone.** LoRa for the field, WiFi/TCP indoors (which lifts the
   bandwidth ceiling entirely and is the anti-Tuya story: flash it yourself,
-  it answers only to your roster), BLE for wearable or proximity range if the
-  [Bluetooth scoping](2026-08-11_bluetooth_capability_scoping.md) ruling is
-  accepted. Reticulum's bearer-agnosticism means one identity and one
+  it answers only to your roster), BLE for wearable or proximity range under
+  the [wall-node management plan](2026-08-30_wall_node_management_plan.md).
+  Reticulum's bearer-agnosticism means one identity and one
   telemetry grammar across all three.
 - **Telemetry is small.** A few bytes per reading sits comfortably inside
   LoRa duty cycle and the bounded-state discipline AIR3 just proved on the

@@ -163,6 +163,13 @@ inventory passed with 20 manifests, 76 assets, and 14 suites. The broader
 `crates/retinue/tests/endpoint_ingress.rs:344`; the library gates are green and this re-pin
 does not change that test's Rust path.
 
+**Follow-up, 2026-08-30:** a later working-tree diagnosis found that the test constructed a
+new sender for each nominally fresh repeat, resetting the per-destination whole-second
+timebase. Receive freshness correctly rejected the second packet before destination-rate
+admission. The fixture now retains one sender, and the complete Retinue package is green.
+The run recorded by this receipt remains unchanged; current evidence is in the
+[announce timebase plan](2026-08-25_announce_timebase_plan.md).
+
 Done for this re-pin means the exact wheel is pinned, current public release facts are
 recorded, Resource and ordinary live interop are green, Outrider is green, P1/P2/P3 and P8
 are revalidated, H8 is re-receipted, and the fixture claim is narrowed to what was actually
