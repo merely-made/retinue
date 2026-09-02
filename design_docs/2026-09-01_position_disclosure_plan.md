@@ -1,7 +1,9 @@
 # Position disclosure
 
 **Date:** 2026-09-01
-**Status:** plan. No code written. Nothing here is receipted.
+**Status (2026-09-02):** in progress. PD0 ruled and closed. PD1 and PD2
+implemented in `radio-hand::control::position_disclosure` with tests; closed in
+software, unreceipted on any board. PD3 through PD6 not started.
 **Owns:** PD0 through PD6. Whether a node reports its position, to whom, at what
 precision, and by what authority.
 **Consumes:** FS2's command envelope (closed in software), FS6's bounded-table
@@ -223,6 +225,15 @@ drop and pickup are visible as gaps with a last known position on each edge.
   2026-09-01 review pass, which read the FS gate definitions and not the
   seizure paragraph above them. Resolved by blinded storage, with the residual
   membership-test cost added to the paragraph as an inventory item.
+- **PD-F11. The host cannot blind, so the record has two encodings.** The
+  owner compiles the table on the host from gazette, but the blinding secret is
+  node-local and the host does not hold it. So the wire record
+  (`PositionAclV1`) carries plaintext sixteen-byte hashes under the FS2
+  envelope, and the node blinds at write time into the stored table
+  (`BlindedPositionAcl`), which holds HMAC-SHA256 tags truncated to sixteen
+  bytes, domain-separated with `retinue.position-acl/v1`. Flash never holds the
+  plaintext. Found 2026-09-02 while implementing PD1; `hmac` and `sha2` were
+  already dependencies of `radio-hand`, so no crate was added.
 
 ## Open questions
 
@@ -268,3 +279,20 @@ started opportunistically.
   membership-test residual over the host-only alternative. The ruling lives in
   the field-node security posture as feature target PD0; this plan cites it
   and that citation stands.
+- **2026-09-02. PD1 and PD2 implemented in software.**
+  `crates/radio-hand/src/control/position_disclosure.rs`, registered in
+  `control.rs` beside `public_configuration`. Nine tests cover canonical
+  round-trip and sort-on-construction, rejection of every non-canonical form
+  (length, version, absent-policy byte, tier byte, unsorted, duplicate),
+  capacity refusal at both construction and decode, the no-table state, the
+  absent-identity default and its `Fixed` alternative, that the stored form
+  holds no plaintext hash and a wrong secret does not resolve a grant, PD2
+  monotonic acceptance with replay refused and counted, and the PD2 lockout
+  test: revoke, replay does not re-grant, refuse everyone including the owner,
+  then a higher-sequence correction lands. The full `radio-hand` suite is 170
+  tests green with the module registered. **One PD1 caveat, stated rather than
+  glossed:** capacity refusal is an `Err` from a stateless decode and is not
+  counted on the table; the table's counter counts sequence refusals only.
+  Counting capacity refusals belongs to WN's inbound runtime, which receives
+  the command, and projection-time surfacing belongs to the host compiler,
+  neither of which exists yet. Nothing has run on a board.

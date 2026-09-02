@@ -8,6 +8,7 @@ mod admission;
 mod codec;
 mod durable;
 mod model;
+mod position_disclosure;
 mod public_configuration;
 mod public_identity;
 #[cfg(feature = "control-retinue")]
@@ -46,6 +47,12 @@ pub use model::{
     MAX_RESPONSE_LEN, MAX_RESULT, ManagementCarrier, NodeId, Operation, RadioCapability, RadioKind,
     RecoveryPath, Refusal, Request, ResidentAdapter, Response, ResponseBody, TransactionId,
     VERSION, VerifiedController,
+};
+pub use position_disclosure::{
+    AbsentPolicy, BlindedPositionAcl, DisclosureTier, POSITION_ACL_ENTRY_LEN,
+    POSITION_ACL_HASH_LEN, POSITION_ACL_HEADER_LEN, POSITION_ACL_SECRET_LEN,
+    POSITION_ACL_TAG_LEN, POSITION_ACL_V1_VERSION, PositionAclEntry, PositionAclError,
+    PositionAclV1, Resolved,
 };
 pub use public_configuration::{
     ManagementCarrierSet, PUBLIC_CONFIGURATION_V1_LEN, PUBLIC_CONFIGURATION_V1_VERSION,
