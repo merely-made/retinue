@@ -37,3 +37,9 @@ design_docs/private/
 # Station identities. Postilion mints these beside the working directory, so running
 # signalman from the repo root drops one here. They are private keys: never committed.
 *.id
+
+# Per-session build output and cargo homes that sessions create in the repo
+# root. Never versioned; 2026-09-02 found ten target-*/ and three
+# cargo-home-*/ directories, 10,403 files, one -A away from a commit.
+target-*/
+cargo-home-*/
