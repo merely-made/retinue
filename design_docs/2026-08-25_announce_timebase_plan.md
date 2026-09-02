@@ -1,14 +1,16 @@
 # Announce timebase plan
 
 **Date:** 2026-08-25
-**Status (2026-08-29):** in progress. Phases A, B, and C are implemented. Phase A is
+**Status (2026-08-30):** in progress. Phases A, B, and C are implemented. Phase A is
 re-receipted against RNS 1.5.2 after replacing P8's disconnected settle delay with a
 connected passive drain, adding cross-arm contamination checks, and waiting on live receiver
 acceptance before stage-one shutdown. The corrected 72-cell matrix and six-cell packet-loop
 diagnostic are green. Phase D's software slice has separate A/B reservation stores on both
 boards, reservation-backed native-node emission on T114, and a guarded downgrade policy.
 Physical power-cut/on-air receipts, explicit rekey recovery, a rebuilt guard-aware firmware
-package, and the V4's separate native-node successor remain open.
+package, and the V4's separate native-node successor remain open. Phase C's stale
+cross-feature ingress fixture now uses one stateful sender for a repeated destination; the
+complete Retinue package and quiet/load repetition matrices are green.
 **Owns:** the announce `rand_hash` field, receive-side announce freshness, and the
 firmware tier's durable monotonic timebase. The Peer lane owns black-box evidence, the Air
 lane owns protocol and firmware code, and Assurance owns any central validation or
@@ -671,6 +673,15 @@ noise rather than a stronger boundary.
   every pre-existing failure is green there. Per the flake-lane rule, the 2 s constant
   should not simply be refitted under load; the hold/release mechanism on a slow runner is
   the thing to look at.
+- **2026-08-30, endpoint-ingress regression diagnosis:** the AIR2 receipt's repeat leg
+  called `signed_announce(99, "repeat")` twice, and each call constructed a fresh
+  `Endpoint`. After `af4b858`, those independent senders normally minted distinct nonces
+  with the same whole-second timebase. Phase C correctly rejected the second blob as
+  `StaleTimebase` before destination-rate admission, so the relay-rate counter could not
+  advance. The pre-fix test failed 20/20 quiet runs, 8/8 controlled-load runs, and 12/12
+  second-boundary samples at the same assertion. `eaff89e` introduced freshness
+  preemption; `af4b858` made the old state-resetting fixture predictably stale. Production
+  freshness and destination admission ordering are unchanged.
 
 ## 12. Progress
 
@@ -718,3 +729,10 @@ noise rather than a stronger boundary.
   The first contaminated re-pin attempt carries no route-semantic claim. The current-pin
   package, live-gate, Resource, Outrider, and peer evidence is collected in the
   [RNS 1.5.2 re-pin receipt](2026-08-29_rns_152_repin_receipt.md).
+- **2026-08-30:** repaired the Phase C/AIR2 cross-feature fixture by minting both rapid
+  same-destination announces from one persistent sender, which advances its
+  per-destination timebase even within one wall-clock second. The focused test passed,
+  followed by 20/20 quiet and 8/8 two-at-a-time controlled-load repetitions. The complete
+  locked, offline Retinue package passed 201 library tests, 92 integration tests, and one
+  doctest. This closes the documented broad-suite failure without changing production
+  admission policy.

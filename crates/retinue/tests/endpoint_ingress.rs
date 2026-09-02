@@ -326,8 +326,22 @@ async fn announce_ingress_burst_is_bounded_attributed_and_does_not_silence_a_nei
         "the receipt must include a released burst destination, not only the quiet neighbor"
     );
 
-    let (repeat_destination, first) = signed_announce(99, "repeat").await;
-    let (_, second) = signed_announce(99, "repeat").await;
+    let repeat_identity = PrivateIdentity::from_secret_bytes(&[99; 64]);
+    let repeat_sender = Endpoint::new(repeat_identity.clone());
+    let mut repeat_wire = repeat_sender.attach_interface();
+    let repeat_name = DestinationName::new("flood", ["repeat"]);
+    let repeat_destination = repeat_name.destination_hash(repeat_identity.public());
+    // A repeat must share one sender so its per-destination freshness timebase advances.
+    repeat_sender.announce(&repeat_name, b"ingress receipt");
+    let first = tokio::time::timeout(Duration::from_secs(1), repeat_wire.next_outbound())
+        .await
+        .expect("repeat sender queues a first announce")
+        .expect("repeat sender remains live");
+    repeat_sender.announce(&repeat_name, b"ingress receipt");
+    let second = tokio::time::timeout(Duration::from_secs(1), repeat_wire.next_outbound())
+        .await
+        .expect("repeat sender queues a second announce")
+        .expect("repeat sender remains live");
     assert!(quiet_sink.deliver(first));
     tokio::time::sleep(Duration::from_millis(3)).await;
     assert!(quiet_sink.deliver(second));

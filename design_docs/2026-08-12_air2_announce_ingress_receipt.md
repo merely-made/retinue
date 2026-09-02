@@ -4,6 +4,13 @@ Date: 2026-08-12
 Lane: Air  
 Scope: AIR2 only
 
+> **Follow-up, 2026-08-30:** this remains the historical pre-freshness receipt. Phase C
+> later made its rapid-repeat fixture stale because each packet was minted by a new sender
+> with a reset whole-second timebase. The current fixture retains one sender so the second
+> announce is genuinely newer. The diagnosis and current validation are recorded in the
+> [announce timebase plan](2026-08-25_announce_timebase_plan.md); the original run below is
+> unchanged.
+
 ## Claim
 
 Retinue now admits inbound announces through two bounded, independently
