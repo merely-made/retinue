@@ -2,9 +2,8 @@
 
 use std::path::Path;
 
-use codicil::Codicil;
 use gaz::{Contact, ContactBook, ContactKey, Endpoint, EndpointKind, PersonaScope};
-use muniment::{Backend, JsonSlots, MemoryBackend, RedbBackend, StoreError};
+use muniment::{Backend, Journal, JsonSlots, MemoryBackend, RedbBackend, StoreError};
 use signalman::message::{ApplyOutcome, MessageBook, MessageEvent, MessagePeer, MessageRecord};
 
 const LOG_SLOT: &str = "signalman/messages/v1/log";
@@ -14,7 +13,7 @@ type DynBackend = Box<dyn Backend + Send + Sync>;
 
 pub struct MessageStore {
     slots: JsonSlots<DynBackend>,
-    log: Codicil<MessageEvent>,
+    log: Journal<MessageEvent>,
     book: MessageBook,
     contacts: ContactBook,
 }
@@ -46,7 +45,7 @@ impl MessageStore {
         let expected = PersonaScope::new(scope);
         let slots = JsonSlots::new(backend);
         let (log, contacts) = pollster::block_on(async {
-            let log = Codicil::<MessageEvent>::load(&slots, LOG_SLOT).await?;
+            let log = Journal::<MessageEvent>::load(&slots, LOG_SLOT).await?;
             let contacts = slots
                 .load::<ContactBook>(CONTACTS_SLOT)
                 .await?
@@ -180,7 +179,7 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_event_does_not_grow_codicil() {
+    fn duplicate_event_does_not_grow_journal() {
         let message = TextMessage::compose(
             MessagePeer::new([1; 16], Some([1; 32])),
             MessagePeer::new([2; 16], None),
@@ -200,7 +199,7 @@ mod tests {
     }
 
     #[test]
-    fn redb_reopen_replays_the_exact_codicil_material() {
+    fn redb_reopen_replays_the_exact_journal_material() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("messages.redb");
         let message = TextMessage::compose(
@@ -230,7 +229,7 @@ mod tests {
     }
 
     #[test]
-    fn voice_reopens_from_the_same_codicil_log_as_text() {
+    fn voice_reopens_from_the_same_journal_as_text() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("voice.redb");
         let clip = VoiceClip::encode_pcm(&vec![1_000_i16; 1_440], VoiceEncoding::Lpc10).unwrap();
