@@ -30,11 +30,11 @@ the core-only V4 image; the USB image restores `retinue::command::Verifier`
 from durable grants at boot, keeps `ControlRuntime` resident, and answers a
 signed WN0 `Status` over the ordinary USB stream only after journaling the
 accepted outer counter inside the live quiet window. That path has a physical
-receipt on the claimed board at counters 1 through 3 with a replayed counter
-refused by silence. WN1 remains Partial: mutations over the carrier, a power-cut
-receipt for the journaled outer counter, board key vault/sealing, the Retinue
-runtime, and BLE/WiFi/IP/Reticulum carriers remain open. WN2 through WN8 are
-Open.
+receipt on the claimed board at counters 1 through 5, a replayed counter
+refused by silence both before and after a true USB power cut, and the
+journaled counter surviving that cut. WN1 remains Partial: mutations over the
+carrier, board key vault/sealing, the Retinue runtime, and BLE/WiFi/IP/Reticulum
+carriers remain open. WN2 through WN8 are Open.
 **Supersedes:** the LB1 through LB6 ladder in the archived
 [Bluetooth capability scoping brief](archive_docs/2026-08-30/2026-08-11_bluetooth_capability_scoping.md).
 It narrows, rather than replaces, the
@@ -552,10 +552,9 @@ verifier: `host-usb` is the feature that enables `radio-hand/control-retinue`.
 
 T114 still needs an owner/stop-and-drop refactor. WN1 remains Partial. Open
 work is phone UI, physical first-owner Claim/Resume with an owner-supplied
-identity and public configuration, power-cut proof of the journaled outer
-counter, stage/apply/commit over the live carrier, BLE/WiFi/IP/Reticulum
-management, native V4 Reticulum node/transport, credentials/vault, and
-headed/on-air proof. The focused `portable_first_write` receipt passes 12;
+identity and public configuration, stage/apply/commit over the live carrier,
+BLE/WiFi/IP/Reticulum management, native V4 Reticulum node/transport,
+credentials/vault, and headed/on-air proof. The focused `portable_first_write` receipt passes 12;
 base `radio-hand` passes 161; `radio-hand --features control-retinue` passes
 170. Rustfmt and three serial locked Xtensa core-only checks pass for default,
 `host-uart-low-power`, and `host-uart-low-power+rf-sleep-proof`. The V4 keeps
@@ -1205,5 +1204,23 @@ standalone transport node hostage.
   retinue `6af5c0ff6cb5f3b1297a6ff1321fff8f2bcefbb0` answered once more at
   counter 4 (transaction `f7807bbcabc91297a35a095ff8ca649c`), so the counter
   record at the Signalman authority root ends at `last_used = 4`. Not yet
-  proven: that the journaled outer counter survives a true power cut, and any
-  operation other than Status. WN1 remains Partial.
+  proven at that point: that the journaled outer counter survives a true power
+  cut, and any operation other than Status. WN1 remains Partial.
+- **2026-09-02, power-cut receipt for the journaled outer counter:** USB was
+  physically unplugged, left unpowered, and replugged with both buttons
+  untouched. COM6 re-enumerated OK on the same parent
+  `USB\VID_303A&PID_1001\44:1B:F6:6A:FB:28` at local `2026-09-02 21:47:38`.
+  The unauthenticated diagnostic then read the exact pre-cut line
+  (`control=valid pending=blank boot=known-good-applied
+  known-good-generation=0 generation-watermark=0`). The controller record was
+  forced back to `last_used = 3` so the Mere port re-offered counter 4, which
+  the board had journaled before the cut: it answered with silence for the
+  full window (`21:48:08` to `21:48:13` local) and the host reported
+  `ControllerStatusError(Carrier(Timeout))`, exit 1. With the record restored
+  to 4, counter 5 (transaction `17c6f1a4051d1c7e6a5c928f2ec56bb2`) received
+  `auth=verified-controller` with the same public status, and the diagnostic
+  answered again afterwards. The verifier the board rebuilt from durable grants
+  after a real power loss therefore refuses an already-journaled counter and
+  accepts the next one. The counter record ends at `last_used = 5`. Not yet
+  proven: any operation other than Status over the carrier. WN1 remains
+  Partial.
