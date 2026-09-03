@@ -186,6 +186,32 @@ pub struct Fault {
     pub message: Text<24>,
 }
 
+/// A GNSS fix as last reported by the module. Coordinates are fixed-point degrees
+/// times ten million, which holds the L76K's four decimal minutes without loss.
+/// `at_uptime_secs` is when the sentence arrived, so a consumer can judge staleness
+/// against its own clock rather than trusting the value stays true.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct GnssFix {
+    pub lat_e7: i32,
+    pub lon_e7: i32,
+    pub satellites: u8,
+    pub hdop_tenths: u16,
+    pub at_uptime_secs: u32,
+}
+
+/// What the board knows about its position. Three states on purpose (PD3): a board
+/// with no module, a module with no fix, and a fix, must be distinguishable, and a
+/// lost fix must fall back to `NoFix` rather than leaving the last value in place.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum GnssState {
+    /// No module, or no sentence has ever arrived.
+    #[default]
+    Absent,
+    /// The module is talking and reports no valid fix.
+    NoFix,
+    Fix(GnssFix),
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct LocalStatus {
     pub board: Text<16>,
@@ -205,6 +231,7 @@ pub struct LocalStatus {
     pub last_rx: Option<RxSummary>,
     pub last_tx: TxResult,
     pub fault: Option<Fault>,
+    pub gnss: GnssState,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

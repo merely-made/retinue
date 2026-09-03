@@ -51,6 +51,29 @@ impl ControlRuntime {
         .await
     }
 
+    /// [`Self::observe_status`] for a verified inbound control request.
+    pub async fn observe_status_inbound<Q>(
+        &mut self,
+        q: &mut Q,
+        x: &mut DurableScratch<'_>,
+        inbound: &InboundControl,
+        first_write: FirstWriteStatus,
+    ) -> Result<LiveOutcome<Response>, RuntimeError<Q::StoreError, Infallible, Q::Error>>
+    where
+        Q: QuietWindow,
+    {
+        self.observe_status(
+            q,
+            x,
+            inbound.node(),
+            inbound.verified_controller(),
+            inbound.counter(),
+            inbound.request(),
+            first_write,
+        )
+        .await
+    }
+
     pub async fn record_verified_command<Q>(
         &mut self,
         q: &mut Q,

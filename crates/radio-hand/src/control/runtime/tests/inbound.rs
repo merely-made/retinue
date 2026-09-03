@@ -194,3 +194,134 @@ fn invalid_retinue_identity_journal_poisons_before_any_apply() {
             .any(|call| matches!(call, Call::Apply(_)))
     );
 }
+
+#[test]
+#[allow(unsafe_code)]
+fn verified_status_is_journaled_before_it_is_answered_and_replay_is_refused() {
+    let t = Trace::default();
+    let operator = operator();
+    let mut s = FakeStore::blank(&t);
+    seed(&mut s, &state_for_operator(&operator));
+    let a = FakeApplier::new(&t);
+    let mut window = FakeLiveOwner::new(&t, s, a);
+    // SAFETY: this fixture starts at a fresh simulated board boot.
+    let mut r = unsafe {
+        ControlRuntime::new_after_hardware_reset(NodeId([0x10; 16]), key(), recovery_facts())
+    };
+    let (mut x, mut y, mut b, mut p) = super::buffers();
+    block_on(r.boot_pre_radio(
+        &mut window.store,
+        &mut window.applier,
+        &mut scratch(&mut x, &mut y, &mut b, &mut p),
+    ))
+    .unwrap();
+    let first_write = FirstWriteStatus {
+        control: PairEvidence::Valid,
+        pending: PairEvidence::Blank,
+    };
+
+    // The board's verifier comes from its durable grants, never from the carrier.
+    let mut verifier = restore_verifier::<MAX_OWNER_GRANTS>(r.state().unwrap()).unwrap();
+    let request = Request {
+        transaction: TransactionId([0x51; 16]),
+        transaction_sequence: 0,
+        expected_generation: ConfigGeneration(0),
+        operation: Operation::Status,
+        arguments: heapless::Vec::new(),
+    };
+    let wire = signed_command(&operator, &encoded_request(&request), 1);
+    let mut frame = [0_u8; MAX_CONTROL_COMMAND_FRAME_LEN];
+    let frame_len = encode_command_frame(&wire, &mut frame).unwrap();
+    let command = decode_command_frame(&frame[..frame_len]).unwrap();
+    assert_eq!(command, &wire[..]);
+    let verified = verifier.verify(command).unwrap();
+    let inbound = decode_verified_command(&verified).unwrap();
+
+    t.clear();
+    let response = block_on(r.observe_status_inbound(
+        &mut window,
+        &mut scratch(&mut x, &mut y, &mut b, &mut p),
+        &inbound,
+        first_write,
+    ))
+    .unwrap()
+    .into_value();
+    let calls = t.snapshot();
+    super::assert_quiet_bounds(&calls);
+    assert!(calls.iter().any(|call| matches!(call, Call::Program(_))));
+    assert!(!calls.iter().any(|call| matches!(call, Call::Apply(_))));
+    assert_eq!(
+        r.state().unwrap().owner_grants()[0].accepted_outer_counter(),
+        1
+    );
+
+    assert_eq!(response.node, NodeId([0x10; 16]));
+    assert_eq!(response.transaction, request.transaction);
+    assert_eq!(response.known_good_generation, ConfigGeneration(7));
+    assert_eq!(response.effective_generation, None);
+    let ResponseBody::Observed(body) = &response.body else {
+        panic!("a verified Status is answered with an Observed body");
+    };
+    let status = ControlStatusV1::decode(body).unwrap();
+    assert_eq!(
+        status.authority(),
+        ControlStatusAuthority::VerifiedController
+    );
+    assert_eq!(status.query_nonce(), [0x51; CONTROL_STATUS_NONCE_LEN]);
+    assert_eq!(status.node(), NodeId([0x10; 16]));
+    assert_eq!(status.control(), ControlStatusEvidence::Valid);
+    assert_eq!(status.pending(), ControlStatusEvidence::Blank);
+    assert_eq!(status.boot(), ControlStatusBootFact::KnownGoodApplied);
+    assert_eq!(status.known_good_generation(), ConfigGeneration(7));
+    assert_eq!(status.generation_watermark(), ConfigGeneration(7));
+
+    let mut response_frame = [0_u8; MAX_CONTROL_RESPONSE_FRAME_LEN];
+    let response_len = encode_response_frame(&response, &mut response_frame).unwrap();
+    assert_eq!(
+        decode_response_frame(&response_frame[..response_len]).unwrap(),
+        response
+    );
+
+    // Exact replay is refused by the live verifier and by one rebuilt from the journal.
+    assert_eq!(
+        verifier.verify(&wire).err(),
+        Some(retinue::command::Refusal::CounterReplayed)
+    );
+    let mut rebuilt = restore_verifier::<MAX_OWNER_GRANTS>(r.state().unwrap()).unwrap();
+    assert_eq!(
+        rebuilt.verify(&wire).err(),
+        Some(retinue::command::Refusal::CounterReplayed)
+    );
+
+    // A verified mutation reaching the Status-only observer is refused as unsupported, but
+    // its outer counter is still journaled before the refusal leaves the board.
+    let mutation = apply_request(2);
+    let mutation_wire = signed_command(&operator, &encoded_request(&mutation), 2);
+    let mutation_verified = rebuilt.verify(&mutation_wire).unwrap();
+    let mutation_inbound = decode_verified_command(&mutation_verified).unwrap();
+    t.clear();
+    let refused = block_on(r.observe_status_inbound(
+        &mut window,
+        &mut scratch(&mut x, &mut y, &mut b, &mut p),
+        &mutation_inbound,
+        first_write,
+    ))
+    .unwrap()
+    .into_value();
+    assert!(matches!(
+        refused.body,
+        ResponseBody::Refused {
+            reason: Refusal::UnsupportedOperation,
+            ..
+        }
+    ));
+    assert_eq!(refused.transaction, mutation.transaction);
+    let calls = t.snapshot();
+    assert!(calls.iter().any(|call| matches!(call, Call::Program(_))));
+    assert!(!calls.iter().any(|call| matches!(call, Call::Apply(_))));
+    assert_eq!(
+        r.state().unwrap().owner_grants()[0].accepted_outer_counter(),
+        2
+    );
+    assert!(!r.is_poisoned());
+}

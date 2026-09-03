@@ -30,6 +30,10 @@ against the current RNS 1.5.2 pin:
   window, plus link-proof acknowledgement, wired into an `AsyncRead + AsyncWrite`
   stream. Opt-in over the best-effort stream (which is right for TCP), for lossy
   media. See [`src/reliable.rs`](src/reliable.rs).
+- **An allocation-free floor** — `command`, `identity`, `hash`, and `capacity`
+  build with the `alloc` feature off, so a core-only firmware image can verify
+  a signed command without carrying a heap. Everything else needs `alloc`,
+  which is on by default.
 - **The endpoint runtime** — a tokio shell (behind the `tokio` feature, on by
   default) that attaches interfaces, routes inbound packets, opens and accepts
   links, and surfaces them as streams. Turn the feature off and the codec,

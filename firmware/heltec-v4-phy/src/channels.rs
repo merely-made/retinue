@@ -12,6 +12,12 @@ use lora_phy::mod_traits::RadioKind;
 use radio_hand::announce_reservation::DEFAULT_LEASE;
 use radio_hand::channel::rnode::RNodeChannel;
 use radio_hand::channel::{Channel as _, ChannelInfo as _, Event};
+#[cfg(all(feature = "host-usb", not(feature = "host-uart-low-power")))]
+use radio_hand::control::{CONTROL_COMMAND_FRAME_TAG, MAX_CONTROL_COMMAND_FRAME_LEN};
+use radio_hand::control::{
+    CONTROL_STATUS_FRAME_LEN, CONTROL_STATUS_REQUEST_FRAME_LEN, ControlStatusRequestV1,
+    ControlStatusV1,
+};
 use radio_hand::link::HostLink;
 use radio_hand::region::Region;
 use radio_hand::settings::{Channel as BootChannel, Settings};
@@ -59,6 +65,113 @@ pub fn channel_probe(packet: &[u8]) -> Option<ChannelProbe> {
 pub enum Outcome {
     NotAProbe,
     Served,
+}
+
+/// Largest unescaped control frame the ordinary modem stream must reassemble.
+///
+/// The USB image carries signed outer commands beside the diagnostic request; the UART
+/// low-power image offers only the diagnostic, so its parser stays at that size.
+#[cfg(all(feature = "host-usb", not(feature = "host-uart-low-power")))]
+const MAX_CONTROL_FRAME_LEN: usize = MAX_CONTROL_COMMAND_FRAME_LEN;
+#[cfg(feature = "host-uart-low-power")]
+const MAX_CONTROL_FRAME_LEN: usize = CONTROL_STATUS_REQUEST_FRAME_LEN;
+const _: () = assert!(MAX_CONTROL_FRAME_LEN >= CONTROL_STATUS_REQUEST_FRAME_LEN);
+
+/// Persistent, bounded KISS frame parser for the normal-runtime control carrier.
+///
+/// This stays out of `RNodeChannel`: the modem's ordinary text/binary host
+/// stream is the only place that offers the unauthenticated diagnostic and, on
+/// the USB image, the signed control carrier.
+pub struct ControlFrameStream {
+    deframer: selvage::kiss::Deframer<MAX_CONTROL_FRAME_LEN>,
+    in_frame: bool,
+}
+
+/// One byte's ownership on the ordinary modem stream.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ControlDemux {
+    Ordinary,
+    Consumed,
+    StatusRequest(ControlStatusRequestV1),
+    /// A complete, tagged, well-shaped signed command frame now sits in
+    /// [`ControlFrameStream::frame`]. Nothing about it is verified yet.
+    #[cfg(all(feature = "host-usb", not(feature = "host-uart-low-power")))]
+    Command,
+}
+
+impl ControlFrameStream {
+    pub const fn new() -> Self {
+        Self {
+            deframer: selvage::kiss::Deframer::new(),
+            in_frame: false,
+        }
+    }
+
+    /// Whether a subsequent read belongs to a fragmented control frame.
+    pub const fn in_frame(&self) -> bool {
+        self.in_frame
+    }
+
+    /// The most recently completed frame, valid immediately after
+    /// [`ControlDemux::Command`] and until the next byte is pushed.
+    #[cfg(all(feature = "host-usb", not(feature = "host-uart-low-power")))]
+    pub fn frame(&self) -> &[u8] {
+        self.deframer.frame()
+    }
+
+    fn classify(&self) -> Option<ControlDemux> {
+        let frame = self.deframer.frame();
+        if let Ok(request) = ControlStatusRequestV1::decode_frame(frame) {
+            return Some(ControlDemux::StatusRequest(request));
+        }
+        #[cfg(all(feature = "host-usb", not(feature = "host-uart-low-power")))]
+        if frame.first() == Some(&CONTROL_COMMAND_FRAME_TAG)
+            && radio_hand::control::decode_command_frame(frame).is_ok()
+        {
+            return Some(ControlDemux::Command);
+        }
+        None
+    }
+
+    /// Feeds arbitrary read chunks and reports the last complete, well-formed
+    /// control frame they finished. Oversize, malformed, and foreign KISS
+    /// frames are discarded by the shared deframer and resynchronize at FEND.
+    pub fn push(&mut self, bytes: &[u8]) -> Option<ControlDemux> {
+        let mut completed = None;
+        for &byte in bytes {
+            if byte == selvage::kiss::FEND {
+                self.in_frame = !self.in_frame;
+            }
+            if self.deframer.push(byte)
+                && let Some(demux) = self.classify()
+            {
+                completed = Some(demux);
+            }
+        }
+        completed
+    }
+
+    /// Keeps KISS delimiters out of direct-PHY only when they begin at its
+    /// current command boundary. All other bytes, including FEND inside an
+    /// in-progress direct command, remain ordinary parser input.
+    pub fn demux_byte(&mut self, command_boundary: bool, byte: u8) -> ControlDemux {
+        if self.in_frame || (command_boundary && byte == selvage::kiss::FEND) {
+            return self.push(&[byte]).unwrap_or(ControlDemux::Consumed);
+        }
+        ControlDemux::Ordinary
+    }
+}
+
+/// Writes one tagged KISS diagnostic response. It only serializes a snapshot
+/// captured at successful boot, so serving it neither rereads nor changes flash.
+pub async fn send_control_status<L: HostLink>(status: ControlStatusV1, host: &mut L) {
+    let mut frame = [0_u8; CONTROL_STATUS_FRAME_LEN];
+    let mut wire = [0_u8; 2 + CONTROL_STATUS_FRAME_LEN * 2];
+    if status.encode_frame(&mut frame).is_ok()
+        && let Some(len) = selvage::kiss::encode_into(&frame, &mut wire)
+    {
+        let _ = host.write_all(&wire[..len]).await;
+    }
 }
 
 fn timebase_reserve_lease(packet: &[u8]) -> Option<Result<u64, ()>> {
@@ -142,6 +255,37 @@ pub async fn probe<L: HostLink>(
     }
     if packet == b"sync\n" || packet == b"sync\r\n" {
         let _ = host.write_all(b"2b 24b4\r\n").await;
+        return Outcome::Served;
+    }
+    if packet == b"gnss\n" || packet == b"gnss\r\n" {
+        // PD3's on-metal observable: the latest parsed state, as integers, so a host
+        // can prove a fix arrived without any display work. Coordinates are degrees
+        // times ten million; `at` is board uptime seconds when the sentence landed.
+        use core::fmt::Write as _;
+        let mut reply = radio_face::Text::<96>::empty();
+        let (accepted, dropped, bytes) = crate::gnss::counters();
+        match crate::gnss::latest() {
+            radio_face::GnssState::Absent => {
+                let _ = write!(
+                    &mut reply,
+                    "gnss=absent accepted={accepted} dropped={dropped} bytes={bytes}\r\n"
+                );
+            }
+            radio_face::GnssState::NoFix => {
+                let _ = write!(
+                    &mut reply,
+                    "gnss=nofix accepted={accepted} dropped={dropped} bytes={bytes}\r\n"
+                );
+            }
+            radio_face::GnssState::Fix(fix) => {
+                let _ = write!(
+                    &mut reply,
+                    "gnss=fix lat_e7={} lon_e7={} sats={} hdop_tenths={} at={}\r\n",
+                    fix.lat_e7, fix.lon_e7, fix.satellites, fix.hdop_tenths, fix.at_uptime_secs
+                );
+            }
+        }
+        let _ = host.write_all(reply.as_str().as_bytes()).await;
         return Outcome::Served;
     }
     if let Some(wanted) = timebase_probe(packet) {
@@ -380,6 +524,88 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn control_status_request_reassembles_and_resynchronizes() {
+        let mut request = [0_u8; CONTROL_STATUS_REQUEST_FRAME_LEN];
+        ControlStatusRequestV1::new([0; radio_hand::control::CONTROL_STATUS_NONCE_LEN])
+            .encode_frame(&mut request)
+            .unwrap();
+        let mut wire = [0_u8; 2 + CONTROL_STATUS_REQUEST_FRAME_LEN * 2];
+        let len = selvage::kiss::encode_into(&request, &mut wire).unwrap();
+
+        let mut parser = ControlFrameStream::new();
+        assert!(parser.push(&wire[..1]).is_none());
+        assert!(parser.in_frame());
+        assert!(parser.push(&wire[1..len - 1]).is_none());
+        assert!(parser.in_frame());
+        assert!(matches!(
+            parser.push(&wire[len - 1..len]),
+            Some(ControlDemux::StatusRequest(_))
+        ));
+        assert!(!parser.in_frame());
+
+        let foreign = [selvage::kiss::FEND, 1, 2, 3, selvage::kiss::FEND];
+        assert!(parser.push(&foreign).is_none());
+        assert!(parser.push(&wire[..len]).is_some());
+    }
+
+    #[test]
+    #[cfg(all(feature = "host-usb", not(feature = "host-uart-low-power")))]
+    fn control_stream_separates_a_signed_command_frame_from_the_diagnostic() {
+        use radio_hand::control::MIN_CONTROL_COMMAND_FRAME_LEN;
+        // Shape only: a tagged frame of the minimum signed-command length. Verification is
+        // the carrier's, and this parser must hand it over without judging it.
+        let mut frame = [0x5a_u8; MIN_CONTROL_COMMAND_FRAME_LEN];
+        frame[0] = CONTROL_COMMAND_FRAME_TAG;
+        let mut wire = [0_u8; 2 + MIN_CONTROL_COMMAND_FRAME_LEN * 2];
+        let len = selvage::kiss::encode_into(&frame, &mut wire).unwrap();
+        let mut parser = ControlFrameStream::new();
+        assert_eq!(parser.push(&wire[..len]), Some(ControlDemux::Command));
+        assert_eq!(parser.frame(), &frame[..]);
+
+        // Too short for a signature is not a command, and a foreign tag is not either.
+        let mut short = [0x5a_u8; MIN_CONTROL_COMMAND_FRAME_LEN - 1];
+        short[0] = CONTROL_COMMAND_FRAME_TAG;
+        let len = selvage::kiss::encode_into(&short, &mut wire).unwrap();
+        assert!(parser.push(&wire[..len]).is_none());
+        frame[0] = 0x00;
+        let len = selvage::kiss::encode_into(&frame, &mut wire).unwrap();
+        assert!(parser.push(&wire[..len]).is_none());
+    }
+
+    #[test]
+    fn control_status_demux_preserves_coalesced_ordinary_bytes_and_payload_fend() {
+        let mut request = [0_u8; CONTROL_STATUS_REQUEST_FRAME_LEN];
+        let nonce = [0x91; radio_hand::control::CONTROL_STATUS_NONCE_LEN];
+        ControlStatusRequestV1::new(nonce)
+            .encode_frame(&mut request)
+            .unwrap();
+        let mut wire = [0_u8; 2 + CONTROL_STATUS_REQUEST_FRAME_LEN * 2];
+        let len = selvage::kiss::encode_into(&request, &mut wire).unwrap();
+        let mut parser = ControlFrameStream::new();
+        for byte in b"pre" {
+            assert_eq!(parser.demux_byte(true, *byte), ControlDemux::Ordinary);
+        }
+        assert_eq!(
+            parser.demux_byte(false, selvage::kiss::FEND),
+            ControlDemux::Ordinary
+        );
+        for (index, byte) in wire[..len].iter().copied().enumerate() {
+            let demux = parser.demux_byte(true, byte);
+            if index + 1 == len {
+                assert_eq!(
+                    demux,
+                    ControlDemux::StatusRequest(ControlStatusRequestV1::new(nonce))
+                );
+            } else {
+                assert_eq!(demux, ControlDemux::Consumed);
+            }
+        }
+        for byte in b"post" {
+            assert_eq!(parser.demux_byte(true, *byte), ControlDemux::Ordinary);
+        }
+    }
 
     #[test]
     fn timebase_probe_defaults_to_the_shared_lease() {

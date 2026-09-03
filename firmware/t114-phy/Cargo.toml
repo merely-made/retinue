@@ -26,7 +26,7 @@ embedded-storage = "0.3.1"
 lora-modulation = "0.1.5"
 lora-phy = { path = "../../vendor/lora-phy" }
 radio-face = { path = "../../crates/radio-face" }
-retinue = { path = "../../crates/retinue", default-features = false }
+retinue = { path = "../../crates/retinue", default-features = false, features = ["alloc"] }
 # The no_std half: the LXMF codec and stamps, with no host machinery behind them.
 outrider = { path = "../../crates/outrider", default-features = false }
 radio-hand = { path = "../../crates/radio-hand", features = ["node"] }

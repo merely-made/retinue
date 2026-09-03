@@ -283,3 +283,78 @@ fn verifier_restore_rejects_capacity() {
         Err(VerifierRestoreError::Capacity)
     ));
 }
+
+#[test]
+fn local_carrier_frames_fail_closed() {
+    use radio_hand::control::{
+        CONTROL_COMMAND_FRAME_TAG, CONTROL_RESPONSE_FRAME_TAG, ControlFrameError,
+        MAX_CONTROL_COMMAND_FRAME_LEN, MAX_CONTROL_RESPONSE_FRAME_LEN,
+        MIN_CONTROL_COMMAND_FRAME_LEN, decode_command_frame, decode_response_frame,
+        encode_command_frame, encode_response_frame,
+    };
+
+    let operator = operator(0x11);
+    let payload = request_payload(&request(b"status"));
+    let wire = Command {
+        key_id: operator.hash(),
+        class: TargetClass::Node,
+        target: node(),
+        counter: 1,
+        opcode: COMMAND_OPCODE,
+        payload: &payload,
+    }
+    .sign(&operator)
+    .unwrap();
+
+    let mut frame = [0_u8; MAX_CONTROL_COMMAND_FRAME_LEN];
+    let len = encode_command_frame(&wire, &mut frame).unwrap();
+    assert_eq!(frame[0], CONTROL_COMMAND_FRAME_TAG);
+    assert_eq!(decode_command_frame(&frame[..len]).unwrap(), &wire[..]);
+    assert!(matches!(
+        decode_command_frame(&frame[..MIN_CONTROL_COMMAND_FRAME_LEN - 1]),
+        Err(ControlFrameError::Length { .. })
+    ));
+    let mut wrong = frame;
+    wrong[0] = CONTROL_RESPONSE_FRAME_TAG;
+    assert!(matches!(
+        decode_command_frame(&wrong[..len]),
+        Err(ControlFrameError::UnexpectedFrameTag(
+            CONTROL_RESPONSE_FRAME_TAG
+        ))
+    ));
+    let mut short = [0_u8; 8];
+    assert!(matches!(
+        encode_command_frame(&wire, &mut short),
+        Err(ControlFrameError::Length { .. })
+    ));
+    assert!(matches!(
+        encode_command_frame(&wire[..4], &mut frame),
+        Err(ControlFrameError::Length { .. })
+    ));
+
+    let response =
+        radio_hand::control::decode_response(&radio_hand::control::GOLDEN_RESPONSE).unwrap();
+    let mut response_frame = [0_u8; MAX_CONTROL_RESPONSE_FRAME_LEN];
+    let response_len = encode_response_frame(&response, &mut response_frame).unwrap();
+    assert_eq!(response_frame[0], CONTROL_RESPONSE_FRAME_TAG);
+    assert_eq!(
+        decode_response_frame(&response_frame[..response_len]).unwrap(),
+        response
+    );
+    response_frame[0] = CONTROL_COMMAND_FRAME_TAG;
+    assert!(matches!(
+        decode_response_frame(&response_frame[..response_len]),
+        Err(ControlFrameError::UnexpectedFrameTag(
+            CONTROL_COMMAND_FRAME_TAG
+        ))
+    ));
+    response_frame[0] = CONTROL_RESPONSE_FRAME_TAG;
+    assert!(matches!(
+        decode_response_frame(&response_frame[..response_len - 1]),
+        Err(ControlFrameError::Decode(_))
+    ));
+    assert!(matches!(
+        decode_response_frame(&response_frame[..1]),
+        Err(ControlFrameError::Length { .. })
+    ));
+}

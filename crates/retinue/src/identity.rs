@@ -77,6 +77,8 @@ impl Identity {
         self.ed25519.as_bytes()
     }
 
+    // Only the heap-backed link and token layers take the ECDH half.
+    #[cfg_attr(not(feature = "alloc"), allow(dead_code))]
     pub(crate) fn x25519(&self) -> &XPublicKey {
         &self.x25519
     }
@@ -154,6 +156,7 @@ impl PrivateIdentity {
     }
 
     /// X25519 ECDH against a peer's public key.
+    #[cfg_attr(not(feature = "alloc"), allow(dead_code))]
     pub(crate) fn diffie_hellman(&self, peer: &XPublicKey) -> [u8; KEY_LEN] {
         self.x25519.diffie_hellman(peer).to_bytes()
     }

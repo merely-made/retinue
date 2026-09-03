@@ -8,15 +8,100 @@
 use core::fmt;
 
 use retinue::{
-    command::{TargetClass, VerifiedCommand, Verifier},
+    command::{HEADER_LEN, MAX_COMMAND_LEN, TargetClass, VerifiedCommand, Verifier},
     hash::AddressHash,
-    identity::Identity,
+    identity::{Identity, SIGNATURE_LEN},
 };
 
 use super::{
-    COMMAND_OPCODE, ControllerId, ControllerRole, DecodeError, DurableState, NodeId, OwnerGrant,
-    Request, VerifiedController, decode_request,
+    COMMAND_OPCODE, ControllerId, ControllerRole, DecodeError, DurableState, EncodeError,
+    MAX_OWNER_GRANTS, MAX_RESPONSE_LEN, NodeId, OwnerGrant, Request, Response, VerifiedController,
+    decode_request, decode_response, encode_response,
 };
+
+/// The node-only outer verifier sized to the durable grant table, so a board names the
+/// verifier without depending on Retinue directly.
+pub type ControlVerifier = Verifier<MAX_OWNER_GRANTS>;
+
+/// Tag at the start of a KISS frame that carries one signed outer command on a local
+/// byte-stream carrier. The frame body after the tag is the exact `retinue::command` wire.
+///
+/// KISS framing itself belongs to `selvage`; the tag keeps a signed command distinct from the
+/// unauthenticated status diagnostic and from ordinary direct-PHY traffic sharing the stream.
+pub const CONTROL_COMMAND_FRAME_TAG: u8 = 0x56;
+/// Tag at the start of a KISS frame that carries one WN0 response to a verified command.
+///
+/// The response is not signed by the board. Its authority is that the board produced it only
+/// after verifying and journaling the outer command it answers.
+pub const CONTROL_RESPONSE_FRAME_TAG: u8 = 0x52;
+/// Smallest unescaped command frame: tag, header, and signature with an empty payload.
+pub const MIN_CONTROL_COMMAND_FRAME_LEN: usize = 1 + HEADER_LEN + SIGNATURE_LEN;
+/// Largest unescaped command frame a carrier must be able to reassemble.
+pub const MAX_CONTROL_COMMAND_FRAME_LEN: usize = 1 + MAX_COMMAND_LEN;
+/// Largest unescaped response frame a carrier must be able to reassemble.
+pub const MAX_CONTROL_RESPONSE_FRAME_LEN: usize = 1 + MAX_RESPONSE_LEN;
+
+/// Fail-closed errors from the local-carrier frame tagging.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ControlFrameError {
+    Length { found: usize },
+    UnexpectedFrameTag(u8),
+    Encode(EncodeError),
+    Decode(DecodeError),
+}
+
+/// Tags one already-signed outer command for a local carrier. `out` receives the unescaped
+/// frame body; the carrier KISS-escapes it afterwards.
+pub fn encode_command_frame(command: &[u8], out: &mut [u8]) -> Result<usize, ControlFrameError> {
+    let length = 1 + command.len();
+    if command.len() + 1 < MIN_CONTROL_COMMAND_FRAME_LEN
+        || length > MAX_CONTROL_COMMAND_FRAME_LEN
+        || out.len() < length
+    {
+        return Err(ControlFrameError::Length { found: length });
+    }
+    out[0] = CONTROL_COMMAND_FRAME_TAG;
+    out[1..length].copy_from_slice(command);
+    Ok(length)
+}
+
+/// Strips the tag from one unescaped command frame and returns the exact signed wire bytes.
+///
+/// This checks only tag and shape. Target, allowlist, counter window, and signature remain
+/// the verifier's, and nothing here creates authority.
+pub fn decode_command_frame(frame: &[u8]) -> Result<&[u8], ControlFrameError> {
+    if frame.len() < MIN_CONTROL_COMMAND_FRAME_LEN || frame.len() > MAX_CONTROL_COMMAND_FRAME_LEN {
+        return Err(ControlFrameError::Length { found: frame.len() });
+    }
+    if frame[0] != CONTROL_COMMAND_FRAME_TAG {
+        return Err(ControlFrameError::UnexpectedFrameTag(frame[0]));
+    }
+    Ok(&frame[1..])
+}
+
+/// Tags one WN0 response for a local carrier.
+pub fn encode_response_frame(
+    response: &Response,
+    out: &mut [u8],
+) -> Result<usize, ControlFrameError> {
+    if out.len() < MAX_CONTROL_RESPONSE_FRAME_LEN {
+        return Err(ControlFrameError::Length { found: out.len() });
+    }
+    out[0] = CONTROL_RESPONSE_FRAME_TAG;
+    let length = encode_response(response, &mut out[1..]).map_err(ControlFrameError::Encode)?;
+    Ok(1 + length)
+}
+
+/// Decodes one unescaped, tagged response frame.
+pub fn decode_response_frame(frame: &[u8]) -> Result<Response, ControlFrameError> {
+    if frame.len() < 2 || frame.len() > MAX_CONTROL_RESPONSE_FRAME_LEN {
+        return Err(ControlFrameError::Length { found: frame.len() });
+    }
+    if frame[0] != CONTROL_RESPONSE_FRAME_TAG {
+        return Err(ControlFrameError::UnexpectedFrameTag(frame[0]));
+    }
+    decode_response(&frame[1..]).map_err(ControlFrameError::Decode)
+}
 
 impl OwnerGrant {
     /// Converts Retinue's canonical public identity to the durable grant form. Only firmware
@@ -34,6 +119,13 @@ pub enum VerifierRestoreError {
     DuplicateController,
     MissingOwner,
     Capacity,
+}
+
+/// [`restore_verifier`] at the durable grant bound.
+pub fn restore_control_verifier(
+    state: &DurableState,
+) -> Result<ControlVerifier, VerifierRestoreError> {
+    restore_verifier(state)
 }
 
 /// Rebuilds the node-only Retinue verifier from validated durable grants. Any malformed public

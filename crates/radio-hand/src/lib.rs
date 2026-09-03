@@ -28,6 +28,7 @@ pub mod control;
 pub mod dispatch;
 #[cfg(feature = "radio")]
 pub mod executive;
+pub mod gnss;
 pub mod link;
 pub mod phy;
 pub mod profiles;

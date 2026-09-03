@@ -12,6 +12,10 @@ use retinue::identity::PrivateIdentity;
 
 /// The local, physical-presence first-owner carrier and controller flow.
 pub mod first_owner;
+/// The ordinary-runtime, diagnostic-only control-status carrier.
+pub mod status;
+/// The ordinary-runtime, controller-authenticated control carrier.
+pub mod verified;
 
 /// Errors at the Postilion/control boundary.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]

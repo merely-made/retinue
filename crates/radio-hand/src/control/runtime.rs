@@ -173,6 +173,7 @@ pub struct ControlRuntime {
     quiet_in_progress: bool,
     boot_attempted: bool,
     boot_completed: bool,
+    recovered_rollback: bool,
 }
 
 struct SplitBoot<'a, S, A> {
@@ -232,6 +233,7 @@ impl ControlRuntime {
             quiet_in_progress: false,
             boot_attempted: false,
             boot_completed: false,
+            recovered_rollback: false,
         }
     }
     pub const fn state(&self) -> Option<&DurableState> {
@@ -245,6 +247,11 @@ impl ControlRuntime {
     }
     pub const fn quiet_in_progress(&self) -> bool {
         self.quiet_in_progress
+    }
+    /// Whether this successful boot recovered a durable provisional candidate
+    /// to known-good before ordinary service was permitted.
+    pub const fn recovered_rollback(&self) -> bool {
+        self.recovered_rollback
     }
     fn poison<S, A, Q>(&mut self, e: RuntimeError<S, A, Q>) -> RuntimeError<S, A, Q> {
         self.poisoned = true;
@@ -430,6 +437,7 @@ impl ControlRuntime {
             return Err(self.poison(RuntimeError::Durable(e)));
         }
         let r = state.recover_after_reboot();
+        self.recovered_rollback = matches!(r, Recovery::Rollback { .. });
         let c = match &r {
             Recovery::None => state.known_good().configuration.clone(),
             Recovery::Rollback { configuration } => configuration.clone(),
@@ -533,6 +541,74 @@ impl ControlRuntime {
             );
             self.persist(guard.inner_mut(), x)?;
             t.map_err(RuntimeError::Refused)
+        })();
+        let finish = guard.finish().await;
+        self.complete_live(result, finish)
+    }
+    /// Answers one verified read-only request with the public control status.
+    ///
+    /// The accepted outer counter becomes durable inside the quiet window before any response
+    /// exists, exactly as for a mutation: a Status the board answered but did not journal would
+    /// be replayable after reboot. Only [`Operation::Status`] is observed; every other verified
+    /// operation is refused as unsupported after its counter is journaled, so a slice that
+    /// implements mutations must route them before falling back here. The body is the fixed
+    /// public status payload, bound to the request transaction with `VerifiedController`
+    /// authority; it never includes configuration, grants, receipts, or secrets.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn observe_status<Q>(
+        &mut self,
+        q: &mut Q,
+        x: &mut DurableScratch<'_>,
+        node: NodeId,
+        c: VerifiedController,
+        outer: u64,
+        r: &Request,
+        first_write: FirstWriteStatus,
+    ) -> Result<LiveOutcome<Response>, RuntimeError<Q::StoreError, Infallible, Q::Error>>
+    where
+        Q: QuietWindow,
+    {
+        self.ready()?;
+        let mut guard = self.enter_live(q).await?;
+        let result = (|| {
+            self.state
+                .as_mut()
+                .unwrap()
+                .advance_verified_outer_counter(c, outer)
+                .map_err(|e| self.poison(RuntimeError::VerifiedCounter(e)))?;
+            self.persist(guard.inner_mut(), x)?;
+            let state = self.state.as_ref().unwrap();
+            if node != state.node() {
+                return Err(RuntimeError::Refused(Refusal::WrongNode));
+            }
+            let body = if r.operation == Operation::Status {
+                let status = ControlStatusV1::for_verified_controller(
+                    first_write,
+                    state,
+                    self.recovered_rollback,
+                    r.transaction,
+                );
+                let mut bytes = [0_u8; CONTROL_STATUS_V1_LEN];
+                status
+                    .encode(&mut bytes)
+                    .map_err(|_| RuntimeError::Refused(Refusal::Internal))?;
+                ResponseBody::Observed(
+                    Vec::from_slice(&bytes)
+                        .map_err(|_| RuntimeError::Refused(Refusal::Internal))?,
+                )
+            } else {
+                ResponseBody::Refused {
+                    reason: Refusal::UnsupportedOperation,
+                    result: Vec::new(),
+                }
+            };
+            Ok(Response {
+                node: state.node(),
+                transaction: r.transaction,
+                known_good_generation: state.known_good().generation,
+                effective_generation: None,
+                body,
+            })
         })();
         let finish = guard.finish().await;
         self.complete_live(result, finish)

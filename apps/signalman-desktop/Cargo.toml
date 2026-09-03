@@ -99,9 +99,12 @@ vello = { git = "https://github.com/mark-ik/vello.git", rev = "4354955e9d8637f32
 taffy = { git = "https://github.com/merely-made/genet.git", rev = "5ec8274ed21cecb6066c814e996e9283348de458" }
 ipc-channel = { git = "https://github.com/merely-made/genet.git", rev = "5ec8274ed21cecb6066c814e996e9283348de458" }
 
-# mere-signalman names Retinue from an exact Git revision so its own manifest
-# works in a clean Mere checkout. Redirect that source to this workspace: the
-# desktop and the private port must exchange one Retinue/Postilion type family.
+# mere-signalman names the Retinue family from an exact Git revision so its
+# manifest works in a clean Mere checkout. Redirect every directly named
+# type-bearing member to this workspace: the desktop and private port must
+# exchange one Retinue/Postilion/radio-hand family.
 [patch."https://github.com/merely-made/retinue.git"]
 postilion = { path = "../../crates/postilion" }
 retinue = { path = "../../crates/retinue" }
+outrider = { path = "../../crates/outrider" }
+radio-hand = { path = "../../crates/radio-hand" }

@@ -1,7 +1,7 @@
 # Wall node and carrier-agnostic management implementation plan
 
 **Date:** 2026-08-30
-**Status (2026-09-01):** active plan. WN0 is partial: the contract was
+**Status (2026-09-02):** active plan. WN0 is partial: the contract was
 deliberately revised to `RHC0` v2 before shipment, with `transaction_sequence`,
 but target execution of its shared vectors remains unreceipted. WN1 is partial:
 the portable async durable runtime, `RHC0` v2 and `RHD1` durable version 3
@@ -23,10 +23,18 @@ outer-record sequencing preserved, including `u32::MAX`; abandon is permitted
 only while ordinary control is blank. Blank+blank with no witnessed mutation
 retains ordinary modem/RNode compatibility. Unresolved pending, corrupt,
 storage, or runtime uncertainty is status-only outside the bounded claim-only
-path. WN1 remains Partial: independent V4 review is GO after two P1 fixes; the
-host-side first-owner controller and literal USB bench entry now exist; and the
-Retinue runtime, board key vault/sealing, and target or on-device proof remain
-open. WN2 through WN8 are Open.
+path. The current worktree also carries the first authenticated normal-runtime
+management path: `retinue` gained a default-on `alloc` feature so its
+allocation-free floor (`command`, `identity`, `hash`, `capacity`) links into
+the core-only V4 image; the USB image restores `retinue::command::Verifier`
+from durable grants at boot, keeps `ControlRuntime` resident, and answers a
+signed WN0 `Status` over the ordinary USB stream only after journaling the
+accepted outer counter inside the live quiet window. That path has a physical
+receipt on the claimed board at counters 1 through 3 with a replayed counter
+refused by silence. WN1 remains Partial: mutations over the carrier, a power-cut
+receipt for the journaled outer counter, board key vault/sealing, the Retinue
+runtime, and BLE/WiFi/IP/Reticulum carriers remain open. WN2 through WN8 are
+Open.
 **Supersedes:** the LB1 through LB6 ladder in the archived
 [Bluetooth capability scoping brief](archive_docs/2026-08-30/2026-08-11_bluetooth_capability_scoping.md).
 It narrows, rather than replaces, the
@@ -529,10 +537,23 @@ mutation occurs. Valid pending may resume or abandon through the bounded
 claim-only session. Corrupt, unsafe, or failed storage evidence is status-only
 before SplitHost/RNode/RX/power arm.
 
+The USB image now has a resident signed control carrier. `control_boot.rs`
+returns `ControlReady` (boot snapshot, first-write status, the `ControlRuntime`,
+and its `'static` scratch) instead of dropping the runtime; `channels.rs`
+reassembles both the diagnostic request and the tagged signed-command frame on
+the ordinary modem stream with one bounded deframer; and `control_carrier.rs`
+runs the quiet preflight before the verifier advances, restores the verifier
+from durable grants on first use and again after any runtime error, journals
+the accepted counter through `ControlRuntime::observe_status`, and answers
+with a tagged unsigned WN0 response. Every outer refusal is silent. Only
+`Operation::Status` is observed; a verified mutation is journaled and refused
+as unsupported. The UART low-power image carries neither the carrier nor the
+verifier: `host-usb` is the feature that enables `radio-hand/control-retinue`.
+
 T114 still needs an owner/stop-and-drop refactor. WN1 remains Partial. Open
-work is phone UI,
-physical on-device GPIO/USB/flash/power-cut/reset proof, package rebuild/flash,
-live long-term control carrier/verifier-restore dispatch, BLE/WiFi/IP/Reticulum
+work is phone UI, physical first-owner Claim/Resume with an owner-supplied
+identity and public configuration, power-cut proof of the journaled outer
+counter, stage/apply/commit over the live carrier, BLE/WiFi/IP/Reticulum
 management, native V4 Reticulum node/transport, credentials/vault, and
 headed/on-air proof. The focused `portable_first_write` receipt passes 12;
 base `radio-hand` passes 161; `radio-hand --features control-retinue` passes
@@ -691,6 +712,31 @@ standalone transport node hostage.
   controller key id, monotonic replay counter, opcode, bounded payload, and
   signature. WN0 therefore adds an inner semantic payload rather than a second
   identity, role, proof, or replay system.
+- **2026-09-02, allocation-free verifier floor:** `crates/retinue` declared
+  `extern crate alloc` at its root, so the core-only V4 image (`-Zbuild-std=core`,
+  no allocator) could not link `radio-hand` with `control-retinue` at all. The
+  crate now has a default-on `alloc` feature gating its 23 allocating modules;
+  `command`, `identity`, `hash`, and `capacity` build without it, and `sha2`
+  no longer pulls `digest/alloc` in by default. `tokio`, `compression`, and
+  `tulle-radio` imply `alloc`. The in-tree `default-features = false` consumers
+  (`outrider`, `radio-hand`'s `replay`, `t114-phy`, `fuzz`) now name `alloc`
+  explicitly; `control-retinue` deliberately does not. Because a
+  `default-features = false` consumer loses modules, a crates.io republish is
+  `0.2.0`, not `0.1.2`. `cargo test -p retinue --no-default-features` builds
+  only the floor plus the command corpus and envelope tests.
+- **2026-09-02, verified Status contract:** `ControlStatusAuthority` gained
+  `VerifiedController`; `ControlStatusV1::for_verified_controller` binds the
+  same 53-byte payload to a request transaction through its nonce field. The
+  local-carrier frames are `0x56` (signed command) and `0x52` (unsigned WN0
+  response) beside the diagnostic's `0x53`/`0x43`, with exact bounds from
+  `retinue::command::MAX_COMMAND_LEN` and `MAX_RESPONSE_LEN`.
+  `ControlRuntime::observe_status` persists the accepted counter inside the
+  quiet window before any response exists, and the host `ControlClient`
+  refuses a body without `VerifiedController` authority or with a foreign
+  transaction. Postilion's `control::verified` module and the Mere port's
+  `status` action own the counter the board remembers: the Mere record
+  `first-owner-controller-counter.json` is advanced with a synced temporary
+  file and rename before the command is sent.
 - **2026-08-30:** `crates/radio-hand/src/control.rs` is a small facade over
   `control/{model,codec,admission}.rs`; every file stays below the repository's
   600-line ceiling. Together they define allocation-free 256-byte request and
@@ -994,3 +1040,167 @@ standalone transport node hostage.
   apps/signalman/Cargo.toml --bin signalman-first-owner -j1` passed. WN1
   remains Partial: phone UI, physical proof, live carriers, and the native V4
   Reticulum runtime remain open.
+- **2026-09-02, physical WN1 package flash:** a clean detached build at
+  `0cbf558c76db52b57794138b82e2c9e088a32f0c` ran `rustup run esp cargo build
+  --locked -p tulle-heltec-v4-phy --release --target xtensa-esp32s3-none-elf
+  -Zbuild-std=core -j 1`. Its 5,903,320-byte ELF hashes to
+  `16b5dec12f9a8615115d9954401b7e379caed3b2339470425463ee3cc01fc70a`;
+  `espflash 4.5.0 save-image --merge --skip-padding` reported 322,320 actual
+  application bytes. `heltec-v4-current.toml` now names those exact fields.
+  Linkboy verified the package, an owner-confirmed V4.2 plan, and the official
+  Windows x86_64 `espflash 4.5.0` helper archive and executable digests before
+  writing COM6 (`USB\\VID_303A&PID_1001&MI_00`). It preserved
+  `0x3F0000..0x400000`, completed the transfer, rebooted, and returned
+  `application-verified` as Heltec V4 `0.0.1`, US915, modem. The physical
+  first-owner GPIO0 gesture and Inspect/Claim/Resume result were deliberately
+  not inferred or attempted in that automatic post-flash boot window. A later
+  deliberate reset, release, new GPIO0 press, and continuous three-second hold
+  opened exactly one read-only `signalman-first-owner inspect COM6` session:
+  `node=a4dbb760a85b3a2e38cb54c62ec6d4df`, `control: Blank`, `pending: Blank`,
+  `eligibility=Uncommissioned`, `actions=0x09`, exit status zero. COM6 remained
+  `USB\\VID_303A&PID_1001&MI_00` and OK. No identity was supplied, persisted,
+  or logged, and no Claim, Resume, Abandon, retry, or further reset occurred.
+  WN1 remains Partial.
+- **2026-09-02, Signalman controller-identity seam:** Mere's private
+  `FirstOwnerCredential` now derives a Reticulum signer from the existing
+  Personae authority using Castellan's separate
+  `mere.castellan.reticulum.controller/v1` domain. It cannot share a
+  station-derived identity, even when their scope bytes match. The explicit
+  `mere-signalman-first-owner init` action first reads an accessible sealed
+  record or legacy raw 32-byte seed without migration or unlock-root creation,
+  then creates `first-owner-controller-id.json` once with create-new semantics
+  and prints its public controller fingerprint without opening USB. Its
+  separate `claim` action requires that existing scope and read-only authority
+  record; either missing or locked record refuses before it opens a USB
+  carrier. Claim creates no wallet, scope, unlock root, or identity, and
+  exports no private identity. An in-memory carrier receipt passed the exact
+  `Inspect` then `Claim` then `Resume` sequence, asserting the public key in
+  the claim is the controller-derived key and differs from a station
+  credential. The standalone Signalman workspace resolved Retinue, Postilion,
+  Outrider, and `radio-hand` at
+  `0cbf558c76db52b57794138b82e2c9e088a32f0c`; the focused test executable and
+  binary-check fingerprint were produced in an isolated target. This is host
+  integration evidence only. That software-only pass had not yet initialized
+  the real controller-scope record or performed physical Claim, Resume,
+  Abandon, COM6 opening, or board mutation. WN1 remains Partial.
+- **2026-09-02, controller-scope initialization receipt:** the clean pinned
+  `mere-signalman-first-owner init` action exited zero against the existing
+  authority root. It created only the 38-byte
+  `first-owner-controller-id.json` record with scope
+  `a7c52bfe-342b-4e17-a988-66a7fda556667` and printed public controller
+  fingerprint `94d8d9e8df30481174488ad91d1f3b37`. Its private hash baseline
+  proved all 12 pre-existing authority files byte-for-byte unchanged. This is
+  the deliberate non-USB scope-initialization lifecycle, not a board claim:
+  during initialization, no physical Claim, Resume, Abandon, COM6 opening, or
+  board mutation occurred.
+  The independent audit leaves P2 open: the current create-new final-file
+  write is not atomic, so interruption can leave malformed public scope JSON.
+  Claim then fails closed; before any claim, recovery is to remove only that
+  public scope file and rerun `init`. WN1 remains Partial.
+- **2026-09-02, physical first-owner claim receipt:** the first real claim
+  invocation exited 1 before any Inspect or carrier exchange because its Tokio
+  runtime enabled timers but not I/O; Windows serial transport panicked. No
+  claim frame or board mutation occurred in that failed attempt. The host fix
+  added runtime `.enable_io()` and the direct Tokio `net` feature; the exact
+  clean-pinned binary build then exited zero. After a fresh reset, release,
+  new GPIO0 gesture, and continuous three-second hold, that rebuilt binary ran
+  on COM6 and exited zero with literal `claim outcome=committed`. The
+  controller therefore completed a fresh Inspect, Claim, and exactly one
+  terminal Resume, receiving `Committed`. The controller scope and public
+  fingerprint remained `a7c52bfe-342b-4e17-a988-66a7fda556667` and
+  `94d8d9e8df30481174488ad91d1f3b37`; the authority hash comparison still
+  found all 12 pre-existing files byte-for-byte unchanged, with only the
+  already-created 38-byte public scope record added. After board reset COM6
+  re-enumerated OK as `USB\\VID_303A&PID_1001&MI_00`. Physical Claim and Resume
+  are complete; Abandon was not run. WN1 remains Partial: power-cut proof,
+  post-claim normal-runtime durable-status seam, vault, long-term carrier,
+  BLE/WiFi/IP/Reticulum management, native V4 node, and on-air gates remain
+  open.
+- **2026-09-02, post-claim first-owner Inspect boundary:** after the committed
+  claim, a fresh GPIO0/reset attempt followed by `signalman-first-owner.exe
+  inspect COM6` timed out. This is expected, not a contradictory
+  `ControlPresent` Inspect result: valid ordinary control takes
+  `FirstWriteBootGate::ControlPresent`, which deliberately skips
+  physical-presence observation and the one-shot first-owner USB carrier;
+  GPIO0 instead reaches the normal UI/menu. The reset plus ordinary USB/UI
+  path is a liveness receipt only, not durable-control readback. Actual
+  post-claim durability evidence needs a separate authenticated, read-only
+  normal-runtime status or diagnostic seam, without reopening the one-shot
+  first-owner carrier. WN1 remains Partial.
+- **2026-09-02, physical power-cut liveness receipt:** USB was physically
+  unplugged, left unpowered, and replugged with both buttons untouched. The
+  claimed target returned as COM6 with parent
+  `USB\\VID_303A&PID_1001\\44:1B:F6:6A:FB:28`, port-instance suffix
+  `7&11E27544&0&0000`, local `LastArrivalDate` 2026-09-02 4:48:59 PM, and
+  status OK. COM7 (`USB\\VID_303A&PID_1001\\44:1B:F6:6A:FA:64`, arrival
+  5:31:52 AM) is a separate already-present ESP32 and was not the target.
+  This proves ordinary reboot and USB liveness across a true power cut, not
+  durable-control contents. The authenticated read-only normal-runtime status
+  or diagnostic seam remained open at that point; the next receipt closes the
+  diagnostic half. WN1 remains Partial.
+- **2026-09-02, physical WN1 durable-control status receipt:** the implementation
+  source was atop `0cbf558c76db52b57794138b82e2c9e088a32f0c`.
+  Host tests passed for `radio-hand` (2), `postilion` (2), and Signalman (1);
+  the locked Xtensa check was green with two pre-existing warnings. The
+  release ELF was 5,918,136 bytes with SHA-256
+  `6df78fffa2adc006dcdb638b14ce3ebdb5a0e27b64bc447f80eff44a6d944894`; the
+  official `espflash` merged image was 390,544 bytes, ended at `0x05F590`, and
+  had SHA-256
+  `c6244c9d25eb74a0ca0f2a347edfaa4f4f568e230d8d8374f3921d65709dbcab`.
+  Guarded writes covered `0x0..0x3F0000` and preserved `0x3F0000..0x400000`.
+  Linkboy completed the flash on parent USB
+  `USB\\VID_303A&PID_1001\\44:1B:F6:6A:FB:28` / COM6, reporting Heltec V4
+  `0.0.1`, US915, modem. The baseline nonce-bound read was exactly
+  `auth=diagnostic-only transport=modem-only node=a4dbb760a85b3a2e38cb54c62ec6d4df control=valid pending=blank boot=known-good-applied known-good-generation=0 generation-watermark=0`.
+  After true USB power removal and replug with both buttons untouched, the
+  target re-enumerated with the same parent and COM6 at local
+  `2026-09-02 18:11:47`, and returned the exact same second read. This closes
+  durable claim and power-cut recovery evidence for ordinary control state.
+  The read is unauthenticated; the nonce supplies query freshness only. WN1
+  remains Partial because authenticated normal-runtime management still needs
+  the shared signed verifier/carrier; this receipt did not add a Reticulum
+  runtime, allocator, or `control-retinue` path.
+- **2026-09-02, physical verified-Status receipt over USB:** the implementation
+  source was the uncommitted worktree atop
+  `0cbf558c76db52b57794138b82e2c9e088a32f0c`, not a clean detached build. Host
+  evidence: `cargo test -p retinue` 201 unit tests plus every integration
+  suite green with default features, 168 with `alloc` alone, and the
+  allocation-free floor with 21 command-corpus and envelope tests under
+  `--no-default-features`; `radio-hand` 136 base and 139 with
+  `control-retinue`, including the new runtime test that a verified Status is
+  journaled inside the quiet window before it is answered and that a rebuilt
+  verifier refuses the replay; `postilion` 27 with three new verified-carrier
+  tests; Signalman 16 plus binary checks; the Mere port 18 library and 4
+  binary tests built against the local crates through a command-line patch;
+  `outrider --no-default-features` and `tulle-t114-phy` release builds for
+  `thumbv7em-none-eabihf`; and the locked Xtensa `cargo check` matrix for
+  `host-usb`, `host-uart-low-power`, and `host-uart-low-power+rf-sleep-proof`,
+  each with only its pre-existing warnings. Clippy under `-D warnings` is
+  clean for the changed crates; the workspace run fails on a pre-existing
+  `collapsible_if` in `crates/retinue/src/node.rs` last touched at
+  `af4b858`, which this pass did not change. The release ELF was 6,386,612
+  bytes with SHA-256
+  `2708a30f2289ad7fef00e3b939590a8f40fd026fcae7fb9d30811a8e0f1b098e`;
+  official `espflash 4.5.0 save-image --merge --skip-padding` reported
+  350,288 application bytes and a 415,824-byte merged image with SHA-256
+  `2b2b4bad468b40d9ce41f392526e19f8efab20a5a6757e0c61110edf69e0e017`.
+  `heltec-v4-current.toml` names those fields. Linkboy, through the verified
+  helper (`0cc03364…`) and an owner-confirmed V4.2 selection, flashed COM6,
+  preserved `0x3F0000..0x400000`, and returned `application-verified` as
+  Heltec V4 `0.0.1`, US915, modem. The unauthenticated diagnostic then read
+  exactly `control=valid pending=blank boot=known-good-applied
+  known-good-generation=0 generation-watermark=0` for node
+  `a4dbb760a85b3a2e38cb54c62ec6d4df`. The Mere controller (`mere-signalman-
+  first-owner status`, scope `a7c52bfe-342b-4e17-a988-66a7fda56667`, the key
+  that claimed the board) then received `auth=verified-controller` answers at
+  counter 1 (transaction `e8131b6cc2f15af027e851ec9f8752ac`), counter 2
+  (`c4d3a26acbe4705c8ea63e3ab7ead9af`), and, after a deliberate replay, counter
+  3 (`6c846a1c25bd5c31a5a9527bd94c7520`), each carrying the same public
+  status. The replay forced the controller record back to counter 1: the board
+  answered with silence for the full five-second window (`20:41:13` to
+  `20:41:19` local) and the host exited 1 with a carrier timeout, so an outer
+  counter the board had journaled was refused without a reply. The diagnostic
+  still answered after the signed exchanges, so the live quiet window resumed
+  receive. The counter record at the Signalman authority root ends at
+  `last_used = 3`. Not yet proven: that the journaled outer counter survives a
+  true power cut, and any operation other than Status. WN1 remains Partial.

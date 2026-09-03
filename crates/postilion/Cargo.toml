@@ -14,10 +14,12 @@ path = "src/lib.rs"
 
 [dependencies]
 getrandom = "0.3"
+heapless = "0.9"
 outrider = { version = "0.1.1", path = "../outrider", features = ["tulle-radio"] }
-radio-hand = { version = "0.0.1", path = "../radio-hand" }
+radio-hand = { version = "0.0.1", path = "../radio-hand", features = ["control-retinue"] }
 retinue = { version = "0.1.1", path = "../retinue", features = ["tulle-radio"] }
 serial2-tokio = "0.1.24"
+selvage = { version = "0.1.0", path = "../selvage" }
 thiserror = "2"
 tokio = { version = "1.53.1", features = ["io-util", "macros", "rt", "sync", "time"] }
 tulle = { version = "0.1.0", path = "../tulle", features = ["serial-async"] }

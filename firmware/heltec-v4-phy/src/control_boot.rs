@@ -19,8 +19,9 @@ use radio_hand::control::{
     abandon_first_write, resume_first_write, stage_first_write,
 };
 use radio_hand::control::{
-    BoardRecoveryFacts, BootState, ControlRuntime, DurableScratch, FirstWriteScratch,
-    FirstWriteStatus, MAX_DURABLE_BODY, NodeId, RuntimeError, SemanticTagKey, inspect_first_write,
+    BoardRecoveryFacts, BootState, ControlRuntime, ControlStatusV1, DurableScratch,
+    FirstWriteScratch, FirstWriteStatus, MAX_DURABLE_BODY, NodeId, RuntimeError, SemanticTagKey,
+    inspect_first_write,
 };
 #[cfg(all(feature = "host-usb", not(feature = "host-uart-low-power")))]
 use radio_hand::control::{FirstWriteStore, load_first_write_state};
@@ -527,11 +528,24 @@ where
     }
 }
 
+/// Everything ordinary service keeps from a successful durable control boot.
+///
+/// The runtime and its fixed scratch stay resident so a normal-runtime carrier can journal
+/// verified commands through the live [`radio_hand::control::QuietWindow`]; the boot snapshot
+/// still answers the unauthenticated diagnostic without touching flash.
+// The UART low-power image has no signed carrier, so only the snapshot is read there.
+#[cfg_attr(feature = "host-uart-low-power", allow(dead_code))]
+pub(crate) struct ControlReady {
+    pub(crate) snapshot: ControlStatusV1,
+    pub(crate) first_write: FirstWriteStatus,
+    pub(crate) runtime: ControlRuntime,
+    pub(crate) scratch: DurableScratch<'static>,
+}
+
 /// Pre-radio result after first-write arbitration and permitted control recovery.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ControlBootOutcome {
     /// An ordinary control journal was present and completed runtime recovery.
-    ControlReady,
+    ControlReady(ControlReady),
     /// Both journals were blank. This creates no authority.
     BlankUncommissioned,
     /// A first-write pair needs physical USB recovery before normal service may start.
@@ -652,18 +666,32 @@ where
     let mut runtime =
         unsafe { ControlRuntime::new_after_hardware_reset(node, semantic_key, facts) };
     let mut scratch = durable_scratch(control_a, control_b, body, page);
-    let result = runtime
+    let result = match runtime
         .boot_pre_radio_owner(&mut boot_owner, &mut scratch)
         .await
-        .map_err(ControlBootError::Runtime)
-        .and_then(|state| match state {
-            BootState::Ready => Ok(ControlBootOutcome::ControlReady),
-            // A control pair was valid a few instructions ago. With the exclusive boot owner,
-            // a later blank result cannot be an ordinary concurrent update.
-            BootState::Blank => Err(ControlBootError::FirstWriteStore(
-                V4FirstWriteStoreError::Control(crate::control_store::ControlError::Blank),
-            )),
-        });
+    {
+        Err(error) => Err(ControlBootError::Runtime(error)),
+        Ok(BootState::Ready) => {
+            let snapshot = ControlStatusV1::from_recovered_state(
+                first_write_status,
+                runtime
+                    .state()
+                    .expect("a ready control runtime retains its durable state"),
+                runtime.recovered_rollback(),
+            );
+            Ok(ControlBootOutcome::ControlReady(ControlReady {
+                snapshot,
+                first_write: first_write_status,
+                runtime,
+                scratch,
+            }))
+        }
+        // A control pair was valid a few instructions ago. With the exclusive boot owner,
+        // a later blank result cannot be an ordinary concurrent update.
+        Ok(BootState::Blank) => Err(ControlBootError::FirstWriteStore(
+            V4FirstWriteStoreError::Control(crate::control_store::ControlError::Blank),
+        )),
+    };
     (button, result)
 }
 

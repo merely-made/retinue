@@ -10,14 +10,19 @@ keywords = ["reticulum", "mesh", "networking", "p2p", "off-grid"]
 categories = ["network-programming"]
 
 [features]
-default = ["tokio", "compression"]
+default = ["alloc", "tokio", "compression"]
+# The heap-backed sans-io core: packets, announces, links, resources, channels, and
+# everything that carries a payload by value. Off, the crate is only its allocation-free
+# floor: `command`, `identity`, `hash`, and the `capacity` constants. That floor is what a
+# core-only firmware image links to verify a signed command without carrying an allocator.
+alloc = []
 # The TCP interface needs a runtime. The wire codec and HDLC framing do not, and stay
-# available with default-features = false.
-tokio = ["dep:tokio", "dep:getrandom"]
+# available with default-features = false plus `alloc`.
+tokio = ["alloc", "dep:tokio", "dep:getrandom"]
 # bz2 for resources. RNS compresses resource payloads by default, so full interop needs
 # it; the pure-Rust libbz2-rs-sys backend keeps this a C-free dependency.
-compression = ["dep:bzip2"]
-tulle-radio = ["tokio", "dep:tulle"]
+compression = ["alloc", "dep:bzip2"]
+tulle-radio = ["alloc", "tokio", "dep:tulle"]
 
 [dependencies]
 aes = "0.9.1"
@@ -36,7 +41,9 @@ getrandom = { version = "0.2", optional = true }
 heapless = "0.9"
 hkdf = "0.13"
 hmac = "0.13"
-sha2 = "0.11"
+# Default features would pull `digest/alloc` back into a core-only consumer graph. Nothing
+# here needs them: every digest is a fixed-size array.
+sha2 = { version = "0.11", default-features = false }
 tokio = { version = "1", features = ["net", "io-util", "sync", "rt", "time", "macros"], optional = true }
 tulle = { version = "0.1.0", path = "../tulle", features = ["serial-async"], optional = true }
 x25519-dalek = { version = "3", features = ["static_secrets"] }
@@ -55,6 +62,10 @@ serde_json = "1.0.150"
 [[example]]
 name = "announce_logger"
 required-features = ["tokio"]
+
+[[example]]
+name = "ratchet_packet_vector"
+required-features = ["alloc"]
 
 [[example]]
 name = "endpoint_stream"
@@ -155,6 +166,27 @@ required-features = ["tulle-radio"]
 [[example]]
 name = "direct_phy_ui_snapshot"
 required-features = ["tulle-radio"]
+
+# Everything but the command envelope corpus needs the heap-backed core.
+[[test]]
+name = "flood_desk"
+required-features = ["alloc"]
+
+[[test]]
+name = "link_session"
+required-features = ["alloc"]
+
+[[test]]
+name = "oracle_fixtures"
+required-features = ["alloc"]
+
+[[test]]
+name = "signed_artifact"
+required-features = ["alloc"]
+
+[[test]]
+name = "tcp_framing"
+required-features = ["alloc"]
 
 [[test]]
 name = "endpoint_ingress"

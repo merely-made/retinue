@@ -1154,6 +1154,7 @@ mod tests {
             }),
             last_tx: TxResult::Sent { frame_len: 247 },
             fault: None,
+            gnss: crate::status::GnssState::Absent,
         };
         let host = HostSnapshot {
             valid_for_secs: 15,

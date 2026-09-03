@@ -19,9 +19,11 @@ radio = ["dep:lora-phy", "dep:embassy-time", "dep:embassy-futures"]
 node = ["radio", "replay"]
 # The fixture-replay codec. Radio-free on purpose: nothing here touches `lora-phy`, so a
 # host test can link it and assert the bytes a board must reproduce.
-replay = ["dep:retinue"]
+replay = ["dep:retinue", "retinue/alloc"]
 # The WN1 bridge from Retinue's verified outer authority into the radio-free control grammar.
 # Carrier implementations opt in explicitly; ordinary board-control users do not link Retinue.
+# Deliberately without `retinue/alloc`: the verifier is Retinue's allocation-free floor, and
+# this is how the core-only V4 image links it without gaining a heap.
 control-retinue = ["dep:retinue"]
 
 [dependencies]
@@ -39,7 +41,7 @@ sha2 = { version = "0.11", default-features = false }
 
 [dev-dependencies]
 futures = { version = "0.3", default-features = false, features = ["executor"] }
-retinue = { path = "../retinue", default-features = false }
+retinue = { path = "../retinue", default-features = false, features = ["alloc"] }
 # Reads the RNode oracle capture. The fixture lives with `tulle`, which holds the other half
 # of the same conversation; a third copy is a copy that can drift.
 serde_json = "1.0.151"

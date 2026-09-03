@@ -45,6 +45,7 @@ pub mod small {
 /// The parameters are positional because associated consts cannot feed const generics on
 /// stable, as the module docs explain. Confining the ugliness to these three lines is the
 /// price; every board-side caller writes a name instead.
+#[cfg(feature = "alloc")]
 pub mod small_types {
     use super::small;
     use crate::channel::{Buffer, Channel};

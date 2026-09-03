@@ -8,7 +8,7 @@ channel_capabilities = ["modem", "rnode"]
 state_impact = "preserved"
 license = "MPL-2.0"
 notices = "See apps/linkboy/NOTICES.md; Retinue workspace notices and the repository MPL-2.0 license apply."
-source_revision = "current release build from firmware/heltec-v4-phy"
+source_revision = "0cbf558c76db52b57794138b82e2c9e088a32f0c plus the uncommitted WN1 signed-carrier worktree, release build from firmware/heltec-v4-phy"
 source_url = "https://github.com/merely-made/retinue/tree/main/firmware/heltec-v4-phy"
 origin_url = "https://github.com/merely-made/retinue"
 
@@ -52,9 +52,9 @@ archive_url = "https://github.com/esp-rs/espflash/releases/download/v4.5.0/espfl
 [payload]
 path = "../heltec-v4-phy/tulle-heltec-v4-phy"
 format = "espflash-elf"
-byte_length = 4190796
-sha256 = "bd2e59a53bdc31d23a932a9cc219a0070cc32c6d5aac650a561faacfffc7b517"
-write_bytes = 191024
+byte_length = 6386612
+sha256 = "2708a30f2289ad7fef00e3b939590a8f40fd026fcae7fb9d30811a8e0f1b098e"
+write_bytes = 350288
 
 [[targets]]
 family = "heltec-v4"

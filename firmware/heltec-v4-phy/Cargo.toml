@@ -15,7 +15,10 @@ publish = false
 # header, which does survive Light-sleep and can wake the chip.
 [features]
 default = ["host-usb"]
-host-usb = []
+# Only the literal USB Serial/JTAG image carries the normal-runtime signed control carrier,
+# so only it links Retinue's allocation-free verifier through `radio-hand`. The image stays
+# core-only: `control-retinue` deliberately does not enable `retinue/alloc`.
+host-usb = ["radio-hand/control-retinue"]
 host-uart-low-power = []
 ui-bench = []
 rf-sleep-proof = []

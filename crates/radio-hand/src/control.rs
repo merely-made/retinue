@@ -14,6 +14,7 @@ mod public_identity;
 #[cfg(feature = "control-retinue")]
 mod retinue_command;
 mod runtime;
+mod status;
 
 pub use admission::{Admission, RequestAdmission};
 pub use codec::{decode_request, decode_response, encode_request, encode_response};
@@ -50,9 +51,8 @@ pub use model::{
 };
 pub use position_disclosure::{
     AbsentPolicy, BlindedPositionAcl, DisclosureTier, POSITION_ACL_ENTRY_LEN,
-    POSITION_ACL_HASH_LEN, POSITION_ACL_HEADER_LEN, POSITION_ACL_SECRET_LEN,
-    POSITION_ACL_TAG_LEN, POSITION_ACL_V1_VERSION, PositionAclEntry, PositionAclError,
-    PositionAclV1, Resolved,
+    POSITION_ACL_HASH_LEN, POSITION_ACL_HEADER_LEN, POSITION_ACL_SECRET_LEN, POSITION_ACL_TAG_LEN,
+    POSITION_ACL_V1_VERSION, PositionAclEntry, PositionAclError, PositionAclV1, Resolved,
 };
 pub use public_configuration::{
     ManagementCarrierSet, PUBLIC_CONFIGURATION_V1_LEN, PUBLIC_CONFIGURATION_V1_VERSION,
@@ -63,11 +63,20 @@ pub use public_identity::{
 };
 #[cfg(feature = "control-retinue")]
 pub use retinue_command::{
-    InboundControl, InboundControlError, VerifierRestoreError, decode_verified_command,
-    restore_verifier,
+    CONTROL_COMMAND_FRAME_TAG, CONTROL_RESPONSE_FRAME_TAG, ControlFrameError, ControlVerifier,
+    InboundControl, InboundControlError, MAX_CONTROL_COMMAND_FRAME_LEN,
+    MAX_CONTROL_RESPONSE_FRAME_LEN, MIN_CONTROL_COMMAND_FRAME_LEN, VerifierRestoreError,
+    decode_command_frame, decode_response_frame, decode_verified_command, encode_command_frame,
+    encode_response_frame, restore_control_verifier, restore_verifier,
 };
 pub use runtime::{
     BootState, ConfigApplier, ControlRuntime, DurableScratch, DurableScratchError, LiveOutcome,
     MIN_DURABLE_SLOT_BYTES, PreparedCommit, PreparedProvisional, QuietExit, QuietGuard,
     QuietWindow, RuntimeError,
+};
+pub use status::{
+    CONTROL_STATUS_FRAME_LEN, CONTROL_STATUS_FRAME_TAG, CONTROL_STATUS_NONCE_LEN,
+    CONTROL_STATUS_REQUEST_FRAME_LEN, CONTROL_STATUS_REQUEST_FRAME_TAG, CONTROL_STATUS_V1_LEN,
+    CONTROL_STATUS_VERSION, ControlStatusAuthority, ControlStatusBootFact, ControlStatusError,
+    ControlStatusEvidence, ControlStatusRequestV1, ControlStatusV1,
 };

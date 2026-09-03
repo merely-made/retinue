@@ -21,9 +21,10 @@ pub use controller::{
 };
 pub use render::{Surface, Theme, render};
 pub use status::{
-    DetailPolicy, EventKind, EventSource, Fault, HostSnapshot, HostState, IfacState, LocalStatus,
-    NodeSummary, PeerPath, PeerSummary, Personality, PowerSource, RadioProfile, RadioState,
-    RxSummary, SleepState, Text, TextError, TxResult, UiEvent, WakeSource,
+    DetailPolicy, EventKind, EventSource, Fault, GnssFix, GnssState, HostSnapshot, HostState,
+    IfacState, LocalStatus, NodeSummary, PeerPath, PeerSummary, Personality, PowerSource,
+    RadioProfile, RadioState, RxSummary, SleepState, Text, TextError, TxResult, UiEvent,
+    WakeSource,
 };
 pub use wire::{
     MAX_SNAPSHOT_LEN, MAX_VALIDITY_SECS, SNAPSHOT_VERSION, WireError, decode_snapshot,

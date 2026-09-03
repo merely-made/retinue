@@ -48,8 +48,11 @@ mod board;
 mod channels;
 mod commissioning_store;
 mod control_boot;
+#[cfg(all(feature = "host-usb", not(feature = "host-uart-low-power")))]
+mod control_carrier;
 mod control_fixture;
 mod control_store;
+mod gnss;
 mod host;
 #[cfg(all(feature = "host-usb", not(feature = "host-uart-low-power")))]
 mod physical_presence;
@@ -218,6 +221,26 @@ async fn main(spawner: Spawner) {
     let oled_reset = Output::new(peripherals.GPIO21, Level::High, OutputConfig::default());
     let vext = Output::new(peripherals.GPIO36, Level::Low, OutputConfig::default());
     let led = Output::new(peripherals.GPIO35, Level::Low, OutputConfig::default());
+
+    // GNSS socket (PD3). Read-only: the L76K is never written to, so its TX pin is
+    // configured and then held unused. Enable is active low; reset and standby are held
+    // high so the module runs and stays awake. Vext, which powers the socket, is the
+    // `vext` output above, already low for the OLED.
+    let (gnss_rx, _gnss_tx) = esp_hal::uart::Uart::new(
+        peripherals.UART1,
+        esp_hal::uart::Config::default().with_baudrate(gnss::BAUD),
+    )
+    .unwrap()
+    .with_rx(peripherals.GPIO38)
+    .with_tx(peripherals.GPIO39)
+    .into_async()
+    .split();
+    let gnss_pins = gnss::ControlPins {
+        enable: Output::new(peripherals.GPIO34, Level::Low, OutputConfig::default()),
+        reset: Output::new(peripherals.GPIO42, Level::High, OutputConfig::default()),
+        standby: Output::new(peripherals.GPIO40, Level::High, OutputConfig::default()),
+    };
+    spawner.spawn(gnss::gnss_task(gnss_rx, gnss_pins).unwrap());
     let mut local_status = board::initial_status();
     spawner.spawn(ui::screen_task(i2c, oled_reset, vext, led, local_status).unwrap());
 
@@ -361,7 +384,9 @@ async fn main(spawner: Spawner) {
     // exclusive custody, and before any receive or sleep machinery starts. A missing settings
     // record retains the existing recovery modem posture. Any WN1 error is a status-only boot;
     // it never proceeds into modem or RNode service with uncertain durable state.
-    let button = if let Some(settings) = settings {
+    // Only the USB image's signed carrier borrows the resident runtime mutably.
+    #[cfg_attr(feature = "host-uart-low-power", allow(unused_mut))]
+    let (button, mut control_ready) = if let Some(settings) = settings {
         // Safety: board startup creates this exactly once after a real ESP reset, before host
         // construction, RNode selection, RX arming, `power::arm`, or any radio service. The
         // consumed token confines `ControlRuntime::new_after_hardware_reset` to boot recovery.
@@ -376,8 +401,8 @@ async fn main(spawner: Spawner) {
         )
         .await;
         match boot {
-            Ok(control_boot::ControlBootOutcome::ControlReady)
-            | Ok(control_boot::ControlBootOutcome::BlankUncommissioned) => {}
+            Ok(control_boot::ControlBootOutcome::ControlReady(ready)) => (button, Some(ready)),
+            Ok(control_boot::ControlBootOutcome::BlankUncommissioned) => (button, None),
             Ok(control_boot::ControlBootOutcome::FirstWritePending) => {
                 owner.radio_fault(8, "CONTROL PENDING");
                 serve_status_only(
@@ -426,9 +451,8 @@ async fn main(spawner: Spawner) {
                 .await
             }
         }
-        button
     } else {
-        button
+        (button, None)
     };
 
     spawner.spawn(ui::button_task(button).unwrap());
@@ -448,6 +472,9 @@ async fn main(spawner: Spawner) {
     let _ = host.write_all(&identity_line[..identity_line_len]).await;
     let mut command_stream = CommandStream::new();
     let mut usb_command = [0_u8; MAX_COMMAND_LEN];
+    let mut control_stream = channels::ControlFrameStream::new();
+    #[cfg(all(feature = "host-usb", not(feature = "host-uart-low-power")))]
+    let mut control_carrier = control_carrier::ControlCarrier::new();
 
     // The proof enters Light-sleep from the radio task itself. This preserves the pending
     // receive future across sleep rather than asking the scheduler's idle hook to do so.
@@ -620,6 +647,51 @@ async fn main(spawner: Spawner) {
                     }
                 }
                 let at_boundary = command_stream.is_boundary();
+                // A read which contains a diagnostic delimiter (or completes a
+                // prior fragmented diagnostic frame) is demultiplexed one byte
+                // at a time. Every non-diagnostic byte reaches the ordinary
+                // direct-PHY parser immediately, so bytes before and after a
+                // KISS request in one USB read are never discarded and a FEND
+                // inside an ordinary command remains ordinary payload.
+                if control_stream.in_frame() || packet.contains(&selvage::kiss::FEND) {
+                    for &byte in packet {
+                        let demux = control_stream.demux_byte(command_stream.is_boundary(), byte);
+                        match demux {
+                            channels::ControlDemux::Ordinary => {
+                                let mut exec = owner.executive();
+                                let outcome = dispatch::on_host_bytes(
+                                    &mut host,
+                                    &mut exec,
+                                    &mut command_stream,
+                                    &mut usb_command,
+                                    &Sx126xDiagnostics,
+                                    &[byte],
+                                )
+                                .await;
+                                debug_assert_eq!(outcome.flow, radio_hand::link::Flow::Continue);
+                            }
+                            channels::ControlDemux::Consumed => {}
+                            channels::ControlDemux::StatusRequest(request) => {
+                                if let Some(ready) = control_ready.as_ref() {
+                                    channels::send_control_status(
+                                        ready.snapshot.with_query_nonce(request.nonce()),
+                                        &mut host,
+                                    )
+                                    .await;
+                                }
+                            }
+                            #[cfg(all(feature = "host-usb", not(feature = "host-uart-low-power")))]
+                            channels::ControlDemux::Command => {
+                                if let Some(ready) = control_ready.as_mut() {
+                                    control_carrier
+                                        .serve(control_stream.frame(), &mut owner, ready, &mut host)
+                                        .await;
+                                }
+                            }
+                        }
+                    }
+                    continue;
+                }
                 // The probes both channels share: status, sync, ui, region, and the channel
                 // selector itself. Only at a boundary, so a probe inside a framed command is
                 // carried rather than obeyed.

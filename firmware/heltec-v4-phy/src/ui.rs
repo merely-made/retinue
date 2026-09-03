@@ -53,7 +53,11 @@ const HEALTH_SCREEN_SHIFT: u32 = 8;
 const HEALTH_SCREEN_MASK: u32 = 0x0f << HEALTH_SCREEN_SHIFT;
 const HEALTH_HOST_FRESH: u32 = 1 << 12;
 
-pub fn publish(status: LocalStatus, led: LedSignal) {
+pub fn publish(mut status: LocalStatus, led: LedSignal) {
+    // Every status publish funnels through here, including the executive's ongoing
+    // ones, so folding the latest GNSS state in at this one point gives every caller
+    // position without any of them knowing the module exists.
+    status.gnss = crate::gnss::latest();
     STATUS.signal(UiUpdate { status, led });
 }
 

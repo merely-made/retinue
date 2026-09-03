@@ -20,6 +20,14 @@ path = "src/main.rs"
 name = "signalman-first-owner"
 path = "src/bin/signalman-first-owner.rs"
 
+[[bin]]
+name = "signalman-control-status"
+path = "src/bin/signalman-control-status.rs"
+
+[[bin]]
+name = "signalman-control-verified"
+path = "src/bin/signalman-control-verified.rs"
+
 [dependencies]
 hex = "0.4"
 linkboy = { version = "0.1.0", path = "../linkboy" }

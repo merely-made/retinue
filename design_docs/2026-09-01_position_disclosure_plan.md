@@ -234,6 +234,35 @@ drop and pickup are visible as gaps with a last known position on each edge.
   bytes, domain-separated with `retinue.position-acl/v1`. Flash never holds the
   plaintext. Found 2026-09-02 while implementing PD1; `hmac` and `sha2` were
   already dependencies of `radio-hand`, so no crate was added.
+- **PD-F12. The V4 GNSS socket is fully mapped and already powered.** Heltec's
+  V4 carries an SH1.25 8-pin GNSS socket for its L76K module: module TX into ESP
+  RX on GPIO38, ESP TX on GPIO39, power enable GPIO34 active low, reset GPIO42
+  held high to run, standby GPIO40 held high to stay awake, on UART1 at the
+  L76K's 9600 factory default. The socket's rail is Vext on GPIO36, which
+  `main.rs` already drives low for the OLED and hands to the screen task, so no
+  rail work was needed. Verified 2026-09-02 against Heltec's V4 documentation
+  and the existing `board.rs` pin map; the July embedded-Rust record had
+  deferred GPS explicitly.
+- **PD-F13. `status` is not live state, so PD3 needed its own probe line.** The
+  board's `status` reply is two prebuilt byte strings, online and identity. The
+  `timebase` handler at the same site formats live state into a reply, and the
+  `gnss` line now mirrors it: `absent`, `nofix`, or `fix` with integer
+  coordinates, plus parser counters (accepted, dropped, bytes read) so a host
+  can tell a silent socket from a talking module whose sentences are rejected,
+  and either from a wrong baud.
+- **PD-F14. The parser lives in `radio-hand`, not the firmware, on purpose.**
+  `radio_hand::gnss::NmeaParser` is `no_std` and host-testable; the V4 task in
+  `firmware/heltec-v4-phy/src/gnss.rs` only owns the UART and pins and feeds
+  bytes. Every sentence shape is therefore under `cargo test` rather than only
+  provable on metal. Under the default `host-usb` feature `main.rs` has no UART
+  import in scope, so the GNSS block uses fully qualified `esp_hal::uart` paths
+  rather than adding an import that would duplicate the `host-uart-low-power`
+  one.
+- **PD-F15. The V4 release build is not reproducible byte for byte.** A rebuild
+  after adding a single `#[allow(dead_code)]` produced a different ELF hash.
+  Any on-metal claim therefore names the exact image flashed, and the final
+  receipt is taken against a fresh build of the committed source, not against
+  whatever happened to be on the board during development.
 
 ## Open questions
 
@@ -296,3 +325,20 @@ started opportunistically.
   Counting capacity refusals belongs to WN's inbound runtime, which receives
   the command, and projection-time surfacing belongs to the host compiler,
   neither of which exists yet. Nothing has run on a board.
+- **2026-09-02. PD3 implemented; on-metal proof blocked on module presence.**
+  Parser in `radio_hand::gnss` with seven host tests, including one that guards
+  the hand-typed fixture checksums (it caught all three being wrong).
+  `GnssState` and `GnssFix` added to `radio_face::LocalStatus`, defaulting to
+  `Absent`; both firmware crates build for their real targets, the V4 for
+  `xtensa-esp32s3-none-elf` and the T114 for `thumbv7em-none-eabihf`. The V4
+  task owns UART1 on GPIO38/39 with enable, reset and standby held, and the
+  latest state is folded into every status publish at `ui::publish`. A `gnss`
+  probe line answers over USB with state plus parser counters. Flashed to the
+  COM7 V4 as image `68476581…`: the board boots, identity and region intact,
+  and the probe answers `gnss=absent accepted=0 dropped=0 bytes=0`. Zero bytes
+  read rules out baud and checksum. Vext is never raised, the pins match
+  Meshtastic's V4 variant table exactly, and esp-hal's `read_async` wakes on a
+  single byte via its default 10-symbol RX timeout, so the RX line is
+  electrically silent on that board. Whether an L76K is physically seated in
+  COM7's socket, or on the COM6 board instead, is not knowable from software
+  and is the open question.

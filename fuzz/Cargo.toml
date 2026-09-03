@@ -11,7 +11,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-retinue = { path = "../crates/retinue", default-features = false }
+retinue = { path = "../crates/retinue", default-features = false, features = ["alloc"] }
 # The board shape on purpose: this target exists to exercise the parser as firmware links
 # it, without rmpv or the host delivery machinery behind it.
 outrider = { path = "../crates/outrider", default-features = false }

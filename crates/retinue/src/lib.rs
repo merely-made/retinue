@@ -15,11 +15,15 @@
 //! retain their observed 1.3.8 provenance; see *Provenance*). The
 //! layering:
 //!
-//! - **Sans-io core** — always available, no runtime or RNG: the packet codec
-//!   ([`packet`]), identities ([`identity`]), announces ([`announce`]), the token
-//!   ([`token`]), HDLC framing ([`iface::hdlc`]), links ([`link`]), resources
-//!   ([`resource`]), and the `Channel`/`Buffer` + link-proof reliability machinery
-//!   ([`channel`], [`reliable`]). Pure functions over bytes, replayable against fixtures.
+//! - **Allocation-free floor** — always available, no heap: identities ([`identity`]),
+//!   hashes ([`hash`]), the signed command envelope ([`command`]), and the table-size
+//!   constants ([`capacity`]). This is all a core-only firmware image needs to verify an
+//!   operator's command, so it is the only part that builds with the `alloc` feature off.
+//! - **Sans-io core** — behind the `alloc` feature (on by default), no runtime or RNG: the
+//!   packet codec (`packet`), announces (`announce`), the token (`token`), HDLC framing
+//!   (`iface::hdlc`), links (`link`), resources (`resource`), and the `Channel`/`Buffer` +
+//!   link-proof reliability machinery (`channel`, `reliable`). Pure functions over bytes,
+//!   replayable against fixtures.
 //! - **The tokio shell** — behind the `tokio` feature (on by default): the TCP interface
 //!   ([`iface::tcp`]) and the [`endpoint`] runtime that attaches interfaces, routes packets,
 //!   and opens/accepts links as streams. Turn the feature off and the sans-io core stands
@@ -52,49 +56,78 @@
 #![no_std]
 
 // The sans-io core is `no_std + alloc`: payloads are heap-allocated, but nothing here needs
-// an operating system. `std` comes back only for the tokio shell and the test harness, which
-// are the parts that genuinely have one.
+// an operating system. The floor below it (`command`, `identity`, `hash`, `capacity`) does
+// not allocate at all, and a core-only image links just that, so `alloc` is a feature rather
+// than a fact. `std` comes back only for the tokio shell and the test harness, which are the
+// parts that genuinely have one.
+#[cfg(feature = "alloc")]
 extern crate alloc;
 #[cfg(any(feature = "tokio", test))]
 extern crate std;
 
+#[cfg(feature = "alloc")]
 pub mod address_book;
+#[cfg(feature = "alloc")]
 pub mod announce;
 #[cfg(feature = "tokio")]
 pub mod announce_admission;
+#[cfg(feature = "alloc")]
 pub mod announce_freshness;
+#[cfg(feature = "alloc")]
 pub mod artifact;
 pub mod capacity;
+#[cfg(feature = "alloc")]
 pub mod channel;
 pub mod command;
+#[cfg(feature = "alloc")]
 pub mod destination;
 #[cfg(feature = "tokio")]
 pub mod endpoint;
 pub mod hash;
 pub mod identity;
+#[cfg(feature = "alloc")]
 pub mod ifac;
 pub mod iface;
+#[cfg(feature = "alloc")]
 pub mod link;
+#[cfg(feature = "alloc")]
 pub mod lossy;
+#[cfg(feature = "alloc")]
 pub mod msgpack;
+#[cfg(feature = "alloc")]
 pub mod node;
+#[cfg(feature = "alloc")]
 pub mod packet;
+#[cfg(feature = "alloc")]
 pub mod path;
+#[cfg(feature = "alloc")]
 pub mod ratchet;
+#[cfg(feature = "alloc")]
 pub mod reliable;
+#[cfg(feature = "alloc")]
 pub mod request;
+#[cfg(feature = "alloc")]
 pub mod resource;
+#[cfg(feature = "alloc")]
 pub mod resource_transfer;
+#[cfg(feature = "alloc")]
 pub mod token;
 
+#[cfg(feature = "alloc")]
 pub use address_book::{AddressBook, Peer};
+#[cfg(feature = "alloc")]
 pub use announce::Announce;
+#[cfg(feature = "alloc")]
 pub use destination::DestinationName;
 pub use hash::{AddressHash, NameHash};
 pub use identity::{Identity, PrivateIdentity};
+#[cfg(feature = "alloc")]
 pub use ifac::Ifac;
+#[cfg(feature = "alloc")]
 pub use packet::Packet;
+#[cfg(feature = "alloc")]
 pub use ratchet::{RatchetPolicy, RatchetStore};
+#[cfg(feature = "alloc")]
 pub use reliable::ReliableChannel;
 
 /// Anything that can go wrong decoding or validating.
