@@ -1201,6 +1201,9 @@ standalone transport node hostage.
   `20:41:19` local) and the host exited 1 with a carrier timeout, so an outer
   counter the board had journaled was refused without a reply. The diagnostic
   still answered after the signed exchanges, so the live quiet window resumed
-  receive. The counter record at the Signalman authority root ends at
-  `last_used = 3`. Not yet proven: that the journaled outer counter survives a
-  true power cut, and any operation other than Status. WN1 remains Partial.
+  receive. After this work was committed and pushed, the Mere port pinned at
+  retinue `6af5c0ff6cb5f3b1297a6ff1321fff8f2bcefbb0` answered once more at
+  counter 4 (transaction `f7807bbcabc91297a35a095ff8ca649c`), so the counter
+  record at the Signalman authority root ends at `last_used = 4`. Not yet
+  proven: that the journaled outer counter survives a true power cut, and any
+  operation other than Status. WN1 remains Partial.
