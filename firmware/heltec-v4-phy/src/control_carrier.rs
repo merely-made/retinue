@@ -4,18 +4,21 @@
 //! `retinue::command` envelope; the verifier restored from the durable owner grants checks
 //! target, allowlist, counter window, and signature, and only then does the request reach
 //! the resident control runtime, which journals the accepted counter inside a live quiet
-//! window before any response exists. The slice observes `Status` only: a verified mutation
-//! is journaled and refused as unsupported rather than applied.
+//! window before any response exists. `Status` is observed; `ProvisionalApply`, `Commit`,
+//! and `Revert` run the durable configuration lifecycle, with the candidate applied to the
+//! radio only after its rollback record is durable and rolled back on commit timeout or
+//! reboot. Every other operation is journaled and refused as unsupported.
 //!
 //! Refusals are silent by design. An unverified frame earns no reply, matching the FS2
 //! posture that a refusal is counted rather than answered; a bench that hears nothing has
 //! either the wrong key, a stale counter, or a board that could not quiet its radio.
 
+use embassy_time::Instant;
 use lora_phy::DelayNs;
 use lora_phy::mod_traits::RadioKind;
 use radio_hand::control::{
-    ControlVerifier, MAX_CONTROL_RESPONSE_FRAME_LEN, Response, decode_command_frame,
-    decode_verified_command, encode_response_frame, restore_control_verifier,
+    COMMIT_TOKEN_LEN, ControlVerifier, MAX_CONTROL_RESPONSE_FRAME_LEN, Response,
+    decode_command_frame, decode_verified_command, encode_response_frame, restore_control_verifier,
 };
 use radio_hand::link::HostLink;
 
@@ -74,13 +77,26 @@ impl ControlCarrier {
                 self.verifier.insert(restored)
             }
         };
+        // The token is minted before verification so an entropy fault costs nothing: the
+        // verifier has not advanced and the frame simply earns silence.
+        let mut commit_token = [0_u8; COMMIT_TOKEN_LEN];
+        if owner.fill_true_random(&mut commit_token).is_err() {
+            return;
+        }
         let Ok(verified) = verifier.verify(command) else {
             return;
         };
         let outcome = match decode_verified_command(&verified) {
             Ok(inbound) => ready
                 .runtime
-                .observe_status_inbound(owner, &mut ready.scratch, &inbound, ready.first_write)
+                .serve_inbound(
+                    owner,
+                    &mut ready.scratch,
+                    &inbound,
+                    board_now_ms(),
+                    ready.first_write,
+                    commit_token,
+                )
                 .await
                 .map(|outcome| Some(outcome.into_value())),
             // Verified but not a node-addressed WN0 request: the counter still becomes
@@ -89,7 +105,8 @@ impl ControlCarrier {
                 .runtime
                 .record_verified_command(owner, &mut ready.scratch, &verified)
                 .await
-                .map(|_| None),
+                .map(|_| None)
+                .map_err(radio_hand::control::RuntimeError::widen_apply),
         };
         match outcome {
             Ok(Some(response)) => send_response(&response, host).await,
@@ -102,6 +119,38 @@ impl ControlCarrier {
 }
 
 /// Writes one tagged response. `HostLink::write_all` flushes the peripheral itself.
+/// Board time for provisional deadlines: milliseconds since this boot. Never wall time, so a
+/// deadline can never authorize a candidate after a reboot.
+pub(crate) fn board_now_ms() -> u64 {
+    Instant::now().as_millis()
+}
+
+/// Rolls back an armed candidate whose deadline has passed.
+///
+/// Called by the board loop when its expiry timer fires. Entry is refused silently when the
+/// radio is not at a quiet boundary; the loop retries shortly. A poisoned runtime stops
+/// serving, which the carrier already honours.
+pub(crate) async fn expire_provisional<RK, DLY>(
+    owner: &mut V4RadioOwner<RK, DLY>,
+    ready: &mut ControlReady,
+) -> bool
+where
+    RK: RadioKind,
+    DLY: DelayNs,
+{
+    if ready.runtime.is_poisoned() || ready.runtime.reset_pending() {
+        return true;
+    }
+    if owner.quiet_preflight() != V4QuietPreflight::Ready {
+        return false;
+    }
+    ready
+        .runtime
+        .expire(owner, &mut ready.scratch, board_now_ms())
+        .await
+        .is_ok()
+}
+
 async fn send_response<L: HostLink>(response: &Response, host: &mut L) {
     let mut frame = [0_u8; MAX_CONTROL_RESPONSE_FRAME_LEN];
     let mut wire = [0_u8; MAX_RESPONSE_WIRE];

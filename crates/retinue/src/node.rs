@@ -1398,14 +1398,14 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             self.expired_links = self.expired_links.saturating_add(1);
         }
 
-        if self.announce_due(now) {
-            if let Some(blob) = blob {
-                self.last_announce = Some(now);
-                actions.push(Action::Send {
-                    interface,
-                    packet: self.announce(blob, None),
-                });
-            }
+        if self.announce_due(now)
+            && let Some(blob) = blob
+        {
+            self.last_announce = Some(now);
+            actions.push(Action::Send {
+                interface,
+                packet: self.announce(blob, None),
+            });
         }
 
         // Loss recovery. A transfer that has heard nothing for a retry interval is

@@ -116,26 +116,40 @@ pub enum PositionAclError {
     InvalidAbsentPolicy(u8),
     InvalidTier(u8),
     /// More entries than this node's table holds. Refused, never evicted.
-    Capacity { offered: usize, limit: usize },
+    Capacity {
+        offered: usize,
+        limit: usize,
+    },
     /// Entries out of ascending hash order, or a hash listed twice. The canonical form
     /// is sorted and unique so that one table has exactly one encoding.
     NonCanonicalOrder,
     /// PD2: the record's sequence is not strictly greater than the accepted one.
-    NotMonotonic { offered: u64, accepted: u64 },
+    NotMonotonic {
+        offered: u64,
+        accepted: u64,
+    },
 }
 impl fmt::Display for PositionAclError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Length => f.write_str("position ACL length is not canonical"),
             Self::UnsupportedVersion(v) => write!(f, "position ACL version {v} unsupported"),
-            Self::InvalidAbsentPolicy(b) => write!(f, "position ACL absent policy byte {b:#04x} invalid"),
+            Self::InvalidAbsentPolicy(b) => {
+                write!(f, "position ACL absent policy byte {b:#04x} invalid")
+            }
             Self::InvalidTier(b) => write!(f, "position ACL tier byte {b:#04x} invalid"),
             Self::Capacity { offered, limit } => {
-                write!(f, "position ACL offers {offered} entries, table holds {limit}")
+                write!(
+                    f,
+                    "position ACL offers {offered} entries, table holds {limit}"
+                )
             }
             Self::NonCanonicalOrder => f.write_str("position ACL entries not sorted and unique"),
             Self::NotMonotonic { offered, accepted } => {
-                write!(f, "position ACL sequence {offered} not above accepted {accepted}")
+                write!(
+                    f,
+                    "position ACL sequence {offered} not above accepted {accepted}"
+                )
             }
         }
     }
@@ -241,8 +255,8 @@ impl<const N: usize> PositionAclV1<N> {
         let mut seq = [0u8; 8];
         seq.copy_from_slice(&bytes[1..9]);
         let sequence = u64::from_be_bytes(seq);
-        let absent =
-            AbsentPolicy::from_byte(bytes[9]).ok_or(PositionAclError::InvalidAbsentPolicy(bytes[9]))?;
+        let absent = AbsentPolicy::from_byte(bytes[9])
+            .ok_or(PositionAclError::InvalidAbsentPolicy(bytes[9]))?;
         let count = bytes[10] as usize;
         if count > N {
             return Err(PositionAclError::Capacity {
@@ -456,31 +470,54 @@ mod tests {
         let record = PositionAclV1::<8>::new(
             1,
             AbsentPolicy::Fixed(DisclosureTier::Coarse),
-            &[entry(0x10, DisclosureTier::Precise), entry(0x20, DisclosureTier::Precise)],
+            &[
+                entry(0x10, DisclosureTier::Precise),
+                entry(0x20, DisclosureTier::Precise),
+            ],
         )
         .unwrap();
         let mut buf = [0u8; 128];
         let n = record.encode(&mut buf).unwrap();
 
-        assert_eq!(PositionAclV1::<8>::decode(&buf[..n - 1]), Err(PositionAclError::Length));
+        assert_eq!(
+            PositionAclV1::<8>::decode(&buf[..n - 1]),
+            Err(PositionAclError::Length)
+        );
         let mut v = buf;
         v[0] = 9;
-        assert_eq!(PositionAclV1::<8>::decode(&v[..n]), Err(PositionAclError::UnsupportedVersion(9)));
+        assert_eq!(
+            PositionAclV1::<8>::decode(&v[..n]),
+            Err(PositionAclError::UnsupportedVersion(9))
+        );
         let mut a = buf;
         a[9] = 0x7E;
-        assert_eq!(PositionAclV1::<8>::decode(&a[..n]), Err(PositionAclError::InvalidAbsentPolicy(0x7E)));
+        assert_eq!(
+            PositionAclV1::<8>::decode(&a[..n]),
+            Err(PositionAclError::InvalidAbsentPolicy(0x7E))
+        );
         let mut t = buf;
         t[POSITION_ACL_HEADER_LEN + POSITION_ACL_HASH_LEN] = 3;
-        assert_eq!(PositionAclV1::<8>::decode(&t[..n]), Err(PositionAclError::InvalidTier(3)));
+        assert_eq!(
+            PositionAclV1::<8>::decode(&t[..n]),
+            Err(PositionAclError::InvalidTier(3))
+        );
         let mut swapped = buf;
         swapped[POSITION_ACL_HEADER_LEN..POSITION_ACL_HEADER_LEN + 16].copy_from_slice(&hash(0x20));
-        swapped[POSITION_ACL_HEADER_LEN + POSITION_ACL_ENTRY_LEN..POSITION_ACL_HEADER_LEN + POSITION_ACL_ENTRY_LEN + 16]
+        swapped[POSITION_ACL_HEADER_LEN + POSITION_ACL_ENTRY_LEN
+            ..POSITION_ACL_HEADER_LEN + POSITION_ACL_ENTRY_LEN + 16]
             .copy_from_slice(&hash(0x10));
-        assert_eq!(PositionAclV1::<8>::decode(&swapped[..n]), Err(PositionAclError::NonCanonicalOrder));
+        assert_eq!(
+            PositionAclV1::<8>::decode(&swapped[..n]),
+            Err(PositionAclError::NonCanonicalOrder)
+        );
         let mut dup = buf;
-        dup[POSITION_ACL_HEADER_LEN + POSITION_ACL_ENTRY_LEN..POSITION_ACL_HEADER_LEN + POSITION_ACL_ENTRY_LEN + 16]
+        dup[POSITION_ACL_HEADER_LEN + POSITION_ACL_ENTRY_LEN
+            ..POSITION_ACL_HEADER_LEN + POSITION_ACL_ENTRY_LEN + 16]
             .copy_from_slice(&hash(0x10));
-        assert_eq!(PositionAclV1::<8>::decode(&dup[..n]), Err(PositionAclError::NonCanonicalOrder));
+        assert_eq!(
+            PositionAclV1::<8>::decode(&dup[..n]),
+            Err(PositionAclError::NonCanonicalOrder)
+        );
     }
 
     #[test]
@@ -488,7 +525,10 @@ mod tests {
         let err = PositionAclV1::<8>::new(
             1,
             AbsentPolicy::Broadcast,
-            &[entry(0x10, DisclosureTier::Off), entry(0x10, DisclosureTier::Precise)],
+            &[
+                entry(0x10, DisclosureTier::Off),
+                entry(0x10, DisclosureTier::Precise),
+            ],
         )
         .unwrap_err();
         assert_eq!(err, PositionAclError::NonCanonicalOrder);
@@ -503,14 +543,20 @@ mod tests {
         ];
         assert_eq!(
             PositionAclV1::<2>::new(1, AbsentPolicy::Broadcast, &too_many).unwrap_err(),
-            PositionAclError::Capacity { offered: 3, limit: 2 }
+            PositionAclError::Capacity {
+                offered: 3,
+                limit: 2
+            }
         );
         let big = PositionAclV1::<8>::new(1, AbsentPolicy::Broadcast, &too_many).unwrap();
         let mut buf = [0u8; 128];
         let n = big.encode(&mut buf).unwrap();
         assert_eq!(
             PositionAclV1::<2>::decode(&buf[..n]).unwrap_err(),
-            PositionAclError::Capacity { offered: 3, limit: 2 }
+            PositionAclError::Capacity {
+                offered: 3,
+                limit: 2
+            }
         );
     }
 
@@ -532,7 +578,10 @@ mod tests {
         )
         .unwrap();
         table.apply(&whitelist, &SECRET).unwrap();
-        assert_eq!(table.resolve(&hash(0x10), &SECRET), Resolved::Tier(DisclosureTier::Precise));
+        assert_eq!(
+            table.resolve(&hash(0x10), &SECRET),
+            Resolved::Tier(DisclosureTier::Precise)
+        );
         assert_eq!(table.resolve(&hash(0x99), &SECRET), Resolved::Broadcast);
 
         let blacklist = PositionAclV1::<8>::new(
@@ -542,8 +591,14 @@ mod tests {
         )
         .unwrap();
         table.apply(&blacklist, &SECRET).unwrap();
-        assert_eq!(table.resolve(&hash(0x10), &SECRET), Resolved::Tier(DisclosureTier::Off));
-        assert_eq!(table.resolve(&hash(0x99), &SECRET), Resolved::Tier(DisclosureTier::Precise));
+        assert_eq!(
+            table.resolve(&hash(0x10), &SECRET),
+            Resolved::Tier(DisclosureTier::Off)
+        );
+        assert_eq!(
+            table.resolve(&hash(0x99), &SECRET),
+            Resolved::Tier(DisclosureTier::Precise)
+        );
     }
 
     #[test]
@@ -573,11 +628,17 @@ mod tests {
         table.apply(&five, &SECRET).unwrap();
         assert_eq!(
             table.apply(&five, &SECRET).unwrap_err(),
-            PositionAclError::NotMonotonic { offered: 5, accepted: 5 }
+            PositionAclError::NotMonotonic {
+                offered: 5,
+                accepted: 5
+            }
         );
         assert_eq!(
             table.apply(&four, &SECRET).unwrap_err(),
-            PositionAclError::NotMonotonic { offered: 4, accepted: 5 }
+            PositionAclError::NotMonotonic {
+                offered: 4,
+                accepted: 5
+            }
         );
         assert_eq!(table.refused(), 2);
         assert_eq!(table.accepted_sequence(), Some(5));
@@ -595,8 +656,14 @@ mod tests {
             1,
             AbsentPolicy::Broadcast,
             &[
-                PositionAclEntry { hash: owner, tier: DisclosureTier::Precise },
-                PositionAclEntry { hash: kin, tier: DisclosureTier::Precise },
+                PositionAclEntry {
+                    hash: owner,
+                    tier: DisclosureTier::Precise,
+                },
+                PositionAclEntry {
+                    hash: kin,
+                    tier: DisclosureTier::Precise,
+                },
             ],
         )
         .unwrap();
@@ -606,33 +673,55 @@ mod tests {
         let revoked = PositionAclV1::<8>::new(
             2,
             AbsentPolicy::Broadcast,
-            &[PositionAclEntry { hash: owner, tier: DisclosureTier::Precise }],
+            &[PositionAclEntry {
+                hash: owner,
+                tier: DisclosureTier::Precise,
+            }],
         )
         .unwrap();
         table.apply(&revoked, &SECRET).unwrap();
         assert_eq!(table.resolve(&kin, &SECRET), Resolved::Broadcast);
-        assert_eq!(table.apply(&grant, &SECRET).unwrap_err().is_not_monotonic(), true);
-        assert_eq!(table.resolve(&kin, &SECRET), Resolved::Broadcast, "replay did not re-grant");
+        assert_eq!(
+            table.apply(&grant, &SECRET).unwrap_err().is_not_monotonic(),
+            true
+        );
+        assert_eq!(
+            table.resolve(&kin, &SECRET),
+            Resolved::Broadcast,
+            "replay did not re-grant"
+        );
 
         // Lockout: refuse everyone, owner included.
         let lockout = PositionAclV1::<8>::new(
             3,
             AbsentPolicy::Fixed(DisclosureTier::Off),
-            &[PositionAclEntry { hash: owner, tier: DisclosureTier::Off }],
+            &[PositionAclEntry {
+                hash: owner,
+                tier: DisclosureTier::Off,
+            }],
         )
         .unwrap();
         table.apply(&lockout, &SECRET).unwrap();
-        assert_eq!(table.resolve(&owner, &SECRET), Resolved::Tier(DisclosureTier::Off));
+        assert_eq!(
+            table.resolve(&owner, &SECRET),
+            Resolved::Tier(DisclosureTier::Off)
+        );
 
         // The owner's next command still lands: nothing here gated it.
         let corrected = PositionAclV1::<8>::new(
             4,
             AbsentPolicy::Broadcast,
-            &[PositionAclEntry { hash: owner, tier: DisclosureTier::Precise }],
+            &[PositionAclEntry {
+                hash: owner,
+                tier: DisclosureTier::Precise,
+            }],
         )
         .unwrap();
         table.apply(&corrected, &SECRET).unwrap();
-        assert_eq!(table.resolve(&owner, &SECRET), Resolved::Tier(DisclosureTier::Precise));
+        assert_eq!(
+            table.resolve(&owner, &SECRET),
+            Resolved::Tier(DisclosureTier::Precise)
+        );
         assert_eq!(table.accepted_sequence(), Some(4));
     }
 

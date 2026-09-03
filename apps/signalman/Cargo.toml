@@ -28,6 +28,10 @@ path = "src/bin/signalman-control-status.rs"
 name = "signalman-control-verified"
 path = "src/bin/signalman-control-verified.rs"
 
+[[bin]]
+name = "signalman-control-configure"
+path = "src/bin/signalman-control-configure.rs"
+
 [dependencies]
 hex = "0.4"
 linkboy = { version = "0.1.0", path = "../linkboy" }

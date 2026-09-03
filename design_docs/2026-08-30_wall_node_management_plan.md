@@ -32,9 +32,16 @@ signed WN0 `Status` over the ordinary USB stream only after journaling the
 accepted outer counter inside the live quiet window. That path has a physical
 receipt on the claimed board at counters 1 through 5, a replayed counter
 refused by silence both before and after a true USB power cut, and the
-journaled counter surviving that cut. WN1 remains Partial: mutations over the
-carrier, board key vault/sealing, the Retinue runtime, and BLE/WiFi/IP/Reticulum
-carriers remain open. WN2 through WN8 are Open.
+journaled counter surviving that cut. The same carrier now serves the
+configuration lifecycle: `ProvisionalApply` stages a controller-chosen change
+with a bounded lifetime and applies it after its rollback record is durable,
+`Commit` names the board-minted token, `Revert` restores known-good, and an
+expiry timer in the board loop rolls an unconfirmed candidate back on time.
+The lifecycle is host-model proven end to end and the image carrying it is
+flashed and re-verified, but its applied-and-committed receipt on the claimed
+board waits for a controller action holding the Mere key. WN1 remains
+Partial: that receipt, board key vault/sealing, the Retinue runtime, and
+BLE/WiFi/IP/Reticulum carriers remain open. WN2 through WN8 are Open.
 **Supersedes:** the LB1 through LB6 ladder in the archived
 [Bluetooth capability scoping brief](archive_docs/2026-08-30/2026-08-11_bluetooth_capability_scoping.md).
 It narrows, rather than replaces, the
@@ -550,11 +557,27 @@ with a tagged unsigned WN0 response. Every outer refusal is silent. Only
 as unsupported. The UART low-power image carries neither the carrier nor the
 verifier: `host-usb` is the feature that enables `radio-hand/control-retinue`.
 
+The carrier's lifecycle slice lives in `radio-hand::control::arguments` (the
+exact 45-byte apply, 40-byte commit, and 16-byte revert bodies, with the
+change id chosen by the controller), `ControlRuntime::serve_inbound` (one
+router: `Status` observed; `ProvisionalApply` bounded to one second through
+ten minutes of lifetime and armed through `arm_inbound` with the caller's
+true-entropy commit token; `Commit` through `commit_inbound`; `Revert`
+through `revert_verified`, which journals the counter, checks commit rights
+and the armed change id, and restores known-good; everything else refused
+after journaling), `refuse_verified`, `provisional_deadline_ms`, and
+`LiveOutcome::map`. On the V4 the carrier mints the token before verifying,
+the loop's three-way select adds `Timer::at(deadline)` so `expire` runs
+without a host frame, and board time is milliseconds since boot, never wall
+time. Postilion's `ControlClient` gained `provisional_apply`, `commit`, and
+`revert`; `signalman-control-configure` is the env-key bench.
+
 T114 still needs an owner/stop-and-drop refactor. WN1 remains Partial. Open
 work is phone UI, physical first-owner Claim/Resume with an owner-supplied
-identity and public configuration, stage/apply/commit over the live carrier,
-BLE/WiFi/IP/Reticulum management, native V4 Reticulum node/transport,
-credentials/vault, and headed/on-air proof. The focused `portable_first_write` receipt passes 12;
+identity and public configuration, the applied-and-committed lifecycle
+receipt on the claimed board under the Mere controller key, BLE/WiFi/IP/
+Reticulum management, native V4 Reticulum node/transport, credentials/vault,
+and headed/on-air proof. The focused `portable_first_write` receipt passes 12;
 base `radio-hand` passes 161; `radio-hand --features control-retinue` passes
 170. Rustfmt and three serial locked Xtensa core-only checks pass for default,
 `host-uart-low-power`, and `host-uart-low-power+rf-sleep-proof`. The V4 keeps
@@ -1224,3 +1247,39 @@ standalone transport node hostage.
   accepts the next one. The counter record ends at `last_used = 5`. Not yet
   proven: any operation other than Status over the carrier. WN1 remains
   Partial.
+- **2026-09-03, configuration lifecycle over the signed carrier:** source atop
+  `829177b`. Host evidence: `radio-hand` 137 base and 141 with
+  `control-retinue`, including the lifecycle test that an out-of-range
+  lifetime is refused with its counter journaled, that the rollback record is
+  programmed before the applier sees the candidate, that a commit naming the
+  wrong change id is refused and leaves the candidate armed, that revert
+  restores known-good on the applier and in the journal, that a fresh apply
+  after a revert takes a never-reused generation and commits, and that
+  `expire` rolls back at exactly the deadline and not one millisecond before;
+  `postilion` 28 with the apply-then-commit exchange against the real durable
+  model; Signalman binaries checked; the locked Xtensa matrix green for all
+  three images with only pre-existing warnings; retinue's `collapsible_if`
+  in `node.rs` collapsed so CI's clippy reaches the next crate. The release
+  ELF was 6,665,956 bytes with SHA-256
+  `4dd42652d255be3d6305cb7cc370a65bc7bb5193710d664a9330ac07c8a722d8`;
+  official `espflash 4.5.0 save-image --merge --skip-padding` reported
+  387,760 application bytes and a 453,296-byte merged image with SHA-256
+  `d565efc18f223c604ffe2c4629cdc887c3538bdc73e5361cdc3e128bb97b67f9`.
+  `heltec-v4-current.toml` names those fields. Linkboy, through the verified
+  helper and an owner-confirmed V4.2 selection, flashed COM6, preserved
+  `0x3F0000..0x400000`, and returned `application-verified` as Heltec V4
+  `0.0.1`, US915, modem. Physical receipt on that image: the diagnostic read
+  `control=valid pending=blank boot=known-good-applied
+  known-good-generation=0 generation-watermark=0`; the Mere controller key
+  received `auth=verified-controller` at counter 6 (transaction
+  `046ec10014ba6c202f37780b09bee879`); an `apply` signed by a throwaway key
+  the board holds no grant for earned silence for the full window
+  (`01:20:47` to `01:20:54` local, host `Carrier(Timeout)`, exit 1); and the
+  diagnostic afterwards showed the same zero generations, so nothing was
+  armed. The applied-and-committed receipt needs the granted key: the Mere
+  port's `status` action is the only signer the board accepts, and a
+  `configure` action there was deliberately not added while Mere is busy
+  with the genet split. Clippy with `-D warnings` still fails in `radio-hand`
+  on three pre-existing `large_enum_variant` sites in `commissioning.rs` and
+  `portable_first_write.rs` and one `needless_range_loop` in
+  `position_disclosure.rs`, none touched here. WN1 remains Partial.

@@ -5,6 +5,7 @@
 //! bounded inner opcode grammar, replies, capability facts, and WN0 volatile admission seam.
 
 mod admission;
+mod arguments;
 mod codec;
 mod durable;
 mod model;
@@ -17,6 +18,10 @@ mod runtime;
 mod status;
 
 pub use admission::{Admission, RequestAdmission};
+pub use arguments::{
+    ArgumentsError, COMMIT_ARGUMENTS_LEN, CommitArguments, PROVISIONAL_APPLY_ARGUMENTS_LEN,
+    ProvisionalApplyArguments, REVERT_ARGUMENTS_LEN, RevertArguments,
+};
 pub use codec::{decode_request, decode_response, encode_request, encode_response};
 pub use durable::{
     AbSlotStore, BoardRecoveryFacts, CHANGE_ID_LEN, CachedReceipt, ChangeId, DurableConfig,
@@ -71,8 +76,8 @@ pub use retinue_command::{
 };
 pub use runtime::{
     BootState, ConfigApplier, ControlRuntime, DurableScratch, DurableScratchError, LiveOutcome,
-    MIN_DURABLE_SLOT_BYTES, PreparedCommit, PreparedProvisional, QuietExit, QuietGuard,
-    QuietWindow, RuntimeError,
+    MAX_PROVISIONAL_LIFETIME_MS, MIN_DURABLE_SLOT_BYTES, MIN_PROVISIONAL_LIFETIME_MS,
+    PreparedCommit, PreparedProvisional, QuietExit, QuietGuard, QuietWindow, RuntimeError,
 };
 pub use status::{
     CONTROL_STATUS_FRAME_LEN, CONTROL_STATUS_FRAME_TAG, CONTROL_STATUS_NONCE_LEN,

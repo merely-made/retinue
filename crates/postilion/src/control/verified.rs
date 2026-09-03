@@ -18,10 +18,11 @@ use std::path::Path;
 use std::time::Duration;
 
 use radio_hand::control::{
-    CONTROL_RESPONSE_FRAME_TAG, ConfigGeneration, ControlFrameError, ControlStatusAuthority,
-    ControlStatusError, ControlStatusV1, MAX_CONTROL_COMMAND_FRAME_LEN,
-    MAX_CONTROL_RESPONSE_FRAME_LEN, NodeId, Operation, Refusal, Request, Response, ResponseBody,
-    TransactionId, decode_response_frame, encode_command_frame,
+    COMMIT_TOKEN_LEN, CONTROL_RESPONSE_FRAME_TAG, ChangeId, CommitArguments, ConfigGeneration,
+    ControlFrameError, ControlStatusAuthority, ControlStatusError, ControlStatusV1,
+    MAX_CONTROL_COMMAND_FRAME_LEN, MAX_CONTROL_RESPONSE_FRAME_LEN, NodeId, Operation,
+    ProvisionalApplyArguments, PublicConfigurationV1, Refusal, Request, Response, ResponseBody,
+    RevertArguments, TransactionId, decode_response_frame, encode_command_frame,
 };
 use retinue::hash::AddressHash;
 use retinue::identity::PrivateIdentity;
@@ -62,6 +63,49 @@ pub enum ControlClientError<E> {
     Authority,
     #[error("status body was not bound to this transaction")]
     StatusTransactionMismatch,
+}
+
+/// The controller-side facts every mutable request carries beside its outer counter.
+///
+/// `sequence` is this controller's monotonic mutation sequence, which the board binds to
+/// the semantic request so an evicted result can never make an old change executable
+/// again; `expected_generation` is the known-good generation the controller last read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Mutation {
+    pub sequence: u64,
+    pub expected_generation: ConfigGeneration,
+}
+
+/// The board's answer to a provisional apply: what a commit must name.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct ProvisionalReceipt {
+    pub transaction: TransactionId,
+    pub counter: u64,
+    pub change: ChangeId,
+    pub candidate_generation: ConfigGeneration,
+    pub deadline_ms: u64,
+    pub commit_token: [u8; COMMIT_TOKEN_LEN],
+}
+
+impl std::fmt::Debug for ProvisionalReceipt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProvisionalReceipt")
+            .field("transaction", &self.transaction)
+            .field("counter", &self.counter)
+            .field("change", &self.change)
+            .field("candidate_generation", &self.candidate_generation)
+            .field("deadline_ms", &self.deadline_ms)
+            .field("commit_token", &"[redacted]")
+            .finish()
+    }
+}
+
+/// The board's answer to a commit or revert: the generation now known-good.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AppliedReceipt {
+    pub transaction: TransactionId,
+    pub counter: u64,
+    pub known_good_generation: ConfigGeneration,
 }
 
 /// A verified controller's view of one node's public control status.
@@ -134,6 +178,110 @@ where
             counter,
             known_good_generation: response.known_good_generation,
             status,
+        })
+    }
+
+    /// Stages `public` as the provisional candidate with empty sealed credentials and
+    /// applies it. The board rolls it back at `lifetime_ms` after applying, or on reboot,
+    /// unless [`Self::commit`] names the returned generation and token first.
+    pub async fn provisional_apply(
+        &mut self,
+        counter: u64,
+        mutation: Mutation,
+        change: ChangeId,
+        public: PublicConfigurationV1,
+        lifetime_ms: u64,
+    ) -> Result<ProvisionalReceipt, ControlClientError<C::Error>> {
+        let arguments = ProvisionalApplyArguments {
+            change,
+            public,
+            lifetime_ms,
+        }
+        .encode();
+        let request = self.mutation_request(Operation::ProvisionalApply, mutation, &arguments)?;
+        let response = self.send(&request, counter).await?;
+        let ResponseBody::Provisional {
+            deadline_ms,
+            commit_token,
+            ..
+        } = response.body
+        else {
+            return Err(ControlClientError::UnexpectedBody);
+        };
+        let candidate_generation = response
+            .effective_generation
+            .ok_or(ControlClientError::UnexpectedBody)?;
+        Ok(ProvisionalReceipt {
+            transaction: request.transaction,
+            counter,
+            change,
+            candidate_generation,
+            deadline_ms,
+            commit_token,
+        })
+    }
+
+    /// Confirms the exact armed candidate a [`ProvisionalReceipt`] describes.
+    pub async fn commit(
+        &mut self,
+        counter: u64,
+        mutation: Mutation,
+        receipt: &ProvisionalReceipt,
+    ) -> Result<AppliedReceipt, ControlClientError<C::Error>> {
+        let arguments = CommitArguments {
+            change: receipt.change,
+            candidate_generation: receipt.candidate_generation,
+            commit_token: receipt.commit_token,
+        }
+        .encode();
+        let request = self.mutation_request(Operation::Commit, mutation, &arguments)?;
+        self.applied(&request, counter).await
+    }
+
+    /// Abandons the armed candidate named by `change` and restores known-good now.
+    pub async fn revert(
+        &mut self,
+        counter: u64,
+        mutation: Mutation,
+        change: ChangeId,
+    ) -> Result<AppliedReceipt, ControlClientError<C::Error>> {
+        let arguments = RevertArguments { change }.encode();
+        let request = self.mutation_request(Operation::Revert, mutation, &arguments)?;
+        self.applied(&request, counter).await
+    }
+
+    async fn applied(
+        &mut self,
+        request: &Request,
+        counter: u64,
+    ) -> Result<AppliedReceipt, ControlClientError<C::Error>> {
+        let response = self.send(request, counter).await?;
+        if !matches!(response.body, ResponseBody::Applied(_)) {
+            return Err(ControlClientError::UnexpectedBody);
+        }
+        Ok(AppliedReceipt {
+            transaction: request.transaction,
+            counter,
+            known_good_generation: response.known_good_generation,
+        })
+    }
+
+    fn mutation_request(
+        &self,
+        operation: Operation,
+        mutation: Mutation,
+        arguments: &[u8],
+    ) -> Result<Request, ControlClientError<C::Error>> {
+        let mut transaction = [0_u8; 16];
+        getrandom::fill(&mut transaction)
+            .map_err(|error| ControlClientError::Entropy(io::Error::other(error.to_string())))?;
+        Ok(Request {
+            transaction: TransactionId(transaction),
+            transaction_sequence: mutation.sequence,
+            expected_generation: mutation.expected_generation,
+            operation,
+            arguments: heapless::Vec::try_from(arguments)
+                .map_err(|_| ControlClientError::UnexpectedBody)?,
         })
     }
 
@@ -504,6 +652,141 @@ mod tests {
             Err(ControlClientError::Refused(Refusal::UnsupportedOperation))
         ));
         board_task.await.unwrap();
+    }
+
+    /// A board that runs the real durable model for the lifecycle, minus flash and radio.
+    fn board_lifecycle(
+        state: &mut DurableState,
+        frame: &[u8],
+        token: [u8; COMMIT_TOKEN_LEN],
+    ) -> Response {
+        use radio_hand::control::{ChangeId, PreparedCommit, SemanticTagKey};
+        let mut verifier = restore_control_verifier(state).unwrap();
+        let command = decode_command_frame(frame).unwrap();
+        let verified = verifier.verify(command).unwrap();
+        let inbound = decode_verified_command(&verified).unwrap();
+        state
+            .advance_verified_outer_counter(inbound.verified_controller(), inbound.counter())
+            .unwrap();
+        let request = inbound.request();
+        let key = SemanticTagKey::from_bytes([0x80; 32]);
+        let facts = BoardRecoveryFacts::new(
+            Vec::from_slice(&[
+                RecoveryPathFacts::new(ManagementCarrier::Usb, true, false, false).unwrap(),
+            ])
+            .unwrap(),
+        )
+        .unwrap();
+        match request.operation {
+            Operation::ProvisionalApply => {
+                let arguments = ProvisionalApplyArguments::decode(&request.arguments).unwrap();
+                state
+                    .arm_with_facts(
+                        NODE,
+                        inbound.verified_controller(),
+                        request,
+                        &key,
+                        &facts,
+                        arguments.change,
+                        DurableConfig {
+                            public: arguments.public,
+                            sealed_credentials: Vec::new(),
+                        },
+                        1_000,
+                        1_000 + arguments.lifetime_ms,
+                        token,
+                        Vec::new(),
+                    )
+                    .unwrap()
+                    .into_response()
+            }
+            Operation::Commit => {
+                let arguments = CommitArguments::decode(&request.arguments).unwrap();
+                let prepared = PreparedCommit {
+                    change: arguments.change,
+                    candidate_generation: arguments.candidate_generation,
+                    commit_token: arguments.commit_token,
+                };
+                state
+                    .commit(
+                        NODE,
+                        inbound.verified_controller(),
+                        request,
+                        &key,
+                        prepared.change,
+                        prepared.candidate_generation,
+                        prepared.commit_token,
+                        2_000,
+                    )
+                    .unwrap()
+                    .into_response()
+            }
+            _ => {
+                let _ = ChangeId([0; 16]);
+                panic!("the lifecycle fake serves apply and commit only")
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn provisional_apply_then_commit_moves_known_good() {
+        let owner = owner();
+        let mut state = state(&owner);
+        let (client, mut board) = tokio::io::duplex(2048);
+        let board_task = tokio::spawn(async move {
+            let frame = read_one_frame(&mut board).await;
+            let response = board_lifecycle(&mut state, &frame, [0x5c; COMMIT_TOKEN_LEN]);
+            write_response(&mut board, &response).await;
+            let frame = read_one_frame(&mut board).await;
+            let response = board_lifecycle(&mut state, &frame, [0; COMMIT_TOKEN_LEN]);
+            write_response(&mut board, &response).await;
+            state
+        });
+
+        let transport = UsbControlTransport::from_io(
+            client,
+            UsbControlConfig {
+                response_timeout: Duration::from_secs(2),
+                ..UsbControlConfig::default()
+            },
+        );
+        let mut controller = ControlClient::new(transport, &owner, NODE);
+        let candidate = PublicConfigurationV1::new(
+            Region::Us915,
+            selvage::PhyProfile::meshtastic_long_fast(908_125_000),
+            ReticulumTransportPolicy::new(false, false, 0).unwrap(),
+            ManagementCarrierSet::from_mask(1).unwrap(),
+        )
+        .unwrap();
+        let mutation = Mutation {
+            sequence: 1,
+            expected_generation: ConfigGeneration(3),
+        };
+        let provisional = controller
+            .provisional_apply(1, mutation, ChangeId([0x31; 16]), candidate, 60_000)
+            .await
+            .unwrap();
+        assert_eq!(provisional.candidate_generation, ConfigGeneration(4));
+        assert_eq!(provisional.deadline_ms, 61_000);
+        assert_eq!(provisional.commit_token, [0x5c; COMMIT_TOKEN_LEN]);
+        assert!(!format!("{provisional:?}").contains("5c"));
+
+        let committed = controller
+            .commit(
+                2,
+                Mutation {
+                    sequence: 2,
+                    expected_generation: ConfigGeneration(3),
+                },
+                &provisional,
+            )
+            .await
+            .unwrap();
+        assert_eq!(committed.known_good_generation, ConfigGeneration(4));
+        let state = board_task.await.unwrap();
+        assert_eq!(state.known_good().generation, ConfigGeneration(4));
+        assert_eq!(state.known_good().configuration.public, candidate);
+        assert!(state.provisional().is_none());
     }
 
     #[tokio::test]

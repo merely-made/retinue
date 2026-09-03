@@ -13,8 +13,14 @@ use core::future::{Future, poll_fn};
 use core::task::Poll;
 
 use embassy_executor::Spawner;
+use embassy_futures::select::Either3;
+#[cfg(all(feature = "host-usb", not(feature = "host-uart-low-power")))]
+use embassy_futures::select::select3;
+#[cfg(feature = "host-uart-low-power")]
 use embassy_futures::select::{Either, select};
 use embassy_time::Delay;
+#[cfg(all(feature = "host-usb", not(feature = "host-uart-low-power")))]
+use embassy_time::{Instant, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use esp_backtrace as _;
 use esp_hal::Config;
@@ -554,7 +560,33 @@ async fn main(spawner: Spawner) {
         // reported. This half holds no transaction and leaves the radio listening.
         #[cfg(not(all(feature = "host-uart-low-power", feature = "rf-sleep-proof")))]
         let radio_receive = owner.wait_rx_irq();
-        let waiting = select(host_read, radio_receive);
+        // The USB image also waits on the armed candidate's deadline, so an unconfirmed
+        // provisional change rolls back on time without a host frame to prompt it.
+        #[cfg(all(feature = "host-usb", not(feature = "host-uart-low-power")))]
+        let expiry = async {
+            match control_ready
+                .as_ref()
+                .and_then(|ready| ready.runtime.provisional_deadline_ms())
+            {
+                Some(deadline_ms) => Timer::at(Instant::from_millis(deadline_ms)).await,
+                None => core::future::pending::<()>().await,
+            }
+        };
+        #[cfg(all(feature = "host-usb", not(feature = "host-uart-low-power")))]
+        let waiting = async {
+            match select3(host_read, radio_receive, expiry).await {
+                Either3::First(host) => Either3::First(host),
+                Either3::Second(radio) => Either3::Second(radio),
+                Either3::Third(()) => Either3::Third(()),
+            }
+        };
+        #[cfg(not(all(feature = "host-usb", not(feature = "host-uart-low-power"))))]
+        let waiting = async {
+            match select(host_read, radio_receive).await {
+                Either::First(host) => Either3::First(host),
+                Either::Second(radio) => Either3::Second(radio),
+            }
+        };
         let outcome = if command_stream.is_boundary() {
             waiting.await
         } else {
@@ -564,7 +596,16 @@ async fn main(spawner: Spawner) {
         // Everything past here touches SPI, the radio, or the host link.
         let _awake = power::Awake::new();
         match outcome {
-            Either::Second(Ok(())) => {
+            Either3::Third(()) => {
+                #[cfg(all(feature = "host-usb", not(feature = "host-uart-low-power")))]
+                if let Some(ready) = control_ready.as_mut()
+                    && !control_carrier::expire_provisional(&mut owner, ready).await
+                {
+                    // Not at a quiet boundary yet: give the radio a moment and look again.
+                    Timer::after_millis(200).await;
+                }
+            }
+            Either3::Second(Ok(())) => {
                 // Deliberately not raced: the frame is in the radio until it is read out.
                 let Some(frame) = (match owner.collect(&mut radio_frame).await {
                     Ok(frame) => frame,
@@ -624,13 +665,13 @@ async fn main(spawner: Spawner) {
             }
             // `wait_for_irq()` reports waiter/interrupt errors here. CRC and header outcomes
             // belong to the unraced `rx_collect()` above, where the frame is actually read.
-            Either::Second(Err(_)) => {
+            Either3::Second(Err(_)) => {
                 owner.radio_fault(6, "RADIO RX");
                 let _ = host.write_all(b"radio rx failed\r\n").await;
             }
-            Either::First(Err(_)) => {}
-            Either::First(Ok(0)) => {}
-            Either::First(Ok(length)) => {
+            Either3::First(Err(_)) => {}
+            Either3::First(Ok(0)) => {}
+            Either3::First(Ok(length)) => {
                 owner.note_host_activity();
                 let mut packet = &usb_packet[..length];
                 // Discard host wake bytes, but only while the parser sits at a frame

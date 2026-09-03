@@ -167,6 +167,20 @@ pub struct Provisional {
     commit_token: [u8; COMMIT_TOKEN_LEN],
     result: Vec<u8, MAX_RESULT>,
 }
+impl Provisional {
+    /// The controller-chosen id shared by this candidate's apply, commit, and revert.
+    pub const fn change(&self) -> ChangeId {
+        self.change
+    }
+    /// The generation the board allocated for this candidate.
+    pub const fn candidate_generation(&self) -> ConfigGeneration {
+        self.candidate_generation
+    }
+    /// Board time after which the candidate rolls back without a commit.
+    pub const fn deadline_ms(&self) -> u64 {
+        self.deadline_ms
+    }
+}
 impl fmt::Debug for Provisional {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Provisional")
@@ -399,6 +413,12 @@ impl DurableState {
             grant.controller == controller
                 && matches!(grant.role, ControllerRole::Operator | ControllerRole::Owner)
         })
+    }
+
+    /// Whether a verified controller may abandon the armed candidate. The same grants
+    /// that may confirm a candidate may revert it.
+    pub(crate) fn permits_provisional_revert(&self, controller: VerifiedController) -> bool {
+        self.permits_provisional_commit(controller.0)
     }
 
     /// The invariant shared by construction, durable decoding, and commit.

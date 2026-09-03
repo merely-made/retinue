@@ -411,6 +411,15 @@ impl<RK: RadioKind, DLY: DelayNs> V4RadioOwner<RK, DLY> {
         sent
     }
 
+    /// Mint commit-token bytes from the board's true entropy source for the live carrier.
+    #[cfg_attr(feature = "host-uart-low-power", allow(dead_code))]
+    pub(crate) fn fill_true_random(
+        &mut self,
+        out: &mut [u8],
+    ) -> Result<(), radio_hand::executive::StoreFault> {
+        self.store.fill_true_random(out)
+    }
+
     /// Board-local probes need the same durable store as every command, but only this owner
     /// can lend it out. Persisted changes still reboot immediately in `channels::probe`.
     pub async fn probe<L: HostLink>(

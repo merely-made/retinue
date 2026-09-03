@@ -15,6 +15,11 @@ pub use quiet::{LiveOutcome, QuietExit, QuietGuard, QuietWindow};
 #[cfg(feature = "control-retinue")]
 mod inbound;
 pub const MIN_DURABLE_SLOT_BYTES: usize = crate::store::encoded_len(MAX_DURABLE_BODY);
+/// Longest a controller may leave a candidate unconfirmed. A longer request is refused as
+/// invalid arguments; the bound keeps a lost controller from parking a node on a candidate.
+pub const MAX_PROVISIONAL_LIFETIME_MS: u64 = 10 * 60 * 1_000;
+/// Shortest useful lifetime: below this a commit cannot arrive over any real carrier.
+pub const MIN_PROVISIONAL_LIFETIME_MS: u64 = 1_000;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DurableScratchError {
     SlotTooSmall { available: usize, required: usize },
@@ -135,6 +140,28 @@ pub enum RuntimeError<S, A = Infallible, Q = Infallible> {
     Quiet(Q),
     ReadbackMismatch,
 }
+impl<S, Q> RuntimeError<S, Infallible, Q> {
+    /// Re-types an error from a path that cannot fail to apply into a path that can.
+    pub fn widen_apply<A>(self) -> RuntimeError<S, A, Q> {
+        match self {
+            Self::NoDurableState => RuntimeError::NoDurableState,
+            Self::Poisoned => RuntimeError::Poisoned,
+            Self::ResetPending => RuntimeError::ResetPending,
+            Self::QuietInProgress => RuntimeError::QuietInProgress,
+            Self::BootAlreadyAttempted => RuntimeError::BootAlreadyAttempted,
+            Self::BootIncomplete => RuntimeError::BootIncomplete,
+            Self::ForeignNode { expected, found } => RuntimeError::ForeignNode { expected, found },
+            Self::Refused(r) => RuntimeError::Refused(r),
+            Self::VerifiedCounter(e) => RuntimeError::VerifiedCounter(e),
+            Self::Load(e) => RuntimeError::Load(e),
+            Self::Durable(e) => RuntimeError::Durable(e),
+            Self::Store(e) => RuntimeError::Store(e),
+            Self::Apply(never) => match never {},
+            Self::Quiet(e) => RuntimeError::Quiet(e),
+            Self::ReadbackMismatch => RuntimeError::ReadbackMismatch,
+        }
+    }
+}
 impl<S, A, Q> fmt::Debug for RuntimeError<S, A, Q> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -252,6 +279,14 @@ impl ControlRuntime {
     /// to known-good before ordinary service was permitted.
     pub const fn recovered_rollback(&self) -> bool {
         self.recovered_rollback
+    }
+    /// The board time at which the armed candidate, if any, rolls back on its own. A
+    /// board loop uses it to schedule [`Self::expire`] instead of polling flash.
+    pub fn provisional_deadline_ms(&self) -> Option<u64> {
+        self.state
+            .as_ref()?
+            .provisional()
+            .map(Provisional::deadline_ms)
     }
     fn poison<S, A, Q>(&mut self, e: RuntimeError<S, A, Q>) -> RuntimeError<S, A, Q> {
         self.poisoned = true;
@@ -542,6 +577,118 @@ impl ControlRuntime {
             self.persist(guard.inner_mut(), x)?;
             t.map_err(RuntimeError::Refused)
         })();
+        let finish = guard.finish().await;
+        self.complete_live(result, finish)
+    }
+    /// Journals a verified command's outer counter and answers it with a refusal.
+    ///
+    /// For a verified command whose arguments the board cannot use: the counter must still
+    /// become durable so the same envelope can never be replayed, and the controller learns
+    /// why nothing changed.
+    pub async fn refuse_verified<Q>(
+        &mut self,
+        q: &mut Q,
+        x: &mut DurableScratch<'_>,
+        c: VerifiedController,
+        outer: u64,
+        r: &Request,
+        reason: Refusal,
+    ) -> Result<LiveOutcome<Response>, RuntimeError<Q::StoreError, Infallible, Q::Error>>
+    where
+        Q: QuietWindow,
+    {
+        self.ready()?;
+        let mut guard = self.enter_live(q).await?;
+        let result = (|| {
+            self.state
+                .as_mut()
+                .unwrap()
+                .advance_verified_outer_counter(c, outer)
+                .map_err(|e| self.poison(RuntimeError::VerifiedCounter(e)))?;
+            self.persist(guard.inner_mut(), x)?;
+            let state = self.state.as_ref().unwrap();
+            Ok(Response {
+                node: state.node(),
+                transaction: r.transaction,
+                known_good_generation: state.known_good().generation,
+                effective_generation: None,
+                body: ResponseBody::Refused {
+                    reason,
+                    result: Vec::new(),
+                },
+            })
+        })();
+        let finish = guard.finish().await;
+        self.complete_live(result, finish)
+    }
+    /// Abandons the armed candidate named by `change` and restores known-good now.
+    ///
+    /// The outer counter is journaled first. A controller without commit rights, or a
+    /// change id that does not name the armed candidate, is answered with a refusal after
+    /// that journaling; nothing else moves. Otherwise the rollback is journaled, known-good
+    /// is re-applied to the hardware, and the response reports the restored generation.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn revert_verified<Q>(
+        &mut self,
+        q: &mut Q,
+        x: &mut DurableScratch<'_>,
+        node: NodeId,
+        c: VerifiedController,
+        outer: u64,
+        r: &Request,
+        change: ChangeId,
+    ) -> Result<LiveOutcome<Response>, RuntimeError<Q::StoreError, Q::ApplyError, Q::Error>>
+    where
+        Q: QuietWindow,
+    {
+        self.ready()?;
+        let mut guard = self.enter_live(q).await?;
+        let result = async {
+            self.state
+                .as_mut()
+                .unwrap()
+                .advance_verified_outer_counter(c, outer)
+                .map_err(|e| self.poison(RuntimeError::VerifiedCounter(e)))?;
+            let (own_node, known_good, permitted, names_armed) = {
+                let state = self.state.as_ref().unwrap();
+                (
+                    state.node(),
+                    state.known_good().generation,
+                    state.permits_provisional_revert(c),
+                    state.provisional().is_some_and(|p| p.change() == change),
+                )
+            };
+            if node != own_node {
+                return Err(RuntimeError::Refused(Refusal::WrongNode));
+            }
+            let refused = |reason| Response {
+                node: own_node,
+                transaction: r.transaction,
+                known_good_generation: known_good,
+                effective_generation: None,
+                body: ResponseBody::Refused {
+                    reason,
+                    result: Vec::new(),
+                },
+            };
+            if !permitted {
+                self.persist(guard.inner_mut(), x)?;
+                return Ok(refused(Refusal::Unauthorized));
+            }
+            if !names_armed {
+                self.persist(guard.inner_mut(), x)?;
+                return Ok(refused(Refusal::InvalidCommit));
+            }
+            self.restore(guard.inner_mut(), x).await?;
+            Ok(Response {
+                node: own_node,
+                transaction: r.transaction,
+                known_good_generation: known_good,
+                effective_generation: Some(known_good),
+                body: ResponseBody::Applied(Vec::new()),
+            })
+        }
+        .await;
         let finish = guard.finish().await;
         self.complete_live(result, finish)
     }

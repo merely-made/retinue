@@ -89,6 +89,13 @@ impl<T> LiveOutcome<T> {
     pub const fn value(&self) -> &T {
         &self.value
     }
+    /// Keeps the board action while transforming the transition's value.
+    pub fn map<U>(self, f: impl FnOnce(T) -> U) -> LiveOutcome<U> {
+        LiveOutcome {
+            value: f(self.value),
+            exit: self.exit,
+        }
+    }
     pub fn into_value(self) -> T {
         self.value
     }
