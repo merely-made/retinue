@@ -286,5 +286,6 @@ fn observation() -> DeviceObservation {
         },
         confidence: EvidenceConfidence::OwnerConfirmed,
         contradictions: Vec::new(),
+        native_node_state: linkboy::device::NativeNodeState::Unknown,
     }
 }

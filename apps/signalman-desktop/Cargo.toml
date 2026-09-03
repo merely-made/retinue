@@ -56,13 +56,13 @@ cpal = "=0.18.2"
 # Signalman's management graph and its sealed station authority come from one
 # exact Mere revision. Keep these on one source so identities and graph keys do
 # not cross duplicate package instances.
-mere-signalman = { git = "https://github.com/merely-made/mere.git", rev = "1609cb904766de40c771e8559b89e8fbcc098a60" }
-chartulary = { git = "https://github.com/merely-made/mere.git", rev = "1609cb904766de40c771e8559b89e8fbcc098a60" }
-gaz = { git = "https://github.com/merely-made/mere.git", rev = "1609cb904766de40c771e8559b89e8fbcc098a60" }
-muniment = { git = "https://github.com/merely-made/mere.git", rev = "1609cb904766de40c771e8559b89e8fbcc098a60", features = ["redb"] }
-sceno = { git = "https://github.com/merely-made/mere.git", rev = "1609cb904766de40c771e8559b89e8fbcc098a60" }
-scenomise = { git = "https://github.com/merely-made/mere.git", rev = "1609cb904766de40c771e8559b89e8fbcc098a60" }
-seiche = { git = "https://github.com/merely-made/mere.git", rev = "1609cb904766de40c771e8559b89e8fbcc098a60" }
+mere-signalman = { git = "https://github.com/merely-made/mere.git", rev = "1443420b27f3b6b43bf20fbde0094c578aa33021" }
+chartulary = { git = "https://github.com/merely-made/mere.git", rev = "1443420b27f3b6b43bf20fbde0094c578aa33021" }
+gaz = { git = "https://github.com/merely-made/mere.git", rev = "1443420b27f3b6b43bf20fbde0094c578aa33021" }
+muniment = { git = "https://github.com/merely-made/mere.git", rev = "1443420b27f3b6b43bf20fbde0094c578aa33021", features = ["redb"] }
+sceno = { git = "https://github.com/merely-made/mere.git", rev = "1443420b27f3b6b43bf20fbde0094c578aa33021" }
+scenomise = { git = "https://github.com/merely-made/mere.git", rev = "1443420b27f3b6b43bf20fbde0094c578aa33021" }
+seiche = { git = "https://github.com/merely-made/mere.git", rev = "1443420b27f3b6b43bf20fbde0094c578aa33021" }
 euclid = "0.22"
 pollster = "0.4"
 thiserror = "2"
@@ -71,8 +71,8 @@ thiserror = "2"
 # consumes; personae/pandect supply the wallet and device id the lease-gated
 # port requires. All Mere crates stay on the one pinned revision above.
 postilion = { version = "0.1.0", path = "../../crates/postilion" }
-personae = { git = "https://github.com/merely-made/mere.git", rev = "1609cb904766de40c771e8559b89e8fbcc098a60" }
-pandect = { git = "https://github.com/merely-made/mere.git", rev = "1609cb904766de40c771e8559b89e8fbcc098a60" }
+personae = { git = "https://github.com/merely-made/mere.git", rev = "1443420b27f3b6b43bf20fbde0094c578aa33021" }
+pandect = { git = "https://github.com/merely-made/mere.git", rev = "1443420b27f3b6b43bf20fbde0094c578aa33021" }
 serde_json = "1"
 tokio = { version = "1", features = ["rt", "time"] }
 
@@ -102,5 +102,9 @@ ipc-channel = { git = "https://github.com/merely-made/genet.git", rev = "5ec8274
 # works in a clean Mere checkout. Redirect that source to this workspace: the
 # desktop and the private port must exchange one Retinue/Postilion type family.
 [patch."https://github.com/merely-made/retinue.git"]
+# outrider joined the list 2026-09-02: mere-signalman now names it directly,
+# and without the redirect two `outrider::codec::LxmfPayload`s land and
+# `Station::send_payload` stops type-checking against the port.
+outrider = { path = "../../crates/outrider" }
 postilion = { path = "../../crates/postilion" }
 retinue = { path = "../../crates/retinue" }
