@@ -109,5 +109,4 @@ ipc-channel = { git = "https://github.com/merely-made/genet.git", rev = "5ec8274
 outrider = { path = "../../crates/outrider" }
 postilion = { path = "../../crates/postilion" }
 retinue = { path = "../../crates/retinue" }
-outrider = { path = "../../crates/outrider" }
 radio-hand = { path = "../../crates/radio-hand" }
