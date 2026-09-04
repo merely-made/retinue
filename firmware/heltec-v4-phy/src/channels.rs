@@ -263,18 +263,18 @@ pub async fn probe<L: HostLink>(
         // times ten million; `at` is board uptime seconds when the sentence landed.
         use core::fmt::Write as _;
         let mut reply = radio_face::Text::<96>::empty();
-        let (accepted, dropped, bytes) = crate::gnss::counters();
+        let (accepted, dropped, bytes, errors) = crate::gnss::counters();
         match crate::gnss::latest() {
             radio_face::GnssState::Absent => {
                 let _ = write!(
                     &mut reply,
-                    "gnss=absent accepted={accepted} dropped={dropped} bytes={bytes}\r\n"
+                    "gnss=absent accepted={accepted} dropped={dropped} bytes={bytes} errors={errors}\r\n"
                 );
             }
             radio_face::GnssState::NoFix => {
                 let _ = write!(
                     &mut reply,
-                    "gnss=nofix accepted={accepted} dropped={dropped} bytes={bytes}\r\n"
+                    "gnss=nofix accepted={accepted} dropped={dropped} bytes={bytes} errors={errors}\r\n"
                 );
             }
             radio_face::GnssState::Fix(fix) => {

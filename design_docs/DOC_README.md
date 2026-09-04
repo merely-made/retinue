@@ -279,7 +279,7 @@ supplying data-graph and identity crates.
 | [Channel murmuration](2026-08-09_channel_murmuration.md) | CM1–CM5. Framing superseded 2026-08-10; rules survive translated. |
 | [LE3 T114 scan-physics receipt](2026-08-20_le3_t114_scan_physics_receipt.md) | LE3a/LE3b complete. |
 | [Field node security posture](2026-08-09_field_node_security_posture.md) | FS1–FS6 authority. Also owns the PD0 disclosure-tier ruling. |
-| [Position disclosure](2026-09-01_position_disclosure_plan.md) | PD0–PD6. Whether a node reports position, to whom, at what precision, by what authority. Plan only, no code. Rides FS2's envelope as config authority. |
+| [Position disclosure](2026-09-01_position_disclosure_plan.md) | PD0–PD6. PD0 is ruled; PD1/PD2 are software-complete; PD3's V4 UART/parser path is physically receipted but satellite fix remains unmeasured. Rides FS2's envelope as config authority. |
 | [Assurance lane status](2026-08-10_assurance_lane_status.md) | ASSURE1–ASSURE5. |
 | [FS2 command carrier decision](2026-08-10_fs2_command_carrier_decision.md) · [FS4 custody and FS5 seizure](2026-08-10_fs4_custody_and_fs5_seizure.md) | Assurance decisions and receipts. |
 
@@ -297,9 +297,10 @@ supplying data-graph and identity crates.
 
 ### JSON receipts
 
-Machine-readable evidence, written by Linkboy and Signalman rather than by hand.
-`schema` distinguishes generations; loader snapshots are board-state captures
-rather than transfer outcomes.
+Machine-readable evidence. Most records are written by Linkboy and Signalman;
+the V4 GNSS RX fix is an explicitly hand-authored ledger joining its Linkboy
+transfer receipt to the post-flash probes. `schema` distinguishes generations;
+loader snapshots are board-state captures rather than transfer outcomes.
 
 **Two of these record non-success and are easy to miss**, because nothing in
 their filenames says so — see the `result` column.
@@ -322,6 +323,7 @@ their filenames says so — see the `result` column.
 | [F5 Windows V4 Retinue](2026-08-19_linkboy_f5_windows_v4_retinue_receipt.json) | schema 4 — install with settings preservation. |
 | [F5 Windows V4 Hopspot](2026-08-19_linkboy_f5_windows_v4_hopspot_receipt.json) | schema 4 — package transfer and verification. |
 | [F4 V4 state preservation](2026-08-20_linkboy_f4_v4_state_preservation_receipt.json) | schema 4 — settings preserved across flashing. |
+| [V4 GNSS RX fix](2026-09-03_v4_gnss_rx_fix_receipt.json) | schema 1 — corrected UART/parser path and preserved state; satellite fix unmeasured. |
 | [T114 loader snapshot](2026-08-12_t114_loader_snapshot.json) | schema 1 — HT-n5262, nRF52840, 1 MB flash, SoftDevice S140. |
 | [T114 AIR3 loader snapshot](2026-08-13_t114_air3_loader_snapshot.json) | schema 1 — persisted state captured for AIR3. |
 | [Signalman T114 loader snapshot](2026-08-14_signalman_t114_loader_snapshot.json) | schema 1 — UF2 bootloader 0.9.0. |

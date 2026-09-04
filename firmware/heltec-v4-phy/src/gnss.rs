@@ -2,11 +2,12 @@
 //! feeds bytes to `radio_hand::gnss::NmeaParser`, and publishes the latest
 //! [`GnssState`] for whoever assembles `LocalStatus`.
 //!
-//! Pin map, from Heltec's V4 GNSS interface (SH1.25 8-pin) as documented for the
-//! L76K module: module TX into ESP RX on GPIO38, ESP TX on GPIO39 (unused here, the
-//! module is only read), power enable GPIO34 active low, reset GPIO42 held high to run,
-//! standby GPIO40 held high to keep the module awake. The socket's rail is Vext on
-//! GPIO36, already driven low for the OLED by the screen task, so no rail work here.
+//! Pin map, from Heltec's V4 GNSS interface (SH1.25 8-pin) and factory sketch:
+//! `Serial1.begin(9600, SERIAL_8N1, 39, 38)`, whose final pins are RX then TX.
+//! Module TX therefore enters ESP RX on GPIO39. This read-only driver leaves module
+//! RX / ESP TX GPIO38 unowned, power enable GPIO34 active low, reset GPIO42 held high
+//! to run, and standby GPIO40 held high to keep the module awake. GPIO34 controls the
+//! GNSS rail; the OLED's Vext GPIO36 is unrelated.
 //!
 //! The UART runs at the L76K's 9600 factory default. Nothing is sent to the module:
 //! the board reads what it emits by default, `RMC` and `GGA` among others, and the
@@ -35,13 +36,12 @@ pub fn latest() -> GnssState {
     LATEST.lock(|cell| cell.get())
 }
 
-/// Parser counters, so a probe can tell a silent socket from a talking module whose
-/// sentences are being rejected. `(accepted, dropped, bytes)`: bytes is everything
-/// read off the UART, which separates "no wire" from "wrong baud" on its own.
-static COUNTERS: Mutex<CriticalSectionRawMutex, Cell<(u32, u32, u32)>> =
-    Mutex::new(Cell::new((0, 0, 0)));
+/// Parser and UART-error counters. `bytes` counts successful reads only, so a zero
+/// byte count is inconclusive when `errors` is nonzero. All counters saturate.
+static COUNTERS: Mutex<CriticalSectionRawMutex, Cell<(u32, u32, u32, u32)>> =
+    Mutex::new(Cell::new((0, 0, 0, 0)));
 
-pub fn counters() -> (u32, u32, u32) {
+pub fn counters() -> (u32, u32, u32, u32) {
     COUNTERS.lock(|cell| cell.get())
 }
 
@@ -64,7 +64,12 @@ pub async fn gnss_task(mut rx: UartRx<'static, Async>, _pins: ControlPins) {
         let read = match rx.read_async(&mut buf).await {
             Ok(n) => n,
             Err(_) => {
-                // Framing or overrun on a 9600-baud line is transient; keep reading.
+                // `RxError` is non-exhaustive. A compact total remains useful for every
+                // present and future kind, including the framing errors a wrong baud causes.
+                COUNTERS.lock(|cell| {
+                    let (accepted, dropped, bytes, errors) = cell.get();
+                    cell.set((accepted, dropped, bytes, errors.saturating_add(1)));
+                });
                 continue;
             }
         };
@@ -75,11 +80,12 @@ pub async fn gnss_task(mut rx: UartRx<'static, Async>, _pins: ControlPins) {
             }
         }
         COUNTERS.lock(|cell| {
-            let (_, _, bytes) = cell.get();
+            let (_, _, bytes, errors) = cell.get();
             cell.set((
                 parser.accepted(),
                 parser.dropped(),
                 bytes.saturating_add(read as u32),
+                errors,
             ));
         });
     }

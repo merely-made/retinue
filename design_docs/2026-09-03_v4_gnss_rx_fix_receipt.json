@@ -1,0 +1,61 @@
+{
+  "schema": 1,
+  "kind": "retinue-v4-gnss-rx-fix",
+  "result": "partial",
+  "established": [
+    "corrected UART1 RX GPIO39 path from module through parser",
+    "Linkboy guarded application transfer and preserved-tail readback"
+  ],
+  "not_established": [
+    "satellite position fix",
+    "outdoor loss-of-fix behavior",
+    "broader position-disclosure PD3 completion"
+  ],
+  "device": {
+    "transport": "serial:COM6",
+    "usb_parent": "USB\\VID_303A&PID_1001\\44:1B:F6:6A:FB:28",
+    "board": "heltec-v4",
+    "board_revision": "4.2",
+    "processor": "esp32-s3",
+    "flash_size": 16777216
+  },
+  "release": {
+    "path": "C:\\t\\retinue-gnss-fix-20260903\\xtensa-esp32s3-none-elf\\release\\tulle-heltec-v4-phy",
+    "byte_length": 6663984,
+    "sha256": "4d6418eceec24dd0df9e63fb0f0da271b5b69d3b9254668423ab23b0e9d7782b",
+    "merged_image": {
+      "application_partition_bytes": 386176,
+      "byte_length": 451712,
+      "end": "0x6E480",
+      "sha256": "0b778794a74324947455e29fd99bee49b4b30341467eb69c80d14411e71ef6a0"
+    }
+  },
+  "transfer": {
+    "package_id": "retinue.heltec-v4.gnss-rx-fix-dev",
+    "inspect_and_plan": "passed without warnings",
+    "route": "esp-rom",
+    "helper": {
+      "program": "espflash",
+      "version": "4.5.0",
+      "binary_sha256": "0cc03364c70a86325236f18ad1aaed17eedf267d89312c0cdabe4964f5cb758e"
+    },
+    "write_range": "0x0..0x3F0000",
+    "preserved_range": "0x3F0000..0x400000",
+    "preserved_tail_sha256_before_and_after": "0b1d7708aa65e9b98f809c5ff81179e7b9818ad5b98f90b02c75b4442a831a63",
+    "application_verified": true,
+    "linkboy_receipt": "C:\\t\\retinue-gnss-20260903\\gnss-fix-flash-receipt.json"
+  },
+  "probes": {
+    "immediately_after_flash": "gnss=nofix accepted=40 dropped=5 bytes=1885 errors=0",
+    "after_readback_reset": "gnss=nofix accepted=22 dropped=5 bytes=1120 errors=0",
+    "status": "identity slot B seq 9, US915 modem",
+    "control": "auth=diagnostic-only transport=modem-only node=a4dbb760a85b3a2e38cb54c62ec6d4df control=valid pending=blank boot=known-good-applied known-good-generation=0 generation-watermark=0"
+  },
+  "checks": {
+    "host_gnss_tests": "7 passed",
+    "locked_release_build": "passed with two pre-existing dead_code warnings",
+    "rustfmt": "passed",
+    "diff_check": "passed"
+  },
+  "follow_up": "Measure gnss=fix and loss-of-fix outdoors before closing PD3 or claiming position disclosure."
+}

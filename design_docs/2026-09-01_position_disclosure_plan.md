@@ -1,9 +1,11 @@
 # Position disclosure
 
 **Date:** 2026-09-01
-**Status (2026-09-02):** in progress. PD0 ruled and closed. PD1 and PD2
+**Status (2026-09-03):** in progress. PD0 ruled and closed. PD1 and PD2
 implemented in `radio-hand::control::position_disclosure` with tests; closed in
-software, unreceipted on any board. PD3 through PD6 not started.
+software, unreceipted on any board. PD3's V4 UART/module/cable and parser path
+are physically receipted, but no satellite position fix has been measured; PD3
+and PD4 through PD6 remain open.
 **Owns:** PD0 through PD6. Whether a node reports its position, to whom, at what
 precision, and by what authority.
 **Consumes:** FS2's command envelope (closed in software), FS6's bounded-table
@@ -136,9 +138,9 @@ after pushing one that refuses every identity including the owner's own.
 
 ### PD3. GNSS driver
 
-NMEA over UART on boards that have a module. The only genuine code gap: `grep`
-for `gnss|gps|nmea|ublox` across `crates/`, `firmware/` and `apps/` currently
-returns nothing.
+NMEA over UART on boards that have a module. `radio_hand::gnss` owns the
+host-testable parser; the V4 firmware owns its RX-only UART1 wiring and module
+control pins.
 
 Fix quality must be represented, not assumed. No fix, stale fix and valid fix
 are three different states and the disclosure logic must see which it has.
@@ -235,21 +237,23 @@ drop and pickup are visible as gaps with a last known position on each edge.
   plaintext. Found 2026-09-02 while implementing PD1; `hmac` and `sha2` were
   already dependencies of `radio-hand`, so no crate was added.
 - **PD-F12. The V4 GNSS socket is fully mapped and already powered.** Heltec's
-  V4 carries an SH1.25 8-pin GNSS socket for its L76K module: module TX into ESP
-  RX on GPIO38, ESP TX on GPIO39, power enable GPIO34 active low, reset GPIO42
-  held high to run, standby GPIO40 held high to stay awake, on UART1 at the
-  L76K's 9600 factory default. The socket's rail is Vext on GPIO36, which
-  `main.rs` already drives low for the OLED and hands to the screen task, so no
-  rail work was needed. Verified 2026-09-02 against Heltec's V4 documentation
-  and the existing `board.rs` pin map; the July embedded-Rust record had
-  deferred GPS explicitly.
+  V4 carries an SH1.25 8-pin GNSS socket for its L76K module. Its factory and
+  LoRaWanGPSTime sketches use `Serial1.begin(9600, SERIAL_8N1, 39, 38)`, where
+  Espressif orders the last pins RX then TX: module TX enters ESP RX GPIO39 and
+  ESP TX is GPIO38. The read-only driver owns only GPIO39, so it cannot drive
+  the module's RX net. GPIO34 enables the VGNSS-controlled GNSS rail active low;
+  reset GPIO42 and standby GPIO40 are held high to run and keep the module awake.
+  Vext GPIO36 instead powers the OLED/external rail and is unrelated to GNSS.
+  Verified 2026-09-03 against Heltec's V4 documentation and sketches; the July
+  embedded-Rust record had deferred GPS explicitly.
 - **PD-F13. `status` is not live state, so PD3 needed its own probe line.** The
   board's `status` reply is two prebuilt byte strings, online and identity. The
   `timebase` handler at the same site formats live state into a reply, and the
   `gnss` line now mirrors it: `absent`, `nofix`, or `fix` with integer
-  coordinates, plus parser counters (accepted, dropped, bytes read) so a host
-  can tell a silent socket from a talking module whose sentences are rejected,
-  and either from a wrong baud.
+  coordinates, plus parser counters (accepted, dropped, successful bytes read)
+  and a saturating UART-error total. A nonzero error total exposes line activity
+  even when no successful bytes arrive, including likely framing errors from a
+  wrong baud; zero successful bytes alone is not a silence or wiring verdict.
 - **PD-F14. The parser lives in `radio-hand`, not the firmware, on purpose.**
   `radio_hand::gnss::NmeaParser` is `no_std` and host-testable; the V4 task in
   `firmware/heltec-v4-phy/src/gnss.rs` only owns the UART and pins and feeds
@@ -335,10 +339,26 @@ started opportunistically.
   latest state is folded into every status publish at `ui::publish`. A `gnss`
   probe line answers over USB with state plus parser counters. Flashed to the
   COM7 V4 as image `68476581…`: the board boots, identity and region intact,
-  and the probe answers `gnss=absent accepted=0 dropped=0 bytes=0`. Zero bytes
-  read rules out baud and checksum. Vext is never raised, the pins match
-  Meshtastic's V4 variant table exactly, and esp-hal's `read_async` wakes on a
-  single byte via its default 10-symbol RX timeout, so the RX line is
-  electrically silent on that board. Whether an L76K is physically seated in
-  COM7's socket, or on the COM6 board instead, is not knowable from software
-  and is the open question.
+  and the probe answers `gnss=absent accepted=0 dropped=0 bytes=0`. That old
+  image had UART1's directions reversed and discarded `RxError`, so its zero
+  successful bytes cannot rule out baud mismatch, electrical activity, or a
+  seated module. Whether an L76K is physically seated in COM7's socket, or on
+  the COM6 board instead, remains an on-metal question.
+- **2026-09-03. PD3 UART correction and diagnostic refinement.** Heltec's
+  official V4 sketches establish UART1 RX GPIO39 / TX GPIO38, correcting the
+  previous reversed mapping. The firmware now owns RX GPIO39 only and leaves
+  GPIO38 undriven. The probe adds a saturating total `errors` counter to its
+  absent/nofix replies, so `bytes=0 errors>0` records reception failures rather
+  than a silent line. This is source-level only: it has not been flashed or
+  measured on a board.
+- **2026-09-03. PD3 V4 physical UART/parser receipt.** The corrected locked
+  release was inspected and planned without warnings, then flashed through
+  Linkboy to the COM6 Heltec V4.2 using a verified `espflash` 4.5.0 helper.
+  The board returned `gnss=nofix accepted=40 dropped=5 bytes=1885 errors=0`
+  immediately after the transfer, and `gnss=nofix accepted=22 dropped=5
+  bytes=1120 errors=0` after readback/reset. Those nonzero accepted sentences
+  and zero UART errors prove the corrected UART/module/cable and parser path;
+  they do not establish a satellite position fix. The board was indoors and no
+  `gnss=fix` was measured. PD3 therefore remains open pending an outdoor fix
+  and loss-of-fix observation. Exact flash, preservation, probe, and control
+  facts are in [the receipt](2026-09-03_v4_gnss_rx_fix_receipt.json).

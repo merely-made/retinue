@@ -228,19 +228,17 @@ async fn main(spawner: Spawner) {
     let vext = Output::new(peripherals.GPIO36, Level::Low, OutputConfig::default());
     let led = Output::new(peripherals.GPIO35, Level::Low, OutputConfig::default());
 
-    // GNSS socket (PD3). Read-only: the L76K is never written to, so its TX pin is
-    // configured and then held unused. Enable is active low; reset and standby are held
-    // high so the module runs and stays awake. Vext, which powers the socket, is the
-    // `vext` output above, already low for the OLED.
-    let (gnss_rx, _gnss_tx) = esp_hal::uart::Uart::new(
+    // GNSS socket (PD3). Heltec's V4 factory sketch gives UART1 as RX GPIO39, TX GPIO38.
+    // The L76K is read-only here, so own only module-TX / ESP-RX GPIO39 and do not drive
+    // module-RX GPIO38. GPIO34 enables the separate GNSS rail active low; Vext GPIO36
+    // above supplies the OLED/external rail, not this socket.
+    let gnss_rx = esp_hal::uart::UartRx::new(
         peripherals.UART1,
         esp_hal::uart::Config::default().with_baudrate(gnss::BAUD),
     )
     .unwrap()
-    .with_rx(peripherals.GPIO38)
-    .with_tx(peripherals.GPIO39)
-    .into_async()
-    .split();
+    .with_rx(peripherals.GPIO39)
+    .into_async();
     let gnss_pins = gnss::ControlPins {
         enable: Output::new(peripherals.GPIO34, Level::Low, OutputConfig::default()),
         reset: Output::new(peripherals.GPIO42, Level::High, OutputConfig::default()),
