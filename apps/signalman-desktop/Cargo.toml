@@ -40,29 +40,40 @@ signalman = { version = "0.1.0", path = "../signalman" }
 # the owning Signalman/Linkboy flow, and nothing here can construct a FlashPlan.
 linkboy = { version = "0.1.0", path = "../linkboy" }
 
-# The single-root Cambium desktop host and its view toolkit, at an exact genet
-# revision. A branch dep would make a Signalman build depend on whatever genet
-# happened to have pushed; the exact rev is the reproducible private route the
-# packaging decision calls for. Bump it deliberately, with a receipt.
-cambium = { git = "https://github.com/merely-made/genet.git", rev = "5ec8274ed21cecb6066c814e996e9283348de458" }
-cambium-genet-winit-host = { git = "https://github.com/merely-made/genet.git", rev = "5ec8274ed21cecb6066c814e996e9283348de458" }
-genet-probe = { git = "https://github.com/merely-made/genet.git", rev = "5ec8274ed21cecb6066c814e996e9283348de458" }
-genet-scripted-dom = { git = "https://github.com/merely-made/genet.git", rev = "5ec8274ed21cecb6066c814e996e9283348de458", version = "=0.1.0" }
-layout-dom-api = { git = "https://github.com/merely-made/genet.git", rev = "5ec8274ed21cecb6066c814e996e9283348de458", version = "=0.1.0" }
-sprigging = { git = "https://github.com/merely-made/genet.git", rev = "5ec8274ed21cecb6066c814e996e9283348de458" }
+# The single-root Cambium desktop host and its view toolkit, at an exact
+# revision. A branch dep would make a Signalman build depend on whatever the
+# owning repo happened to have pushed; the exact rev is the reproducible
+# private route the packaging decision calls for. Bump it deliberately, with a
+# receipt.
+#
+# **Cambium moved from genet to mere on 2026-09-03** (the platform boundary
+# pass). `cambium`, `cambium-genet-winit-host` and `sprigging` are mere
+# workspace members under `crates/cambium/` now; genet keeps only the name
+# claims. So they take a mere.git revision, and the genet-side DOM seams below
+# take the genet revision *that mere revision itself pins* — mere main pins
+# genet at 115d348deddc344d949754e63beaece47cf49f34. One reference per git source: a second genet reference here
+# would land two `LayoutDom`s and the host's would stop being the one this
+# crate's views and receipts build against. Bump the genet rev when mere's
+# moves, and only then.
+cambium = { git = "https://github.com/merely-made/mere.git", rev = "d82afa17e2cca86da843f07a2d718d2e69eb9f10", version = "0.3.3" }
+cambium-genet-winit-host = { git = "https://github.com/merely-made/mere.git", rev = "d82afa17e2cca86da843f07a2d718d2e69eb9f10", version = "0.1.0" }
+sprigging = { git = "https://github.com/merely-made/mere.git", rev = "d82afa17e2cca86da843f07a2d718d2e69eb9f10", version = "0.2.1" }
+genet-probe = { git = "https://github.com/merely-made/genet.git", rev = "115d348deddc344d949754e63beaece47cf49f34" }
+genet-scripted-dom = { git = "https://github.com/merely-made/genet.git", rev = "115d348deddc344d949754e63beaece47cf49f34", version = "=0.1.0" }
+layout-dom-api = { git = "https://github.com/merely-made/genet.git", rev = "115d348deddc344d949754e63beaece47cf49f34", version = "=0.1.0" }
 winit = "0.30"
 cpal = "=0.18.2"
 
 # Signalman's management graph and its sealed station authority come from one
 # exact Mere revision. Keep these on one source so identities and graph keys do
 # not cross duplicate package instances.
-mere-signalman = { git = "https://github.com/merely-made/mere.git", rev = "1443420b27f3b6b43bf20fbde0094c578aa33021" }
-chartulary = { git = "https://github.com/merely-made/mere.git", rev = "1443420b27f3b6b43bf20fbde0094c578aa33021" }
-gaz = { git = "https://github.com/merely-made/mere.git", rev = "1443420b27f3b6b43bf20fbde0094c578aa33021" }
-muniment = { git = "https://github.com/merely-made/mere.git", rev = "1443420b27f3b6b43bf20fbde0094c578aa33021", features = ["redb"] }
-sceno = { git = "https://github.com/merely-made/mere.git", rev = "1443420b27f3b6b43bf20fbde0094c578aa33021" }
-scenomise = { git = "https://github.com/merely-made/mere.git", rev = "1443420b27f3b6b43bf20fbde0094c578aa33021" }
-seiche = { git = "https://github.com/merely-made/mere.git", rev = "1443420b27f3b6b43bf20fbde0094c578aa33021" }
+mere-signalman = { git = "https://github.com/merely-made/mere.git", rev = "d82afa17e2cca86da843f07a2d718d2e69eb9f10" }
+chartulary = { git = "https://github.com/merely-made/mere.git", rev = "d82afa17e2cca86da843f07a2d718d2e69eb9f10" }
+gaz = { git = "https://github.com/merely-made/mere.git", rev = "d82afa17e2cca86da843f07a2d718d2e69eb9f10" }
+muniment = { git = "https://github.com/merely-made/mere.git", rev = "d82afa17e2cca86da843f07a2d718d2e69eb9f10", features = ["redb"] }
+sceno = { git = "https://github.com/merely-made/mere.git", rev = "d82afa17e2cca86da843f07a2d718d2e69eb9f10" }
+scenomise = { git = "https://github.com/merely-made/mere.git", rev = "d82afa17e2cca86da843f07a2d718d2e69eb9f10" }
+seiche = { git = "https://github.com/merely-made/mere.git", rev = "d82afa17e2cca86da843f07a2d718d2e69eb9f10" }
 euclid = "0.22"
 pollster = "0.4"
 thiserror = "2"
@@ -71,8 +82,8 @@ thiserror = "2"
 # consumes; personae/pandect supply the wallet and device id the lease-gated
 # port requires. All Mere crates stay on the one pinned revision above.
 postilion = { version = "0.1.0", path = "../../crates/postilion" }
-personae = { git = "https://github.com/merely-made/mere.git", rev = "1443420b27f3b6b43bf20fbde0094c578aa33021" }
-pandect = { git = "https://github.com/merely-made/mere.git", rev = "1443420b27f3b6b43bf20fbde0094c578aa33021" }
+personae = { git = "https://github.com/merely-made/mere.git", rev = "d82afa17e2cca86da843f07a2d718d2e69eb9f10" }
+pandect = { git = "https://github.com/merely-made/mere.git", rev = "d82afa17e2cca86da843f07a2d718d2e69eb9f10" }
 serde_json = "1"
 tokio = { version = "1", features = ["rt", "time"] }
 
@@ -95,8 +106,18 @@ getrandom = "0.3"
 # 30 through this fork (see genet's own [patch.crates-io] note). Pinned to the
 # exact revision genet's lock resolves, so both graphs share one wgpu.
 vello = { git = "https://github.com/mark-ik/vello.git", rev = "4354955e9d8637f32b7c78b20af2a58f842ba39e" }
-taffy = { git = "https://github.com/merely-made/genet.git", rev = "5ec8274ed21cecb6066c814e996e9283348de458" }
-ipc-channel = { git = "https://github.com/merely-made/genet.git", rev = "5ec8274ed21cecb6066c814e996e9283348de458" }
+# Genet renamed its vendored Taffy package to `genet-taffy` after the revision
+# this workspace used to pin, so the patch must name the package explicitly
+# while keeping the `taffy` dependency alias Cargo expects.
+taffy = { package = "genet-taffy", version = "=0.14.0", git = "https://github.com/merely-made/genet.git", rev = "115d348deddc344d949754e63beaece47cf49f34" }
+ipc-channel = { git = "https://github.com/merely-made/genet.git", rev = "115d348deddc344d949754e63beaece47cf49f34" }
+# genet-livery is built against Genet's Parley fork: its
+# `AlignmentOptions::last_line_alignment` and `StyleProperty::TabSize` do not
+# exist in published parley 0.10.0, which carries the same version number.
+# Cambium's host reaches genet-livery, so this workspace must restate the
+# patch mere and genet both carry — without it the fork's own source fails to
+# compile against the registry crate.
+parley = { git = "https://github.com/merely-made/genet.git", rev = "115d348deddc344d949754e63beaece47cf49f34" }
 
 # mere-signalman names the Retinue family from an exact Git revision so its
 # manifest works in a clean Mere checkout. Redirect every directly named
