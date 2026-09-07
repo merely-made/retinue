@@ -65,8 +65,8 @@ their gate. `UNKNOWN` means no document states a status — it does not mean ope
 | FT3, FT4, FT5 | Open | [Mesh scaling](2026-08-09_mesh_scaling_and_asymmetric_routing.md) |
 | LE1, LE2, LE4, LE5 | Open, post-deadline | [Listener executive](2026-08-10_listener_executive_and_protocol_leases.md) |
 | LE3 | Partial — LE3a/LE3b complete; unattended scheduler open | [LE3 scan-physics receipt](2026-08-20_le3_t114_scan_physics_receipt.md) |
-| O1 (observations) | Partial: bounded codec/literals tested and ARM/Xtensa library checks pass; host replay remains | [Radio observation plan](2026-09-06_radio_observation_plan.md) |
-| O2–O6 (observations) | Planned; recorder, carriers, view and physical receipts open | Same |
+| O1–O2 (observations) | Complete in software: bounded codec/recorder, literal replay and timeline model; ARM/Xtensa library checks pass | [Radio observation plan](2026-09-06_radio_observation_plan.md) |
+| O3–O6 (observations) | Planned; firmware emission, carriers, durable capture/view and physical receipts open | Same |
 | CM1 | Absorbed into LE2 | [Channel murmuration](2026-08-09_channel_murmuration.md) |
 | CM2–CM5 | Open, sequenced after LE5 | Same, translated into the executive doc |
 | R0–R10 | All closed | [Retinue v0 plan](2026-07-06_retinue_v0_plan.md) |

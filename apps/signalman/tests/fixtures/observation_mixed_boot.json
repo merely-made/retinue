@@ -1,0 +1,62 @@
+{
+  "format": "signalman-observation-fixture-v1",
+  "description": "Independent literal mixed-boot records for one board. Hex includes the O1 wire header, body, and CRC-32/IEEE.",
+  "records": [
+    {
+      "boot": 9,
+      "sequence": 1,
+      "uptime_ms": 100,
+      "kind": "listening_started",
+      "assignment": 7,
+      "profile": 2,
+      "hex": "4f0100002500000000000000090000000000000001000000000000006400000702fe9a9cd8"
+    },
+    {
+      "boot": 9,
+      "sequence": 2,
+      "uptime_ms": 130,
+      "kind": "listening_stopped",
+      "assignment": 7,
+      "reason": "completed",
+      "hex": "4f0100002500000000000000090000000000000002000000000000008201000700b276c420"
+    },
+    {
+      "boot": 9,
+      "sequence": 3,
+      "uptime_ms": 200,
+      "kind": "listening_started",
+      "assignment": 7,
+      "profile": 2,
+      "hex": "4f010000250000000000000009000000000000000300000000000000c8000007022b115b04"
+    },
+    {
+      "boot": 9,
+      "sequence": 4,
+      "uptime_ms": 210,
+      "kind": "unknown",
+      "unknown_kind": 200,
+      "hex": "4f010000220000000000000009000000000000000400000000000000d2c8bb5008b7"
+    },
+    {
+      "boot": 10,
+      "sequence": 1,
+      "uptime_ms": 0,
+      "kind": "sleep_started",
+      "hex": "4f01000022000000000000000a0000000000000001000000000000000009e8924b2a"
+    },
+    {
+      "boot": 10,
+      "sequence": 2,
+      "uptime_ms": 5,
+      "kind": "sleep_stopped",
+      "wake": "timer",
+      "hex": "4f01000023000000000000000a000000000000000200000000000000050a00d3d95878"
+    }
+  ],
+  "expected": {
+    "complete_listening_ms": 30,
+    "incomplete_listening": { "boot": 9, "start_ms": 200, "edge_ms": 210 },
+    "complete_sleep_ms": 5,
+    "unknown_point_preserved": true
+  }
+}

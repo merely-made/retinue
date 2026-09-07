@@ -10,6 +10,8 @@
 //! The checksum detects corruption; it does not authenticate a board or carrier.
 //! Unknown event kinds use all remaining body bytes as opaque payload.
 
+pub mod recorder;
+
 pub const MAX_RECORD_BYTES: usize = 64;
 pub const UNKNOWN_DATA_MAX: usize = 30;
 const MAGIC: u8 = 0x4f;

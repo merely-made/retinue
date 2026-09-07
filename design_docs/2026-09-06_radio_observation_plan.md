@@ -1,9 +1,11 @@
 # Radio observation and Signalman availability plan
 
-**Status (2026-09-06): O1 partial.** The allocation-free codec and literal wire
-fixtures are implemented and host-tested. Firmware recording, collection,
-Signalman bundle/replay and the availability view remain unimplemented. Existing
-counters and host events are findings, not substitutes for this plan's receipts.
+**Status (2026-09-06): O1 and O2 complete in software.** The allocation-free
+codec, RAM recorder, literal fixtures and Signalman in-memory bundle/replay model
+are implemented and tested. ARM and Xtensa library checks pass. Firmware owner
+emission, USB collection, durable capture/export and the availability view remain
+unimplemented. Existing counters and host events are findings, not substitutes
+for the physical receipts in O3-O6.
 
 ## Purpose
 
@@ -245,6 +247,42 @@ visibly incomplete; property tests or exhaustive small-ring tests show
 recording never exceeds capacity; projections do not infer listening between
 unknown edges.
 
+The implementation keeps the recorder under
+`crates/radio-hand/src/observation/recorder.rs` and the host model in
+`apps/signalman/src/observation.rs`. A drain borrows the recorder, so its retained
+snapshot cannot change during iteration. Its record limit includes the synthetic
+gap, and the returned cursor advances to the last represented event sequence,
+including a gap's final missing sequence. A one-record request can therefore
+make progress without allocating a second ring-sized buffer. The borrow must be
+short-lived by the eventual owner: it must not span an asynchronous USB write.
+
+Replay must match the stop's assignment, work id or cause to its open start.
+An unexplained sequence jump, contradictory occupancy, unknown future event,
+disconnect or restart breaks continuity. Only matched complete intervals enter
+duration totals; incomplete intervals and missing events remain separately
+inspectable. Host receive time is retained without being substituted for a
+missing device timestamp. Equal profile ids in different registries do not
+establish equal radio settings.
+
+The v1 host bundle is currently an in-memory schema, not a disk-format or
+retention implementation. Its constructor accepts one opaque device association,
+collector carrier label, immutable versioned exact-profile definitions and
+caller-selected payload-byte/entry ceilings. It checks metadata before copying
+and admits borrowed wire records before allocating their retained copies. Fields
+are private and exposed read-only; disconnects also consume the capture budget.
+Carrier provenance makes no board-authentication claim. Profile ids absent from
+the supplied registry are refused; a changed registry requires a new bundle.
+Known event kinds with future reason values remain inspectable.
+
+Replay preserves source events, missing ranges and incomplete interval reasons.
+Exact previously retained events are idempotent even when re-read after a boot
+change; unseen backwards events and conflicting sequences are refused. Overlap
+between an overwrite gap and already retained records counts only the still
+missing tail. A capture contradicting the active profile or occupancy breaks its
+interval. Complete duration totals use only matched starts/stops; missing records
+and incomplete intervals are separate counts. Quiet duration retains its cause.
+This proves source-event accounting, not physical reception or remote identity.
+
 ### O3. T114 owner emission and USB drain
 
 Instrument `Executive` at successful hardware transitions and typed refusal
@@ -304,7 +342,7 @@ observation time separately.
 | T114 integration | `crates/radio-hand/src/executive.rs`, `firmware/t114-phy/src/main.rs`, probe/host glue | Emits owner facts; does not change the schema while V4 work is active |
 | V4 integration | `firmware/heltec-v4-phy/src/radio_owner.rs`, `main.rs`, `channels.rs` | Emits owner facts and preserves control/power lifecycle |
 | Carrier | `crates/tulle/src/direct_phy.rs`, `direct_phy_serial.rs`, firmware event constants | Moves bounded bytes; does not interpret intervals or persist them |
-| Signalman model/export | new files under `apps/signalman/src/observation/` and focused tests/fixtures | Adds host time, retention, bundle, reducer; does not alter `postilion::Event` semantics |
+| Signalman model/export | `apps/signalman/src/observation.rs` and focused tests/fixtures; future persistence children | Adds host time, bundle and reducer; retention/export remain future work and do not alter `postilion::Event` semantics |
 | Signalman desktop view | the external `signalman-desktop` workspace after its current path/pin is re-established | Projects the model; no firmware or schema ownership |
 | Survey and placement | its own plan and Signalman consumer files | Imports bundles and GPX; does not rewrite raw observation facts |
 
@@ -398,3 +436,19 @@ that is not a prerequisite for the codec or offline fixture replay.
   red on six warnings in unchanged commissioning and position-disclosure code;
   the new modules have no remaining reported warnings. Exact scope is recorded
   in the shared work-lane progress receipt.
+- **2026-09-06, recording and replay:** O1/O2 software acceptance completed.
+  Terra implemented the borrowed RAM recorder; Luna supplied the independent
+  mixed-boot literal fixture; the coordinator implemented and reviewed the
+  bounded Signalman bundle/reducer and consumer tests. Nine recorder tests cover
+  empty/zero-capacity rings, every cursor and page limit through repeated wraps
+  at capacities one through three, explicit overflow, monotonic uptime,
+  exhaustion and saturation. Fourteen host tests cover literal replay,
+  recorder-to-wire-to-host pagination, gaps, reboot/disconnect, conflicting
+  occupancy/ids, duplicate and backwards records, admission, future values and
+  summaries. The final combined Signalman/radio-hand run passed 259 tests. Embedded
+  library checks pass for ARM and Xtensa. Firmware images, live radio timing,
+  USB drain cost and journal-write measurements remain O3/O4 receipts.
+  Signalman all-target Clippy passes with `--no-deps -D warnings`. With
+  dependency linting enabled it stops on the same six warnings in unchanged
+  commissioning/portable-first-write and position-disclosure code. Formatting
+  and diff whitespace checks pass; this does not reclassify repository-wide CI.

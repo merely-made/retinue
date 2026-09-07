@@ -107,6 +107,13 @@ The initial codec/model slice performs no durable host capture and no GPX join.
 | Next Terra owner slice | existing V4 owner/control files, followed by separately assigned T114 owner files | One unique owner and existing quiet guard, tested cancellation and recovery; no two agents edit a shared firmware file. |
 | Next Luna consumer slice | Signalman observation replay/export, then survey import/projection files | Consume the settled codec and distinguish uncertainty; a separate desktop owner owns state/views changes and pin checks. |
 
+The next authorized observation slice assigns Terra the new
+`radio-hand/src/observation/recorder.rs` and Luna the new
+`apps/signalman/src/observation.rs`. The coordinator owns module registration,
+recorder-to-host integration tests and these receipts. This completes the
+recording/replay foundations before owner emission; hardware, carrier tags,
+desktop state and Mere persistence remain separately owned integration work.
+
 The two initial implementation slices are independent and radio-free. The wall
 node hardware work waits for a single assigned bench coordinator and verified
 board/image custody, not for the entire scheduler or survey roadmap. Physical
@@ -142,6 +149,20 @@ No board mutation is part of the first software foundation receipt.
   both new plans passed. The historical failing repository-wide CI is not
   reclassified by these focused results. No firmware, flash or radio receipt
   was produced; Mere's concurrent changes were left untouched.
+- **2026-09-06, recording/replay continuation:** O1/O2 observation software
+  gates complete. Terra owns the RAM recorder, Luna the independent mixed-boot
+  literal fixture, and the coordinator the Signalman host model and integration.
+  The recorder's borrowed bounded drain counts gaps against page limits; host
+  replay preserves uncertainty and counts only complete matched intervals.
+  `cargo test -p signalman -p radio-hand --features radio-hand/control-retinue
+  --locked --offline -j2 --target-dir C:\t\retinue-20260906-observation-flow
+  --quiet` passed **259 tests**, including nine recorder tests and fourteen
+  host observation tests. ARM/Xtensa no-default-feature library checks pass
+  using the earlier foundations target directory. The host bundle is in-memory:
+  firmware emission, collection, durable storage and desktop presentation are
+  still separate work. No dependency, firmware or Mere files changed.
+  Signalman all-target Clippy passes with `--no-deps -D warnings`; dependency
+  linting remains red on the six pre-existing control warnings recorded above.
 
 ## Plan audit
 
