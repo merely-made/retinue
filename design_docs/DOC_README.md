@@ -68,7 +68,7 @@ their gate. `UNKNOWN` means no document states a status — it does not mean ope
 | LE3 | Partial — LE3a/LE3b complete; unattended scheduler open | [LE3 scan-physics receipt](2026-08-20_le3_t114_scan_physics_receipt.md) |
 | O1–O2 (observations) | Complete in software: bounded codec/recorder, literal replay and timeline model; ARM/Xtensa library checks pass | [Radio observation plan](2026-09-06_radio_observation_plan.md) |
 | O3–O6 (observations) | Planned; firmware emission, carriers, durable capture/view and physical receipts open | Same |
-| PN0–PN8 (magnetic pocket node) | Active preparation; stack contracts reconciled, iOS probe builds and simulator receipt checked; phone install awaits NFC provisioning; every PN gate remains open | [Magnetic pocket-node plan](2026-09-07_magnetic_pocket_node_plan.md) |
+| PN0–PN8 (magnetic pocket node) | Active preparation; iOS probe builds and simulator receipt checked; NFC profile created, phone install awaits M4 signing-key access; every PN gate remains open | [Magnetic pocket-node plan](2026-09-07_magnetic_pocket_node_plan.md) |
 | HW0–HW8 (hardware family) | Planned; logical platform boundary and product priority are ruled, while every code and physical gate remains open | [Hardware-family plan](2026-09-07_radio_hand_hardware_family_plan.md) |
 | CM1 | Absorbed into LE2 | [Channel murmuration](2026-08-09_channel_murmuration.md) |
 | CM2–CM5 | Open, sequenced after LE5 | Same, translated into the executive doc |

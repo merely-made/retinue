@@ -5,7 +5,8 @@
 PN0 through PN8 remain open. The stack review fixes the contract owners and the
 first phone probe targets the owner's M4 and iPhone. Unsigned device and
 simulator builds pass; simulator launch and local receipt retention are checked.
-Physical installation awaits an NFC-enabled provisioning profile. A platform
+Physical installation awaits signing-key access on the M4; the NFC-enabled
+provisioning profile has been created. A platform
 scan probe is not an authenticated dock, pocket-node firmware, magnetic charging
 receipt, or qualified enclosure.
 
@@ -378,6 +379,16 @@ position. Record case, orientation, lock/unlock, already-attached app launch,
 session timeout/cancel, and unavailable reader states. A loose-tag tap is only a
 platform receipt. Android and held-out devices remain required for PN2 closure.
 
+The owner has two Heltec V4s and one T114, with no separate NFC tag confirmed.
+The V4's ESP32-S3 board needs an external NFC device. The T114's nRF52840 has
+NFC-A tag hardware; Heltec's published schematic brings NFC1/NFC2 out as
+P0.09/P0.10 but shows no fitted NFC loop. A suitably tuned external loop and
+firmware could support a separate NFC-A launch probe, after confirming the
+owned board revision. That would not exercise the selected ST25DV ISO15693/I2C
+mailbox. The intended mailbox fixture adds an ST25DV board with an antenna to
+the T114 over I2C, while the V4s can serve as independent RF peers. Neither the
+LoRa antenna nor the Bluetooth antenna substitutes for the NFC loop.
+
 **Done when:** at least one current iPhone and one current Android phone can
 launch, authenticate, exchange every dock stream, lose the session, and resume
 from cursors; a repeated attach/detach block records success rate, useful
@@ -506,6 +517,12 @@ raw RF/power/thermal evidence.
   NFC hardware availability is awaiting the owner; no tag or mailbox was read.
   Source hashes, build logs and simulator evidence are retained locally under
   `validation/results/pocket-nfc-probe-20260907/`, not as physical PN2 evidence.
+- **2026-09-07, signing follow-up:** after the owner configured the account,
+  Xcode created the probe-specific NFC provisioning profile. Code signing now
+  fails with `errSecInternalComponent`; querying the login keychain over SSH
+  returns `User interaction is not allowed`. The owner must unlock/authorize
+  key access locally on the M4. No certificate ACL or keychain security setting
+  was changed by the probe. Physical install and scan remain open.
 
 - **2026-09-07, repository:** `radio-hand::control::ManagementCarrier` currently
   contains USB, BLE, IP, and Reticulum only. NFC therefore requires a real
@@ -541,6 +558,9 @@ raw RF/power/thermal evidence.
 - [WPC Qi transmitter reference designs](https://www.wirelesspowerconsortium.com/media/1rof2nis/qi-v13-ptx-ref-designs.pdf)
 - [WPC Qi2 Magnetic Power Profile announcement](https://www.wirelesspowerconsortium.com/media/w0ha5cbk/qi2-certification-rolls-out-news-release-11132023.pdf)
 - [Nordic nRF52840 product page](https://www.nordicsemi.com/products/nrf52840)
+- [Heltec T114 published schematic](https://resource.heltec.cn/download/Mesh_Node_T114/schematic_diagram.pdf)
+- [Heltec V4 product specification](https://heltec.org/project/wifi-lora-32-v4/)
+- [ST25DV64KC NFC/I2C antenna expansion board](https://www.st.com/en/evaluation-tools/x-nucleo-nfc07a1.html)
 - [TI BQ51050B receiver and battery charger](https://www.ti.com/product/BQ51050B)
 
 ## Progress
@@ -555,6 +575,10 @@ raw RF/power/thermal evidence.
   `~/Code/probes/retinue-pocket-nfc-20260907/pocket-nfc-probe`; the M4's existing
   Retinue checkout is untouched. Physical install/read awaits account/profile
   setup and a test tag. PN1 protocol implementation has not started.
+- **2026-09-07, owner follow-up:** account/profile setup advanced to a
+  signing-key access blocker; recorded the available V4/T114 fixture and the
+  difference between the T114's unpopulated NFC-A antenna path and an ST25DV
+  mailbox fixture. No existing board firmware was changed.
 
 - **2026-09-07:** founded the plan from the owner's decision to pursue an
   autonomous magnetic pocket node in NFC-only and Bluetooth variants, accept
