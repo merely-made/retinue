@@ -38,6 +38,7 @@ gate without its family is ambiguous and has already produced wrong readings.
 | `S0`–`S9` **(Signalman management)** | [Management surface plan](2026-08-15_signalman_management_surface_implementation_plan.md) | Real gates. |
 | `S1`–`S7` **(Linkboy sidequests)** | [Public flashing plan](2026-08-08_linkboy_public_flashing_plan.md) | **Not gates.** Explicitly labelled future-work sidequests, separate from that document's F0–F7 trunk gates. |
 | `WN0`–`WN8` **(wall node)** | [Wall-node management plan](2026-08-30_wall_node_management_plan.md) | Standalone V4, control carriers, safe configuration, image selection, and resident adapter gates. |
+| `HW0`–`HW8` **(hardware family)** | [Hardware-family plan](2026-09-07_radio_hand_hardware_family_plan.md) | `radio-hand` platform admission, powered-edge and solar nodes, multi-radio ownership, autonomous power, and follow-on hardware gates. |
 
 ## Gate index
 
@@ -68,6 +69,7 @@ their gate. `UNKNOWN` means no document states a status — it does not mean ope
 | O1–O2 (observations) | Complete in software: bounded codec/recorder, literal replay and timeline model; ARM/Xtensa library checks pass | [Radio observation plan](2026-09-06_radio_observation_plan.md) |
 | O3–O6 (observations) | Planned; firmware emission, carriers, durable capture/view and physical receipts open | Same |
 | PN0–PN8 (magnetic pocket node) | Planned; two product profiles and their ownership are ruled, while every implementation and physical gate remains open | [Magnetic pocket-node plan](2026-09-07_magnetic_pocket_node_plan.md) |
+| HW0–HW8 (hardware family) | Planned; logical platform boundary and product priority are ruled, while every code and physical gate remains open | [Hardware-family plan](2026-09-07_radio_hand_hardware_family_plan.md) |
 | CM1 | Absorbed into LE2 | [Channel murmuration](2026-08-09_channel_murmuration.md) |
 | CM2–CM5 | Open, sequenced after LE5 | Same, translated into the executive doc |
 | R0–R10 | All closed | [Retinue v0 plan](2026-07-06_retinue_v0_plan.md) |
@@ -264,6 +266,7 @@ supplying data-graph and identity crates.
 | [Retinue Small plan](2026-07-31_retinue_small_plan.md) | Native-node authority. N0–N6; unplug leg and current figures open. |
 | [Wall-node management plan](2026-08-30_wall_node_management_plan.md) | WN0–WN8. Active authority for the standalone V4, management carriers, safe configuration, board capability classes, and later resident adapter control. |
 | [Magnetic pocket-node plan](2026-09-07_magnetic_pocket_node_plan.md) | PN0–PN8. Autonomous NFC-only and optional-Bluetooth phone-attached nodes, receiver-only charging trunk, RF mechanics, and conditional phone-charging bridge. |
+| [Hardware-family plan](2026-09-07_radio_hand_hardware_family_plan.md) | HW0–HW8. `radio-hand` platform admission, powered-edge and solar nodes, energy-aware work, multi-radio ownership, adjacent bearer/protocol admission, and exact-SKU qualification. |
 | [On-device UI plan](2026-07-28_on_device_ui_implementation_plan.md) | U0–U5, all closed. |
 | [On-device UI direction](2026-07-25_on_device_ui.md) | PANEL×LEDGER face, accepted direction. |
 | [Mesh household](2026-07-20_mesh_household_tulle_tucket_sennet.md) | Crate topology and naming authority. **Its "no code exists yet" status line is false** — all three crates exist. |
@@ -356,7 +359,7 @@ their filenames says so — see the `result` column.
 | --- | --- |
 | [Smolweb over Reticulum](2026-08-04_smolweb_over_reticulum_plan.md) | Independent application bridge. Not started; R-A/R-B/R-C serial. |
 | [Civic deployment](2026-08-11_civic_deployment_prescribed_paths.md) | CV1–CV7, D1–D5. Phase two, post-deadline. |
-| [IoT device concepts](2026-08-13_iot_device_concepts.md) | Brainstorm record. |
+| [IoT device concepts](2026-08-13_iot_device_concepts.md) | Application-concept brainstorm; its ARDC-first hardware sequencing is superseded by the hardware-family plan. |
 | [Lofi voice codec scoping](2026-08-13_lofi_voice_codec_scoping.md) · [Rung 2 codec2 decision](2026-08-13_rung2_codec2_class_decision.md) | Pipit founding and codec choice. |
 | [Hopspot demo receipts](2026-08-11_hopspot_v4_com7_demo_receipt.md) · [Meshtastic T114 UF2 demo](2026-08-11_meshtastic_t114_uf2_demo_receipt.md) | Phone-app BLE demos. **Not Retinue capability claims.** |
 
@@ -520,6 +523,15 @@ carrier lifetime never owns Retinue routing. Magnetic attachment, wireless
 power, NFC, and Bluetooth are separately measured capabilities. A charging
 interval with RF or thermal derating is reported explicitly rather than folded
 into ordinary availability.
+
+### Hardware support is a measured capability set
+
+A board name, chip data sheet, compile target, or populated connector does not
+establish `radio-hand` support. The manifest exposes only the clock, durable
+store, recovery, power, radio-port, collision-domain, and bearer capabilities
+earned by that exact hardware and firmware profile. The board owner reports
+physical power and radio transitions; policy code may request or refuse work
+but cannot claim that a rail, antenna path, or receiver changed state.
 
 ### Build notes
 

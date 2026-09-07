@@ -1,11 +1,12 @@
 # IoT device concepts
 
 **Date:** 2026-08-13
-**Status:** Direction note from a brainstorm session. Creates no gates and no
-lane; the [program sequencing doc](2026-08-12_program_sequencing_and_deadline_order.md)
-still orders everything against the 2026-09-01 ARDC intake. This records which
-device concepts the stack uniquely enables, Mark's weightings, and where each
-concept would slot once work opens.
+**Status (updated 2026-09-07):** direction note from a brainstorm session.
+Creates no gates and no lane. Its ARDC-first sequencing aged out when that
+intake was deliberately passed; the
+[hardware-family plan](2026-09-07_radio_hand_hardware_family_plan.md) now owns
+physical platform and product ordering. This note retains the application
+concepts, Mark's weightings, and their original context.
 
 ## The thesis
 
@@ -101,7 +102,7 @@ smolweb framing:
   renderable, but the phone's browser doesn't speak them. The answer is the
   knot: the beacon's content is authored as a djot knot in which gemtext,
   gopher, and feed blocks embed in their idiomatic spec-faithful form
-  (per the [polyglot knot design](../../genet/design_docs/nematic_docs/implementation_strategy/2026-05-08_polyglot_knot_design.md)),
+  (per the [polyglot knot design](../../mere/design_docs/nematic_docs/implementation_strategy/2026-05-08_polyglot_knot_design.md)),
   and the beacon serves a **projection** of it: plain HTML for Safari/Chrome,
   raw `text/vnd.knot` for a Mere-aware client that wants the real container.
   "Read gemtext even in Safari" is exactly the HTML projection of a knot
@@ -149,8 +150,10 @@ waterer). Takes enumerated in session:
 
 ## Sequencing
 
-Nothing here opens before the ARDC application ships. Natural first artifacts
-afterward, in rough order of leverage:
+**Historical 2026-08-13 ordering, superseded for hardware by the
+[hardware-family plan](2026-09-07_radio_hand_hardware_family_plan.md).** The
+original ARDC constraint no longer applies. The application artifacts were
+ranked in this rough order of leverage:
 
 1. **Sensor-personality design doc** consuming DIST6 and civic measurement
    machinery (unlocks concepts 5, 3, and the clock face of 1).
