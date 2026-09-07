@@ -166,6 +166,13 @@ native Mere operation should use tinySSB as its authoritative log.
 
 ## LC family: ULCP extraction
 
+The [magnetic pocket-node plan](2026-09-07_magnetic_pocket_node_plan.md) consumes
+LC0 and AT0 through PN1. Its mailbox fragments do not independently freeze a
+second command/property/stream protocol. PN1 adds bounded snapshots, durable
+message acceptance, and phone/board storage proofs while these families retain
+local framing and secure-attachment ownership. Its read-only iPhone platform
+probe does not advance LC0 or AT0.
+
 ### LC0. Decide exact wire versus donor shape
 
 Before changing firmware, compare the current direct-PHY USB grammar with the

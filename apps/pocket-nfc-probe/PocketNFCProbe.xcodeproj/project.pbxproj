@@ -1,0 +1,50 @@
+// !$*UTF8*$!
+{
+ archiveVersion = 1;
+ classes = {};
+ objectVersion = 56;
+ objects = {
+  A00000000000000000000001 = {isa = PBXBuildFile; fileRef = A00000000000000000000002; };
+  A00000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProbeApp.swift; sourceTree = "<group>"; };
+  A00000000000000000000003 = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+  A00000000000000000000004 = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Probe.entitlements; sourceTree = "<group>"; };
+  A00000000000000000000005 = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PocketNFCProbe.app; sourceTree = BUILT_PRODUCTS_DIR; };
+  A00000000000000000000006 = {isa = PBXGroup; children = (A00000000000000000000002, A00000000000000000000003, A00000000000000000000004, A00000000000000000000007); sourceTree = "<group>"; };
+  A00000000000000000000007 = {isa = PBXGroup; children = (A00000000000000000000005); name = Products; sourceTree = "<group>"; };
+  A00000000000000000000008 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A00000000000000000000001); runOnlyForDeploymentPostprocessing = 0; };
+  A00000000000000000000009 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+  A0000000000000000000000A = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+  A0000000000000000000000B = {
+   isa = PBXNativeTarget;
+   buildConfigurationList = A00000000000000000000010;
+   buildPhases = (A00000000000000000000008, A00000000000000000000009, A0000000000000000000000A);
+   buildRules = ();
+   dependencies = ();
+   name = PocketNFCProbe;
+   productName = PocketNFCProbe;
+   productReference = A00000000000000000000005;
+   productType = "com.apple.product-type.application";
+  };
+  A0000000000000000000000C = {
+   isa = PBXProject;
+   attributes = {BuildIndependentTargetsInParallel = YES; LastUpgradeCheck = 2660; TargetAttributes = {A0000000000000000000000B = {CreatedOnToolsVersion = 26.6; SystemCapabilities = {com.apple.NearFieldCommunicationTagReading = {enabled = 1;};};};};};
+   buildConfigurationList = A0000000000000000000000F;
+   compatibilityVersion = "Xcode 14.0";
+   developmentRegion = en;
+   hasScannedForEncodings = 0;
+   knownRegions = (en, Base);
+   mainGroup = A00000000000000000000006;
+   productRefGroup = A00000000000000000000007;
+   projectDirPath = "";
+   projectRoot = "";
+   targets = (A0000000000000000000000B);
+  };
+  A0000000000000000000000D = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SWIFT_VERSION = 5.0; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; DEBUG_INFORMATION_FORMAT = dwarf;}; name = Debug;};
+  A0000000000000000000000E = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SWIFT_VERSION = 5.0; SWIFT_OPTIMIZATION_LEVEL = "-O"; DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";}; name = Release;};
+  A0000000000000000000000F = {isa = XCConfigurationList; buildConfigurations = (A0000000000000000000000D, A0000000000000000000000E); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;};
+  A00000000000000000000010 = {isa = XCConfigurationList; buildConfigurations = (A00000000000000000000011, A00000000000000000000012); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;};
+  A00000000000000000000011 = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_ENTITLEMENTS = Probe.entitlements; CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = Info.plist; PRODUCT_BUNDLE_IDENTIFIER = made.merely.retinue.pocket-nfc-probe; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; TARGETED_DEVICE_FAMILY = 1; SWIFT_EMIT_LOC_STRINGS = NO;}; name = Debug;};
+  A00000000000000000000012 = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_ENTITLEMENTS = Probe.entitlements; CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = Info.plist; PRODUCT_BUNDLE_IDENTIFIER = made.merely.retinue.pocket-nfc-probe; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; TARGETED_DEVICE_FAMILY = 1; SWIFT_EMIT_LOC_STRINGS = NO;}; name = Release;};
+ };
+ rootObject = A0000000000000000000000C;
+}

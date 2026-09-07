@@ -68,7 +68,7 @@ their gate. `UNKNOWN` means no document states a status — it does not mean ope
 | LE3 | Partial — LE3a/LE3b complete; unattended scheduler open | [LE3 scan-physics receipt](2026-08-20_le3_t114_scan_physics_receipt.md) |
 | O1–O2 (observations) | Complete in software: bounded codec/recorder, literal replay and timeline model; ARM/Xtensa library checks pass | [Radio observation plan](2026-09-06_radio_observation_plan.md) |
 | O3–O6 (observations) | Planned; firmware emission, carriers, durable capture/view and physical receipts open | Same |
-| PN0–PN8 (magnetic pocket node) | Planned; two product profiles and their ownership are ruled, while every implementation and physical gate remains open | [Magnetic pocket-node plan](2026-09-07_magnetic_pocket_node_plan.md) |
+| PN0–PN8 (magnetic pocket node) | Active preparation; stack contracts reconciled, iOS probe builds and simulator receipt checked; phone install awaits NFC provisioning; every PN gate remains open | [Magnetic pocket-node plan](2026-09-07_magnetic_pocket_node_plan.md) |
 | HW0–HW8 (hardware family) | Planned; logical platform boundary and product priority are ruled, while every code and physical gate remains open | [Hardware-family plan](2026-09-07_radio_hand_hardware_family_plan.md) |
 | CM1 | Absorbed into LE2 | [Channel murmuration](2026-08-09_channel_murmuration.md) |
 | CM2–CM5 | Open, sequenced after LE5 | Same, translated into the executive doc |
@@ -265,7 +265,7 @@ supplying data-graph and identity crates.
 | --- | --- |
 | [Retinue Small plan](2026-07-31_retinue_small_plan.md) | Native-node authority. N0–N6; unplug leg and current figures open. |
 | [Wall-node management plan](2026-08-30_wall_node_management_plan.md) | WN0–WN8. Active authority for the standalone V4, management carriers, safe configuration, board capability classes, and later resident adapter control. |
-| [Magnetic pocket-node plan](2026-09-07_magnetic_pocket_node_plan.md) | PN0–PN8. Autonomous NFC-only and optional-Bluetooth phone-attached nodes, receiver-only charging trunk, RF mechanics, and conditional phone-charging bridge. |
+| [Magnetic pocket-node plan](2026-09-07_magnetic_pocket_node_plan.md) | PN0–PN8. Autonomous NFC-only and optional-Bluetooth nodes, LC0/AT0 attachment, durable custody, M4/iPhone probe, receiver-only charging, RF mechanics, and conditional phone-charging bridge. |
 | [Hardware-family plan](2026-09-07_radio_hand_hardware_family_plan.md) | HW0–HW8. `radio-hand` platform admission, powered-edge and solar nodes, energy-aware work, multi-radio ownership, adjacent bearer/protocol admission, and exact-SKU qualification. |
 | [On-device UI plan](2026-07-28_on_device_ui_implementation_plan.md) | U0–U5, all closed. |
 | [On-device UI direction](2026-07-25_on_device_ui.md) | PANEL×LEDGER face, accepted direction. |
