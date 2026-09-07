@@ -727,6 +727,143 @@ after the management carrier and current DIST7 foundation meet. WN7 waits for
 the listener executive and foreign exact-wire membership; it does not hold the
 standalone transport node hostage.
 
+### Current smallest-appliance sequence (2026-09-06)
+
+The [2026-09-06 coordination agreement](2026-08-09_retinue_work_lanes.md#coordinated-appliance-listening-and-observation-work-2026-09-06)
+settles shared interruption authority and observation collection before code
+dispatch. The first software assignments are the scheduler decision core and
+observation codec; the hardware-owner slice below follows under one owner.
+
+The useful first appliance is narrower than the full trunk above: finish the
+USB configuration lifecycle, make the V4 a native LoRa transport node, and
+prove that it keeps forwarding after its controller disconnects. WiFi is the
+next slice, not a prerequisite for learning whether the resident node and its
+control authority can coexist safely.
+
+1. **Close the lifecycle in the current USB image.** Add no new operation.
+   Exercise the already implemented `ProvisionalApply`, `Commit`, `Revert`, and
+   on-board expiry paths through the granted Mere controller. Preserve the
+   literal USB, empty-credentials, non-relay feasibility boundary. Keep the
+   board-minted commit token only in protected controller state; record its
+   successful use, change id, outer counter, old and candidate
+   generation, deadline, effective clamped PHY, and final known-good
+   generation. A controller timeout is not an expiry result; status after the
+   deadline must show the rollback.
+2. **Make interruption one executive-owned lifecycle.** `radio-hand` owns an
+   interruption request with a reason (`configuration`, later `lease`, or
+   `sleep`), preflight, stop-and-drain, guarded work, RX restoration, and either
+   `Resumed` or `ResetRequired`. Configuration continues to use the existing
+   borrow-scoped `QuietWindow`. Native-node assembly must not add another flash
+   guard or stop path. Lease handoff and sleep later enter through the same
+   owner, but do not block this appliance slice.
+3. **Assemble the resident V4 node without WiFi.** Enable the allocator and
+   `retinue` allocation feature only for a named native-node build; construct
+   the bounded `Node<32, 8, 4>` and transit policy from the persisted identity;
+   reserve the announce timebase before radio activation; and reuse
+   `radio_hand::channel::node::NodeChannel`. Keep modem and RNode as explicit
+   recovery personalities. The V4 loop remains the radio owner and dispatches
+   node actions through its existing SX1262 path.
+4. **Prove controller-independent forwarding.** Use three parties: an RNS
+   1.5.2 source, the V4 relay, and an RNS 1.5.2 destination over direct PHY.
+   Learn the route, disconnect the controller process and USB data connection,
+   power-cycle the relay, relearn, and exchange a payload in each direction.
+   Record forwarded announce/packet counters, allocator peak, queue refusals,
+   announce reservation, image provenance, board identity, and RF parameters.
+5. **Add WiFi afterward.** Begin WN3 with configured TCP only after the native
+   LoRa receipt passes. Credential sealing, network lifecycle, IP management,
+   and Auto discovery remain separate later slices.
+
+This order deliberately challenges `WN0 -> WN1 -> WN2 -> WN3` as a strict
+closure chain. WN0's target fixture receipt and the remaining WN1 carriers are
+real debts, but neither is required to integrate and test the existing frozen
+contract and USB lifecycle. WN3 is also unnecessary for the first unattended
+forwarding proof. The dependencies that do bind are durable identity before
+node construction, announce reservation before emission, one radio owner
+before native dispatch, and a completed or reset-pending quiet transition
+before RX resumes.
+
+#### First implementation ownership
+
+| Owner | Files and seams | Bounded responsibility |
+| --- | --- | --- |
+| Durable control | `crates/radio-hand/src/control/runtime.rs`, `control/durable/**`, and existing focused tests | Preserve apply/commit/revert/expiry semantics and expose the lifecycle facts needed by the physical receipt. Do not add a second journal. |
+| Shared radio owner | `crates/radio-hand/src/executive.rs`, `channel/node.rs`, and the smallest new interruption seam beside them | Make configuration interruption and native dispatch share one stop/drain/resume/reset authority. Lease and sleep reasons may be represented, but their schedulers remain outside this slice. |
+| V4 assembly | `firmware/heltec-v4-phy/Cargo.toml`, `src/main.rs`, `src/radio_owner.rs`, `src/control_boot.rs`, `src/control_carrier.rs`, and `src/store.rs` | Add the named native-node build, allocator budget, node construction, announce reservation storage, loop dispatch, and bounded diagnostics while preserving recovery modes. |
+| Protocol core | `crates/retinue/src/node.rs` only if integration exposes a real missing bounded API | Reuse the existing node and transit behavior. Do not move board scheduling, persistence, or interruption policy into `retinue`. |
+| Host acceptance | existing Postilion/Signalman controller clients and a bounded receipt harness | Drive the granted-key lifecycle and collect exact results. Routine telemetry must not be implemented as frequent signed `Status` polling. |
+
+The next wall-node-specific hardware-free Terra slice is the shared interruption seam plus a host
+model that drives native-node work, requests configuration quiet, proves that
+no radio action escapes while guarded storage/application runs, and proves
+exactly one RX restoration or `ResetRequired` on every exit and cancellation
+point. It can also add the V4 native build feature and compile-only node
+assembly behind mock board I/O. It must not change durable bytes, control wire
+bytes, or the T114 loop. This isolates the main concurrency risk before a board
+is flashed.
+
+#### Exact physical acceptance procedure
+
+Use the commissioned V4 identified by USB parent/container identity, and build
+from a clean named commit with the merged-image length, SHA-256, flash range,
+preserved commissioned range, tool versions, region, PHY, antenna, supply, and
+the identities of all three Reticulum parties recorded before the run.
+
+1. Read verified status with the granted Mere controller and save the outer
+   counter, known-good generation, effective generation, and blank/armed state.
+2. Apply a visibly different but legal public PHY configuration with a fresh
+   change id and a 60-second lifetime. Retain the returned commit token in
+   protected controller state, omit it from public receipts, and prove
+   by board status/diagnostics that the effective clamped PHY is active.
+3. Commit with that token before the deadline. Power-remove USB and board power,
+   reapply power without either button, and prove verified status reports the
+   committed generation as known-good with no provisional candidate. Replay
+   the pre-cut counter and require silence; then restore the controller record
+   and require the next fresh counter to succeed.
+4. Apply a second legal candidate and explicitly revert it. Require the prior
+   known-good PHY and generation after reboot. Apply a third candidate for 10
+   seconds, disconnect the controller, wait past the board-monotonic deadline,
+   and require the same rollback without sending any frame during the wait.
+5. Select the native-node image/personality, power-cycle, and leave the
+   controller process and USB data connection absent. Through direct PHY,
+   source and destination must establish a three-party path through the V4 and
+   exchange one payload in each direction. Repeat after a second power cycle.
+   Establish a relay-absent negative control first: the source and destination
+   must not complete the same exchange through a direct RF path or another
+   transport. Record the chosen next hop and independent forwarded-frame
+   evidence. Three devices present on the bench do not alone prove transit.
+6. Reconnect only for final collection. Save node/route diagnostics, forwarded
+   announce and packet counts, allocator current/peak, queue refusal counts,
+   reset reason, announce reservation, and the final verified control state.
+   Enter modem and RNode recovery once each and return to native mode, proving
+   the appliance addition did not strand either recovery personality.
+
+The lifecycle half is done only when commit, explicit revert, autonomous
+expiry, replay refusal across power loss, and effective-PHY evidence all appear
+in one provenance-bound receipt. The native half is done only when both payload
+directions traverse the V4 after the controller is absent and again after
+reboot, with bounded-memory and refusal figures recorded. A host-model test,
+successful announce, or two-party exchange does not satisfy either half.
+
+#### Decisions still required
+
+- Choose the V4 heap size from a measured high-water run and retain a fixed
+  refusal boundary; do not inherit the T114 number by analogy.
+- The first native-node build may consume the existing node selection for
+  compatibility, but must not add a new durable per-protocol personality
+  scheme. Image capability selection and resident adapter policy retain their
+  distinct WN6/WN7 owners. The receipt must name the actual build/selection.
+- Decide which public diagnostics are available without a signed status write.
+  Today every accepted signed `Status` advances and flash-journals its outer
+  counter inside a radio quiet window. Dashboard polling would therefore spend
+  flash endurance and listening time. Prefer volatile observation streaming or
+  a bounded snapshot read whose freshness does not consume the durable command
+  counter; keep signed journaled status for authority-sensitive inspection.
+- Define the reset boundary when expiry fires while transmit, receive, or a
+  later lease transition is active. The single-owner rule is fixed; whether a
+  specific driver failure can resume or must reset remains target evidence.
+- Decide the direct-PHY three-party fixture and held-out payload before the
+  flash so the acceptance run cannot be tuned to the observed result.
+
 ## Findings
 
 - **2026-08-30:** `crates/retinue/src/command.rs` already owns the

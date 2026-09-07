@@ -22,6 +22,127 @@ The split is four engineering lanes: **Peer**, **Air**, **Assurance**, and
 below. Work inside each lane stays serial where it touches the same state or
 where one receipt is a real precondition for the next.
 
+## Coordinated appliance, listening, and observation work (2026-09-06)
+
+The owner requested three Sol planning passes followed by implementation split
+by code ownership, plus a separate Signalman survey/placement plan. Those passes
+are complete. This section is the current coordination agreement for these
+specific slices; historical deadline ordering below does not gate them. The
+canonical document/status index remains `DOC_README.md`.
+
+- [Wall node](2026-08-30_wall_node_management_plan.md): finish the granted-key
+  USB lifecycle receipt, then V4 native LoRa forwarding without its controller;
+  WiFi follows that appliance slice.
+- [Listener executive](2026-08-10_listener_executive_and_protocol_leases.md):
+  static assignments and bounded leases, then a two-listener experiment and
+  peer disappearance. The first model needs no board or new protocol adapter.
+- [Observations](2026-09-06_radio_observation_plan.md): one bounded vocabulary,
+  collection without durable status writes, and an availability timeline.
+- [Survey and placement](2026-09-06_signalman_survey_and_placement_plan.md):
+  saved GPX/capture imports, scenario comparison, terrain estimates and ranked
+  placements. Import work need not wait for firmware or GNSS completion.
+
+### Shared decisions settled before implementation
+
+**Interruption authority.** The board's unique radio owner authorizes stops,
+profile changes, storage quiet windows and sleep. A pure scheduler recommends
+the next obligation; it never asserts that hardware has stopped or resumed.
+Keep the existing borrow-scoped `QuietWindow`; do not add a parallel guard or
+move flash authority to the scheduler. Collect a completed RX before changing
+state; an in-flight TX finishes. At the next safe boundary, due recovery or
+configuration expiry precedes new talk; restore required listening before
+optional work. Any cancellation after hardware stop, uncertain apply, or
+failed restore keeps the existing reset-required behavior. The lease model
+must distinguish a requested restore from a hardware-confirmed listening state.
+Sleep while responsible for required coverage is refused unless that exact
+profile has a proven wake/listen guarantee or explicit alternative coverage.
+
+**Coverage admission.** Initial assignments and permitted peers are caller-
+supplied, locally admitted policy; a future carrier must authenticate those
+inputs before using them. Peer cover is a promise with a monotonic expiry,
+not measured reception. One explicitly designated keeper per delegated profile
+prevents symmetric boards both granting themselves an absence. A new lease
+must fit the locally configured maximum and the peer cover through its deadline
+plus restoration margin. Expiry invalidates cover immediately. Hysteresis
+may delay re-admitting recovered cover, never extend an expired promise. Loss
+during a lease forbids another TX grant and asks the owner to restore at the
+next frame boundary. A host model cannot promise zero loss before disappearance
+is detected or assert a real return-to-listen deadline.
+
+**Observation vocabulary.** Adopt owner-emitted listening, RX, TX, refusal,
+quiet, sleep and explicit loss records. Metadata-only v1 has no packet body or
+traffic digest; an optional opaque capture tag has meaning only in its source
+session. Registry ids identify exact profiles, not protocol names. Unknown
+event/reason values stay inspectable. Use `u64` boot identity, sequence and
+uptime milliseconds; sequence starts at one and never wraps. Exhaustion stops
+recording with an explicit error rather than reusing an identity. A board must
+supply a nonzero fresh boot token; entropy failure disables this observation
+session visibly and does not stop the radio or fall back to a shared zero id.
+Firmware generation of the token remains a later integration receipt.
+
+**Collection and evidence.** Use fixed-capacity RAM and a bounded, read-only
+cursor drain. Collection must cause zero flash journal writes and zero quiet
+entries. Overwrite loss is explicit cursor metadata or a synthetic gap; it
+must not consume a real event's sequence number. Attached USB is labelled
+local-carrier evidence, never board authentication. Remote collection needs
+its own authentication/authorization decision. Host receipt time and clock
+mapping stay separate from board time; GPX correlation is refused outside a
+declared uncertainty/gap bound. Missing reverse capture is not a one-way-link
+proof. Missing logs are not radio silence.
+
+**Observation causes and retention.** Keep compact causes for configuration,
+settings, announce reservation, recovery, profile transition and power;
+unrecognized future codes remain raw. Durable host capture is explicitly
+started; proposed first settings are 64 MiB and seven days, both editable and
+saved with the capture. These settings do not authorize publishing positions.
+The initial codec/model slice performs no durable host capture and no GPX join.
+
+### Implementation ownership and acceptance
+
+| Assignment | Exclusive write ownership | Receipt and stop line |
+| --- | --- | --- |
+| Terra: scheduler foundation | new `crates/radio-hand/src/scheduler.rs` and its test files | Allocation-free decisions with caller time, static required profiles, designated peer cover, bounded lease admission and restore acknowledgement. Synthetic fault/time traces; no async hardware, new guard, firmware edit, or RF claim. |
+| Luna: observation foundation | new `crates/radio-hand/src/observation.rs` and its test/fixture files | Explicit bounded codec, unknown preservation and literal wire fixtures. No firmware emission, ring, USB transport, flash, dependency changes or declaration that O1 is fully closed. |
+| Coordinator | `radio-hand/src/lib.rs`, all shared plans/index, reconciliation and final focused checks | Register modules once, review their invariants, record exact scope and outstanding consumers. |
+| Next Terra owner slice | existing V4 owner/control files, followed by separately assigned T114 owner files | One unique owner and existing quiet guard, tested cancellation and recovery; no two agents edit a shared firmware file. |
+| Next Luna consumer slice | Signalman observation replay/export, then survey import/projection files | Consume the settled codec and distinguish uncertainty; a separate desktop owner owns state/views changes and pin checks. |
+
+The two initial implementation slices are independent and radio-free. The wall
+node hardware work waits for a single assigned bench coordinator and verified
+board/image custody, not for the entire scheduler or survey roadmap. Physical
+work records the board parent identity, image/source hashes, preserved ranges,
+carrier and controller role, exact commands and independent payload evidence.
+No board mutation is part of the first software foundation receipt.
+
+### Progress
+
+- **2026-09-06:** three Sol planning passes completed and their shared decisions
+  reconciled here. Separate survey/placement plan added. Terra scheduler and
+  Luna codec foundations dispatched; all hardware and product gates remain open.
+- **2026-09-06, software foundations:** Terra's allocation-free scheduler and
+  Luna's bounded observation codec are implemented, reviewed and exported from
+  `radio-hand`. Review fixed reciprocal sole-keeper admission, restore timing,
+  sticky withdrawal, late completion, and unknown-event payload framing. The
+  independent owner plans record the remaining consumers and gates.
+  `cargo test -p radio-hand --features control-retinue --locked --offline -j1
+  --target-dir C:\t\retinue-20260906-foundations --quiet` passed **212 tests**:
+  160 library tests and 52 integration tests, with no ignored tests and no
+  doctest cases. This includes ten scheduler scenarios and nine codec tests.
+  Python `struct`/`zlib` independently matched all eleven initial event literals.
+  After review, `radio-hand --lib --no-default-features` also passed checks for
+  `thumbv7em-none-eabihf` and, with `+esp -Zbuild-std=core`,
+  `xtensa-esp32s3-none-elf`, using the same locked offline target directory.
+  These are library compilation receipts, not full firmware images.
+  The focused `cargo clippy -p radio-hand --lib --features control-retinue`
+  check with `-D warnings` remains red on six warnings in unchanged files:
+  three large-enum warnings in durable commissioning/portable-first-write
+  models, and three loop/conditional warnings in position disclosure. The
+  four warnings initially found in the new modules were corrected.
+  Explicit-file rustfmt checks, `git diff --check`, and local-link checks of
+  both new plans passed. The historical failing repository-wide CI is not
+  reclassified by these focused results. No firmware, flash or radio receipt
+  was produced; Mere's concurrent changes were left untouched.
+
 ## Plan audit
 
 Live code and current receipts outrank an older plan's status paragraph. The

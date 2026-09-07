@@ -22,6 +22,9 @@
    found roughly twenty-five of the work-lane document's asserted dependencies
    unsupported. The work-lane document's own Plan audit table has no row for
    this one; read it anyway.
+5. [Current appliance, listening and observation coordination](2026-08-09_retinue_work_lanes.md#coordinated-appliance-listening-and-observation-work-2026-09-06)
+   — 2026-09-06 owner-requested planning and implementation split; current
+   authority for these bounded slices, shared lifecycle and collection rules.
 
 ## Read this before citing any gate
 
@@ -62,6 +65,8 @@ their gate. `UNKNOWN` means no document states a status — it does not mean ope
 | FT3, FT4, FT5 | Open | [Mesh scaling](2026-08-09_mesh_scaling_and_asymmetric_routing.md) |
 | LE1, LE2, LE4, LE5 | Open, post-deadline | [Listener executive](2026-08-10_listener_executive_and_protocol_leases.md) |
 | LE3 | Partial — LE3a/LE3b complete; unattended scheduler open | [LE3 scan-physics receipt](2026-08-20_le3_t114_scan_physics_receipt.md) |
+| O1 (observations) | Partial: bounded codec/literals tested and ARM/Xtensa library checks pass; host replay remains | [Radio observation plan](2026-09-06_radio_observation_plan.md) |
+| O2–O6 (observations) | Planned; recorder, carriers, view and physical receipts open | Same |
 | CM1 | Absorbed into LE2 | [Channel murmuration](2026-08-09_channel_murmuration.md) |
 | CM2–CM5 | Open, sequenced after LE5 | Same, translated into the executive doc |
 | R0–R10 | All closed | [Retinue v0 plan](2026-07-06_retinue_v0_plan.md) |
@@ -113,6 +118,7 @@ their gate. `UNKNOWN` means no document states a status — it does not mean ope
 | S4 | Partial — process boundary closed, not a headed serial-radio receipt | Same |
 | S5 | Partial — file-backed and host-audio rungs done; headed two-site audible run remains | Same |
 | S6–S9 | UNKNOWN — defined, never statused | Same |
+| SP0–SP5 (survey and placement) | Planned; imports precede terrain and temporal coverage | [Survey and placement plan](2026-09-06_signalman_survey_and_placement_plan.md) |
 | WN0 | **Partial** — deliberately revised to `RHC0` v2 with `transaction_sequence` before shipment; host and source-level target consumers exist, but target execution is unreceipted | [Wall-node management plan](2026-08-30_wall_node_management_plan.md) |
 | WN1 | **Partial** — portable durable authority, the pre-radio V4 USB first-write slice, and host `Inspect`/`Claim`/`Resume`/`Abandon` controller exist. The 2026-09-02 physical package was built from `0cbf558c76db52b57794138b82e2c9e088a32f0c`; the 5,918,136-byte release ELF hashes to `6df78fffa2adc006dcdb638b14ce3ebdb5a0e27b64bc447f80eff44a6d944894`, and the official `espflash` merged image is 390,544 bytes ending `0x05F590`, hash `c6244c9d25eb74a0ca0f2a347edfaa4f4f568e230d8d8374f3921d65709dbcab`. Guarded writes covered `0x0..0x3F0000` and preserved `0x3F0000..0x400000`; Linkboy completed COM6 on parent `USB\\VID_303A&PID_1001\\44:1B:F6:6A:FB:28` as Heltec V4 `0.0.1`, US915 modem. Host tests passed for `radio-hand` (2), `postilion` (2), and Signalman (1); the locked Xtensa check was green with two pre-existing warnings. The baseline nonce-bound read was exactly `auth=diagnostic-only transport=modem-only node=a4dbb760a85b3a2e38cb54c62ec6d4df control=valid pending=blank boot=known-good-applied known-good-generation=0 generation-watermark=0`; after true USB power removal/replug with both buttons untouched, the same parent/COM6 re-enumerated at local `2026-09-02 18:11:47` and returned the exact same second read. This closes durable claim/power-cut recovery evidence for ordinary control state, but the read is unauthenticated and the nonce supplies query freshness only. The current worktree adds the shared signed verifier/carrier: `retinue` has a default-on `alloc` feature so its allocation-free floor links into the core-only USB image, which restores the verifier from durable grants, keeps the runtime resident, and answers a signed WN0 `Status` only after journaling the outer counter inside the live quiet window. Physical receipt on the claimed board: `auth=verified-controller` at counters 1 through 5 from the Mere controller key, a replayed counter refused by silence both before and after a true USB power cut, the journaled counter surviving that cut, and the diagnostic still answering afterwards. The carrier now serves the configuration lifecycle (`ProvisionalApply` with a controller-chosen change id and bounded lifetime, `Commit` by board-minted token, `Revert`, and on-board expiry), host-model proven end to end; the image carrying it is flashed and re-verified on the claimed board, where an ungranted key's `apply` earns silence and the granted key still reads `Status`. Open: the applied-and-committed receipt under the Mere controller key, vault, native node, and every other carrier. The earlier clean-pinned init/physical Claim→Resume receipt remains recorded in the plan; WN2–WN8 remain Open. | [Wall-node management plan](2026-08-30_wall_node_management_plan.md) |
 | WN2–WN8 | Open | Same |
@@ -278,6 +284,7 @@ supplying data-graph and identity crates.
 | [Listener executive and protocol leases](2026-08-10_listener_executive_and_protocol_leases.md) | LE1–LE5. Supersedes retinue-small's channel-ownership clause. |
 | [Channel murmuration](2026-08-09_channel_murmuration.md) | CM1–CM5. Framing superseded 2026-08-10; rules survive translated. |
 | [LE3 T114 scan-physics receipt](2026-08-20_le3_t114_scan_physics_receipt.md) | LE3a/LE3b complete. |
+| [Radio observation plan](2026-09-06_radio_observation_plan.md) | O1–O6. Shared bounded owner events, RAM recording, collection without control-journal writes, availability timeline and export. |
 | [Field node security posture](2026-08-09_field_node_security_posture.md) | FS1–FS6 authority. Also owns the PD0 disclosure-tier ruling. |
 | [Position disclosure](2026-09-01_position_disclosure_plan.md) | PD0–PD6. PD0 is ruled; PD1/PD2 are software-complete; PD3's V4 UART/parser path is physically receipted but satellite fix remains unmeasured. Rides FS2's envelope as config authority. |
 | [Assurance lane status](2026-08-10_assurance_lane_status.md) | ASSURE1–ASSURE5. |
@@ -337,6 +344,7 @@ their filenames says so — see the `result` column.
 | [G2 receipt](2026-08-09_signalman_desktop_g2_receipt.md) | Evidence, not a queue. **Its accessibility count is wrong** — see Known divergences. |
 | [Management surface direction](2026-08-15_signalman_management_surface_direction.md) | Ruling on the device-data mere. |
 | [Management surface plan](2026-08-15_signalman_management_surface_implementation_plan.md) | S0–S9 authority; also records Signalman's headless mixed-realization consumer receipt without changing S2's headed gate. |
+| [Survey and placement plan](2026-09-06_signalman_survey_and_placement_plan.md) | SP0–SP5. GPX/capture imports, directional evidence, candidate scenarios, terrain estimates, constrained placement and measured comparison. |
 | [S2 live station receipt](2026-08-20_signalman_s2_live_station_receipt.md) | Live bench leg complete, over-the-air announce. |
 | Graphical receipts | [V4 COM6 G4](2026-08-10_signalman_v4_com6_g4_receipt.md) · [V4 COM7 owner flow](2026-08-10_signalman_v4_com7_owner_flow_receipt.md) · [T114 graphical](2026-08-14_signalman_t114_graphical_receipt.md) · [COM6 N39](2026-08-14_com6_n39_signalman_graphical_receipt.md) · [N39 Hopspot](2026-08-14_com6_n39_hopspot_signalman_graphical_receipt.md) · [N39 Hopspot→Retinue restore](2026-08-14_com6_n39_hopspot_retinue_signalman_restore_receipt.md) · [Windows staged helper](2026-08-15_signalman_windows_v4_staged_helper_receipt.md) · [public F5 Windows](2026-08-19_signalman_public_f5_windows_receipt.md) |
 
@@ -503,6 +511,12 @@ or semantic gateway for terminating one protocol and re-originating another.
 A foreign-mesh bearer carries an opaque Reticulum frame instead.
 
 ### Build notes
+
+For the 2026-09-06 radio lanes, a scheduler decision is not a hardware
+transition. Only the board owner may report stopped or restored radio work;
+observation gaps remain unknown and routine observation reads must not journal
+control counters. The [coordination agreement](2026-08-09_retinue_work_lanes.md#shared-decisions-settled-before-implementation)
+is the single source for the shared rules and active file ownership.
 
 - `apps/signalman-desktop` roots its own workspace and is deliberately excluded
   from the root one. Build it with `-j 1`; concurrent builds exhaust the

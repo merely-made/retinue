@@ -169,6 +169,14 @@ broadcast value is independent of any directed grant.
 
 ### PD6. Coverage capture
 
+The [Signalman survey and placement plan](2026-09-06_signalman_survey_and_placement_plan.md)
+owns import, correlation, map comparison and proposed placement analysis; PD6
+retains this board capture/disclosure receipt. Imported GPX can supply private
+positions independently of PD4/PD5. The
+[observation plan](2026-09-06_radio_observation_plan.md) supplies listening,
+transmission and collection-loss facts: a gap in received samples alone is not
+proof of lost RF coverage or a failed transmission.
+
 The stationary node logs received frames with `rssi_dbm`, `snr_db`, reported
 position and timestamp. This is the walk-test instrument and the customer-facing
 coverage map, and it is one artefact.

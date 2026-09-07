@@ -10,6 +10,13 @@ code; the important ones are listed below.
 
 ## The verdict
 
+**Current slice annotation, 2026-09-06:** the owner requested three Sol planning
+passes and subsequent implementation by file ownership for the wall node,
+resident listening, and observations. Their current sequence and shared
+decisions live in the [coordination agreement](2026-08-09_retinue_work_lanes.md#coordinated-appliance-listening-and-observation-work-2026-09-06).
+That bounded assignment supersedes this document's deadline and concurrency
+rules for those slices. It does not change old receipts or imply green CI.
+
 Three independent critics reached the same conclusion: **more concurrency is
 the wrong prescription for this program.** The diagnosed pathology is already
 breadth. Nine separate audits found the same shape, a complete and tested

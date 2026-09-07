@@ -23,6 +23,186 @@ slot and rollback capacity. A boot-selected adapter channel still dies; a
 rollbackable image choice does not. The shared board executive is
 `radio-hand`; Retinue is its RNS adapter and router.
 
+**Implementation planning pass, 2026-09-06:** the V4 ownership premise has
+changed since the 2026-08-12 audit. `firmware/heltec-v4-phy/src/radio_owner.rs`
+now has one non-copy `V4RadioOwner` for the SX1262, current radio state, face,
+settings store, and live configuration quiet windows. Its quiet guard stops at
+a completed-event boundary, holds the CPU awake, settles IRQ state, performs
+durable/apply work, and either restores RX or resets. The V4 still has separate
+boot-selected RNode and direct-modem loops, and the T114 still runs the older
+`Executive` plus `Channel` session loop. LE1 therefore starts by extracting a
+board-neutral interruption lifecycle from the proven V4 shape and making the
+T114 scheduler use it. It does not start by replacing the V4 loop wholesale.
+
+The [2026-09-06 coordination agreement](2026-08-09_retinue_work_lanes.md#coordinated-appliance-listening-and-observation-work-2026-09-06)
+settles shared lifecycle, admission and observation decisions before code work.
+Its expiry rule supersedes the initial planning suggestion of expiry plus
+hysteresis: expired coverage is unusable immediately; hysteresis governs
+re-admission only.
+
+The implementation order below is current authority for LE work. It challenges
+the older implication that the entire channel rewrite, all protocol adapters,
+or emergent peer negotiation must land before a useful scheduler slice can be
+tested.
+
+## Current implementation sequence
+
+**Foundation receipt, 2026-09-06:** step 1 has a partial implementation in
+`crates/radio-hand/src/scheduler.rs`. Ten host scenarios cover static keeper
+assignments, bounded leases, peer loss, deadlines, recovery holds, clock and
+capacity errors, and hardware acknowledgement of restored listening. A keeper
+cannot delegate its own required profile in this first model; rotating custody
+and scan-slot selection remain later work. Review corrected reciprocal keeper
+admission, early restore budgets, withdrawal followed by renewal, and repeated
+late completion. The model reports recommendations only and has no firmware
+consumer. LE1, LE2, LE4 and LE5 remain open.
+
+1. **Land the radio-free scheduler kernel in `radio-hand`.** Keep the existing
+   `DetectionProfile`, `ReceiveProfile`, and `ScanPlan` types. Add static board
+   assignments, bounded lease admission/deadlines, peer liveness inputs, and a
+   deterministic next-obligation decision. Drive it with a caller-supplied
+   monotonic time and synthetic completed events. This slice neither touches a
+   radio nor defines the shared observation vocabulary.
+2. **Extract one interruption lifecycle.** Name the states needed by scan
+   retunes, lease grant/revocation, live configuration writes, and sleep:
+   completed event, RX owed, stopping, quiet/leased, restoring, listening, and
+   reset required. Preserve the V4 rules: collect a completed frame before an
+   interruption; never cancel collection; hold sleep off while state is
+   uncertain; restore RX before releasing the guard; reset after an abandoned
+   or failed transition whose hardware state is unknown. Adapt the current V4
+   quiet window to this contract before adding another independent guard.
+3. **Add a T114 radio adapter for scheduled operations.** The adapter applies
+   one detection or exact receive profile, waits only at the cancellable IRQ
+   boundary, completes CAD or frame collection without racing it, and returns
+   a typed completed result. Retain the existing channel path behind its
+   current boot selection while this adapter is exercised by a bench-only
+   scheduler build.
+4. **Run one board from a static listening assignment.** Admit the receipted
+   two-detection/three-receive registry, then run it unattended rather than by
+   host probe commands. A malformed or overfull assignment is refused before
+   radio work. This closes the scheduler portion deliberately left open by the
+   LE3 physical receipt; it does not yet claim flock behavior.
+5. **Put one bounded talk adapter behind the scheduler.** Start with one
+   transaction whose maximum TX airtime, response profile, response window,
+   and total deadline are known before grant. Each transmitted frame is its
+   own indivisible operation. Success, failure, or deadline restores the
+   assigned listening plan. Reticulum link establishment and foreign retry
+   ladders remain later adapters because they add protocol state without
+   proving the lease machinery more strongly.
+6. **Run the minimal two-listener assignment experiment.** Give listeners A
+   and B explicit required sets and advertised cover sets. Inject frames on
+   both sets at recorded offsets while A receives a bounded talk lease. B must
+   capture the profile delegated from A during that interval. Then stop B's
+   liveness advertisements: at the declared expiry, A must
+   restore its required set and refuse a lease that would leave it uncovered.
+7. **Only after recorded demand, add adaptive division.** Peer negotiation,
+   demand weighting, protocol-specific participation policy, and emergent
+   schedules consume the static-assignment and lease receipts. They are not
+   prerequisites for LE4 or the first LE5 experiment.
+
+The recommended first bounded Terra slice is step 1: a host-tested
+`radio-hand` scheduler model with static assignments, expiring peer cover, and
+lease admission/refusal. It has no hardware dependency and can establish the
+hard policy cases before async radio code obscures them. Its tests should use a
+recorded sequence of synthetic time, peer advertisement, lease request, lease
+completion, and peer expiry rather than mirror individual methods.
+
+## Ownership map
+
+| Concern | Owner | Stop line |
+| --- | --- | --- |
+| Scheduler state, static assignment, peer-cover expiry, lease admission and deadline | `crates/radio-hand` | No protocol decoding, board registers, durable UI schema, or event wire vocabulary |
+| Detection/receive/transmit radio shapes and host transport abstractions | `crates/tulle` and `crates/selvage` | No flock policy or board ownership |
+| T114 SPI/IRQ/profile application and scheduled-operation adapter | `firmware/t114-phy` | No assignment decisions or protocol semantics |
+| V4 radio/store custody, sleep hold, quiet-window integration, and RX restoration | `firmware/heltec-v4-phy::V4RadioOwner` | No duplicate scheduler policy; V4 scanning remains a later capability decision |
+| RNS decoding, routing, link and announce obligations | Retinue adapter in `radio-hand` | No direct radio, flash, sleep, or event-loop ownership |
+| Sennet and Tucket protocol state | Their adapters | No direct radio or indefinite response wait |
+| Registry and participation settings projected for people | Signalman | Firmware remains authoritative about what fits and what was admitted |
+| Capture, transmit, refusal, listening-interval, and interruption event vocabulary | Observation plan | This plan supplies required facts and state transitions, not the shared codec or storage format |
+
+One implementation owner must hold each shared firmware file at a time. In
+particular, changes to `radio-hand::executive`, the T114 outer loop, and
+`V4RadioOwner` should be separate commits with focused consumers. The board
+adapters may depend on the radio-free kernel; neither board implementation is
+allowed to fork its policy.
+
+## Decisions still required
+
+- **Lease priority and refusal:** rule the first collision set before the talk
+  adapter lands: required listening, an already-started TX, a declared response
+  window, live configuration, and sleep. The safe initial rule is that an
+  in-flight TX finishes; configuration waits for a completed-event boundary;
+  required lone-board coverage refuses a new lease; a lease deadline ends any
+  response window; sleep is permitted only while the owner reports an armed
+  wake-capable receive.
+- **Assignment authority:** for the first experiment, assignments are signed
+  configuration supplied by the controller and admitted locally. Peer
+  advertisements can reduce duplicate cover only within that configured
+  envelope; they cannot add a protocol, profile, or participation level.
+- **Liveness clock:** choose the monotonic unit, advertisement lifetime, and
+  hysteresis rule. Expiry must be computable without wall-clock time and must
+  survive missed advertisements without synchronized herd switching.
+- **Coverage floor:** define `required` separately from `preferred`. A board
+  may delegate preferred coverage. It may delegate required coverage only
+  while a live peer explicitly covers it, and must restore it on expiry before
+  granting work that conflicts with the restored set.
+- **Lease cancellation:** decide which adapter states can be cleanly resumed
+  after deadline and which are discarded. The executive owns the deadline;
+  protocol retry state never extends it implicitly.
+- **V4 role:** the existence of `V4RadioOwner` removes the old ownership
+  blocker, but continuous multi-profile scan still competes with its measured
+  low-power behavior. The two-listener proof stays T114-first. A V4 may later
+  advertise listener, occasional listener, or lease-only talker capability.
+- **Durable mutation cost:** the current V4 control carrier enters a live quiet
+  window and journals authenticated counters. Scheduler configuration and
+  routine peer liveness must not turn ordinary observation into repeated flash
+  interruption. Durable assignment changes and ephemeral peer state need
+  separate storage treatment.
+- **Event contract:** the observation lane must define stable event identity,
+  timestamps, bounded storage, and export. This plan requires it to represent
+  assignment admitted/refused, listening interval start/end, lease
+  granted/refused/expired/completed, peer cover seen/expired, return-to-listen,
+  and reset-required. Firmware work should not mint competing encodings first.
+
+## Minimal two-listener done conditions
+
+The previous scan bench had one T114 listener and two V4 transmitters. It does
+not establish that two T114 listeners are available. Inventory the bench first:
+use a second T114 if available, or add a separately receipted V4 listening
+adapter before claiming the two-listener run. The single-T114 scheduler proof
+can proceed independently. Initial assignments need only two exact receive
+profiles; the third receipted profile is a useful later load case, not a gate.
+
+- Both listener images identify their exact build and admitted static assignment.
+  The registry contains at least the receipted `0x12` SF11 and `0x2b` SF11
+  receive profiles, without claiming that shared CAD decodes both
+  sync words.
+- Before the talk lease, each board's observed schedule matches its admitted
+  required and delegated sets. The complete cycle remains within the runtime
+  budget; an intentionally overfull variant is refused.
+- During A's bounded lease, timestamped injections on A's delegated profile
+  are captured by B. Simultaneous injections on B's other required profile
+  establish that delegation did not replace B's own floor. Counts include
+  injections, captures, misses, damaged frames, and unknown outcomes.
+- The receipt records lease request, grant or refusal reason, planned deadline,
+  actual TX airtime, response-window end, and elapsed return-to-listen. A
+  deadline or injected adapter stall cannot prolong the lease.
+- On ordinary completion, failure, and deadline, A resumes its full local plan
+  within a declared bound measured from the terminal lease event. An unknown
+  radio state resets rather than advertising restored coverage.
+- When B disappears, A notices at the configured expiry. A then restores the
+  delegated required profile within one
+  declared scan-cycle bound and refuses conflicting talk until restoration is
+  observed. B's later return does not cause both boards to abandon the profile
+  in the same cycle.
+- The receipt reports per-profile opportunity and capture rates for the steady
+  assignment, A's lease interval, the disappearance interval, and recovery.
+  Passing means the configured thresholds hold in every interval; a short
+  demonstration is not generalized into a long-run miss-rate claim.
+- Unplugging the controller does not stop either listener, alter the static
+  assignment, or extend a lease. Host tools collect the receipt but do not
+  drive the schedule.
+
 ## The reframe
 
 Retinue is not a durable board personality among channels. `radio-hand` is

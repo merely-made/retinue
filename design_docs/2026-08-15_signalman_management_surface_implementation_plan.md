@@ -25,6 +25,15 @@ streams or let presentation code take radio or flashing authority.
 
 ## Verdict
 
+**Scope extension, 2026-09-06:** the separate
+[survey and placement plan](2026-09-06_signalman_survey_and_placement_plan.md)
+owns imported field surveys, candidate scenarios, terrain estimates and
+placement ranking. S6/S7 retain placement storage, geographic selection and
+telemetry ownership. The [observation plan](2026-09-06_radio_observation_plan.md)
+owns radio availability facts and their first timeline view. Imported GPX and
+captures can supply positions before over-air telemetry or onboard GNSS is
+complete; predictions and observations remain separately inspectable.
+
 Build one narrow vertical proof first:
 
 ```text

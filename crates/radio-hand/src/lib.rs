@@ -30,12 +30,14 @@ pub mod dispatch;
 pub mod executive;
 pub mod gnss;
 pub mod link;
+pub mod observation;
 pub mod phy;
 pub mod profiles;
 pub mod region;
 #[cfg(feature = "replay")]
 pub mod replay;
 pub mod rnode;
+pub mod scheduler;
 #[cfg(feature = "radio")]
 pub mod service;
 pub mod settings;
