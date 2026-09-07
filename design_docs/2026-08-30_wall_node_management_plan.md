@@ -49,6 +49,11 @@ It narrows, rather than replaces, the
 [Signalman management plan](2026-08-15_signalman_management_surface_implementation_plan.md),
 and [Linkboy flashing plan](2026-08-08_linkboy_public_flashing_plan.md).
 
+The later [magnetic pocket-node plan](2026-09-07_magnetic_pocket_node_plan.md)
+reuses this plan's carrier-neutral control and durable transaction rules for a
+battery-powered NFC/BLE dock. It does not change this plan's V4 wall-appliance,
+WiFi, or WN gate authority.
+
 This is a separate implementation plan because the feature crosses the
 embedded node, board control, Reticulum interfaces, safe configuration,
 firmware activation, and Signalman. Appending it to Signalman's presentation
