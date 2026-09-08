@@ -533,6 +533,7 @@ async fn main(spawner: Spawner) {
                     .is_ok()
                 && host.write_all(&node_line[..node_line_len]).await.is_ok());
         if !greeted || channel.start(&mut exec, &mut host).await == Flow::Detach {
+            host.require_detach();
             exec.status_mut().host = radio_face::HostState::Detached;
             exec.publish(radio_face::LedSignal::Idle);
             continue;

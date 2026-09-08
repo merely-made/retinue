@@ -30,6 +30,80 @@ pub enum LinkFault {
     Detached,
 }
 
+/// Retire a session before polling a possibly partial write. Only completing
+/// the entire write successfully makes it reusable. A transport supplies its
+/// own deadline in `write` and clears retirement after a real reconnect edge.
+/// Dropping this future while pending leaves the session retired too.
+pub async fn retire_incomplete_write(
+    retired: &core::cell::Cell<bool>,
+    write: impl core::future::Future<Output = Result<(), LinkFault>>,
+) -> Result<(), LinkFault> {
+    if retired.replace(true) {
+        return Err(LinkFault::Detached);
+    }
+    let result = write.await;
+    if result.is_ok() {
+        retired.set(false);
+    }
+    result
+}
+
+#[cfg(test)]
+mod write_tests {
+    use super::*;
+    use core::{
+        cell::Cell,
+        future::{Future, poll_fn},
+        task::Poll,
+    };
+    use futures::executor::block_on;
+
+    #[test]
+    fn partial_failure_and_cancellation_require_reconnect() {
+        for cancel in [false, true] {
+            let retired = Cell::new(false);
+            let sent = Cell::new(0);
+            let mut write = core::pin::pin!(retire_incomplete_write(&retired, async {
+                sent.set(64); // First packet has left before failure or stall.
+                if cancel {
+                    core::future::pending::<()>().await;
+                }
+                Err(LinkFault::Detached)
+            }));
+            block_on(poll_fn(|cx| {
+                let polled = write.as_mut().poll(cx);
+                if cancel {
+                    assert!(polled.is_pending());
+                } else {
+                    assert_eq!(polled, Poll::Ready(Err(LinkFault::Detached)));
+                }
+                Poll::Ready(())
+            }));
+            assert_eq!(sent.get(), 64);
+            assert!(retired.get());
+            assert_eq!(
+                block_on(retire_incomplete_write(&retired, async {
+                    panic!("retired session must not send a continuation");
+                })),
+                Err(LinkFault::Detached)
+            );
+        }
+    }
+
+    #[test]
+    fn complete_write_and_observed_reconnect_allow_reuse() {
+        let retired = Cell::new(true);
+        retired.set(false); // The transport observed its real detach edge.
+        for _ in 0..2 {
+            assert_eq!(
+                block_on(retire_incomplete_write(&retired, async { Ok(()) })),
+                Ok(())
+            );
+            assert!(!retired.get());
+        }
+    }
+}
+
 /// Whether the host session survives.
 ///
 /// Lives beside [`LinkFault`] rather than with the command loop because every layer above

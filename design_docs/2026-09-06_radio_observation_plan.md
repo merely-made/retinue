@@ -536,3 +536,21 @@ Validation for this slice:
   C:\t\retinue-20260907-observation --quiet -- -D warnings` passed.
   Modified Rust files pass formatting checks and `git diff --check` passes.
   The capture executable's `--help` path passes without opening a port.
+
+### 2026-09-08 stalled USB reader continuation
+
+All T114 USB writes now share cancellation-safe session retirement. The entire
+ordinary write, including any terminating zero-length packet, has a 25 ms
+scheduling deadline; observation replies retain their 5 ms deadline. Failure or
+cancellation leaves retirement latched before any further bytes can be sent.
+The normal radio loop continues while waiting for a real DTR fall. Failed
+session startup also retires, and the radio-failed status-only loop waits for
+DTR to fall rather than immediately retrying an unread endpoint.
+
+The earlier ordinary-write stall limitation is addressed in software. These
+deadlines are implementation bounds, not measurements of radio cost or proof
+that a desktop reader stopping actually backpressures the USB endpoint.
+Two focused tests exercise partial-error/cancellation retirement, refusal to
+poll a continuation, successful reuse and explicit reconnect. All 177 default
+radio-hand library tests and the locked/offline T114 release build pass using
+`C:\t\retinue-20260907-observation`. Physical acceptance remains open.

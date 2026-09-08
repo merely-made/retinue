@@ -25,6 +25,22 @@ impl<'d, D: Driver<'d>> UsbHost<'d, D> {
         }
     }
 
+    // One deadline covers the entire payload and any terminating zero-length
+    // packet. Ordinary replies get 25 ms; observation replies keep their 5 ms
+    // ceiling. These are scheduling bounds, not measured USB/RF cost receipts.
+    async fn write_bounded(
+        &mut self,
+        bytes: &[u8],
+        deadline: embassy_time::Duration,
+    ) -> Result<(), LinkFault> {
+        radio_hand::link::retire_incomplete_write(&self.retired, async {
+            embassy_time::with_timeout(deadline, write_packets(&mut self.class, bytes))
+                .await
+                .map_err(|_| LinkFault::Detached)?
+        })
+        .await
+    }
+
     /// A failed/partial write retires this DTR session until a real detach edge.
     pub fn require_detach(&self) {
         self.retired.set(true);
@@ -62,6 +78,8 @@ pub async fn serve_status_only<'d, D: Driver<'d>>(
                 }
             }
         }
+        // Preserve retirement until DTR falls even in the radio-failed loop.
+        host.detached().await;
         class = host.class;
     }
 }
@@ -121,49 +139,41 @@ impl<'d, D: Driver<'d>> HostLink for UsbHost<'d, D> {
     }
 
     async fn write_all(&mut self, bytes: &[u8]) -> Result<(), LinkFault> {
-        if self.retired.get() {
-            return Err(LinkFault::Detached);
-        }
-        for chunk in bytes.chunks(USB_PACKET) {
-            self.class
-                .write_packet(chunk)
-                .await
-                .map_err(|_| LinkFault::Detached)?;
-        }
-        // A USB bulk transfer ends when the host sees a packet SHORTER than the endpoint
-        // size. A payload that is an exact multiple of it therefore needs an explicit
-        // zero-length packet, or the host keeps waiting for a continuation that never comes
-        // and delivers nothing at all.
-        //
-        // This was silently eating whole replies. The `status` probe answers with a
-        // 128-byte banner — exactly two full packets — and returned nothing, while every
-        // other probe, none of them a multiple of 64, answered fine. The same trap applies
-        // to the data path: an `EVENT_RX` for a 57-byte frame is 7 + 57 = 64 bytes, and was
-        // being dropped between the board and the host.
-        if !bytes.is_empty() && bytes.len().is_multiple_of(USB_PACKET) {
-            self.class
-                .write_packet(&[])
-                .await
-                .map_err(|_| LinkFault::Detached)?;
-        }
-        Ok(())
+        self.write_bounded(bytes, embassy_time::Duration::from_millis(25))
+            .await
     }
 
     async fn write_diagnostic(&mut self, bytes: &[u8]) -> Result<(), LinkFault> {
-        // At most three USB packets for a one-record observation reply.
-        // A partial timed-out frame is never followed by more bytes in this
-        // session: the host must detach and start with a fresh decoder.
-        match embassy_time::with_timeout(
-            embassy_time::Duration::from_millis(5),
-            self.write_all(bytes),
-        )
-        .await
-        {
-            Ok(Ok(())) => Ok(()),
-            _ => {
-                self.require_detach();
-                Err(LinkFault::Detached)
-            }
-        }
+        self.write_bounded(bytes, embassy_time::Duration::from_millis(5))
+            .await
     }
+}
+
+async fn write_packets<'d, D: Driver<'d>>(
+    class: &mut CdcAcmClass<'d, D>,
+    bytes: &[u8],
+) -> Result<(), LinkFault> {
+    for chunk in bytes.chunks(USB_PACKET) {
+        class
+            .write_packet(chunk)
+            .await
+            .map_err(|_| LinkFault::Detached)?;
+    }
+    // A USB bulk transfer ends when the host sees a packet SHORTER than the endpoint
+    // size. A payload that is an exact multiple of it therefore needs an explicit
+    // zero-length packet, or the host keeps waiting for a continuation that never comes
+    // and delivers nothing at all.
+    //
+    // This was silently eating whole replies. The `status` probe answers with a
+    // 128-byte banner — exactly two full packets — and returned nothing, while every
+    // other probe, none of them a multiple of 64, answered fine. The same trap applies
+    // to the data path: an `EVENT_RX` for a 57-byte frame is 7 + 57 = 64 bytes, and was
+    // being dropped between the board and the host.
+    if !bytes.is_empty() && bytes.len().is_multiple_of(USB_PACKET) {
+        class
+            .write_packet(&[])
+            .await
+            .map_err(|_| LinkFault::Detached)?;
+    }
+    Ok(())
 }
