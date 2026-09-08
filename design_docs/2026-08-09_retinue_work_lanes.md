@@ -173,6 +173,14 @@ No board mutation is part of the first software foundation receipt.
   compilation passes; O3 remains partial until physical timing, journal-write
   measurements and broader slow-host acceptance. This does not advance O4/O5.
 
+- **2026-09-08, physical observation probe:** bounded every T114 USB write and
+  fixed attachment-induced radio re-arm plus idle DTR closure. The T114 was
+  flashed and tested against V4 COM6: six captures without collection, six with
+  interleaved collection, explicit overwrite gaps, matched TX/return edges and
+  pressured-session recovery. O3 stays partial for refusal, power-cycle and
+  independent cost/journal measurements. Exact scope and the raw artifact are
+  in the [physical result](2026-09-06_radio_observation_plan.md#2026-09-08-physical-result).
+
 ## Plan audit
 
 Live code and current receipts outrank an older plan's status paragraph. The

@@ -1,9 +1,10 @@
 # Radio observation and Signalman availability plan
 
-**Status (2026-09-07): O1 and O2 complete in software; O3 partially implemented.**
+**Status (2026-09-08): O1/O2 complete in software; O3 has a partial physical receipt.**
 T114 owner emission, bounded read-only direct-PHY collection and a finite
-Signalman capture command now exist. O3 remains open for physical acceptance
-and cost measurements. V4 emission, durable capture/export and the availability
+Signalman capture command now exist. T114 receive, TX, cursor loss, repeated
+reads and pressured-session reconnect have physical evidence. O3 remains open
+for refusal, power-cycle and cost measurements. V4 emission, durable capture/export and the availability
 view remain open. Existing counters and host events do not substitute for the
 physical receipts in O3-O6.
 
@@ -565,3 +566,61 @@ owed. CDC reads also check DTR every 50 ms while idle, since application closure
 does not disable USB. Reconnect tests hold DTR low for at least 150 ms; shorter
 pulses are not guaranteed to be observed by this polling design. These corrections
 are part of the physical probe, not a completed O3 cost receipt.
+
+### 2026-09-08 physical result
+
+[Raw receipt](2026-09-08_t114_observation_receipt.json) contains source and image
+hashes, the flash transcript, timestamped serial bytes, parsed records, three
+identical attachment captures and the final Signalman capture. The reproducible
+runner is `python -B testing/o3_usb_bench.py --t114 COM10 --v4 COM6 --output
+<receipt.json>`. It sends synthetic packets and explicitly applies the T114's
+exact profile to the V4's runtime settings within the same serial session.
+It does not change persisted settings or the region selection.
+
+The user confirmed all boards available. T114 COM10 (`1915:521f`) was flashed
+through Linkboy's expert serial-DFU route, rediscovering COM4 after transition.
+Both writes reported activation and programming complete. Final firmware is
+`5ccf59852d7ba25b0bdf5ff0f2710dcd9bf441eb`, application binary SHA-256
+`d223b6d4c9681765049a1cd5e8739a656953c5a0344b8a275e17f8d743009ba4`,
+covering `0x26000..0x70e62`, below the journal at `0xe6000`. The recovery v51
+UF2 digest was verified before mutation; it is a retained recovery image, not a
+backup of the prior running image. The T114 retained identity slot A sequence
+84, US915 and modem mode, with crash count zero. V4 COM6 was the RF peer; its
+firmware was not flashed. COM7 was unused.
+
+Measured outcomes on the final aligned run:
+
+- Three separate collection sessions returned identical raw records and boot,
+  with newest sequence still one: attachment stopped manufacturing radio gaps.
+- Six acknowledged V4 transmissions produced six T114 captures with its host
+  closed. Six more produced six captures with read-only drains interleaved
+  between packets. This small stationary sample does not establish saturated
+  simultaneous RF/USB performance or packet-body identity.
+- Forty undrained transmissions produced an explicit gap for sequences 1–27
+  followed by the 32 retained events. The subsequent T114 transmit produced
+  paired listening stop, TX start, TX finish and return-to-listen at sequences
+  60–63. Final Signalman replay retained the enlarged 1–31 gap and two
+  incomplete intervals, rather than inventing complete coverage.
+- Bounded unread-request pressure accepted 173 host writes and yielded 12,312
+  bytes when read back. In the separate liveness check, a further write in that
+  same session timed out; DTR-low reconnect recovered discovery on the same
+  boot. This demonstrates session retirement/recovery, not the actual timing of
+  the device's 5 ms deadline, or RF capture continuity during pressure.
+- Final radio counters were 54 good captures, zero RX errors/damaged frames,
+  two successful T114 transmissions and zero TX errors. The totals include two
+  alignment packets and an earlier T114 TX probe, as the receipt records.
+
+Earlier attempts received zero RF packets despite acknowledged V4 transmissions.
+The status banner was insufficient evidence of a matching runtime PHY. Applying
+the exact dictionary entry within the V4 test session fixed reception; the
+runner now rejects missing captures instead of treating command success as an
+RF pass. The final profile was 906.875 MHz, SF11/BW250 kHz, coding denominator
+five, preamble 16 and sync `0x2b`; its complete encoded definition is retained.
+
+O3 remains partial: a planted physical refusal, power-cycle/loss leg, independent
+journal-write/quiet-window measurements, CPU and IRQ/FIFO cost, and concurrent
+RF under actual endpoint pressure are outstanding. The latest V4 compile
+recheck was blocked by the shared Cargo package-cache lock and stopped without
+a compilation result; it is not a new passing receipt. The T114 release build
+and 177 default radio-hand library tests passed. The physical runner, its strict
+capture/lifecycle conditions, formatting and diff checks passed.
