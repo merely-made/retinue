@@ -56,10 +56,12 @@ where
     /// personality, and adding a second introduction would change bytes the direct-PHY
     /// receipt compares.
     async fn start(&mut self, exec: &mut Executive<'_, RK, DLY>, link: &mut L) -> Flow {
-        let _ = link;
+        let _ = (exec, link);
         // A new session starts at a frame boundary whatever the last one left behind.
         self.stream = CommandStream::new();
-        exec.request_rx();
+        // Radio ownership outlives this USB session. Initial boot, TX, profile
+        // changes and faults already mark RX preparation when it is needed;
+        // attaching a collector must not interrupt an already listening radio.
         Flow::Continue
     }
 

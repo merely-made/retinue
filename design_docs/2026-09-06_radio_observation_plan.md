@@ -554,3 +554,14 @@ Two focused tests exercise partial-error/cancellation retirement, refusal to
 poll a continuation, successful reuse and explicit reconnect. All 177 default
 radio-hand library tests and the locked/offline T114 release build pass using
 `C:\t\retinue-20260907-observation`. Physical acceptance remains open.
+
+The first physical flash of `8931e81` returned with identity slot A sequence 84,
+US915 and modem mode preserved. Its first observation capture exposed an
+attachment-induced re-arm: modem startup unconditionally requested RX even
+though the long-lived owner was already listening. Startup now resets only the
+command parser; boot, transmit, profile changes and faults retain their existing
+RX-preparation responsibility. Both board initializers start with preparation
+owed. CDC reads also check DTR every 50 ms while idle, since application closure
+does not disable USB. Reconnect tests hold DTR low for at least 150 ms; shorter
+pulses are not guaranteed to be observed by this polling design. These corrections
+are part of the physical probe, not a completed O3 cost receipt.

@@ -132,10 +132,21 @@ impl<'d, D: Driver<'d>> HostLink for UsbHost<'d, D> {
         // A CDC read yields at most one packet, which is the short read the protocol above
         // already expects.
         let limit = buf.len().min(USB_PACKET);
-        self.class
-            .read_packet(&mut buf[..limit])
+        loop {
+            // Closing a CDC application lowers DTR without disabling USB.
+            // Notice that edge even when an idle modem has no heartbeat or RX.
+            if self.retired.get() || !self.class.dtr() {
+                return Err(LinkFault::Detached);
+            }
+            if let Ok(result) = embassy_time::with_timeout(
+                embassy_time::Duration::from_millis(50),
+                self.class.read_packet(&mut buf[..limit]),
+            )
             .await
-            .map_err(|_| LinkFault::Detached)
+            {
+                return result.map_err(|_| LinkFault::Detached);
+            }
+        }
     }
 
     async fn write_all(&mut self, bytes: &[u8]) -> Result<(), LinkFault> {
