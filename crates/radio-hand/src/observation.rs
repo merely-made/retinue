@@ -10,6 +10,8 @@
 //! The checksum detects corruption; it does not authenticate a board or carrier.
 //! Unknown event kinds use all remaining body bytes as opaque payload.
 
+pub mod collection;
+pub mod owner;
 pub mod recorder;
 
 pub const MAX_RECORD_BYTES: usize = 64;
@@ -85,6 +87,11 @@ pub enum ObservationKind {
     SleepStarted,
     SleepStopped {
         cause: WakeCause,
+    },
+    /// The owner can no longer certify the previous radio state. This is not
+    /// a hardware stop timestamp; causes are owner-defined and preserved raw.
+    ContinuityLost {
+        cause: u8,
     },
     Unknown {
         kind: u8,
@@ -274,7 +281,10 @@ impl ObservationKind {
             Self::TxStarted { .. } => 1 + 1 + 2 + 4,
             Self::TxFinished { .. } => 1 + 4 + 1,
             Self::WorkRefused { .. } => 1 + 1 + 1 + 4,
-            Self::QuietStarted { .. } | Self::QuietStopped { .. } | Self::SleepStopped { .. } => 2,
+            Self::QuietStarted { .. }
+            | Self::QuietStopped { .. }
+            | Self::SleepStopped { .. }
+            | Self::ContinuityLost { .. } => 2,
             Self::SleepStarted => 1,
             Self::Unknown { len, .. } => {
                 if usize::from(len) > UNKNOWN_DATA_MAX {
@@ -297,6 +307,7 @@ impl ObservationKind {
             Self::QuietStopped { .. } => 8,
             Self::SleepStarted => 9,
             Self::SleepStopped { .. } => 10,
+            Self::ContinuityLost { .. } => 11,
             Self::Unknown { kind, .. } => kind,
         };
         out[*p] = tag;
@@ -367,8 +378,12 @@ impl ObservationKind {
                 out[*p] = cause.byte();
                 *p += 1
             }
+            Self::ContinuityLost { cause } => {
+                out[*p] = cause;
+                *p += 1;
+            }
             Self::Unknown { kind, data, len } => {
-                if kind <= 10 {
+                if kind <= 11 {
                     return Err(EncodeError::InvalidKind);
                 }
                 out[*p..*p + usize::from(len)].copy_from_slice(&data[..usize::from(len)]);
@@ -483,6 +498,12 @@ impl ObservationKind {
                 *p += 1;
                 Self::SleepStopped { cause }
             }
+            11 => {
+                need(p, 1)?;
+                let cause = b[*p];
+                *p += 1;
+                Self::ContinuityLost { cause }
+            }
             _ => {
                 let len = end - *p;
                 if len > UNKNOWN_DATA_MAX {
@@ -498,7 +519,7 @@ impl ObservationKind {
                 }
             }
         };
-        if *p != end && tag <= 10 {
+        if *p != end && tag <= 11 {
             return Err(DecodeError::InvalidPayload);
         }
         Ok(v)
@@ -881,6 +902,26 @@ mod tests {
         ];
         assert_eq!(&b[..n], &expected);
         assert_eq!(ObservationRecord::decode(&b[..n]).unwrap(), g);
+    }
+
+    #[test]
+    fn continuity_loss_has_an_independent_literal() {
+        // Python struct.pack big-endian fields and zlib.crc32, independent of
+        // this encoder. A loss marker asserts neither standby nor its time.
+        let literal = [
+            79, 1, 0, 0, 35, 0, 0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0,
+            6, 11, 3, 131, 140, 172, 49,
+        ];
+        let record = ObservationRecord::Event(ObservationEvent {
+            boot_id: 9,
+            sequence: 7,
+            uptime_ms: 6,
+            kind: ObservationKind::ContinuityLost { cause: 3 },
+        });
+        assert_eq!(ObservationRecord::decode(&literal), Ok(record));
+        let mut bytes = [0; MAX_RECORD_BYTES];
+        let len = record.encode(&mut bytes).unwrap();
+        assert_eq!(&bytes[..len], &literal);
     }
     #[test]
     fn unknown_empty_payload_is_preserved() {

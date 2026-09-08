@@ -18,6 +18,8 @@ pub mod kiss;
 pub mod link;
 pub mod lora;
 pub mod modem;
+#[cfg(feature = "serial-async")]
+pub mod observation_serial;
 pub mod pacing;
 #[cfg(feature = "serial-async")]
 pub mod radio_io;
@@ -25,4 +27,5 @@ pub mod rnode;
 #[cfg(feature = "serial-async")]
 pub mod serial;
 
-pub use selvage::{PhyProfile, ProfileError, WAKE_BYTE};
+pub use selvage::observation as observation_wire;
+pub use selvage::{PhyProfile, ProfileError, WAKE_BYTE, decode_config_command};

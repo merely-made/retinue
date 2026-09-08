@@ -1,11 +1,11 @@
 # Radio observation and Signalman availability plan
 
-**Status (2026-09-06): O1 and O2 complete in software.** The allocation-free
-codec, RAM recorder, literal fixtures and Signalman in-memory bundle/replay model
-are implemented and tested. ARM and Xtensa library checks pass. Firmware owner
-emission, USB collection, durable capture/export and the availability view remain
-unimplemented. Existing counters and host events are findings, not substitutes
-for the physical receipts in O3-O6.
+**Status (2026-09-07): O1 and O2 complete in software; O3 partially implemented.**
+T114 owner emission, bounded read-only direct-PHY collection and a finite
+Signalman capture command now exist. O3 remains open for physical acceptance
+and cost measurements. V4 emission, durable capture/export and the availability
+view remain open. Existing counters and host events do not substitute for the
+physical receipts in O3-O6.
 
 ## Purpose
 
@@ -166,8 +166,9 @@ durable control journal, settings A/B slots, announce reservation, or their
 quiet-window transaction. Power loss may erase undrained RAM observations; the
 boot id and sequence discontinuity make that loss visible.
 
-Collection is a separate cursor-based, read-only diagnostic stream. A request
-names `(boot_id, after_sequence, max_records)`. The response returns bounded
+Collection is a separate cursor-based, read-only diagnostic stream. The first
+carrier fixes `max_records` at one; a request names `(boot_id, after_sequence)`.
+The response returns bounded
 records plus the oldest and newest available sequence. Reading neither advances
 a durable replay counter nor mutates the ring. Re-reading the same cursor is
 idempotent while the retained snapshot is unchanged; continued recording can
@@ -452,3 +453,86 @@ that is not a prerequisite for the codec or offline fixture replay.
   dependency linting enabled it stops on the same six warnings in unchanged
   commissioning/portable-first-write and position-disclosure code. Formatting
   and diff whitespace checks pass; this does not reclassify repository-wide CI.
+
+### 2026-09-07 O3 software slice
+
+T114 borrows one `OwnerObservations` with a 32-record RAM ring and at most 16
+exact PHY definitions per boot. A fresh nonzero hardware-RNG token names the
+boot; initialization failure makes discovery report `Disabled` with boot zero.
+Profile or work-id exhaustion disables recording. This first carrier reports a
+generic disabled status, not a detailed failure reason. Existing profile entries
+remain readable after recording disables so retained history stays interpretable.
+
+The Executive records confirmed RX arming, collected good/damaged frames,
+transmit starts/completions, and refusals. Assignment zero denotes the current
+unscheduled owner; capture tag zero does not correlate packet bodies. New driver
+callbacks witness the existing successful standby and transmit commands without
+adding SPI work. Retune, CAD, storage entry, and radio errors conservatively emit
+`ContinuityLost` (v1 event tag 11) when an interval is open. This records lost
+certainty, not a measured quiet interval. Signalman leaves its end unknown and
+excludes it from complete duration totals. Sleep and V4 quiet-window emission
+still need their respective owners.
+
+Direct-PHY command `0x04` is a zero-delimited 46-byte command, with a request id
+and hex-encoded bounded fields. Response `0x86` has a length and CRC-32/IEEE;
+its maximum is 136 bytes, including at most one raw 64-byte event or gap.
+Discovery `(boot=0, cursor=0)` reads bounds and profile count. Subsequent cursor
+and profile requests name that boot. The pure reply builder borrows owner RAM
+without access to the radio, clock, control runtime or store. Reading does not
+advance the recorder or any durable counter. Other host links decline diagnostic
+writes unless they implement a bounded transport.
+
+T114 bounds each observation reply to five milliseconds. A timeout or partial
+write retires that DTR session; radio collection continues while the host is
+absent, and an observed DTR fall permits a fresh session. This deadline bounds
+observation replies only: existing ordinary USB writes, including banners and
+RX forwarding, still need a separate stalled-reader audit. Therefore this slice
+does not close the broader slow-host acceptance condition. Physical USB timing,
+IRQ/FIFO interference, CPU cost and ring lifetime remain unmeasured.
+
+`signalman-observe PORT [MAX_PAGES]` opens an exclusive direct-PHY serial session,
+reads the profile dictionary and drains toward the initial newest sequence.
+It defaults to 64 pages with a 64 KiB payload budget. A later overwrite is
+retained as the full source gap. It sends only wake/observation commands,
+retires a timed-out or cancelled request, and lowers DTR when collection ends.
+The JSON stdout receipt preserves raw bytes, host receive time, profile
+encodings, cursor/loss totals and the unauthenticated local USB association.
+This explicit finite receipt is not O5's durable segment/manifest and retention
+implementation. The existing serial pump is not used because its automatic
+status/configuration traffic would change the experiment. Native-node and RNode
+collection remain unsupported.
+
+Physical O3 acceptance must record exclusive bench ownership, USB hardware
+identity, boot-selected direct-PHY personality, previous image/recovery route,
+source revision, firmware image SHA-256 and flash receipt before the run. Compare
+identical RF traffic with collection absent, normal, slow, and stopped; record
+captures/misses, listening recovery, USB occupancy, ring overwrite, CPU cost,
+and zero observation-induced journal writes/quiet-window entries. Include a
+reboot, cursor loss, DTR retirement/reconnect and ordinary RX/TX coexistence.
+No board was flashed or serial port opened for this software slice.
+
+Validation for this slice:
+
+- `cargo test -p radio-hand -p selvage -p tulle -p signalman --features
+  radio-hand/control-retinue,tulle/serial-async --locked --offline -j2
+  --target-dir C:\t\retinue-20260907-signalman-collect --quiet` passed **357 tests**.
+  This includes the real owner-to-carrier-to-Signalman lifecycle fixture,
+  overwrite/cursor/profile checks and explicit cancellation retirement. An
+  earlier millisecond-deadline test race was replaced with poll-and-drop
+  cancellation before the final passing run.
+- `cargo build -p tulle-t114-phy --release --target thumbv7em-none-eabihf
+  --locked --offline -j2 --target-dir C:\t\retinue-20260907-observation --quiet`
+  passed. ELF SHA-256:
+  `5c7e004d1a136dc2ee21d72b6524eff14d0a9959d66efff292560c2be3f1031d`.
+  This is a linked software image, not a flash or on-air receipt.
+- After `C:\Users\mark_\export-esp.ps1`, `cargo +esp check -p
+  tulle-heltec-v4-phy --release --target xtensa-esp32s3-none-elf
+  -Zbuild-std=core --locked --offline -j2 --target-dir
+  C:\t\retinue-20260907-observation --quiet` passed. The unchanged
+  `last_sleep_us` and `radio_wake_registrations` dead-code warnings remain.
+  This verifies shared consumer compilation, not a linked V4 image.
+- `cargo clippy -p signalman -p tulle -p selvage --all-targets --features
+  tulle/serial-async --no-deps --locked --offline -j2 --target-dir
+  C:\t\retinue-20260907-observation --quiet -- -D warnings` passed.
+  Modified Rust files pass formatting checks and `git diff --check` passes.
+  The capture executable's `--help` path passes without opening a port.

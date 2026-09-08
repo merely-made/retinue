@@ -463,6 +463,19 @@ async fn main(spawner: Spawner) {
         &mut store,
         region,
     );
+    // Fresh per-boot token from the board RNG, without durable reservation or
+    // journal writes. Entropy failure disables observation visibly via discovery.
+    let mut observation_boot = [0; 8];
+    let observation_boot = if exec.random(&mut observation_boot).is_ok() {
+        u64::from_be_bytes(observation_boot)
+    } else {
+        0
+    };
+    let mut observations =
+        radio_hand::observation::owner::OwnerObservations::new(observation_boot).ok();
+    if let Some(observations) = observations.as_mut() {
+        exec.attach_observations(observations);
+    }
 
     // The personality this board answers as, chosen from the persisted settings and fixed
     // for the life of the boot: switching is by reboot, per structural decision 4, so
@@ -496,7 +509,14 @@ async fn main(spawner: Spawner) {
     let mut heartbeat = Heartbeat::new(channel.heartbeat());
 
     loop {
-        radio_hand::channel::await_host(&mut channel, &mut exec, &mut host, &mut heartbeat).await;
+        radio_hand::channel::await_host_with_listening(
+            &mut channel,
+            &mut exec,
+            &mut host,
+            &mut heartbeat,
+            true,
+        )
+        .await;
         exec.status_mut().host = radio_face::HostState::Attached;
         exec.publish(radio_face::LedSignal::Idle);
         // The board introduces itself in plain text, unless the channel speaks somebody
@@ -625,7 +645,9 @@ async fn main(spawner: Spawner) {
         // The CDC control line falls slightly after the failed read or write that ended the
         // session. Wait for that edge before the outer loop considers another attach, or a
         // still-latched DTR can make the next banner write wait forever on a vanished host.
-        host.detached().await;
+        // The next unattached loop keeps servicing the radio while waiting for
+        // an actual DTR drop; do not block here behind a stalled USB reader.
+        host.require_detach();
         exec.status_mut().host = radio_face::HostState::Detached;
         exec.publish(radio_face::LedSignal::Idle);
     }

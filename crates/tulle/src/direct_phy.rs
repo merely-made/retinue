@@ -4,6 +4,9 @@
 //! interpret Reticulum, MeshCore, or Meshtastic-compatible bytes.
 
 use crate::link::Received;
+use selvage::observation::{
+    EVENT_OBSERVATION, MAX_OBSERVATION_REPLY_PAYLOAD_LEN, Reply as ObservationReply, decode_reply,
+};
 use selvage::{
     CONFIG_COMMAND_LEN, MAX_RADIO_FRAME_LEN, MAX_UI_SNAPSHOT_COMMAND_LEN, MAX_UI_SNAPSHOT_LEN,
     PhyProfile, ProfileError, encode_config_command, encode_ui_snapshot_command,
@@ -35,6 +38,7 @@ pub enum Event {
     UiSnapshot {
         result: u8,
     },
+    Observation(ObservationReply),
 }
 
 /// Encode a complete runtime radio-profile command.
@@ -117,7 +121,12 @@ impl Decoder {
             let Some(start) = self.buffer.iter().position(|byte| {
                 matches!(
                     *byte,
-                    EVENT_RX | EVENT_TX | EVENT_CONFIG | EVENT_DIAGNOSTIC | EVENT_UI_SNAPSHOT
+                    EVENT_RX
+                        | EVENT_TX
+                        | EVENT_CONFIG
+                        | EVENT_DIAGNOSTIC
+                        | EVENT_UI_SNAPSHOT
+                        | EVENT_OBSERVATION
                 )
             }) else {
                 self.buffer.clear();
@@ -192,6 +201,27 @@ impl Decoder {
                         result: self.buffer[1],
                     });
                     self.buffer.drain(..2);
+                }
+                EVENT_OBSERVATION => {
+                    if self.buffer.len() < 3 {
+                        return;
+                    }
+                    let payload_len =
+                        usize::from(u16::from_be_bytes([self.buffer[1], self.buffer[2]]));
+                    if !(15..=MAX_OBSERVATION_REPLY_PAYLOAD_LEN).contains(&payload_len) {
+                        // The three-byte observation header is already complete. Drop it as a
+                        // unit so its length bytes cannot masquerade as ordinary event markers.
+                        self.buffer.drain(..3);
+                        continue;
+                    }
+                    let event_len = 7 + payload_len;
+                    if self.buffer.len() < event_len {
+                        return;
+                    }
+                    if let Ok(reply) = decode_reply(&self.buffer[..event_len]) {
+                        out.push(Event::Observation(reply));
+                    }
+                    self.buffer.drain(..event_len);
                 }
                 _ => unreachable!("event marker selected above"),
             }
@@ -270,6 +300,99 @@ mod tests {
                 result: 0,
                 frame_len: 4,
             }]
+        );
+    }
+
+    #[test]
+    fn decoder_reassembles_large_observation_and_following_rx() {
+        let reply = ObservationReply::Cursor(selvage::observation::CursorReply {
+            request_id: 9,
+            status: selvage::observation::Status::Ok,
+            boot_id: 4,
+            oldest: 1,
+            newest: 64,
+            next: 65,
+            recorded: 65,
+            overwritten: 0,
+            encode_failed: 0,
+            profile_count: 1,
+            record_len: 64,
+            record: [0x5a; 64],
+        });
+        let mut observation = [0u8; selvage::observation::MAX_OBSERVATION_REPLY_LEN];
+        let observation_len = selvage::observation::encode_reply(reply, &mut observation).unwrap();
+        let mut wire = observation[..observation_len].to_vec();
+        wire.extend_from_slice(&[EVENT_RX, 1, 0, 0xd8, 0xff, 9, 0, 0x42]);
+        let mut decoder = Decoder::new();
+        let mut events = Vec::new();
+        for chunk in wire.chunks(3) {
+            decoder.push(chunk, &mut events);
+        }
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0], Event::Observation(reply));
+        assert_eq!(
+            events[1],
+            Event::Received(Received {
+                frame: vec![0x42],
+                rssi_dbm: -40,
+                snr_db: 9.0
+            })
+        );
+    }
+
+    #[test]
+    fn decoder_discards_bad_observation_crc_and_recovers() {
+        let reply = ObservationReply::Profile(selvage::observation::ProfileReply {
+            request_id: 2,
+            status: selvage::observation::Status::Ok,
+            boot_id: 3,
+            profile_id: 1,
+            config: [7; 16],
+        });
+        let mut bad = [0u8; selvage::observation::MAX_OBSERVATION_REPLY_LEN];
+        let length = selvage::observation::encode_reply(reply, &mut bad).unwrap();
+        bad[5] ^= 0x80;
+        let mut wire = bad[..length].to_vec();
+        wire.extend_from_slice(&[EVENT_TX, 0, 2, 0]);
+        let mut decoder = Decoder::new();
+        let mut events = Vec::new();
+        decoder.push(&wire, &mut events);
+        assert_eq!(
+            events,
+            [Event::Transmitted {
+                result: 0,
+                frame_len: 2
+            }]
+        );
+    }
+
+    #[test]
+    fn decoder_resynchronizes_after_oversize_observation_header() {
+        let mut decoder = Decoder::new();
+        let mut events = Vec::new();
+        decoder.push(
+            &[
+                EVENT_OBSERVATION,
+                0,
+                130,
+                EVENT_RX,
+                1,
+                0,
+                0xd8,
+                0xff,
+                9,
+                0,
+                0x33,
+            ],
+            &mut events,
+        );
+        assert_eq!(
+            events,
+            [Event::Received(Received {
+                frame: vec![0x33],
+                rssi_dbm: -40,
+                snr_db: 9.0
+            })]
         );
     }
 }

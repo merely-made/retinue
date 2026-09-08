@@ -256,7 +256,27 @@ where
         output_power: i32,
         buffer: &[u8],
     ) -> Result<(), RadioError> {
-        self.prepare_modem(mdltn_params).await?;
+        self.prepare_for_tx_with_stopped(mdltn_params, tx_pkt_params, output_power, buffer, || {})
+            .await
+    }
+
+    /// Prepare a transmission and call `stopped` only when this preparation
+    /// successfully moved the chip from a non-standby mode into standby.
+    ///
+    /// The callback is synchronous and is an owner observation witness, not a
+    /// second hardware transition.
+    pub async fn prepare_for_tx_with_stopped<F>(
+        &mut self,
+        mdltn_params: &ModulationParams,
+        tx_pkt_params: &mut PacketParams,
+        output_power: i32,
+        buffer: &[u8],
+        stopped: F,
+    ) -> Result<(), RadioError>
+    where
+        F: FnOnce(),
+    {
+        self.prepare_modem_with_stopped(mdltn_params, stopped).await?;
 
         self.radio_kind.set_modulation_params(mdltn_params).await?;
         self.radio_kind
@@ -279,8 +299,21 @@ where
 
     /// Execute a send operation
     pub async fn tx(&mut self) -> Result<(), RadioError> {
+        self.tx_with_started(|| {}).await
+    }
+
+    /// Execute a send operation, calling `started` after the chip accepted the
+    /// transmit command and before waiting for its completion IRQ.
+    ///
+    /// This is a narrowly-timed owner hook.  It is intentionally synchronous:
+    /// callers must not block, allocate, or await from it.
+    pub async fn tx_with_started<F>(&mut self, started: F) -> Result<(), RadioError>
+    where
+        F: FnOnce(),
+    {
         if let RadioMode::Transmit = self.radio_mode {
             self.radio_kind.do_tx().await?;
+            started();
             loop {
                 self.wait_for_irq().await?;
                 match self.radio_kind.process_irq_event(self.radio_mode, None, true).await {
@@ -497,10 +530,22 @@ where
     }
 
     async fn prepare_modem(&mut self, mdltn_params: &ModulationParams) -> Result<(), RadioError> {
+        self.prepare_modem_with_stopped(mdltn_params, || {}).await
+    }
+
+    async fn prepare_modem_with_stopped<F>(
+        &mut self,
+        mdltn_params: &ModulationParams,
+        stopped: F,
+    ) -> Result<(), RadioError>
+    where
+        F: FnOnce(),
+    {
         self.radio_kind.ensure_ready(self.radio_mode).await?;
         if self.radio_mode != RadioMode::Standby {
             self.radio_kind.set_standby().await?;
             self.radio_mode = RadioMode::Standby;
+            stopped();
         }
 
         if self.cold_start {

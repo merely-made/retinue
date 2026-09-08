@@ -92,6 +92,26 @@ where
     for &byte in bytes {
         let event = stream.push(byte, command);
         let flow = match event {
+            CommandEvent::Complete {
+                kind: CommandKind::Observation,
+                len,
+            } => {
+                let reply = match selvage::observation::decode_request(&command[..len]) {
+                    Ok(request) => {
+                        crate::observation::collection::reply(exec.observations(), request)
+                    }
+                    Err(_) => crate::observation::collection::invalid_reply(),
+                };
+                let mut bytes = [0; selvage::observation::MAX_OBSERVATION_REPLY_LEN];
+                match selvage::observation::encode_reply(reply, &mut bytes) {
+                    Ok(length) => Flow::from(link.write_diagnostic(&bytes[..length]).await),
+                    Err(_) => Flow::Detach,
+                }
+            }
+            CommandEvent::TooLong {
+                kind: CommandKind::Observation,
+                ..
+            } => Flow::Detach,
             CommandEvent::Pending => Flow::Continue,
             CommandEvent::Unknown { .. } => {
                 Flow::from(link.write_all(&[EVENT_TX, TX_UNKNOWN_COMMAND, 0, 0]).await)

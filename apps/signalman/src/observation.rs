@@ -10,6 +10,7 @@ use radio_hand::observation::{
     ObservationRecord, QuietCause,
 };
 use std::collections::{BTreeMap, BTreeSet};
+pub mod collect;
 
 pub const BUNDLE_VERSION: u8 = 1;
 pub const MAX_DEVICE_ID_BYTES: usize = 128;
@@ -226,6 +227,7 @@ pub enum IncompleteReason {
     MismatchedStop,
     UnmatchedStop,
     UnknownEvent,
+    OwnerUncertain,
     ContradictoryCapture,
     EndOfCapture,
 }
@@ -484,6 +486,13 @@ pub fn replay(bundle: &ObservationBundle) -> Result<Timeline, ReplayError> {
                             incomplete_reason: Some(IncompleteReason::UnmatchedStop),
                         });
                     }
+                } else if matches!(event.kind, ObservationKind::ContinuityLost { .. }) {
+                    close(
+                        &mut out,
+                        &mut open,
+                        None,
+                        Some(IncompleteReason::OwnerUncertain),
+                    );
                 } else if matches!(event.kind, ObservationKind::Unknown { .. }) {
                     close(
                         &mut out,

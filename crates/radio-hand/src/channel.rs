@@ -259,7 +259,25 @@ pub async fn await_host<C, L, RK, DLY>(
     RK: RadioKind,
     DLY: DelayNs,
 {
-    if !channel.without_host() {
+    await_host_with_listening(channel, exec, host, heartbeat, false).await
+}
+
+/// Keep collecting owner observations while an unattached modem has no host.
+/// Only autonomous channels receive frames/heartbeats; modem traffic is observed
+/// and discarded without attempting writes to an absent or stalled reader.
+pub async fn await_host_with_listening<C, L, RK, DLY>(
+    channel: &mut C,
+    exec: &mut Executive<'_, RK, DLY>,
+    host: &mut L,
+    heartbeat: &mut Heartbeat,
+    keep_listening: bool,
+) where
+    C: Channel<L, RK, DLY>,
+    L: HostLink,
+    RK: RadioKind,
+    DLY: DelayNs,
+{
+    if !channel.without_host() && !keep_listening {
         host.attached().await;
         return;
     }
@@ -297,6 +315,9 @@ pub async fn await_host<C, L, RK, DLY>(
                     // recovery, and there is no host here to tell.
                     continue;
                 };
+                if !channel.without_host() {
+                    continue;
+                }
                 channel
                     .serve(
                         exec,
@@ -314,7 +335,9 @@ pub async fn await_host<C, L, RK, DLY>(
             Either3::Second(Err(_)) => {}
             Either3::Third(()) => {
                 exec.note_wait(false);
-                channel.serve(exec, host, Event::Beat).await;
+                if channel.without_host() {
+                    channel.serve(exec, host, Event::Beat).await;
+                }
             }
         }
     }

@@ -164,6 +164,15 @@ No board mutation is part of the first software foundation receipt.
   Signalman all-target Clippy passes with `--no-deps -D warnings`; dependency
   linting remains red on the six pre-existing control warnings recorded above.
 
+- **2026-09-07, T114 observation continuation:** Terra owns Executive/driver
+  transition witnesses and the bounded owner registry; Luna owns the opaque
+  Selvage carrier codec, Tulle decoder and collection fixtures. The coordinator
+  owns dispatch, USB retirement, Signalman collection and integration. The
+  [O3 software receipt](2026-09-06_radio_observation_plan.md#2026-09-07-o3-software-slice)
+  records the exact limits and remaining physical procedure. T114 release image
+  compilation passes; O3 remains partial until physical timing, journal-write
+  measurements and broader slow-host acceptance. This does not advance O4/O5.
+
 ## Plan audit
 
 Live code and current receipts outrank an older plan's status paragraph. The

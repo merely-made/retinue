@@ -2,6 +2,8 @@
 #![no_std]
 
 pub mod kiss;
+pub mod observation;
+pub use observation::{CMD_OBSERVATION, EVENT_OBSERVATION};
 
 /// Meshtastic's documented LoRa synchronization byte.
 pub const MESHTASTIC_SYNC_WORD: u8 = 0x2b;
@@ -112,6 +114,7 @@ pub enum CommandKind {
     Transmit,
     Configure,
     UiSnapshot,
+    Observation,
 }
 
 /// Result of feeding one byte to [`CommandStream`].
@@ -239,13 +242,14 @@ impl CommandStream {
                 CMD_TX => CommandKind::Transmit,
                 CMD_CONFIG => CommandKind::Configure,
                 CMD_UI_SNAPSHOT => CommandKind::UiSnapshot,
+                CMD_OBSERVATION => CommandKind::Observation,
                 marker => return CommandEvent::Unknown { marker },
             };
             self.buffer[0] = byte;
             self.len = 1;
             self.expected = match kind {
                 CommandKind::Configure => CONFIG_COMMAND_LEN,
-                CommandKind::Transmit | CommandKind::UiSnapshot => 0,
+                CommandKind::Transmit | CommandKind::UiSnapshot | CommandKind::Observation => 0,
             };
             return CommandEvent::Pending;
         }
@@ -254,10 +258,11 @@ impl CommandStream {
             CMD_TX => CommandKind::Transmit,
             CMD_CONFIG => CommandKind::Configure,
             CMD_UI_SNAPSHOT => CommandKind::UiSnapshot,
+            CMD_OBSERVATION => CommandKind::Observation,
             _ => unreachable!("only known command markers enter the buffer"),
         };
 
-        if kind == CommandKind::UiSnapshot && byte == WAKE_BYTE {
+        if matches!(kind, CommandKind::UiSnapshot | CommandKind::Observation) && byte == WAKE_BYTE {
             let len = self.len;
             command[..len].copy_from_slice(&self.buffer[..len]);
             self.len = 0;
@@ -639,5 +644,52 @@ mod tests {
             }
         );
         assert_eq!(&command[..bytes.len()], &bytes);
+    }
+
+    #[test]
+    fn observation_command_is_delimited_and_recovers_after_truncation() {
+        use observation::{MAX_OBSERVATION_COMMAND_LEN, Request, decode_request, encode_request};
+        let request = Request::Cursor {
+            request_id: 7,
+            boot_id: 9,
+            after_sequence: 12,
+        };
+        let mut wire = [0; MAX_OBSERVATION_COMMAND_LEN];
+        let len = encode_request(request, &mut wire);
+        let mut stream = CommandStream::new();
+        let mut command = [0; MAX_COMMAND_LEN];
+        for byte in &wire[..len - 1] {
+            assert_eq!(stream.push(*byte, &mut command), CommandEvent::Pending);
+        }
+        assert_eq!(
+            stream.push(0, &mut command),
+            CommandEvent::Complete {
+                kind: CommandKind::Observation,
+                len: len - 1,
+            }
+        );
+        assert_eq!(decode_request(&command[..len - 1]), Ok(request));
+        for byte in &wire[..9] {
+            assert_eq!(stream.push(*byte, &mut command), CommandEvent::Pending);
+        }
+        assert_eq!(
+            stream.push(0, &mut command),
+            CommandEvent::Complete {
+                kind: CommandKind::Observation,
+                len: 9,
+            }
+        );
+        assert!(decode_request(&command[..9]).is_err());
+        for byte in &wire[..len - 1] {
+            assert_eq!(stream.push(*byte, &mut command), CommandEvent::Pending);
+        }
+        assert_eq!(
+            stream.push(0, &mut command),
+            CommandEvent::Complete {
+                kind: CommandKind::Observation,
+                len: len - 1,
+            }
+        );
+        assert_eq!(decode_request(&command[..len - 1]), Ok(request));
     }
 }

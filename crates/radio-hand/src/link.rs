@@ -90,4 +90,12 @@ pub trait HostLink {
 
     /// Write every byte, chunking internally if the transport has a frame size.
     async fn write_all(&mut self, bytes: &[u8]) -> Result<(), LinkFault>;
+
+    /// Optional best-effort diagnostic write. Supporting transports must bound
+    /// its duration and retire the session after a partial write or timeout.
+    /// The default declines without writing; it never introduces an unbounded
+    /// telemetry wait on a carrier that has not implemented this guarantee.
+    async fn write_diagnostic(&mut self, _bytes: &[u8]) -> Result<(), LinkFault> {
+        Err(LinkFault::Detached)
+    }
 }

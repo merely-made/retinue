@@ -14,11 +14,20 @@ const USB_PACKET: usize = 64;
 
 pub struct UsbHost<'d, D: Driver<'d>> {
     class: CdcAcmClass<'d, D>,
+    retired: core::cell::Cell<bool>,
 }
 
 impl<'d, D: Driver<'d>> UsbHost<'d, D> {
     pub fn new(class: CdcAcmClass<'d, D>) -> Self {
-        Self { class }
+        Self {
+            class,
+            retired: core::cell::Cell::new(false),
+        }
+    }
+
+    /// A failed/partial write retires this DTR session until a real detach edge.
+    pub fn require_detach(&self) {
+        self.retired.set(true);
     }
 }
 
@@ -59,6 +68,12 @@ pub async fn serve_status_only<'d, D: Driver<'d>>(
 
 impl<'d, D: Driver<'d>> HostLink for UsbHost<'d, D> {
     fn is_attached(&self) -> bool {
+        if self.retired.get() {
+            if !self.class.dtr() {
+                self.retired.set(false);
+            }
+            return false;
+        }
         self.class.dtr()
     }
 
@@ -82,6 +97,13 @@ impl<'d, D: Driver<'d>> HostLink for UsbHost<'d, D> {
     /// exposes it as a getter; 50 ms is far below human attach latency and costs nothing
     /// against the radio work this select shares.
     async fn attached(&mut self) {
+        while self.retired.get() {
+            if !self.class.dtr() {
+                self.retired.set(false);
+                break;
+            }
+            embassy_time::Timer::after_millis(50).await;
+        }
         self.class.wait_connection().await;
         while !self.class.dtr() {
             embassy_time::Timer::after_millis(50).await;
@@ -99,6 +121,9 @@ impl<'d, D: Driver<'d>> HostLink for UsbHost<'d, D> {
     }
 
     async fn write_all(&mut self, bytes: &[u8]) -> Result<(), LinkFault> {
+        if self.retired.get() {
+            return Err(LinkFault::Detached);
+        }
         for chunk in bytes.chunks(USB_PACKET) {
             self.class
                 .write_packet(chunk)
@@ -122,5 +147,23 @@ impl<'d, D: Driver<'d>> HostLink for UsbHost<'d, D> {
                 .map_err(|_| LinkFault::Detached)?;
         }
         Ok(())
+    }
+
+    async fn write_diagnostic(&mut self, bytes: &[u8]) -> Result<(), LinkFault> {
+        // At most three USB packets for a one-record observation reply.
+        // A partial timed-out frame is never followed by more bytes in this
+        // session: the host must detach and start with a fresh decoder.
+        match embassy_time::with_timeout(
+            embassy_time::Duration::from_millis(5),
+            self.write_all(bytes),
+        )
+        .await
+        {
+            Ok(Ok(())) => Ok(()),
+            _ => {
+                self.require_detach();
+                Err(LinkFault::Detached)
+            }
+        }
     }
 }

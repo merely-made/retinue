@@ -47,6 +47,28 @@ fn listening() -> ObservationKind {
     }
 }
 
+#[test]
+fn owner_uncertainty_does_not_invent_a_listening_stop_time() {
+    let mut capture = bundle();
+    admit(&mut capture, event(1, 10, listening()), 100);
+    admit(
+        &mut capture,
+        event(2, 20, ObservationKind::ContinuityLost { cause: 3 }),
+        110,
+    );
+    admit(&mut capture, event(3, 30, listening()), 120);
+    admit(&mut capture, event(4, 40, stopped()), 130);
+    let timeline = replay(&capture).unwrap();
+    assert_eq!(timeline.intervals.len(), 2);
+    assert_eq!(timeline.intervals[0].end_ms, None);
+    assert_eq!(
+        timeline.intervals[0].incomplete_reason,
+        Some(IncompleteReason::OwnerUncertain)
+    );
+    assert_eq!(timeline.summary.listening_ms.get(&2), Some(&10));
+    assert_eq!(timeline.summary.incomplete_intervals, 1);
+}
+
 fn stopped() -> ObservationKind {
     ObservationKind::ListeningStopped {
         assignment: 7,

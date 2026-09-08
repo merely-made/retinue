@@ -516,7 +516,7 @@ where
                                 "direct-PHY firmware rejected the radio profile with result {result}"
                             )));
                         }
-                        Event::UiSnapshot { .. } => {}
+                        Event::UiSnapshot { .. } | Event::Observation(_) => {}
                         Event::Received(frame) => {
                             if rx_tx.send(frame).await.is_err() {
                                 return Ok(());
@@ -796,6 +796,7 @@ where
                                 let _ = snapshot.done.send(outcome);
                             }
                         }
+                        Event::Observation(_) => {}
                         Event::Diagnostic {
                             irq_status,
                             device_errors,

@@ -23,6 +23,10 @@ use lora_phy::{DelayNs, LoRa, RxMode};
 use radio_face::{HostSnapshot, LedSignal, LocalStatus};
 use selvage::PhyProfile;
 
+use crate::observation::owner::{
+    CONTINUITY_CAD, CONTINUITY_RETUNE, CONTINUITY_SETTINGS, CONTINUITY_TRANSMIT, OwnerObservations,
+};
+use crate::observation::{RefusalReason, RequestKind};
 use crate::region::Region;
 use crate::service;
 
@@ -273,6 +277,7 @@ pub struct Executive<'r, RK: RadioKind, DLY: DelayNs> {
     /// When the current duty window opened.
     duty_window_start: Option<Instant>,
     diag: AirDiag,
+    observations: Option<&'r mut OwnerObservations>,
 }
 
 impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
@@ -295,6 +300,7 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
             duty_spent_ms: 0,
             duty_window_start: None,
             diag: AirDiag::default(),
+            observations: None,
         }
     }
 
@@ -327,6 +333,38 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
     /// The exact profile currently represented by the driver state.
     pub fn profile(&self) -> PhyProfile {
         self.radio.profile
+    }
+
+    /// Attach the T114 owner's optional, RAM-only observation state.  V4's
+    /// ephemeral executive keeps this unattached.
+    pub fn attach_observations(&mut self, observations: &'r mut OwnerObservations) {
+        self.observations = Some(observations);
+    }
+
+    /// Read the attached owner state without granting a caller a recorder write.
+    pub fn observations(&self) -> Option<&OwnerObservations> {
+        self.observations.as_deref()
+    }
+
+    fn observation_uptime_ms() -> u64 {
+        Instant::now().as_millis()
+    }
+
+    fn invalidate_observation(&mut self, reason: u8) {
+        if let Some(observations) = self.observations.as_deref_mut() {
+            observations.invalidate_hardware(Self::observation_uptime_ms(), reason);
+        }
+    }
+
+    fn refuse_observation(
+        &mut self,
+        request: RequestKind,
+        reason: RefusalReason,
+        work: Option<u32>,
+    ) {
+        if let (Some(observations), Some(work)) = (self.observations.as_deref_mut(), work) {
+            observations.refused(Self::observation_uptime_ms(), request, reason, work);
+        }
     }
 
     /// Count an unattended-wait wakeup; called by [`crate::channel::await_host`].
@@ -382,6 +420,7 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
         &mut self,
         settings: &crate::settings::Settings,
     ) -> Result<(), StoreFault> {
+        self.invalidate_observation(CONTINUITY_SETTINGS);
         self.store.save(settings)
     }
 
@@ -420,6 +459,10 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
         if !self.radio.prepare_rx {
             return Ok(false);
         }
+        // `prepare_for_rx` can enter standby and retune even if a caller merely
+        // re-requested receive while an earlier interval was open.  The next
+        // start is emitted only after `rx_arm` confirms the new hardware edge.
+        self.invalidate_observation(CONTINUITY_RETUNE);
         if self
             .lora
             .prepare_for_rx(RxMode::Continuous, &self.radio.modulation, &self.radio.rx)
@@ -427,6 +470,7 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
             .is_err()
         {
             self.diag.rx_arm_failed = self.diag.rx_arm_failed.saturating_add(1);
+            self.invalidate_observation(CONTINUITY_RETUNE);
             return Err(RadioFault);
         }
         // Put the chip into continuous receive here, rather than leaving it to the first
@@ -435,10 +479,15 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
         // true if the arming already happened. See [`Self::wait_rx_irq`].
         if self.lora.rx_arm().await.is_err() {
             self.diag.rx_arm_failed = self.diag.rx_arm_failed.saturating_add(1);
+            self.invalidate_observation(CONTINUITY_RETUNE);
             return Err(RadioFault);
         }
         self.diag.rx_armed = self.diag.rx_armed.saturating_add(1);
         self.radio.prepare_rx = false;
+        let profile = self.radio.profile;
+        if let Some(observations) = self.observations.as_deref_mut() {
+            observations.listening_started(Self::observation_uptime_ms(), 0, profile);
+        }
         Ok(true)
     }
 
@@ -457,6 +506,7 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
         self.lora.wait_for_irq().await.map_err(|_| {
             self.diag.rx_err = self.diag.rx_err.saturating_add(1);
             self.radio.prepare_rx = true;
+            self.invalidate_observation(CONTINUITY_RETUNE);
             RadioFault
         })
     }
@@ -470,6 +520,15 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
         match self.lora.rx_collect(&self.radio.rx, buffer).await {
             Ok((len, status)) => {
                 self.diag.rx_ok = self.diag.rx_ok.saturating_add(1);
+                if let Some(observations) = self.observations.as_deref_mut() {
+                    observations.rx_captured(
+                        Self::observation_uptime_ms(),
+                        self.radio.profile,
+                        usize::from(len),
+                        status.rssi,
+                        status.snr,
+                    );
+                }
                 Ok(Some(Received {
                     len: usize::from(len),
                     rssi: status.rssi,
@@ -479,11 +538,15 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
             Err(RadioError::ReceivePending) => Ok(None),
             Err(RadioError::PayloadCrcError | RadioError::HeaderError) => {
                 self.diag.rx_damaged = self.diag.rx_damaged.saturating_add(1);
+                if let Some(observations) = self.observations.as_deref_mut() {
+                    observations.rx_damaged(Self::observation_uptime_ms(), self.radio.profile);
+                }
                 Ok(None)
             }
             Err(_) => {
                 self.diag.rx_err = self.diag.rx_err.saturating_add(1);
                 self.radio.prepare_rx = true;
+                self.invalidate_observation(CONTINUITY_RETUNE);
                 Err(RadioFault)
             }
         }
@@ -500,6 +563,15 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
             match self.lora.rx(&self.radio.rx, buffer).await {
                 Ok((len, status)) => {
                     self.diag.rx_ok = self.diag.rx_ok.saturating_add(1);
+                    if let Some(observations) = self.observations.as_deref_mut() {
+                        observations.rx_captured(
+                            Self::observation_uptime_ms(),
+                            self.radio.profile,
+                            usize::from(len),
+                            status.rssi,
+                            status.snr,
+                        );
+                    }
                     return Ok(Received {
                         len: usize::from(len),
                         rssi: status.rssi,
@@ -517,10 +589,14 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
                 // on an error there), so listening again is the whole recovery.
                 Err(RadioError::PayloadCrcError | RadioError::HeaderError) => {
                     self.diag.rx_damaged = self.diag.rx_damaged.saturating_add(1);
+                    if let Some(observations) = self.observations.as_deref_mut() {
+                        observations.rx_damaged(Self::observation_uptime_ms(), self.radio.profile);
+                    }
                 }
                 Err(_) => {
                     self.diag.rx_err = self.diag.rx_err.saturating_add(1);
                     self.radio.prepare_rx = true;
+                    self.invalidate_observation(CONTINUITY_RETUNE);
                     return Err(RadioFault);
                 }
             }
@@ -534,10 +610,15 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
     /// budget refuses the frame rather than sending it over the limit. Channel-citizenship
     /// gating (CAD) goes above the same line when it lands.
     pub async fn transmit(&mut self, frame: &[u8]) -> u8 {
+        let work = self
+            .observations
+            .as_deref_mut()
+            .and_then(OwnerObservations::next_work);
         // The regulatory floor. `Unset` has no profile, so "no region, no transmit" falls
         // out of the type rather than out of a flag.
         let Some(profile) = self.region.profile() else {
             self.diag.tx_no_region = self.diag.tx_no_region.saturating_add(1);
+            self.refuse_observation(RequestKind::Transmit, RefusalReason::MissingRegion, work);
             return selvage::TX_NO_REGION;
         };
 
@@ -555,6 +636,7 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
             let budget_ms = DUTY_WINDOW_MS / 1_000 * u64::from(profile.duty_permille);
             if self.duty_spent_ms >= budget_ms {
                 self.diag.tx_over_duty = self.diag.tx_over_duty.saturating_add(1);
+                self.refuse_observation(RequestKind::Transmit, RefusalReason::DutyBudget, work);
                 return selvage::TX_OVER_DUTY;
             }
         }
@@ -568,6 +650,7 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
                 // The radio is left in standby by the listen check, so ask for receive
                 // back: a refused transmit must never be a deaf board.
                 self.radio.prepare_rx = true;
+                self.refuse_observation(RequestKind::Transmit, RefusalReason::ChannelBusy, work);
                 return selvage::TX_CHANNEL_BUSY;
             }
             // Courtesy spent; take the turn. See CAD_ATTEMPTS for why deferring forever is
@@ -575,22 +658,47 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
             self.diag.cad_override = self.diag.cad_override.saturating_add(1);
         }
 
-        let prepared = self
-            .lora
-            .prepare_for_tx(
-                &self.radio.modulation,
-                &mut self.radio.tx,
-                self.radio.tx_power_dbm,
-                frame,
-            )
-            .await
-            .is_ok();
+        let prepared = {
+            let observations = &mut self.observations;
+            self.lora
+                .prepare_for_tx_with_stopped(
+                    &self.radio.modulation,
+                    &mut self.radio.tx,
+                    self.radio.tx_power_dbm,
+                    frame,
+                    || {
+                        if let Some(observations) = observations.as_deref_mut() {
+                            observations.listening_stopped(Self::observation_uptime_ms(), 0);
+                        }
+                    },
+                )
+                .await
+                .is_ok()
+        };
         self.radio.prepare_rx = true;
         if !prepared {
+            self.invalidate_observation(CONTINUITY_TRANSMIT);
+            self.refuse_observation(RequestKind::Transmit, RefusalReason::RadioFault, work);
             return selvage::TX_RADIO_FAULT;
         }
         let tx_started = Instant::now();
-        let code = match with_timeout(TX_DEADLINE, self.lora.tx()).await {
+        let profile = self.radio.profile;
+        let observations = &mut self.observations;
+        let code = match with_timeout(
+            TX_DEADLINE,
+            self.lora.tx_with_started(|| {
+                if let (Some(observations), Some(work)) = (observations.as_deref_mut(), work) {
+                    observations.tx_started(
+                        Self::observation_uptime_ms(),
+                        profile,
+                        frame.len(),
+                        work,
+                    );
+                }
+            }),
+        )
+        .await
+        {
             Ok(Ok(())) => selvage::TX_ACCEPTED,
             Ok(Err(_)) => selvage::TX_RADIO_FAULT,
             Err(_) => selvage::TX_TIMEOUT,
@@ -602,8 +710,12 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
             .saturating_add(tx_started.elapsed().as_millis());
         if code == selvage::TX_ACCEPTED {
             self.diag.tx_ok = self.diag.tx_ok.saturating_add(1);
+            if let (Some(observations), Some(work)) = (self.observations.as_deref_mut(), work) {
+                observations.tx_finished(Self::observation_uptime_ms(), work);
+            }
         } else {
             self.diag.tx_err = self.diag.tx_err.saturating_add(1);
+            self.invalidate_observation(CONTINUITY_TRANSMIT);
         }
         code
     }
@@ -620,6 +732,7 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
     /// region entry, and this must fail closed for it.
     async fn listen_before_talk(&mut self) -> bool {
         for attempt in 0..CAD_ATTEMPTS {
+            self.invalidate_observation(CONTINUITY_CAD);
             if self
                 .lora
                 .prepare_for_cad(&self.radio.modulation)
@@ -677,6 +790,7 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
         }
         let mut clamped = *profile;
         clamped.tx_power_dbm = region.clamp_power(profile.tx_power_dbm, HARDWARE_MAX_DBM);
+        self.invalidate_observation(CONTINUITY_RETUNE);
 
         match service::apply_profile(self.lora, &clamped).await {
             Ok(applied) => {
