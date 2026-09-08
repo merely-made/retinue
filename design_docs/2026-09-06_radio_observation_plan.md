@@ -624,3 +624,33 @@ recheck was blocked by the shared Cargo package-cache lock and stopped without
 a compilation result; it is not a new passing receipt. The T114 release build
 and 177 default radio-hand library tests passed. The physical runner, its strict
 capture/lifecycle conditions, formatting and diff checks passed.
+
+### 2026-09-08 concurrent RF and reader pressure
+
+The [concurrent receipt](2026-09-08_t114_observation_pressure_receipt.json)
+uses unchanged firmware `5ccf598` and a separate bounded runner:
+`python -B testing/o3_usb_pressure_rf.py --t114 COM10 --v4 COM6 --output
+<receipt.json>`. It applies the exact T114 PHY to the V4 runtime, starts a
+12-packet RF worker, and sends observation requests while keeping T114 replies
+unread until that worker finishes. Both serial handles close on completion or
+failure; no persisted configuration is changed.
+
+All twelve acknowledged transmissions corresponded to twelve newly recorded
+captures, sequences 64–75, without a new observation gap. The boot token stayed
+`3072686413380256999`. The host unread workload lasted about 8.14 seconds;
+173 observation writes were accepted, and 12,312 bytes were subsequently read.
+A further write in that session timed out. DTR reconnect restored discovery,
+and draining after the pre-run cursor recovered all twelve captures.
+
+This adds a small concurrent host RF/USB workload receipt to the earlier
+interleaved test. It does not resolve the exact device stall duration, individual
+packet-body identity, CPU/IRQ/FIFO cost or independent journal-write count. The
+runner records host monotonic timestamps rather than substituting them for
+firmware execution timestamps. O3 remains partial for those measurements, the
+planted refusal and the true power-cut leg. The pre-power-cut capture has been
+saved, and physical removal of USB plus any battery has been requested.
+
+The optional V4 compile retry again reached only `Blocking waiting for file
+lock on package cache`; it was stopped without a compile result. Python syntax,
+runner/receipt digest consistency, physical acceptance assertions and diff
+whitespace checks pass for this follow-up. Firmware was not changed or reflashed.
