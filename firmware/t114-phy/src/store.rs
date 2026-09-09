@@ -26,6 +26,7 @@
 //! runtime-persisted peer table, a crash record written where it happened — is the one that
 //! must build the staged-commit window, and it should re-read pressure point 3 first.
 
+use core::sync::atomic::{AtomicU32, Ordering};
 use embassy_nrf::Peri;
 use embassy_nrf::mode::Blocking;
 use embassy_nrf::nvmc::{Nvmc, PAGE_SIZE};
@@ -38,6 +39,25 @@ use radio_hand::control::{
 use radio_hand::executive::{BoardStore, StoreFault};
 use radio_hand::settings::{self, Settings};
 use radio_hand::store::{self, HEADER_LEN, Slot, SlotError};
+
+// Count attempts immediately before each NVMC mutation, including failures.
+// These boot-local counters live outside the observation recorder and are never
+// reset by collection. Saturation remains visible to a measurement client.
+static FLASH_ERASE_ATTEMPTS: AtomicU32 = AtomicU32::new(0);
+static FLASH_WRITE_ATTEMPTS: AtomicU32 = AtomicU32::new(0);
+
+fn count_attempt(counter: &AtomicU32) {
+    let _ = counter.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
+        Some(n.saturating_add(1))
+    });
+}
+
+pub fn flash_attempts() -> (u32, u32) {
+    (
+        FLASH_ERASE_ATTEMPTS.load(Ordering::Relaxed),
+        FLASH_WRITE_ATTEMPTS.load(Ordering::Relaxed),
+    )
+}
 
 include!(concat!(env!("OUT_DIR"), "/store_region.rs"));
 include!(concat!(env!("OUT_DIR"), "/control_region.rs"));
@@ -350,9 +370,11 @@ impl<'d> SettingsStore<'d> {
         let written =
             store::encode(sequence, &body[..body_len], &mut encoded).map_err(|_| Error::Write)?;
 
+        count_attempt(&FLASH_ERASE_ATTEMPTS);
         self.nvmc
             .erase(offset, offset + PAGE_SIZE as u32)
             .map_err(|_| Error::Erase)?;
+        count_attempt(&FLASH_WRITE_ATTEMPTS);
         self.nvmc
             .write(offset, &encoded[..written])
             .map_err(|_| Error::Write)?;
@@ -405,9 +427,11 @@ impl<'d> SettingsStore<'d> {
         let mut encoded = [0_u8; store::encoded_len(radio_hand::announce_reservation::BODY_LEN)];
         let written =
             store::encode(sequence, body, &mut encoded).map_err(|_| ReservationError::Write)?;
+        count_attempt(&FLASH_ERASE_ATTEMPTS);
         self.nvmc
             .erase(offset, offset + PAGE_SIZE as u32)
             .map_err(|_| ReservationError::Erase)?;
+        count_attempt(&FLASH_WRITE_ATTEMPTS);
         self.nvmc
             .write(offset, &encoded[..written])
             .map_err(|_| ReservationError::Write)?;
@@ -463,6 +487,7 @@ impl AbSlotStore for SettingsStore<'_> {
 
     fn erase_slot(&mut self, slot: Slot) -> Result<(), Self::Error> {
         let offset = self.control_offset(slot);
+        count_attempt(&FLASH_ERASE_ATTEMPTS);
         self.nvmc
             .erase(offset, offset + PAGE_SIZE as u32)
             .map_err(|_| ControlError::Erase)
@@ -472,6 +497,7 @@ impl AbSlotStore for SettingsStore<'_> {
         if record.is_empty() || record.len() > CONTROL_SLOT_LEN || !record.len().is_multiple_of(4) {
             return Err(ControlError::Buffer);
         }
+        count_attempt(&FLASH_WRITE_ATTEMPTS);
         self.nvmc
             .write(self.control_offset(slot), record)
             .map_err(|_| ControlError::Write)

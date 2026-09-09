@@ -782,10 +782,16 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
     /// of request, region, and hardware — with the *clamped* value applied, stored, and
     /// reported on the face, never the requested one.
     pub async fn apply_profile(&mut self, profile: &PhyProfile) -> u8 {
+        let work = self
+            .observations
+            .as_deref_mut()
+            .and_then(OwnerObservations::next_work);
         let Some(region) = self.region.profile() else {
+            self.refuse_observation(RequestKind::Retune, RefusalReason::MissingRegion, work);
             return selvage::CONFIG_OUT_OF_REGION;
         };
         if !region.allows_frequency(profile.frequency_hz) {
+            self.refuse_observation(RequestKind::Retune, RefusalReason::InvalidProfile, work);
             return selvage::CONFIG_OUT_OF_REGION;
         }
         let mut clamped = *profile;
@@ -804,7 +810,15 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
                 self.publish(LedSignal::Idle);
                 service::ACCEPTED
             }
-            Err(code) => code,
+            Err(code) => {
+                let reason = if code == selvage::CONFIG_RADIO_FAULT {
+                    RefusalReason::RadioFault
+                } else {
+                    RefusalReason::InvalidProfile
+                };
+                self.refuse_observation(RequestKind::Retune, reason, work);
+                code
+            }
         }
     }
 

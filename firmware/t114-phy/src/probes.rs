@@ -272,6 +272,18 @@ where
             .write(|value| value.set_gpregret(0x4e));
         cortex_m::peripheral::SCB::sys_reset();
     }
+    if at_boundary && (packet == b"flashcounts\n" || packet == b"flashcounts\r\n") {
+        let (erases, writes) = crate::store::flash_attempts();
+        let mut reply = radio_face::Text::<96>::empty();
+        let _ = write!(
+            &mut reply,
+            "flashcounts erases={erases} writes={writes}\r\n"
+        );
+        if host.write_all(reply.as_str().as_bytes()).await.is_err() {
+            return Outcome::HostGone;
+        }
+        return Outcome::Served;
+    }
     if at_boundary && (packet == b"status\n" || packet == b"status\r\n") {
         if host.write_all(online.as_str().as_bytes()).await.is_err() {
             return Outcome::HostGone;
