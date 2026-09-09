@@ -2220,5 +2220,39 @@
     "Host timestamps demonstrate concurrent workload, not device USB execution timing.",
     "Capture counts are consistent with twelve synthetic transmissions; capture_tag zero does not prove packet-body identity.",
     "No independent flash-write count, CPU cost or precise IRQ/FIFO occupancy measurement."
-  ]
+  ],
+  "power_cut": {
+    "physical_action": "User reported completing full power removal and reconnection; not independently instrumented.",
+    "after_capture": {
+      "board_authenticated": false,
+      "boot_id": 10685751629607856747,
+      "carrier": "local-usb",
+      "device_association": "COM10",
+      "incomplete_intervals": 1,
+      "initial_newest": 1,
+      "last_cursor": 1,
+      "missing_records": 0,
+      "overwritten": 0,
+      "profiles": [
+        {
+          "definition_hex": "73656c766167652d636f6e6669672d76313a0278d00d3690d003000b0510002b0311",
+          "id": 1,
+          "name": "906875000 Hz / SF11",
+          "version": 1
+        }
+      ],
+      "reached_target": true,
+      "receipt_version": 1,
+      "records": [
+        {
+          "raw_hex": "4f01000025944b6a7dd8d3ea6b0000000000000001000000000000007300000001669c4f65",
+          "received_unix_ms": 1788916183153
+        }
+      ],
+      "unrelated_events_discarded": 0
+    },
+    "fresh_boot": true,
+    "old_ram_history_absent": true,
+    "before_cursor": 75
+  }
 }

@@ -4,7 +4,7 @@
 T114 owner emission, bounded read-only direct-PHY collection and a finite
 Signalman capture command now exist. T114 receive, TX, cursor loss, repeated
 reads and pressured-session reconnect have physical evidence. O3 remains open
-for refusal, power-cycle and cost measurements. V4 emission, durable capture/export and the availability
+for refusal and cost measurements. V4 emission, durable capture/export and the availability
 view remain open. Existing counters and host events do not substitute for the
 physical receipts in O3-O6.
 
@@ -654,3 +654,16 @@ The optional V4 compile retry again reached only `Blocking waiting for file
 lock on package cache`; it was stopped without a compile result. Python syntax,
 runner/receipt digest consistency, physical acceptance assertions and diff
 whitespace checks pass for this follow-up. Firmware was not changed or reflashed.
+
+
+### 2026-09-09 power-cut verification
+
+Following the owner-reported full power removal and reconnection, read-only
+Signalman collection succeeded. Boot ID changed from `3072686413380256999`
+to `10685751629607856747`; the prior newest sequence 75 was replaced by a
+fresh sequence-1 listening-start record. The old RAM history was absent and
+the finite drain reached its target. The [existing receipt](2026-09-08_t114_observation_pressure_receipt.json)
+now includes the post-power-cut capture. This closes the user-assisted
+power-cut/volatile-history leg; the power removal itself was user-attested,
+not independently instrumented. Refusal and cost/journal measurements remain
+open. Do not request another manual power cycle for this receipt.
