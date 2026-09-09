@@ -57,7 +57,7 @@ def main() -> int:
     report = {"started_utc": utc_now(), "runner_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
               "ports": [{"device": p.device, "vid": p.vid, "pid": p.pid, "serial": p.serial_number}
                         for p in comports() if p.device in (args.t114, args.v4)],
-              "limits": {"observation_reads": 64, "rf_frames": 3}, "transcript": transcript}
+              "limits": {"observation_reads": 64, "peer_rf_frames": 3, "t114_rf_frames": 1}, "transcript": transcript}
     board = peer = None
     try:
         ids = {p["device"]: (p["vid"], p["pid"]) for p in report["ports"]}
@@ -120,6 +120,16 @@ def main() -> int:
         report["recovery_records"] = recovered
         if len(recovered) != 3 or any(r.get("event_tag") != 2 for r in recovered):
             raise RuntimeError("expected three captures with uninterrupted listening after refusal")
+        report["t114_tx"] = tx(board, 0, b"o3-refusal-then-tx")
+        lifecycle, request_id = drain(board, before["boot_id"], request_id, recovered[-1]["next"])
+        report["tx_lifecycle"] = lifecycle
+        if [r.get("event_tag") for r in lifecycle] != [1, 4, 5, 0]:
+            raise RuntimeError("expected listening stop, TX start/finish, and return to listen")
+        start_raw = bytes.fromhex(lifecycle[1]["raw_record"])
+        finish_raw = bytes.fromhex(lifecycle[2]["raw_record"])
+        tx_work = int.from_bytes(start_raw[33:37], "big")
+        if tx_work == 0 or tx_work == int.from_bytes(raw[32:36], "big") or tx_work != int.from_bytes(finish_raw[30:34], "big"):
+            raise RuntimeError("TX correlation reused the refused work id or lost its finish")
         report["flash_after_rf"] = flashcounts(board)
         if report["flash_after_rf"]["fields"] != report["flash_before"]["fields"]:
             raise RuntimeError("RF recovery changed flash counters")

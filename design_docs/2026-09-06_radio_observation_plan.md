@@ -1,10 +1,11 @@
 # Radio observation and Signalman availability plan
 
-**Status (2026-09-08): O1/O2 complete in software; O3 has a partial physical receipt.**
+**Status (2026-09-09): O1/O2 complete in software; O3 refusal and zero-flash-write checks now verified.**
 T114 owner emission, bounded read-only direct-PHY collection and a finite
 Signalman capture command now exist. T114 receive, TX, cursor loss, repeated
-reads and pressured-session reconnect have physical evidence. O3 remains open
-for refusal and cost measurements. V4 emission, durable capture/export and the availability
+reads, pressured-session reconnect, power-cut history reset, retune refusal and
+zero observation-induced NVMC mutations have physical evidence. Detailed CPU,
+IRQ/FIFO and USB timing costs remain unmeasured. V4 emission, durable capture/export and the availability
 view remain open. Existing counters and host events do not substitute for the
 physical receipts in O3-O6.
 
@@ -667,3 +668,50 @@ now includes the post-power-cut capture. This closes the user-assisted
 power-cut/volatile-history leg; the power removal itself was user-attested,
 not independently instrumented. Refusal and cost/journal measurements remain
 open. Do not request another manual power cycle for this receipt.
+
+### 2026-09-09 refusal and flash-cost verification
+
+The [physical receipt](2026-09-09_t114_observation_refusal_receipt.json) records
+firmware `196dfd1`, its image hashes and serial-DFU transcript, the bounded
+`testing/o3_usb_refusal.py` runner, raw USB traffic and final Signalman capture.
+The T114 update and all checks used USB. V4 COM6 supplied the RF peer without a
+firmware update. US915, the original PHY and crash count zero were verified.
+The image ends at `0x71122`, below the reserved journal at `0xe6000`.
+
+The executive now records rejected retunes as typed refusals, including missing
+region, invalid profile and radio failure. The planted case requests a validly
+encoded 869.525 MHz profile from the US915 owner: it returns
+`CONFIG_OUT_OF_REGION` before touching the radio, and records
+`Retune / InvalidProfile` with a fresh work id. This requests no transmission
+and changes neither the current profile nor persistent settings.
+
+Both physical runs passed. The extended run retained exactly one refusal,
+returned the same raw 40-byte event on 64 rereads, and kept the radio counters
+unchanged with RX arming still one. Flash erase and write attempt counters
+remained zero before collection, after collection, and after RF recovery.
+These counters are independent of the observation ring and increment immediately
+before every settings, reservation and control-journal NVMC mutation, including
+failed attempts. Saturation causes the runner to reject the measurement.
+
+All three subsequent V4 packets produced captures without a listening break.
+A T114 transmission then produced listening stop, TX start, matching TX finish
+and return to listen at sequences 10–13. Its work id differed from the refusal.
+Final Signalman collection reached cursor 13 on the same boot with zero missing
+records. The earlier successful run and its raw traffic are also retained.
+
+The current T114 modem path has no live `QuietWindow` implementation or call.
+That source boundary, unchanged RX-arm counters and absence of a new continuity
+break support zero collection-induced quiet entries in this path. They do not
+measure electrical availability or IRQ/FIFO latency. The 64-read host elapsed
+time includes the runner's serial timeout and must not be presented as device
+CPU or USB occupancy. Detailed timing costs remain open; this receipt closes
+the planted refusal and independent flash-mutation checks.
+
+Validation: 177 radio-hand library tests, linked T114 release build, V4 release
+check, Rust formatting, runner syntax and diff checks passed. The V4 check emits
+only the existing `last_sleep_us` and `radio_wake_registrations` dead-code warnings.
+
+Bench constraint: any future test requiring case opening or physical power-path
+access uses an accessible alternative board. The sole assembled T114 is not
+the disassembly fixture. A T114-specific electrical test that cannot use USB
+waits for a suitable fixture; it does not create another manual task for the owner.
