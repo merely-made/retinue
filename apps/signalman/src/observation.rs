@@ -3,7 +3,9 @@
 //! A bundle describes one source and one immutable exact-profile registry.
 //! Collector-supplied identity and carrier labels do not authenticate a board.
 //! Raw bytes, host receipt times and source boot/uptime remain separate.
-//! Persistence, UTC mapping and remote authentication are later consumers.
+//! UTC mapping and remote authentication are later consumers. The versioned
+//! disk container in [`persistence`] preserves this evidence without decoding
+//! or rewriting the source records.
 
 use radio_hand::observation::{
     DecodeError, MAX_RECORD_BYTES, ObservationEvent, ObservationGap, ObservationKind,
@@ -11,6 +13,7 @@ use radio_hand::observation::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 pub mod collect;
+pub mod persistence;
 
 pub const BUNDLE_VERSION: u8 = 1;
 pub const MAX_DEVICE_ID_BYTES: usize = 128;
@@ -155,6 +158,9 @@ impl ObservationBundle {
     }
     pub fn payload_bytes(&self) -> usize {
         self.payload_bytes
+    }
+    pub fn admission(&self) -> Admission {
+        self.admission
     }
 
     fn admit_size(&self, additional: usize) -> Result<usize, AdmissionError> {

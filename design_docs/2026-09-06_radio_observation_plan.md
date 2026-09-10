@@ -1,13 +1,16 @@
 # Radio observation and Signalman availability plan
 
-**Status (2026-09-09): O1/O2 complete in software; O3 refusal and zero-flash-write checks now verified.**
+**Status (2026-09-10): O1/O2 complete in software; O3 refusal and zero-flash-write checks now verified.**
 T114 owner emission, bounded read-only direct-PHY collection and a finite
 Signalman capture command now exist. T114 receive, TX, cursor loss, repeated
 reads, pressured-session reconnect, power-cut history reset, retune refusal and
 zero observation-induced NVMC mutations have physical evidence. Detailed CPU,
-IRQ/FIFO and USB timing costs remain unmeasured. V4 emission, durable capture/export and the availability
-view remain open. Existing counters and host events do not substitute for the
-physical receipts in O3-O6.
+IRQ/FIFO and USB timing costs remain unmeasured. V4 USB emission has landed in
+code with automated checks, while its physical O4 receipt remains open. O5's
+bounded durable capture/export software rung has landed with an automated
+receipt; its owner-facing settings and headed availability view remain open.
+Existing counters and host events do not substitute for the physical receipts
+in O3-O6.
 
 ## Purpose
 
@@ -324,6 +327,27 @@ listening, one transmit gap, one refusal, one reboot, and one overflow gap; the
 same bundle reloads to the same intervals and totals; disabling durable capture
 stops host writes while live rendering continues; exported measurements remain
 distinguishable from predicted links and imported positions.
+
+**Durable-capture software receipt, 2026-09-10:** Signalman now has a bounded
+versioned disk envelope over the existing raw observation records. It retains
+the explicit local device association, unauthenticated carrier provenance,
+exact profile registry, host receive timestamps, disconnects, capture time,
+retention settings, and the count of entries omitted from the retained prefix.
+Decode applies both caller limits and the persisted entry/payload limits before
+admitting source records through the existing validator. Retention keeps a
+newest contiguous suffix, exposes the omitted prefix without minting a device
+event, and deterministic reload produces the same intervals and totals.
+
+`signalman-observe` consumes this path with `--output` and requires an explicit
+stable `--device-id`; publication writes and syncs a same-directory temporary,
+then atomically links the complete file into its create-new destination. Disabled
+durability has no path and performs no filesystem write. Five persistence tests
+cover an independently written literal container, byte-stable envelope
+re-export, corrupt/unknown/oversize/over-budget refusal, age/entry retention,
+source-gap replay, disabled storage, complete publication, and overwrite
+refusal. Together with the unchanged 15 reducer tests, all 20 focused tests pass
+locked and offline. The headed availability view, owner-facing settings and
+load/export actions remain open, so O5 is partial.
 
 ### O6. Murmuration acceptance
 
