@@ -13,8 +13,8 @@ use radio_hand::control::{
 };
 use radio_hand::executive::{Executive, Face, RadioFault, RadioState, Received};
 use radio_hand::link::HostLink;
-use radio_hand::observation::owner::OwnerObservations;
 use radio_hand::observation::QuietCause;
+use radio_hand::observation::owner::OwnerObservations;
 use radio_hand::region::Region;
 use radio_hand::settings::Settings;
 use radio_hand::store::Slot;
