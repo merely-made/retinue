@@ -679,10 +679,7 @@ mod tests {
         .unwrap();
         table.apply(&revoked, &SECRET).unwrap();
         assert_eq!(table.resolve(&kin, &SECRET), Resolved::Broadcast);
-        assert_eq!(
-            table.apply(&grant, &SECRET).unwrap_err().is_not_monotonic(),
-            true
-        );
+        assert!(table.apply(&grant, &SECRET).unwrap_err().is_not_monotonic());
         assert_eq!(
             table.resolve(&kin, &SECRET),
             Resolved::Broadcast,
