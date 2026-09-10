@@ -24,12 +24,12 @@
 //! The stock list is Codec2 and Opus, and Pipit is neither, so claiming one
 //! of those would hand a decoder something it would render as noise. But the
 //! same capture found **`AM_CUSTOM`**, a mode that means exactly "audio in a
-//! codec outside this list". That is what a Pipit clip is, so [`attach`]
+//! codec outside this list". That is what a Pipit clip is, so [`attach`](crate::voice::attach)
 //! writes it: the message reads as voice to any client, no client is invited
 //! to misdecode it, and the clip's own header says which codec it actually
 //! is.
 //!
-//! [`find_clip`] still locates a clip by its own header rather than by field
+//! [`find_clip`](crate::voice::find_clip) still locates a clip by its own header rather than by field
 //! number, so two Retinue peers interoperate even if they never agree on a
 //! field at all.
 
