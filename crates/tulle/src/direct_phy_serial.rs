@@ -23,7 +23,9 @@ use crate::serial::{PumpError, PumpStatus, TransmitError};
 /// slightly faster than its configured duty or announce pacing cap.
 fn charge_duration_ms(duration: Duration) -> u64 {
     let millis = duration.as_millis();
-    let rounded = millis.saturating_add(u128::from(duration.subsec_nanos() % 1_000_000 != 0));
+    let rounded = millis.saturating_add(u128::from(
+        !duration.subsec_nanos().is_multiple_of(1_000_000),
+    ));
     rounded.min(u128::from(u64::MAX)) as u64
 }
 

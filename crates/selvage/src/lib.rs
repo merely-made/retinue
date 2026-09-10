@@ -172,7 +172,7 @@ pub fn decode_ui_snapshot_command(
     if !encoded.len().is_multiple_of(2) {
         return Err(UiSnapshotWireError::OddLength);
     }
-    for (index, pair) in encoded.chunks_exact(2).enumerate() {
+    for (index, pair) in encoded.as_chunks::<2>().0.iter().enumerate() {
         output[index] = unhex(pair[0])?.checked_shl(4).unwrap_or(0) | unhex(pair[1])?;
     }
     Ok(encoded.len() / 2)
