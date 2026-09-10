@@ -148,3 +148,8 @@ expires = "2026-11-01"
 path = "testing/o3_usb_refusal.py"
 reason = "Physical T114 observation refusal helper; board receipt owns execution."
 expires = "2026-11-01"
+
+[[asset_exemption]]
+path = "testing/o4_v4_usb_bench.py"
+reason = "Physical V4 active-radio USB observation helper; board receipt owns execution."
+expires = "2026-11-01"
