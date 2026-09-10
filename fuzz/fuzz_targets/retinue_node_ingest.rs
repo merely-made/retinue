@@ -7,8 +7,9 @@
 // design_docs/2026-08-10_prns_donor_ledger.md.
 
 use libfuzzer_sys::fuzz_target;
+use retinue::announce::AnnounceBlob;
 use retinue::node::{Action, Actions, InterfaceId, Node};
-use retinue::{AddressHash, AnnounceBlob, DestinationName, Packet, PrivateIdentity};
+use retinue::{AddressHash, DestinationName, Packet, PrivateIdentity};
 
 const IFACE: InterfaceId = 7;
 const MAX_STEPS: usize = 32;

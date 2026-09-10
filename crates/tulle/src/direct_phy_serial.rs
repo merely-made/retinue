@@ -16,6 +16,17 @@ use crate::link::Received;
 use crate::lora::LoRaParams;
 use crate::serial::{PumpError, PumpStatus, TransmitError};
 
+/// Charge a modeled duration conservatively in the millisecond budget domain.
+///
+/// The LoRa model retains sub-millisecond precision while [`AirtimeBudget`] is
+/// deliberately millisecond based. Rounding down here would admit a stream
+/// slightly faster than its configured duty or announce pacing cap.
+fn charge_duration_ms(duration: Duration) -> u64 {
+    let millis = duration.as_millis();
+    let rounded = millis.saturating_add(u128::from(duration.subsec_nanos() % 1_000_000 != 0));
+    rounded.min(u128::from(u64::MAX)) as u64
+}
+
 const INITIALIZATION_RETRY: Duration = Duration::from_millis(500);
 
 /// How to rouse firmware whose host link sleeps, before sending it a command.
@@ -634,7 +645,7 @@ where
                 continue;
             }
             let now_ms = epoch.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
-            let airtime_ms = params.time_on_air_ms(request.frame.len());
+            let airtime_ms = charge_duration_ms(params.time_on_air(request.frame.len()));
             let may_transmit = if request.announce {
                 budget.may_transmit_announce(now_ms, airtime_ms)
             } else {
@@ -861,6 +872,12 @@ mod tests {
 
     fn profile() -> PhyProfile {
         PhyProfile::meshtastic_long_fast(906_875_000)
+    }
+
+    #[test]
+    fn charge_duration_ms_preserves_exact_milliseconds_and_rounds_up_fractions() {
+        assert_eq!(charge_duration_ms(Duration::from_millis(272)), 272);
+        assert_eq!(charge_duration_ms(Duration::from_nanos(272_384_000)), 273);
     }
 
     /// With a wake sequence configured, every host command is preceded by the wake preamble —
@@ -1238,6 +1255,10 @@ mod tests {
 
         link.wait_online().await.unwrap();
         let airtime = link.send_announcement(b"one".to_vec()).await.unwrap();
+        assert_eq!(airtime, params().time_on_air(3));
+        let modeled_cooldown = params().time_on_air(3).saturating_mul(4);
+        let charged_cooldown =
+            Duration::from_millis(charge_duration_ms(params().time_on_air(3)) * 4);
         {
             let second = link.send_announcement(b"two".to_vec());
             tokio::pin!(second);
@@ -1246,7 +1267,7 @@ mod tests {
                 result = &mut second => panic!("second announce completed without pacing: {result:?}"),
                 _ = tokio::task::yield_now() => {}
             }
-            tokio::time::advance(airtime * 4 - Duration::from_millis(1)).await;
+            tokio::time::advance(charged_cooldown - Duration::from_millis(1)).await;
             tokio::select! {
                 result = &mut second => panic!("second announce escaped the modeled pacing gate: {result:?}"),
                 _ = tokio::task::yield_now() => {}
@@ -1254,12 +1275,16 @@ mod tests {
             tokio::time::advance(Duration::from_millis(1)).await;
             second.await.unwrap();
         }
-        tokio::time::advance(Duration::from_millis(200)).await;
         link.shutdown().await.unwrap();
+        tokio::time::advance(Duration::from_millis(200)).await;
         let times = firmware_task.await.unwrap();
         assert!(
-            times[1].duration_since(times[0]) >= airtime * 4,
+            times[1].duration_since(times[0]) >= modeled_cooldown,
             "a 25% cap must keep the second modeled-airtime-sized announce four airtimes away"
+        );
+        assert!(
+            times[1].duration_since(times[0]) >= charged_cooldown,
+            "the millisecond budget must charge fractional modeled airtime upward"
         );
     }
 

@@ -1,5 +1,6 @@
 #![no_std]
 #![deny(unsafe_code)]
+#![deny(unsafe_op_in_unsafe_fn)]
 
 //! Board-side radio services shared by the direct-PHY firmware images.
 //!

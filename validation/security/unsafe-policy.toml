@@ -10,7 +10,7 @@ source_roots = ["apps", "crates", "firmware"]
 safe_crate_lint = "#![forbid(unsafe_code)]"
 exception_crate_lint = "#![deny(unsafe_op_in_unsafe_fn)]"
 
-# These four files are the complete first-party unsafe surface at this baseline.
+# These files are the complete first-party unsafe surface at this baseline.
 # Counts are deliberate drift detection: a new unsafe token needs a new reviewed entry.
 [[exception]]
 path = "firmware/t114-phy/src/heap.rs"
@@ -35,3 +35,51 @@ path = "firmware/heltec-v4-phy/src/wake_input.rs"
 expected_unsafe = 2
 reason = "The Light-sleep adapter reads and updates its exclusively owned GPIO14 PAC bits."
 review_by = "2027-08-10"
+
+[[exception]]
+path = "crates/radio-hand/src/control/runtime.rs"
+expected_unsafe = 1
+reason = "The control runtime constructor requires an actual-reset proof; production consumes the board-startup token before any radio service."
+review_by = "2027-09-09"
+
+[[exception]]
+path = "crates/radio-hand/src/control/runtime/tests.rs"
+expected_unsafe = 1
+reason = "The simulated fresh-boot helper invokes the reset-gated control runtime constructor once per isolated test runtime."
+review_by = "2027-09-09"
+
+[[exception]]
+path = "crates/radio-hand/src/control/runtime/tests/basic.rs"
+expected_unsafe = 2
+reason = "Basic lifecycle tests invoke the reset-gated control runtime constructor only to model fresh board boots."
+review_by = "2027-09-09"
+
+[[exception]]
+path = "crates/radio-hand/src/control/runtime/tests/inbound.rs"
+expected_unsafe = 4
+reason = "Inbound-control tests invoke the reset-gated control runtime constructor only to model fresh board boots."
+review_by = "2027-09-09"
+
+[[exception]]
+path = "crates/radio-hand/src/control/runtime/tests/quiet.rs"
+expected_unsafe = 1
+reason = "Quiet-state tests invoke the reset-gated control runtime constructor only to model a fresh board boot."
+review_by = "2027-09-09"
+
+[[exception]]
+path = "crates/radio-hand/src/control/runtime/tests/recovery.rs"
+expected_unsafe = 2
+reason = "Recovery tests invoke the reset-gated control runtime constructor only to model fresh board boots."
+review_by = "2027-09-09"
+
+[[exception]]
+path = "firmware/heltec-v4-phy/src/control_boot.rs"
+expected_unsafe = 2
+reason = "The startup-only reset marker and the resident runtime construction form the V4 boot-recovery boundary before host or radio service."
+review_by = "2027-09-09"
+
+[[exception]]
+path = "firmware/heltec-v4-phy/src/main.rs"
+expected_unsafe = 1
+reason = "V4 board startup mints the reset marker once after actual reset and before host, RNode, receive, sleep, or radio service."
+review_by = "2027-09-09"
