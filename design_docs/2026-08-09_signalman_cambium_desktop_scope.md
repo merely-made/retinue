@@ -769,12 +769,13 @@ better consumer one and it can be migrated before Signalman rather than after.
 6. Complete G5.1 through G5.3: host wake and close disposition,
    Signalman-owned installation, and consumer revisions. **G5.3 done
    2026-08-14, re-receipted 2026-08-23** at
-   `b9457041f9db11d78353a65c20db38eb393f4ae7`, which is the current pin rather
-   than the 2026-08-14 one; Woodshed's moving-main lockfile records the clean
+   `b9457041f9db11d78353a65c20db38eb393f4ae7`, the pin for that historical receipt;
+   the current desktop pins Mere `d82afa17` and Genet `115d348d`.
+   Woodshed's then-current moving-main lockfile records the clean
    single-graph matrix. **G5.1 and G5.2 remain open:** the headed
    hidden-and-restored Windows receipt and the headed minimize-and-restore run
-   are both still unrecorded, and two accessibility tests fail. Do not restrike
-   this item until all four hold.
+   are both still unrecorded. The accessibility conditions were met at
+   `bd71ee1` on 2026-08-24; they do not close these two headed receipts.
 7. ~~Run the manual accessibility pass, then G4 on V4, then T114 when hardware
    is available.~~ **Done 2026-08-19.**
 8. With both consumers proven, decide the host's stable API and release story —

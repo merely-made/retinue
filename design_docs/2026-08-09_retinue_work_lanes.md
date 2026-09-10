@@ -123,6 +123,19 @@ No board mutation is part of the first software foundation receipt.
 
 ### Progress
 
+- **2026-09-09 execution:** the owner authorized non-Astra implementation after
+  the audit at clean `0ca9038`. The first concurrent lanes are CI repair
+  (validation registry, fuzz, formatting and the pacing assertion), O5 durable
+  Signalman capture/export, and V4 USB observation emission/acceptance. The V4
+  lane has exclusive bench custody; the two software lanes do not open devices.
+  O5 freezes its export schema before SP0 observation imports and the headed
+  availability integration. The coordinator owns this map and `DOC_README.md`.
+  V4 USB acceptance excludes sleep: full O4 still requires a suitable low-power
+  observation path. Single-T114 autonomous listening follows the owner/observation
+  work; O6 requires a separately validated V4 second-listener adapter. WN1's
+  granted-controller lifecycle is a separate bench assignment with a real V4
+  power-removal leg, not a claim of autonomous native-node forwarding.
+
 - **2026-09-06:** three Sol planning passes completed and their shared decisions
   reconciled here. Separate survey/placement plan added. Terra scheduler and
   Luna codec foundations dispatched; all hardware and product gates remain open.

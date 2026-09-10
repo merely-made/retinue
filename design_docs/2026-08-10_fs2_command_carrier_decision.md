@@ -1,7 +1,9 @@
 # FS2: which carrier a signed command travels in
 
 **Date:** 2026-08-10. **Lane:** Assurance (ASSURE3, ASSURE4).
-**Status:** decided and implemented. FS2 closed in software; FS3 remains open.
+**Status:** decided and implemented. FS2 closed in software; FS3 has partial
+V4 physical acceptance as of 2026-09-09, with mid-write power loss and endurance
+still open.
 
 ASSURE4 asks one question: does FS2 use the interoperable RNS signed-artifact
 carrier, or a smaller Retinue envelope? ASSURE3 exists to answer it with
@@ -123,10 +125,12 @@ here. Recorded rather than papered over.
 
 ## What this does not close
 
-- **FS3, the durable counter.** The ledger seam exists and is tested through a
-  simulated reboot. Until FS3 writes it to flash, a real reboot resets the
-  window. FS3 was correctly sequenced after FS2: the wear-leveled slot log now
-  has a settled grammar to bind.
+- **FS3, the durable counter.** The V4 wall-node USB carrier now journals the
+  counter and physically rejects replay before and after a real power removal;
+  see the [wall-node receipt](2026-08-30_wall_node_management_plan.md). This is
+  partial V4 acceptance. The owning FS3 gate still requires a power cut during
+  the write and a documented command-rate/erase-life budget; it is not a T114
+  or every-carrier receipt.
 - **Opcode semantics.** The envelope carries an opcode and a payload and
   assigns meaning to neither. The consuming firmware owns that, and it should
   be settled alongside FS3 rather than invented per caller.

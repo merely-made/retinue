@@ -318,8 +318,8 @@ history depth, force strength, damping, the pinned canvas's shown/hidden label
 density, and last-known visibility are explicit owner state with visible
 starting values. History depth is labelled as a next-connection setting because
 Postilion has no runtime setter. Stale age supplies Signalman's projection
-policy seam; the exact Mere pin still lacks the station snapshot lease that
-would invoke it live. Physics changes advance a presentation epoch and
+policy seam; the later 2026-08-20 live station integration now invokes it through
+the lease-checked snapshot getter. Physics changes advance a presentation epoch and
 reconfigure the bounded Seiche actor. Last-known hiding filters the one shared
 projection and its incident relations while Chartulary retains the facts.
 
@@ -375,9 +375,11 @@ not grow the Codicil log. The clean exact-source desktop graph passes locked,
 offline metadata and its full headless suite. The Retinue, Outrider, Postilion,
 and Signalman family suite also passes locked and offline.
 
-The desktop binary still has no provisioned station identity at startup, so its
-ordinary UI can queue only after a host attaches that authority. The fixture
-closes S4's process boundary; it is not a headed serial-radio receipt. Likewise,
+The desktop now provisions a persistent station identity and starts its
+lease-checked station worker when `SIGNALMAN_STATION_PORT` is configured. That
+worker polls management snapshots; desktop message sends are not yet wired to
+it. The fixture closes S4's process boundary, not its headed serial-radio
+receipt. Likewise,
 the existing Outrider propagation submit receipt is not promoted to
 accepted-by-node without an application-level storage acknowledgement.
 
@@ -436,8 +438,9 @@ that CI opened or heard a physical device. The remaining S5 receipt is a
 headed two-site run that attaches the desktop to its sealed station authority,
 records through a real microphone at site A, carries the queued clip through a
 propagation node, fetches it at site B, and audibly plays it through the selected
-output. The current exact Mere port still has to expose that live station lease;
-an injected `message_local` in a harness is not substituted for it.
+output. The current Mere port exposes the live station lease, but the desktop
+worker still needs the message/voice send and propagation-fetch command path.
+An injected `message_local` in a harness does not establish that carriage.
 
 ### S6. Owner placement and Atlas
 

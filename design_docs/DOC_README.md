@@ -62,13 +62,13 @@ their gate. `UNKNOWN` means no document states a status — it does not mean ope
 | AIR3 | Closed, software and on-air | [software](2026-08-12_air3_bounded_transport_software_receipt.md), [T114 on-air](2026-08-13_air3_t114_on_air_receipt.md) |
 | AIR4, AIR5 | Open | [Work lanes](2026-08-09_retinue_work_lanes.md) |
 | FT1 | Open — needs modelled-versus-measured on-air airtime | [Mesh scaling](2026-08-09_mesh_scaling_and_asymmetric_routing.md) |
-| FT2 | **Partial, and probably closeable.** [AIR3 software receipt](2026-08-12_air3_bounded_transport_software_receipt.md) names three facts needed; the [T114 on-air receipt](2026-08-13_air3_t114_on_air_receipt.md) reports all three — but no document ever says FT2 is closed. |
+| FT2 | **Partial.** The [AIR3 software receipt](2026-08-12_air3_bounded_transport_software_receipt.md) and [T114 on-air receipt](2026-08-13_air3_t114_on_air_receipt.md) establish bounded memory, eviction and continued relay. Direct physical recent-path retention and explicit owner-gate closure remain outstanding. |
 | FT3, FT4, FT5 | Open | [Mesh scaling](2026-08-09_mesh_scaling_and_asymmetric_routing.md) |
 | LE1, LE2, LE4, LE5 | Open, post-deadline | [Listener executive](2026-08-10_listener_executive_and_protocol_leases.md) |
 | LE3 | Partial — LE3a/LE3b complete; unattended scheduler open | [LE3 scan-physics receipt](2026-08-20_le3_t114_scan_physics_receipt.md) |
 | O1–O2 (observations) | Complete in software: bounded codec/recorder, literal replay and timeline model; ARM/Xtensa library checks pass | [Radio observation plan](2026-09-06_radio_observation_plan.md) |
 | O3 (observations) | Physical RX/TX, cursor loss, identical reads, pressured-session recovery, concurrent RF, power-cut reset, retune refusal and zero NVMC mutations verified; detailed CPU/IRQ/USB timing remains open | [Radio observation plan](2026-09-06_radio_observation_plan.md#2026-09-09-refusal-and-flash-cost-verification) · [Refusal/flash receipt](2026-09-09_t114_observation_refusal_receipt.json) · [Concurrent receipt](2026-09-08_t114_observation_pressure_receipt.json) |
-| O4–O6 (observations) | Planned; V4 emission/cost, durable capture/view and physical receipts open | Same |
+| O4–O6 (observations) | O4 USB and O5 durable capture implementation authorized 2026-09-09; acceptance pending. Full O4 still needs a low-power observation path. O6 needs a validated second listener, including a V4 adapter with the current one-T114 bench. | Same |
 | PN0–PN8 (magnetic pocket node) | Active preparation; iOS probe builds and simulator receipt checked; NFC profile created, phone install awaits M4 signing-key access; every PN gate remains open | [Magnetic pocket-node plan](2026-09-07_magnetic_pocket_node_plan.md) |
 | HW0–HW8 (hardware family) | Planned; logical platform boundary and product priority are ruled, while every code and physical gate remains open | [Hardware-family plan](2026-09-07_radio_hand_hardware_family_plan.md) |
 | CM1 | Absorbed into LE2 | [Channel murmuration](2026-08-09_channel_murmuration.md) |
@@ -90,7 +90,7 @@ their gate. `UNKNOWN` means no document states a status — it does not mean ope
 | ASSURE6 | Open — first green Linux fuzz result | [Work lanes](2026-08-09_retinue_work_lanes.md) |
 | FS1 | UNKNOWN — defined, never statused | [Field node security posture](2026-08-09_field_node_security_posture.md) |
 | FS2 | Closed in software | [FS2 carrier decision](2026-08-10_fs2_command_carrier_decision.md) |
-| FS3 | Open — replay counter, named "the next gate" | Same |
+| FS3 | Partial on V4: durable counter and replay refusal across power removal are physically recorded; mid-write interruption and erase-life budget remain open | [FS2 carrier decision](2026-08-10_fs2_command_carrier_decision.md), [wall-node plan](2026-08-30_wall_node_management_plan.md) |
 | FS4 | Partial — process half written, physical half not run | [FS4/FS5](2026-08-10_fs4_custody_and_fs5_seizure.md) |
 | FS5 | Closed with an enforced check | Same |
 | FS6 | Partial — same never-closed nuance as FT2 | [AIR3 software receipt](2026-08-12_air3_bounded_transport_software_receipt.md) |
