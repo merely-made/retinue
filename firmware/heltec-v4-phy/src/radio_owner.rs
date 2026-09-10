@@ -13,6 +13,8 @@ use radio_hand::control::{
 };
 use radio_hand::executive::{Executive, Face, RadioFault, RadioState, Received};
 use radio_hand::link::HostLink;
+use radio_hand::observation::owner::OwnerObservations;
+use radio_hand::observation::QuietCause;
 use radio_hand::region::Region;
 use radio_hand::settings::Settings;
 use radio_hand::store::Slot;
@@ -35,6 +37,7 @@ pub struct V4RadioOwner<RK: RadioKind, DLY: DelayNs> {
     region: Region,
     boot_owner_available: bool,
     radio_service_started: bool,
+    observations: Option<OwnerObservations>,
 }
 
 /// The sole boot-only handoff into WN1's durable recovery path.
@@ -253,7 +256,17 @@ impl<RK: RadioKind, DLY: DelayNs> V4RadioOwner<RK, DLY> {
             region: settings.map(|settings| settings.region).unwrap_or_default(),
             boot_owner_available: true,
             radio_service_started: false,
+            observations: None,
         }
+    }
+
+    pub fn enable_observations(&mut self) {
+        let mut boot = [0_u8; 8];
+        self.observations = if self.store.fill_true_random(&mut boot).is_ok() {
+            OwnerObservations::new(u64::from_be_bytes(boot)).ok()
+        } else {
+            None
+        };
     }
 
     /// Consume the one pre-radio WN1 recovery capability.
@@ -280,14 +293,18 @@ impl<RK: RadioKind, DLY: DelayNs> V4RadioOwner<RK, DLY> {
     pub fn executive(&mut self) -> Executive<'_, RK, DLY> {
         self.close_boot_owner();
         self.radio_service_started = true;
-        Executive::new(
+        let mut executive = Executive::new(
             &mut self.lora,
             &mut self.radio,
             &mut self.local_status,
             &self.face,
             &mut self.store,
             self.region,
-        )
+        );
+        if let Some(observations) = self.observations.as_mut() {
+            executive.attach_observations(observations);
+        }
+        executive
     }
 
     /// Check whether a completed host/event-frame boundary may enter a quiet window.
@@ -310,6 +327,10 @@ impl<RK: RadioKind, DLY: DelayNs> V4RadioOwner<RK, DLY> {
 
     /// Prepare and arm continuous receive before creating an interrupt waiter.
     pub async fn ensure_rx(&mut self) -> Result<bool, RxSetupFault> {
+        self.ensure_rx_inner(true).await
+    }
+
+    async fn ensure_rx_inner(&mut self, record_listening: bool) -> Result<bool, RxSetupFault> {
         self.close_boot_owner();
         self.radio_service_started = true;
         if !self.radio.prepare_rx {
@@ -327,6 +348,13 @@ impl<RK: RadioKind, DLY: DelayNs> V4RadioOwner<RK, DLY> {
             return Err(RxSetupFault::Arm);
         }
         self.radio.prepare_rx = false;
+        if record_listening && let Some(observations) = self.observations.as_mut() {
+            observations.listening_started(
+                embassy_time::Instant::now().as_millis(),
+                0,
+                self.radio.profile,
+            );
+        }
         Ok(true)
     }
 
@@ -589,6 +617,13 @@ impl<RK: RadioKind, DLY: DelayNs> QuietWindow for V4RadioOwner<RK, DLY> {
         // method has waited for DIO1 low. Returning to RX is now owed even if the guarded work
         // itself only read flash.
         self.radio.prepare_rx = true;
+        if let Some(observations) = self.observations.as_mut() {
+            observations.listening_stopped(embassy_time::Instant::now().as_millis(), 0);
+            observations.quiet_started(
+                embassy_time::Instant::now().as_millis(),
+                QuietCause::Configuration,
+            );
+        }
         Ok(V4QuietGuard {
             owner: self,
             _awake: awake,
@@ -623,9 +658,15 @@ impl<RK: RadioKind, DLY: DelayNs> QuietGuard for V4QuietGuard<'_, RK, DLY> {
             .map_err(|_| V4QuietError::ExitIrqSettle)?;
         self.owner.radio.prepare_rx = true;
         self.owner
-            .ensure_rx()
+            .ensure_rx_inner(false)
             .await
             .map_err(V4QuietError::ResumeRx)?;
+
+        if let Some(observations) = self.owner.observations.as_mut() {
+            let now = embassy_time::Instant::now().as_millis();
+            observations.quiet_stopped(now, QuietCause::Configuration);
+            observations.listening_started(now, 0, self.owner.radio.profile);
+        }
 
         self.completed = true;
         self.reset.complete();

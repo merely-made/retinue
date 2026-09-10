@@ -459,6 +459,8 @@ async fn main(spawner: Spawner) {
         (button, None)
     };
 
+    owner.enable_observations();
+
     spawner.spawn(ui::button_task(button).unwrap());
 
     let mut host = host::SplitHost::new(usb_rx, usb_tx);

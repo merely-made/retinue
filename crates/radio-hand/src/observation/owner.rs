@@ -6,7 +6,7 @@
 //! changes the radio operation that was being observed.
 
 use super::{
-    ObservationKind, RefusalReason, RequestKind, StopReason, TxOutcome,
+    ObservationKind, QuietCause, RefusalReason, RequestKind, StopReason, TxOutcome,
     recorder::{ObservationRecorder, RecordError},
 };
 use selvage::PhyProfile;
@@ -216,6 +216,14 @@ impl OwnerObservations {
                 work,
             },
         );
+    }
+
+    pub fn quiet_started(&mut self, uptime_ms: u64, cause: QuietCause) {
+        self.record(uptime_ms, ObservationKind::QuietStarted { cause });
+    }
+
+    pub fn quiet_stopped(&mut self, uptime_ms: u64, cause: QuietCause) {
+        self.record(uptime_ms, ObservationKind::QuietStopped { cause });
     }
 
     /// Mark an active interval uncertain when a following operation might have
