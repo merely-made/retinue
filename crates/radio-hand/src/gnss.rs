@@ -186,10 +186,8 @@ fn parse_rmc(fields: &[u8], uptime_secs: u32, satellites: u8, hdop_tenths: u16) 
     let ew = it.next().unwrap_or(&[]);
     match status {
         b"A" => {
-            let (Some(lat_e7), Some(lon_e7)) = (
-                parse_coord(lat, ns, 2),
-                parse_coord(lon, ew, 3),
-            ) else {
+            let (Some(lat_e7), Some(lon_e7)) = (parse_coord(lat, ns, 2), parse_coord(lon, ew, 3))
+            else {
                 return Parsed::Dropped;
             };
             Parsed::Rmc(GnssState::Fix(GnssFix {
@@ -318,9 +316,11 @@ mod tests {
 
     // Real sentence shapes from a Quectel L76K at its 9600 default, with correct
     // checksums. Ashland KY, roughly.
-    const RMC_FIX: &[u8] = b"$GNRMC,143012.000,A,3828.4521,N,08238.9123,W,0.05,0.00,020926,,,A*66\r\n";
+    const RMC_FIX: &[u8] =
+        b"$GNRMC,143012.000,A,3828.4521,N,08238.9123,W,0.05,0.00,020926,,,A*66\r\n";
     const RMC_VOID: &[u8] = b"$GNRMC,143012.000,V,,,,,,,020926,,,N*59\r\n";
-    const GGA: &[u8] = b"$GNGGA,143012.000,3828.4521,N,08238.9123,W,1,09,1.2,182.4,M,-33.1,M,,*77\r\n";
+    const GGA: &[u8] =
+        b"$GNGGA,143012.000,3828.4521,N,08238.9123,W,1,09,1.2,182.4,M,-33.1,M,,*77\r\n";
 
     /// Wraps a sentence body in `$`, a correct checksum, and `\r\n`, without alloc.
     fn checksum(body: &str) -> heapless::Vec<u8, 128> {
@@ -360,7 +360,11 @@ mod tests {
     fn gga_refines_satellites_and_hdop_but_never_asserts_a_fix() {
         let mut p = NmeaParser::new();
         let gga = checksum("GNGGA,143012.000,3828.4521,N,08238.9123,W,1,09,1.2,182.4,M,-33.1,M,,");
-        assert_eq!(feed(&mut p, &gga, 1), Some(GnssState::NoFix), "GGA alone is not a fix");
+        assert_eq!(
+            feed(&mut p, &gga, 1),
+            Some(GnssState::NoFix),
+            "GGA alone is not a fix"
+        );
         let rmc = checksum("GNRMC,143012.000,A,3828.4521,N,08238.9123,W,0.05,0.00,020926,,,A");
         let GnssState::Fix(fix) = feed(&mut p, &rmc, 2).unwrap() else {
             panic!()
@@ -390,9 +394,19 @@ mod tests {
     fn bad_checksum_overflow_and_unknown_sentences_are_dropped_without_changing_state() {
         let mut p = NmeaParser::new();
         assert_eq!(p.state(), GnssState::Absent);
-        assert_eq!(feed(&mut p, b"$GNRMC,143012.000,A,3828.4521,N,08238.9123,W,0.05,0.00,020926,,,A*00\r\n", 1), None);
+        assert_eq!(
+            feed(
+                &mut p,
+                b"$GNRMC,143012.000,A,3828.4521,N,08238.9123,W,0.05,0.00,020926,,,A*00\r\n",
+                1
+            ),
+            None
+        );
         assert_eq!(p.dropped(), 1);
-        assert_eq!(feed(&mut p, &checksum("GNVTG,0.00,T,,M,0.05,N,0.09,K,A"), 1), None);
+        assert_eq!(
+            feed(&mut p, &checksum("GNVTG,0.00,T,,M,0.05,N,0.09,K,A"), 1),
+            None
+        );
         assert_eq!(p.dropped(), 2);
         let mut long: heapless::Vec<u8, 256> = heapless::Vec::new();
         long.push(b'$').unwrap();
@@ -402,7 +416,11 @@ mod tests {
         long.extend_from_slice(b"*00\r\n").unwrap();
         assert_eq!(feed(&mut p, &long, 1), None);
         assert_eq!(p.dropped(), 3);
-        assert_eq!(p.state(), GnssState::Absent, "nothing accepted, state untouched");
+        assert_eq!(
+            p.state(),
+            GnssState::Absent,
+            "nothing accepted, state untouched"
+        );
         assert_eq!(p.accepted(), 0);
     }
 
@@ -413,7 +431,10 @@ mod tests {
         let torn: &[u8] = b"\x00\xFF12.3,N,08238.9123,W,0.05,0.00,020926,,,A*7A\r\n";
         assert_eq!(feed(&mut p, torn, 1), None);
         let rmc = checksum("GPRMC,143012.000,A,3828.4521,N,08238.9123,W,0.05,0.00,020926,,,A");
-        assert!(matches!(feed(&mut p, &rmc, 2), Some(GnssState::Fix(_))), "GP talker accepted too");
+        assert!(
+            matches!(feed(&mut p, &rmc, 2), Some(GnssState::Fix(_))),
+            "GP talker accepted too"
+        );
     }
 
     #[test]

@@ -133,3 +133,18 @@ asset_globs = ["crates/sennet/capture/*.py"]
 path = "testing/rnode_host.py"
 reason = "Physical RNode bridge helper; board receipt owns execution."
 expires = "2026-11-01"
+
+[[asset_exemption]]
+path = "testing/o3_usb_bench.py"
+reason = "Physical T114 observation bench helper; board receipt owns execution."
+expires = "2026-11-01"
+
+[[asset_exemption]]
+path = "testing/o3_usb_pressure_rf.py"
+reason = "Physical T114 observation pressure helper; board receipt owns execution."
+expires = "2026-11-01"
+
+[[asset_exemption]]
+path = "testing/o3_usb_refusal.py"
+reason = "Physical T114 observation refusal helper; board receipt owns execution."
+expires = "2026-11-01"

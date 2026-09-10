@@ -8,7 +8,7 @@
 
 use libfuzzer_sys::fuzz_target;
 use retinue::node::{Action, Actions, InterfaceId, Node};
-use retinue::{AddressHash, DestinationName, Packet, PrivateIdentity};
+use retinue::{AddressHash, AnnounceBlob, DestinationName, Packet, PrivateIdentity};
 
 const IFACE: InterfaceId = 7;
 const MAX_STEPS: usize = 32;
@@ -32,7 +32,11 @@ fn linked<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>(
     receiver: &mut Node<PEERS, ACTIONS, LINKS>,
     sender: &mut Node<PEERS, ACTIONS, LINKS>,
 ) -> Option<AddressHash> {
-    receiver.ingest(IFACE, &sender.announce(&[0xA1; 10], None), 0);
+    receiver.ingest(
+        IFACE,
+        &sender.announce(&AnnounceBlob::from_wire([0xA1; 10]), None),
+        0,
+    );
     let request = sent(receiver.open_link(sender.destination(), IFACE, &[0xB2; 64])?)?;
     let proof = sent(sender.ingest(IFACE, &request, 1))?;
     receiver
@@ -80,7 +84,9 @@ fuzz_target!(|input: &[u8]| {
                 .map(|packet| packet.encode())
                 .unwrap_or_default(),
             // Begin from a valid local announce so mutations preserve useful structure.
-            _ => sender.announce(&[0xD4; 10], None).encode(),
+            _ => sender
+                .announce(&AnnounceBlob::from_wire([0xD4; 10]), None)
+                .encode(),
         };
         // The first step remains unmodified to guarantee every corpus entry reaches a valid
         // ingress branch; later steps progressively alter trusted packet shapes.

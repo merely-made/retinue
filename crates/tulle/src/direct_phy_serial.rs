@@ -1193,7 +1193,7 @@ mod tests {
         firmware_task.await.unwrap();
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn announce_cap_spaces_direct_phy_egress_from_the_modeled_airtime() {
         let (host, mut firmware) = tokio::io::duplex(2048);
         let config = DirectPhySerialConfig {
@@ -1238,7 +1238,23 @@ mod tests {
 
         link.wait_online().await.unwrap();
         let airtime = link.send_announcement(b"one".to_vec()).await.unwrap();
-        link.send_announcement(b"two".to_vec()).await.unwrap();
+        {
+            let second = link.send_announcement(b"two".to_vec());
+            tokio::pin!(second);
+            tokio::select! {
+                biased;
+                result = &mut second => panic!("second announce completed without pacing: {result:?}"),
+                _ = tokio::task::yield_now() => {}
+            }
+            tokio::time::advance(airtime * 4 - Duration::from_millis(1)).await;
+            tokio::select! {
+                result = &mut second => panic!("second announce escaped the modeled pacing gate: {result:?}"),
+                _ = tokio::task::yield_now() => {}
+            }
+            tokio::time::advance(Duration::from_millis(1)).await;
+            second.await.unwrap();
+        }
+        tokio::time::advance(Duration::from_millis(200)).await;
         link.shutdown().await.unwrap();
         let times = firmware_task.await.unwrap();
         assert!(
