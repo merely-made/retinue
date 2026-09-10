@@ -477,9 +477,10 @@ async fn main(spawner: Spawner) {
         exec.attach_observations(observations);
     }
 
-    // The personality this board answers as, chosen from the persisted settings and fixed
-    // for the life of the boot: switching is by reboot, per structural decision 4, so
-    // nothing below ever has to hand the radio over.
+    // This implementation chooses a personality from persisted settings for the life of
+    // the boot; switching currently requires a reboot. The listener-executive plan
+    // supersedes structural decision 4, but its resident-adapter handover and scheduler
+    // consumer are not wired into this loop yet.
     //
     // A board with no readable identity gets the modem regardless of what the settings ask
     // for. That is the recovery posture rather than a fallback of convenience: the modem
