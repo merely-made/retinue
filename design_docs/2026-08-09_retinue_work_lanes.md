@@ -123,6 +123,17 @@ No board mutation is part of the first software foundation receipt.
 
 ### Progress
 
+- **2026-09-10 implementation:** `bad58a0` adds V4 active-USB observation
+  emission; its Xtensa target check and 177 radio-hand tests pass. Physical
+  acceptance remains pending. `76232e5` repairs fractional-millisecond airtime
+  charging, the fuzz target and its local-package lock entries, and the unsafe
+  audit inventory. Nine direct-PHY serial tests, the fuzz-target check and the
+  unsafe audit pass locally; bypassing pacing makes the regression test fail.
+  Aggregate CI acceptance is tracked separately from these focused checks.
+  `ca32e0e` adds bounded Signalman capture persistence, explicit retention and
+  source-preserving reload; its 15 observation-flow and five persistence tests
+  pass. The headed availability view and survey imports remain separate lanes.
+
 - **2026-09-09 execution:** the owner authorized non-Astra implementation after
   the audit at clean `0ca9038`. The first concurrent lanes are CI repair
   (validation registry, fuzz, formatting and the pacing assertion), O5 durable

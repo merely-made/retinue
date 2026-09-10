@@ -149,11 +149,11 @@ fn carrier_from_disk(value: DiskCarrier) -> CarrierKind {
     }
 }
 
-fn retained_entries<'a>(
-    bundle: &'a ObservationBundle,
+fn retained_entries(
+    bundle: &ObservationBundle,
     now_unix_ms: u64,
     retention: Retention,
-) -> Result<Vec<&'a BundleEntry>, PersistenceError> {
+) -> Result<Vec<&BundleEntry>, PersistenceError> {
     if retention.max_entries == 0 || retention.max_payload_bytes == 0 {
         return Err(PersistenceError::RetentionTooSmall);
     }
