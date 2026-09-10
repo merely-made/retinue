@@ -123,6 +123,13 @@ No board mutation is part of the first software foundation receipt.
 
 ### Progress
 
+- **2026-09-10 survey receipt:** SP0 now imports bounded GPX, the documented
+  third-party capture JSON, and Signalman's StoredCapture envelope. Eleven
+  focused tests and strict library Clippy pass, including original-byte replay,
+  boot/session clock separation, explicit source losses, and refusal of a
+  tampered derived envelope. This is synthetic software evidence; Map, terrain,
+  placement and field acceptance remain separate SP1-SP5 work.
+
 - **2026-09-10 assurance receipt:** the Linux fuzz job at `045cb2f` completed
   corpus isolation and all three registered 120-second campaigns. This closes
   ASSURE6's first-run requirement and supplies ASSURE2's automated smoke

@@ -1,10 +1,9 @@
 # Signalman radio survey and node placement
 
 **Date:** 2026-09-06
-**Status:** planned. Source and consumer inspection completed at Retinue
-`0efbf77871e9b90381e67df2f89e7e99ab81b67c`. None of SP0-SP5 is implemented or
-physically accepted by this plan. The first slice consumes saved files and
-does not depend on a new board image.
+**Status:** SP0 implemented and software-verified on 2026-09-10. SP1-SP5 remain
+planned and none is physically accepted by this plan. The first slice consumes
+saved files and does not depend on a new board image.
 
 ## Goal and scope
 
@@ -56,8 +55,8 @@ Paths below marked new are implementation targets, not existing APIs.
 
 | Owner | Files and responsibility |
 | --- | --- |
-| Observation lane | `crates/radio-hand/src/observation.rs` (proposed) and Postilion capture adaptation: bounded event facts, source clocks, losses and listening intervals. SP imports their versioned export rather than inventing a second firmware event codec. |
-| Signalman survey library | `apps/signalman/src/survey.rs` and `survey/` (new), registration in `src/lib.rs`: bounded imports, correlation, evidence classification, scenarios and reproducible analysis. This is independent of desktop rendering. |
+| Observation lane | `crates/radio-hand/src/observation/` owns bounded event facts, source clocks, losses, and listening intervals; Signalman's `observation.rs` and `observation/persistence.rs` own the versioned `ObservationBundle` and `StoredCapture` export. SP imports that saved evidence rather than inventing a second firmware event codec or treating Postilion as capture authority. |
+| Signalman survey library | `apps/signalman/src/survey.rs` (implemented for SP0), with `survey/` reserved for later extraction, and registration in `src/lib.rs`: bounded imports, evidence classification, scenarios and reproducible analysis. This is independent of desktop rendering. |
 | Mere Signalman port | `repos/mere/ports/signalman/`: owner placement and scenario storage, stable device association, retention/export authority. Extend the S6 record once; do not duplicate it in desktop state. |
 | Desktop face | `apps/signalman-desktop/src/map.rs` (new), `state.rs`, `views.rs`, `lib.rs`: Map projection, selection, controls, layer explanations and accessibility using Cambium and Scenomise. One agent owns these shared files during integration. |
 | Placement analysis | Initially `apps/signalman/src/survey/terrain.rs` and `placement.rs` (new): caller-supplied terrain and candidate data, cancellation and work budgets. Extract a general crate only when another consumer warrants it. |
@@ -241,6 +240,16 @@ owns physical flashing and test commands across both radio lanes.
 
 ## Progress
 
+- **2026-09-10:** SP0 implementation adds a bounded GPX pull reader and a
+  versioned `signalman-survey-capture` JSON interchange in
+  `apps/signalman/src/survey.rs`. Original-byte SHA-256, collector receipt
+  provenance, boot/session clock mappings with uncertainty, reset/gap/loss
+  issues, unmeasured reverse evidence, and saved replay settings are distinct
+  fields. The StoredCapture schema-1 adapter keeps its raw source clock and
+  records unknown intervals; it does not invent a peer or RF timestamp. Eleven
+  focused importer/replay fixtures pass, and library-only strict Clippy passes,
+  with the lockfile and dependency cache offline. This receipt is synthetic
+  software evidence; it does not claim a field capture or physical acceptance.
 - **2026-09-06:** created the separate survey/placement plan at the owner's
   request; inspected the reference algorithm and existing Signalman/PD seams.
   All SP gates remain planned. No firmware, dataset download, new dependency,

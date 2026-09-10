@@ -23,6 +23,7 @@ pub mod firmware;
 pub mod management;
 pub mod message;
 pub mod observation;
+pub mod survey;
 pub mod voice;
 
 pub use firmware::{
