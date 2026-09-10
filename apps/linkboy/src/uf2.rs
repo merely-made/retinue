@@ -89,7 +89,7 @@ mod tests {
         let input = (0..300).map(|byte| byte as u8).collect::<Vec<_>>();
         let encoded = encode_application(&input, 0x26000, NRF52840_FAMILY_ID).unwrap();
         assert_eq!(encoded.len(), 2 * BLOCK_SIZE);
-        for (index, block) in encoded.chunks_exact(BLOCK_SIZE).enumerate() {
+        for (index, block) in encoded.as_chunks::<BLOCK_SIZE>().0.iter().enumerate() {
             assert_eq!(word(block, 0), MAGIC_START0);
             assert_eq!(word(block, 4), MAGIC_START1);
             assert_eq!(word(block, 8), FLAG_FAMILY_ID);

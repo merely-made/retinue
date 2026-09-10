@@ -384,10 +384,7 @@ pub fn parse_request(payload: &[u8]) -> Result<Request> {
         .try_into()
         .expect("checked");
     off += 32;
-    let wanted = payload[off..]
-        .chunks_exact(MAPHASH_LEN)
-        .map(|c| c.try_into().expect("exact"))
-        .collect();
+    let wanted = payload[off..].as_chunks::<MAPHASH_LEN>().0.to_vec();
     Ok(Request {
         exhausted,
         last_map_hash,
@@ -447,10 +444,7 @@ pub fn parse_hmu(payload: &[u8]) -> Result<Hmu> {
     if bin.len() % MAPHASH_LEN != 0 {
         return Err(Error::BadRequest);
     }
-    let hashes = bin
-        .chunks_exact(MAPHASH_LEN)
-        .map(|c| c.try_into().expect("exact"))
-        .collect();
+    let hashes = bin.as_chunks::<MAPHASH_LEN>().0.to_vec();
     Ok(Hmu {
         resource_hash,
         segment,
@@ -502,11 +496,7 @@ impl Incoming {
         }
         let mut hash = [0u8; 32];
         hash.copy_from_slice(&adv.resource_hash);
-        let order = adv
-            .hashmap
-            .chunks_exact(MAPHASH_LEN)
-            .map(|c| c.try_into().expect("exact"))
-            .collect();
+        let order = adv.hashmap.as_chunks::<MAPHASH_LEN>().0.to_vec();
         Ok(Self {
             hash,
             random_hash: adv.random_hash.clone(),
@@ -1159,12 +1149,11 @@ mod tests {
         }
         let mut outgoing = Outgoing::new(&data, &token, [1, 2, 3, 4], false);
         let advertisement = outgoing.advertisement();
-        let last_advertised: [u8; MAPHASH_LEN] = advertisement
+        let last_advertised: [u8; MAPHASH_LEN] = *advertisement
             .hashmap
-            .chunks_exact(MAPHASH_LEN)
+            .as_chunks::<MAPHASH_LEN>()
+            .0
             .last()
-            .unwrap()
-            .try_into()
             .unwrap();
 
         let first = outgoing.hmu_after(&last_advertised);

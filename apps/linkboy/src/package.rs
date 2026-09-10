@@ -951,7 +951,7 @@ fn validate_uf2_layout(
     let mut blocks = Vec::with_capacity(bytes.len() / UF2_BLOCK_SIZE);
     let mut seen_block_numbers = vec![false; bytes.len() / UF2_BLOCK_SIZE];
     let mut total_payload = 0_u64;
-    for (index, block) in bytes.chunks_exact(UF2_BLOCK_SIZE).enumerate() {
+    for (index, block) in bytes.as_chunks::<UF2_BLOCK_SIZE>().0.iter().enumerate() {
         let word = |offset| u32::from_le_bytes(block[offset..offset + 4].try_into().unwrap());
         if word(0) != UF2_MAGIC_START0 || word(4) != UF2_MAGIC_START1 || word(508) != UF2_MAGIC_END
         {

@@ -276,7 +276,10 @@ impl RatchetStore {
         let mut epochs = Vec::with_capacity(count.min(policy.max_count));
         let mut receipt = RatchetRestoreReceipt::default();
         let mut previous_created_at = f64::INFINITY;
-        for raw in snapshot[SNAPSHOT_HEADER_LEN..].chunks_exact(SNAPSHOT_ENTRY_LEN) {
+        for raw in snapshot[SNAPSHOT_HEADER_LEN..]
+            .as_chunks::<SNAPSHOT_ENTRY_LEN>()
+            .0
+        {
             let created_at = f64::from_le_bytes(
                 raw[..8]
                     .try_into()
