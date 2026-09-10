@@ -123,6 +123,16 @@ No board mutation is part of the first software foundation receipt.
 
 ### Progress
 
+- **2026-09-10 V4 active-USB receipt:** `e7c972d` passes aggregate CI and the
+  declared-load bench run after an explicit application reboot: 64 identical
+  rereads, 18 observation reads spanning all twelve expected RX payloads and
+  captures, a matched TX lifecycle, and explicit ring overflow. Initial startup
+  failed, and the strict unread-host runner failed on a serial write timeout;
+  neither startup reliability nor physical retirement/RF continuation is closed.
+  COM7 was recovered, its protected tail unchanged. The
+  [canonical receipt](2026-09-06_radio_observation_plan.md#2026-09-10-v4-active-radio-usb-result)
+  keeps every failed trial and the remaining quiet, sleep and cost boundaries.
+
 - **2026-09-10 survey receipt:** SP0 now imports bounded GPX, the documented
   third-party capture JSON, and Signalman's StoredCapture envelope. Eleven
   focused tests and strict library Clippy pass, including original-byte replay,

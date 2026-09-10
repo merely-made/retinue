@@ -1,0 +1,36 @@
+{
+  "started_utc": "2026-09-10T07:10:20.733260+00:00",
+  "runner_sha256": "03d94f6c6ad6d06c753f83ae7de7f0c8187ca5532397b2fa78b2e7ab97a91e2d",
+  "imported_helper_sha256": "01ffc8bc612074ecdebffe071260596131d1fb9f5654b0a1790bb5dd0ed5e3c9",
+  "limits": {
+    "identical_reads": 64,
+    "overlap_rf_frames": 12,
+    "gap_transmits": 10
+  },
+  "ports": [
+    {
+      "device": "COM10",
+      "vid": 6421,
+      "pid": 21023,
+      "serial": "TULLE-T114-01"
+    },
+    {
+      "device": "COM7",
+      "vid": 12346,
+      "pid": 4097,
+      "serial": "44:1B:F6:6A:FA:64"
+    }
+  ],
+  "transcript": [
+    {
+      "utc": "2026-09-10T07:10:21.263728+00:00",
+      "perf": 119078.937428,
+      "port": "COM7",
+      "direction": "tx",
+      "hex": "0004303130303030303030303031303030303030303030303030303030303030303030303030303030303030303000"
+    }
+  ],
+  "passed": false,
+  "error": "TimeoutError: observation request 1 timed out on COM7",
+  "finished_utc": "2026-09-10T07:10:23.672989+00:00"
+}

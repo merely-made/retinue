@@ -26,12 +26,14 @@ passes all six jobs: check (format, builds, tests, Clippy and docs), firmware,
 MSRV, validation registry, licenses, and fuzz.
 The [survey integration at `e1c5630`](https://github.com/merely-made/retinue/actions/runs/34444260832)
 also passes aggregate CI.
+The [bounded V4 USB carrier at `e7c972d`](https://github.com/merely-made/retinue/actions/runs/34447977112)
+passes aggregate CI; its physical observation receipt is recorded separately.
 Longer campaigns, physical security gates, and disclosure remain distinct.
 
 ## ASSURE1, validation minimum: substantially closed
 
-`python validation/run.py verify` passes at `7034eb7` on 2026-09-10: 20 owned
-Cargo manifests, 80 validation assets, 14 suites. Orphan detection works, and
+`python validation/run.py verify` passes at `d53627e` on 2026-09-10: 20 owned
+Cargo manifests, 81 validation assets, 14 suites. Orphan detection works, and
 exact-SHA recording is *enforced* rather than merely documented: `record`
 refuses a dirty worktree, and a self-test asserts that producing a result
 cannot dirty its own source.

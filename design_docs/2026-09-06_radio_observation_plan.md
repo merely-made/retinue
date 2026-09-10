@@ -5,8 +5,10 @@ T114 owner emission, bounded read-only direct-PHY collection and a finite
 Signalman capture command now exist. T114 receive, TX, cursor loss, repeated
 reads, pressured-session reconnect, power-cut history reset, retune refusal and
 zero observation-induced NVMC mutations have physical evidence. Detailed CPU,
-IRQ/FIFO and USB timing costs remain unmeasured. V4 USB emission has landed in
-code with automated checks, while its physical O4 receipt remains open. O5's
+IRQ/FIFO and USB timing costs remain unmeasured. V4 USB emission passes automated
+checks and a declared-load physical run after an explicit application reboot;
+clean-start reliability, pressured-host retirement, quiet/sleep and full O4
+cost acceptance remain open. O5's
 bounded durable capture/export software rung has landed with an automated
 receipt; its owner-facing settings and headed availability view remain open.
 Existing counters and host events do not substitute for the physical receipts
@@ -739,3 +741,89 @@ Bench constraint: any future test requiring case opening or physical power-path
 access uses an accessible alternative board. The sole assembled T114 is not
 the disassembly fixture. A T114-specific electrical test that cannot use USB
 waits for a suitable fixture; it does not create another manual task for the owner.
+
+### 2026-09-10 V4 active-radio USB result
+
+The V4 active-radio USB slice is implemented and physically exercised. It is a
+bounded part of O4, not the low-power UART/sleep-edge receipt. The firmware owns
+one per-boot observation ring, emits listen, RX, TX, refusal and quiet lifecycle
+records through the existing USB command carrier, and keeps observation reads
+out of the durable control journal. A diagnostic write latches all host I/O
+closed on cancellation, error or timeout while the independent radio branch
+remains eligible to run. UART diagnostic behavior is unchanged.
+
+The accepted image was built from clean detached source
+`e7c972d3b5193381d8b965ce65cae52d0943dd6d`. Its ELF SHA-256 is
+`ddf8133ff7c65a4d924d4f496448ce0aec9be31d72f7ea120280070ff6d5bab6`,
+with 396,752 application bytes. Linkboy used official `espflash` 4.5.0,
+executable SHA-256
+`0cc03364c70a86325236f18ad1aaed17eedf267d89312c0cdabe4964f5cb758e`.
+The [flash receipt](2026-09-10_v4_observation_flash_receipt.json) records the
+verified write to COM7 (`44:1B:F6:6A:FA:64`). The protected
+`0x3f0000..0x400000` range had SHA-256
+`237b5526dcdb7ccc9de1948759453e5a3bdf5e19aad50026adb97604abb49b91`
+before and after every flash. Identity remained loaded in slot B, sequence 5.
+COM6 was not opened or flashed. T114 COM10 retained its existing image and
+runtime profile; the runner first required its full USB serial identity and
+exact profile match and made no configuration write to it.
+
+Deadline trials are retained because startup reliability is not uniformly
+green:
+
+| USB diagnostic bound | Source/image | Result |
+| --- | --- | --- |
+| 5 ms | `c0adcbf`, ELF `1b0b82ff...b4bd8` | One early collection succeeded, then the committed runner timed out on request 5 after one identical refusal reread. |
+| 25 ms | `ad65b98`, ELF `826c4a86...71641` | Discovery request 1 timed out after two external resets; a separate Signalman discovery also timed out. |
+| 250 ms, initial startup | `e7c972d`, ELF `ddf8133f...5bab6` | Discovery request 1 timed out after the guarded flash and loader reset. |
+| 250 ms, clean application reboot | same accepted image | The complete declared-load runner passed. |
+
+The [5 ms](2026-09-10_v4_observation_5ms_failed_receipt.json),
+[25 ms](2026-09-10_v4_observation_25ms_failed_receipt.json) and
+[initial 250 ms](2026-09-10_v4_observation_250ms_initial_failed_receipt.json)
+reports preserve those failures. The ESP HAL sends a maximum 136-byte reply as
+64, 64 and 8-byte endpoint chunks, awaiting endpoint-empty progress for each
+and possibly once more on flush. That makes the single deadline cover several
+host-drain turns. The host timeouts do not expose a device-side timeout flag,
+so endpoint scheduling as their precise cause remains an inference.
+
+The [passing physical receipt](2026-09-10_v4_observation_receipt.json) uses
+runner source `7034eb70ef8e1d3dc58a36eeaaacc4013858763b`, runner SHA-256
+`03d94f6c6ad6d06c753f83ae7de7f0c8187ca5532397b2fa78b2e7ab97a91e2d`
+and imported helper SHA-256
+`01ffc8bc612074ecdebffe071260596131d1fb9f5654b0a1790bb5dd0ed5e3c9`.
+It passed these bounded conditions:
+
+- one out-of-region retune produced exactly one typed refusal without a
+  listening interruption, and 64 cursor rereads returned identical retained
+  bytes;
+- 18 explicitly paced observation reads spanned twelve declared T114
+  transmissions; all twelve exact payloads arrived as ordinary V4 RX events
+  and all twelve had corresponding retained capture records;
+- a V4 transmission was received by the T114 and retained the ordered
+  listen-stop, TX-start, TX-finish, listen-start lifecycle;
+- ten bounded V4 transmissions overflowed the 32-record ring and returned an
+  explicit gap count of 26 rather than silent loss.
+
+The separate [unread-host report](2026-09-10_v4_observation_retirement_receipt.json)
+uses committed runner `d53627e03f3e8e3c38f2c4c769df3c8f60927e2a` and first establishes a successful discovery on
+boot `12032098688300997021`. It then sent 173 observation requests before the
+host write timed out. Its fresh session failed with `SerialTimeoutException`
+while writing rather than the specifically accepted reply `TimeoutError`, so
+the runner correctly records `passed: false` and did not proceed to RF. This is
+evidence of host/endpoint backpressure, not an accepted physical witness of the
+firmware retirement latch or RF continuation. The earlier exploratory peer TX
+acknowledgements likewise did not prove V4 reception and are not promoted.
+
+Explicit loader reset preserved the protected tail but did not immediately
+restore collection. A subsequent explicit application reboot restored
+Signalman collection with a fresh boot ID `18176155336044677342`. The board
+finishes healthy on the accepted `e7c972d` image, US915 modem profile
+906.875 MHz/SF11, identity slot B sequence 5.
+
+The exact 250 ms device interval, clean-start reliability, ordinary
+`write_all` backpressure, CPU/IRQ/FIFO cost, signed quiet-control path, and full
+UART low-power sleep edges remain open. COM7 had no verified controller grant,
+so this receipt did not mint or replace one and does not claim the signed
+control invariant. Automated acceptance for `e7c972d` is separately green in
+CI run 34447977112; target check and linked release build emit only the existing
+`last_sleep_us` and `radio_wake_registrations` warnings.
