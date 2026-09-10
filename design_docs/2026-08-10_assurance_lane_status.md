@@ -24,12 +24,14 @@ receipt alone does not claim aggregate CI acceptance. After the check repairs,
 [aggregate CI at `0249668`](https://github.com/merely-made/retinue/actions/runs/34442637387)
 passes all six jobs: check (format, builds, tests, Clippy and docs), firmware,
 MSRV, validation registry, licenses, and fuzz.
+The [survey integration at `e1c5630`](https://github.com/merely-made/retinue/actions/runs/34444260832)
+also passes aggregate CI.
 Longer campaigns, physical security gates, and disclosure remain distinct.
 
 ## ASSURE1, validation minimum: substantially closed
 
-`python validation/run.py verify` passes on 2026-09-10: 20 owned Cargo
-manifests, 79 validation assets, 14 suites. Orphan detection works, and
+`python validation/run.py verify` passes at `7034eb7` on 2026-09-10: 20 owned
+Cargo manifests, 80 validation assets, 14 suites. Orphan detection works, and
 exact-SHA recording is *enforced* rather than merely documented: `record`
 refuses a dirty worktree, and a self-test asserts that producing a result
 cannot dirty its own source.
