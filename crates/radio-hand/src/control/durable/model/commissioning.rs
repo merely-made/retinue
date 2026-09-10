@@ -215,6 +215,8 @@ pub enum FirstWriteLoadError {
 }
 
 /// Internal classification of the separate commissioning first-write A/B pair.
+// Boot arbitration retains bounded state inline without requiring a heap allocator.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum FirstWritePair {
     /// Both slots are erased.
@@ -226,6 +228,8 @@ enum FirstWritePair {
 }
 
 /// Internal classification of the ordinary durable control A/B pair for boot arbitration.
+// The board's boot path owns this fixed-size state; boxing would require allocation.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ControlPair {
     /// A normal durable control state is present.

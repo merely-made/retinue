@@ -269,20 +269,18 @@ impl<const N: usize> PositionAclV1<N> {
         }
         let mut entries: [Option<PositionAclEntry>; N] = core::array::from_fn(|_| None);
         let mut previous: Option<[u8; POSITION_ACL_HASH_LEN]> = None;
-        for i in 0..count {
+        for (i, slot) in entries.iter_mut().enumerate().take(count) {
             let at = POSITION_ACL_HEADER_LEN + i * POSITION_ACL_ENTRY_LEN;
             let mut hash = [0u8; POSITION_ACL_HASH_LEN];
             hash.copy_from_slice(&bytes[at..at + POSITION_ACL_HASH_LEN]);
             let tier_byte = bytes[at + POSITION_ACL_HASH_LEN];
             let tier = DisclosureTier::from_byte(tier_byte)
                 .ok_or(PositionAclError::InvalidTier(tier_byte))?;
-            if let Some(prev) = previous {
-                if prev >= hash {
-                    return Err(PositionAclError::NonCanonicalOrder);
-                }
+            if previous.is_some_and(|prev| prev >= hash) {
+                return Err(PositionAclError::NonCanonicalOrder);
             }
             previous = Some(hash);
-            entries[i] = Some(PositionAclEntry { hash, tier });
+            *slot = Some(PositionAclEntry { hash, tier });
         }
         Ok(Self {
             sequence,
@@ -360,14 +358,14 @@ impl<const N: usize> BlindedPositionAcl<N> {
         record: &PositionAclV1<N>,
         secret: &[u8; POSITION_ACL_SECRET_LEN],
     ) -> Result<(), PositionAclError> {
-        if let Some(accepted) = self.accepted_sequence {
-            if record.sequence() <= accepted {
-                self.refused = self.refused.saturating_add(1);
-                return Err(PositionAclError::NotMonotonic {
-                    offered: record.sequence(),
-                    accepted,
-                });
-            }
+        if let Some(accepted) = self.accepted_sequence
+            && record.sequence() <= accepted
+        {
+            self.refused = self.refused.saturating_add(1);
+            return Err(PositionAclError::NotMonotonic {
+                offered: record.sequence(),
+                accepted,
+            });
         }
         let mut tags: [Option<([u8; POSITION_ACL_TAG_LEN], DisclosureTier)>; N] =
             core::array::from_fn(|_| None);

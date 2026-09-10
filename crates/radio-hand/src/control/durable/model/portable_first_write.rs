@@ -179,6 +179,8 @@ impl ClaimRequest {
 
 /// Literal carrier request names.  KISS framing is deliberately outside this
 /// exact payload parser.
+// Requests have a fixed wire bound and stay inline on allocator-free board paths.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum FirstOwnerRequest {
     Inspect,
