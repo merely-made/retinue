@@ -25,7 +25,7 @@ use embedded_io_async::{Read, Write};
 use radio_hand::link::{HostLink, LinkFault};
 
 #[cfg(feature = "host-usb")]
-const DIAGNOSTIC_WRITE_DEADLINE: embassy_time::Duration = embassy_time::Duration::from_millis(5);
+const DIAGNOSTIC_WRITE_DEADLINE: embassy_time::Duration = embassy_time::Duration::from_millis(25);
 
 pub struct SplitHost<R, W> {
     rx: R,
