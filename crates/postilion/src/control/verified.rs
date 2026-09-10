@@ -402,46 +402,44 @@ where
 {
     type Error = UsbControlError;
 
-    fn exchange(&mut self, command: &[u8]) -> impl Future<Output = Result<Response, Self::Error>> {
-        async move {
-            let mut frame = [0_u8; MAX_CONTROL_COMMAND_FRAME_LEN];
-            let frame_len =
-                encode_command_frame(command, &mut frame).map_err(UsbControlError::Malformed)?;
-            let mut wire = [0_u8; 2 + MAX_CONTROL_COMMAND_FRAME_LEN * 2];
-            let wire_len = selvage::kiss::encode_into(&frame[..frame_len], &mut wire)
-                .expect("the fixed command KISS buffer is sufficient");
-            self.io
-                .write_all(&wire[..wire_len])
-                .await
-                .map_err(UsbControlError::Io)?;
-            self.io.flush().await.map_err(UsbControlError::Io)?;
-
-            tokio::time::timeout(self.config.response_timeout, async {
-                let mut bytes = [0_u8; 256];
-                loop {
-                    let read = self
-                        .io
-                        .read(&mut bytes)
-                        .await
-                        .map_err(UsbControlError::Io)?;
-                    if read == 0 {
-                        return Err(UsbControlError::Eof);
-                    }
-                    for &byte in &bytes[..read] {
-                        if !self.deframer.push(byte) {
-                            continue;
-                        }
-                        let frame = self.deframer.frame();
-                        if frame.first() != Some(&CONTROL_RESPONSE_FRAME_TAG) {
-                            continue;
-                        }
-                        return decode_response_frame(frame).map_err(UsbControlError::Malformed);
-                    }
-                }
-            })
+    async fn exchange(&mut self, command: &[u8]) -> Result<Response, Self::Error> {
+        let mut frame = [0_u8; MAX_CONTROL_COMMAND_FRAME_LEN];
+        let frame_len =
+            encode_command_frame(command, &mut frame).map_err(UsbControlError::Malformed)?;
+        let mut wire = [0_u8; 2 + MAX_CONTROL_COMMAND_FRAME_LEN * 2];
+        let wire_len = selvage::kiss::encode_into(&frame[..frame_len], &mut wire)
+            .expect("the fixed command KISS buffer is sufficient");
+        self.io
+            .write_all(&wire[..wire_len])
             .await
-            .unwrap_or(Err(UsbControlError::Timeout))
-        }
+            .map_err(UsbControlError::Io)?;
+        self.io.flush().await.map_err(UsbControlError::Io)?;
+
+        tokio::time::timeout(self.config.response_timeout, async {
+            let mut bytes = [0_u8; 256];
+            loop {
+                let read = self
+                    .io
+                    .read(&mut bytes)
+                    .await
+                    .map_err(UsbControlError::Io)?;
+                if read == 0 {
+                    return Err(UsbControlError::Eof);
+                }
+                for &byte in &bytes[..read] {
+                    if !self.deframer.push(byte) {
+                        continue;
+                    }
+                    let frame = self.deframer.frame();
+                    if frame.first() != Some(&CONTROL_RESPONSE_FRAME_TAG) {
+                        continue;
+                    }
+                    return decode_response_frame(frame).map_err(UsbControlError::Malformed);
+                }
+            }
+        })
+        .await
+        .unwrap_or(Err(UsbControlError::Timeout))
     }
 }
 

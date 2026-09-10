@@ -477,7 +477,7 @@ where
                 }
                 let mut frames = Vec::new();
                 self.deframer.push(&bytes[..read], &mut frames);
-                for frame in frames {
+                if let Some(frame) = frames.into_iter().next() {
                     let response = FirstOwnerResponse::decode(&frame)
                         .map_err(UsbFirstOwnerError::Malformed)?;
                     if response_kind(&response) != request_kind {
@@ -498,20 +498,18 @@ where
 {
     type Error = UsbFirstOwnerError;
 
-    fn exchange(
+    async fn exchange(
         &mut self,
         request: FirstOwnerRequest,
-    ) -> impl Future<Output = Result<FirstOwnerResponse, Self::Error>> {
-        async move {
-            if self.poisoned {
-                return Err(UsbFirstOwnerError::ReconnectRequired);
-            }
-            let result = self.exchange_inner(request).await;
-            if result.is_err() {
-                self.poisoned = true;
-            }
-            result
+    ) -> Result<FirstOwnerResponse, Self::Error> {
+        if self.poisoned {
+            return Err(UsbFirstOwnerError::ReconnectRequired);
         }
+        let result = self.exchange_inner(request).await;
+        if result.is_err() {
+            self.poisoned = true;
+        }
+        result
     }
 }
 
