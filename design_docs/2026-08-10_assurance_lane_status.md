@@ -1,4 +1,4 @@
-# Assurance lane: what passes, and one surface that has never run
+# Assurance lane: automated evidence and remaining physical gates
 
 **Date:** 2026-08-10. **Lane:** Assurance (ASSURE1 through ASSURE5).
 **Status:** ASSURE1 and ASSURE2 verified. ASSURE3, ASSURE4, and ASSURE5
@@ -14,10 +14,22 @@ which was never true: the ledger it cites recorded disclosure as owed and unpaid
 in the same breath. The 2026-08-12 sequencing document asked for this sentence
 and the ledger's header to be fixed together, which is what this is.
 
+**Automated receipt, 2026-09-10.** At `045cb2fce237eee65412e291b95ac3e11ffac3aa`,
+the [Linux fuzz job](https://github.com/merely-made/retinue/actions/runs/34440754804/job/102755113883)
+completed corpus-isolation checks and all three 120-second campaigns:
+`retinue-node-ingest`, `outrider-lxmf-decode`, and `retinue-command-accept`.
+ASSURE2 now has an executed smoke receipt, and ASSURE6's first green Linux
+result is satisfied. That run's separate check job failed Clippy; this fuzz
+receipt alone does not claim aggregate CI acceptance. After the check repairs,
+[aggregate CI at `0249668`](https://github.com/merely-made/retinue/actions/runs/34442637387)
+passes all six jobs: check (format, builds, tests, Clippy and docs), firmware,
+MSRV, validation registry, licenses, and fuzz.
+Longer campaigns, physical security gates, and disclosure remain distinct.
+
 ## ASSURE1, validation minimum: substantially closed
 
-`python validation/run.py verify` passes for this ASSURE1 tree: 19 owned Cargo
-manifests, 66 validation assets, 12 suites. Orphan detection works, and
+`python validation/run.py verify` passes on 2026-09-10: 20 owned Cargo
+manifests, 79 validation assets, 14 suites. Orphan detection works, and
 exact-SHA recording is *enforced* rather than merely documented: `record`
 refuses a dirty worktree, and a self-test asserts that producing a result
 cannot dirty its own source.
@@ -28,10 +40,11 @@ tree unregistered. It is now `fuzz/seeds/*/*`, which caught the very next
 addition, as intended. Suite asset globs stay per-target, so a suite still
 cannot claim another's evidence.
 
-## ASSURE2, ingest and unsafe boundaries: half done
+## ASSURE2, ingest and unsafe boundaries: automated smoke receipt
 
-**Unsafe policy: passing.** `validation/security/unsafe_audit.py` reports 14
-approved tokens across 4 files, 17 first-party crate roots checked.
+**Unsafe policy: passing.** On 2026-09-10,
+`validation/security/unsafe_audit.py` reports 35 approved tokens across 12
+files, 18 first-party crate roots checked. Exceptions remain file-specific.
 
 **Fuzzing: extended, and then found to be unrunnable here.**
 
@@ -47,8 +60,8 @@ fields map is the right thing to hand over, because it is carried verbatim and
 never interpreted, so it is the byte range a hostile sender controls most
 directly. It builds, dry-runs with isolated seeds, and is registered.
 
-It has not produced a single execution, and neither has the target that
-preceded it.
+That was the execution state on 2026-08-10. The Linux receipt below supersedes
+it; registration and execution now have separate recorded evidence.
 
 ## The finding: the fuzz suite has never run on this machine
 
@@ -61,8 +74,8 @@ preceded it.
   __start___sancov_cntrs` and friends. libFuzzer needs the coverage symbols the
   sanitizer runtime provides, so removing it removes the fuzzer.
 
-There is no `validation/results/` directory, which is consistent: no fuzz
-evidence has ever been recorded, at any commit.
+At that inspection there was no `validation/results/` directory and no
+recorded execution. The later Linux job linked above supplies that evidence.
 
 This matters more than the missing target did. The registry lists
 `retinue-node-ingest-fuzz` at `scheduled` tier, and the inventory count makes
@@ -95,10 +108,9 @@ A `validation-registry` job joins it, running `validation/run.py verify` and
 the unsafe audit on every push, so an unregistered asset or a new unsafe token
 fails the build rather than waiting for someone to run the checker by hand.
 
-Until that job has run green once, the honest statement remains that Retinue's
-ingest paths are bounded by review and hand-written tests and have not been
-fuzzed. The difference is that there is now somewhere for the evidence to come
-from.
+The job has since run successfully for all three registered targets. This
+closes the first-execution gate; sustained corpus growth and longer campaigns
+remain separate work.
 
 ## Changed here
 
@@ -130,9 +142,9 @@ to an unallowlisted key is ever accepted, and no command is ever accepted twice.
   [Prns donor ledger](2026-08-10_prns_donor_ledger.md) itemizes every seam with
   measured overlap figures and elects MIT inbound. Disclosure was reported to
   the maintainer on 2026-08-25, which discharges the duty but does not close the
-  item: the publication embargo holds until it is resolved. This bullet said
-  "cleared" until 2026-08-25 while its own last clause said "owed and unpaid".
+item: the publication embargo holds until it is resolved. This bullet said
+"cleared" until 2026-08-25 while its own last clause said "owed and unpaid".
 
-What the lane has not produced is on-metal evidence. Every claim here is
-host-side or CI-side. No board has verified a command over RF, and the CI fuzz
-job has not yet run green once.
+The receipts in this document are automated host and CI evidence. Physical
+command, power-cut, custody and RF acceptance remain owned by the corresponding
+FS and wall-node plans; a successful fuzz job does not close those gates.

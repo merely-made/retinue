@@ -84,10 +84,10 @@ their gate. `UNKNOWN` means no document states a status — it does not mean ope
 | Gate | Status | Where |
 | --- | --- | --- |
 | ASSURE1 | Partial — "substantially closed" | [Assurance lane status](2026-08-10_assurance_lane_status.md) |
-| ASSURE2 | Partial — fuzz CI has never run green once | Same |
+| ASSURE2 | Automated smoke receipt passed: unsafe audit and all three Linux fuzz targets; longer campaigns remain separate | Same |
 | ASSURE3, ASSURE4 | Closed | Same |
 | ASSURE5 | Closed **in software**; physical FS4 separate | Same |
-| ASSURE6 | Open — first green Linux fuzz result | [Work lanes](2026-08-09_retinue_work_lanes.md) |
+| ASSURE6 | First green Linux fuzz result recorded at `045cb2f`; physical gates remain separate | [Assurance lane status](2026-08-10_assurance_lane_status.md) |
 | FS1 | UNKNOWN — defined, never statused | [Field node security posture](2026-08-09_field_node_security_posture.md) |
 | FS2 | Closed in software | [FS2 carrier decision](2026-08-10_fs2_command_carrier_decision.md) |
 | FS3 | Partial on V4: durable counter and replay refusal across power removal are physically recorded; mid-write interruption and erase-life budget remain open | [FS2 carrier decision](2026-08-10_fs2_command_carrier_decision.md), [wall-node plan](2026-08-30_wall_node_management_plan.md) |

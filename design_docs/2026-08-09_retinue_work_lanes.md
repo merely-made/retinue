@@ -123,6 +123,14 @@ No board mutation is part of the first software foundation receipt.
 
 ### Progress
 
+- **2026-09-10 assurance receipt:** the Linux fuzz job at `045cb2f` completed
+  corpus isolation and all three registered 120-second campaigns. This closes
+  ASSURE6's first-run requirement and supplies ASSURE2's automated smoke
+  evidence. Its aggregate run still failed Clippy; subsequent aggregate CI
+  at `0249668` passes all six jobs, including check and fuzz. See the
+  [canonical receipt](2026-08-10_assurance_lane_status.md) for job identity and
+  the separate longer-campaign and physical boundaries.
+
 - **2026-09-10 implementation:** `bad58a0` adds V4 active-USB observation
   emission; its Xtensa target check and 177 radio-hand tests pass. Physical
   acceptance remains pending. `76232e5` repairs fractional-millisecond airtime
@@ -231,7 +239,7 @@ current plan set sorts as follows.
 | [Listener executive and protocol leases](2026-08-10_listener_executive_and_protocol_leases.md) | Active executive-boundary authority. LE1 through LE5 own the adapter boundary, bounded leases, and the DetectionProfile/ReceiveProfile scan plan; supersedes retinue-small decision 4's channel-ownership clause. |
 | [Field node security posture](2026-08-09_field_node_security_posture.md) | Active security authority. FS1 through FS6 own ingest, command authorization, replay, custody, seizure, and bounded tables. |
 | [Prns harvest brief](2026-08-09_prns_harvest_brief.md) | Active donor and external-peer program. It supplies candidates and evidence; it does not take ownership from FT, CM, FS, Linkboy, or Signalman. |
-| [Assurance lane status](2026-08-10_assurance_lane_status.md), [FS2 carrier decision](2026-08-10_fs2_command_carrier_decision.md), and [FS4/FS5](2026-08-10_fs4_custody_and_fs5_seizure.md) | Current assurance evidence. ASSURE1 and the unsafe audit pass; ASSURE3 through ASSURE5 are complete in software. A first green Linux fuzz run, FS3, on-metal command verification, physical FS4, and disclosure remain open. |
+| [Assurance lane status](2026-08-10_assurance_lane_status.md), [FS2 carrier decision](2026-08-10_fs2_command_carrier_decision.md), and [FS4/FS5](2026-08-10_fs4_custody_and_fs5_seizure.md) | Current assurance evidence. ASSURE1, the unsafe audit and the first Linux fuzz smoke receipt pass; ASSURE3 through ASSURE5 are complete in software. FS3's remaining physical scope, on-metal command verification, physical FS4 and disclosure retain their own acceptance gates. |
 | [Wall-node management plan](2026-08-30_wall_node_management_plan.md) | Active WN0 through WN8 authority for the standalone V4, transport-agnostic management, safe configuration, firmware selection, and later resident adapter control. It replaces the retired LB pre-decision ladder without taking LE, Signalman, or Linkboy authority. |
 | [Civic deployment](2026-08-11_civic_deployment_prescribed_paths.md) | Phase-two program consuming FT/FS/LE/LB facts. CV1 through CV6 and D1 through D5 are not pilot-critical engineering gates. |
 | [Live-gate flake lane](2026-08-23_live_gate_flake_lane.md) | Active measurement lane, opened 2026-08-23. FLK1 through FLK5 own the per-gate failure rates of the live RNS/LXMF oracle gates and what a suite run is allowed to prove. Until it closes, a bare "twelve of twelve" count is not evidence. Does not cover the peer matrix, which never runs the flaking gates. |
@@ -390,9 +398,9 @@ Current ground truth:
 
 - **ASSURE1:** validation inventory, orphan detection, and exact-SHA recording
   pass.
-- **ASSURE2:** the unsafe audit passes and three fuzz targets exist. Windows
-  cannot run them; the Linux CI job exists but has not yet produced a witnessed
-  green campaign receipt.
+- **ASSURE2:** the unsafe audit passes and all three registered targets have
+  a successful Linux smoke receipt at `045cb2f`. Windows-MSVC execution remains
+  unavailable; longer campaigns are separate from the first-run gate.
 - **ASSURE3:** six stock RNS 1.4.2 signed artifacts were reproduced byte for
   byte.
 - **ASSURE4 / FS2:** the compact Retinue command envelope is implemented. The
@@ -402,8 +410,8 @@ Current ground truth:
 
 Next sequence:
 
-1. **ASSURE6, run what exists:** capture the first green Linux fuzz result for
-   all registered targets rather than treating registration as execution.
+1. **ASSURE6, first execution satisfied:** the first green Linux fuzz result
+   is recorded. Continue longer campaigns as separate assurance work.
 2. **FS3, durable replay state:** bind the settled command grammar to the
    wear-leveled flash counter and prove power-cut monotonicity and erase life.
    Settle opcode ownership in the same pass.
