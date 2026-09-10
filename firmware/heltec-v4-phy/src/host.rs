@@ -5,35 +5,41 @@
 //! `host-uart-low-power`. Which one a binary carries is a compile-time feature, so this
 //! stays static generics with no dyn dispatch.
 //!
-//! Neither reports [`LinkFault::Detached`], and that is the point of the seam rather than a
-//! gap in it. The ESP32-S3's USB-serial-JTAG buffers into a peripheral that does not fail a
-//! write when a host goes away, and a bare UART has nothing on the other end to notice at
-//! all. So `radio-hand`'s shared dispatch, which ends a session only on `Detached`, never
-//! ends one here — which is exactly the V4's existing fire-and-forget behaviour, now falling
-//! out of the shared loop instead of being written into it.
+//! Neither personality exposes physical attachment state. Ordinary writes therefore retain
+//! the V4's fire-and-forget behavior. On the active-radio USB personality, diagnostic writes
+//! have a short software deadline and report [`LinkFault::Detached`] when the write or flush
+//! fails or times out. Such a fault latches all host I/O closed until an external board reset,
+//! so no later traffic can extend a partial response while the independent radio branch
+//! remains available. The UART low-power personality continues to decline diagnostic writes;
+//! its carrier behavior remains part of the separate sleep-edge receipt.
 //!
 //! Contrast the T114, whose CDC endpoint does fail a write on departure and therefore does
 //! end sessions. Same dispatch, opposite behaviour, decided entirely by the transport.
 
-// Not yet wired into main's loop, deliberately. The V4 is the RF control peer for every
-// receipt in this plan, and its loop interleaves `rf-sleep-proof` challenge/response and
-// power machinery behind `#[cfg]`s that need their own hardware receipts. This compiles
-// as proof that the seam accommodates a second, structurally different transport — split
-// rx/tx halves with no detach signal — which is the main thing a seam design can get
-// wrong. Wiring the loop is the next session's work, with a counted A/B on real hardware.
+// The active-radio USB image wires this transport into main's shared command dispatch. The
+// same generic adapter also compiles for the UART low-power personality, whose timing and
+// sleep-edge behavior require their own physical receipt.
 #![allow(dead_code)]
 
 use embedded_io_async::{Read, Write};
 use radio_hand::link::{HostLink, LinkFault};
 
+#[cfg(feature = "host-usb")]
+const DIAGNOSTIC_WRITE_DEADLINE: embassy_time::Duration = embassy_time::Duration::from_millis(5);
+
 pub struct SplitHost<R, W> {
     rx: R,
     tx: W,
+    diagnostic_retired: bool,
 }
 
 impl<R: Read, W: Write> SplitHost<R, W> {
     pub fn new(rx: R, tx: W) -> Self {
-        Self { rx, tx }
+        Self {
+            rx,
+            tx,
+            diagnostic_retired: false,
+        }
     }
 }
 
@@ -44,6 +50,11 @@ impl<R: Read, W: Write> HostLink for SplitHost<R, W> {
     }
 
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, LinkFault> {
+        if self.diagnostic_retired {
+            // Keep this select branch dormant while the independent radio branch continues.
+            // Only an explicit external board reset establishes a fresh host session.
+            return core::future::pending().await;
+        }
         // A read error here is a transport hiccup rather than a departure, so it reports as
         // zero bytes and the session continues. Returning `Detached` would end a session
         // that nothing has actually ended.
@@ -51,6 +62,9 @@ impl<R: Read, W: Write> HostLink for SplitHost<R, W> {
     }
 
     async fn write_all(&mut self, bytes: &[u8]) -> Result<(), LinkFault> {
+        if self.diagnostic_retired {
+            return Err(LinkFault::Detached);
+        }
         // The flush is load-bearing, not hygiene. USB Serial/JTAG holds written bytes in the
         // peripheral until flushed, so an unflushed reply simply never reaches the host: the
         // board looks alive and answers nothing. Dropping it while building this seam cost a
@@ -58,5 +72,39 @@ impl<R: Read, W: Write> HostLink for SplitHost<R, W> {
         let _ = self.tx.write_all(bytes).await;
         let _ = self.tx.flush().await;
         Ok(())
+    }
+
+    async fn write_diagnostic(&mut self, bytes: &[u8]) -> Result<(), LinkFault> {
+        #[cfg(feature = "host-uart-low-power")]
+        {
+            let _ = bytes;
+            return Err(LinkFault::Detached);
+        }
+        #[cfg(feature = "host-usb")]
+        {
+            if self.diagnostic_retired {
+                return Err(LinkFault::Detached);
+            }
+            // Observation replies are best-effort telemetry, so they must not hold the radio
+            // owner indefinitely when USB is connected electrically but the host has stopped
+            // draining it. After any timeout or write fault, latch this diagnostic carrier closed
+            // until an external board reset: no later reply can append to a possibly partial
+            // response, while the independent RF branch remains available. Latch before the
+            // first await so cancellation is fail-closed too; only full success clears it.
+            self.diagnostic_retired = true;
+            let result = embassy_time::with_timeout(DIAGNOSTIC_WRITE_DEADLINE, async {
+                self.tx
+                    .write_all(bytes)
+                    .await
+                    .map_err(|_| LinkFault::Detached)?;
+                self.tx.flush().await.map_err(|_| LinkFault::Detached)
+            })
+            .await
+            .unwrap_or(Err(LinkFault::Detached));
+            if result.is_ok() {
+                self.diagnostic_retired = false;
+            }
+            result
+        }
     }
 }

@@ -709,7 +709,11 @@ async fn main(spawner: Spawner) {
                                     &[byte],
                                 )
                                 .await;
-                                debug_assert_eq!(outcome.flow, radio_hand::link::Flow::Continue);
+                                // A diagnostic fault latches host I/O closed. The independent
+                                // radio branch remains active until an external board reset.
+                                if outcome.flow == radio_hand::link::Flow::Detach {
+                                    break;
+                                }
                             }
                             channels::ControlDemux::Consumed => {}
                             channels::ControlDemux::StatusRequest(request) => {
@@ -792,12 +796,9 @@ async fn main(spawner: Spawner) {
                     packet,
                 )
                 .await;
-                // This board's transports never report `Detached`: USB Serial/JTAG buffers
-                // into a peripheral that does not fail a write when the host leaves, and a
-                // bare UART has nothing on the other end to notice. So the session never
-                // ends, which is this board's existing behaviour, now falling out of the
-                // shared loop rather than being written into it.
-                debug_assert_eq!(outcome.flow, radio_hand::link::Flow::Continue);
+                // A diagnostic fault latches host I/O closed. The independent radio branch
+                // remains active until an external board reset.
+                let _ = outcome;
             }
         }
     }
