@@ -96,6 +96,14 @@ pub enum V4ConfigError {
     ProfileRejected { code: u8 },
 }
 
+/// A bounded transient profile operation could not be completed with known hardware state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum V4ExcursionError {
+    Quiet(V4QuietError),
+    Rejected { code: u8 },
+    Controller(selvage::personality::ControllerError),
+}
+
 /// One portable first-write transaction may touch both independently-owned V4
 /// sector pairs.  This wrapper keeps the exact failed half visible without
 /// allowing callers to take the raw settings store out of boot-owner custody.
@@ -238,6 +246,10 @@ pub struct V4QuietGuard<'a, RK: RadioKind, DLY: DelayNs> {
 }
 
 impl<RK: RadioKind, DLY: DelayNs> V4RadioOwner<RK, DLY> {
+    /// The profile confirmed at construction or by a completed owner operation.
+    pub fn profile(&self) -> selvage::PhyProfile {
+        self.radio.profile
+    }
     pub fn new(
         lora: LoRa<RK, DLY>,
         radio: RadioState,
@@ -328,6 +340,39 @@ impl<RK: RadioKind, DLY: DelayNs> V4RadioOwner<RK, DLY> {
     /// Prepare and arm continuous receive before creating an interrupt waiter.
     pub async fn ensure_rx(&mut self) -> Result<bool, RxSetupFault> {
         self.ensure_rx_inner(true).await
+    }
+
+    /// Apply one transient profile inside the same reset-on-drop quiet window used by durable
+    /// configuration.  A cancellation or unknown driver result resets the board; success is
+    /// reported only after RX under the selected profile has been armed again.
+    pub async fn apply_excursion_profile(
+        &mut self,
+        profile: &selvage::PhyProfile,
+    ) -> Result<(), V4ExcursionError> {
+        let mut guard = QuietWindow::enter(self)
+            .await
+            .map_err(V4ExcursionError::Quiet)?;
+        let code = guard.owner.executive().apply_profile(profile).await;
+        match classify_profile_apply_result(code) {
+            V4ProfileApplyResult::Accepted => guard
+                .finish()
+                .await
+                .map(|_| ())
+                .map_err(V4ExcursionError::Quiet),
+            V4ProfileApplyResult::SafeRefusal => {
+                guard.finish().await.map_err(V4ExcursionError::Quiet)?;
+                Err(V4ExcursionError::Rejected { code })
+            }
+            V4ProfileApplyResult::ResetRequired => esp_hal::system::software_reset(),
+        }
+    }
+
+    /// Reject an invalid excursion before it changes controller or radio state.
+    pub fn excursion_profile_admitted(&self, profile: &selvage::PhyProfile) -> bool {
+        self.region
+            .profile()
+            .is_some_and(|region| region.allows_frequency(profile.frequency_hz))
+            && profile.validate().is_ok()
     }
 
     async fn ensure_rx_inner(&mut self, record_listening: bool) -> Result<bool, RxSetupFault> {

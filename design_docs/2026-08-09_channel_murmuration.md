@@ -1,8 +1,8 @@
 # Channel Murmuration: Runtime Channel Scheduling
 
-**Status, 2026-09-11: controller, host-driven packet switching and retained
-Retinue links have software and [physical receipts](2026-09-11_murmuration_session_receipt.md); autonomous firmware protocol
-switching remains open.** This section is the current authority for murmuration's
+**Status, 2026-09-11: retained Retinue links, explicit session loss and V4
+board-timed PHY return have software and [physical receipts](2026-09-11_murmuration_session_receipt.md).
+Resident firmware protocol adapters remain open.** This section is the current authority for murmuration's
 product behavior and ownership. It supersedes the 2026-08-10 rejection of a
 home personality and mandatory resident-listener identity in the
 [listener executive plan](2026-08-10_listener_executive_and_protocol_leases.md).

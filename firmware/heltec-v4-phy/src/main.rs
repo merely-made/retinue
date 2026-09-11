@@ -13,14 +13,14 @@ use core::future::{Future, poll_fn};
 use core::task::Poll;
 
 use embassy_executor::Spawner;
-use embassy_futures::select::Either3;
-#[cfg(all(feature = "host-usb", not(feature = "host-uart-low-power")))]
-use embassy_futures::select::select3;
 #[cfg(feature = "host-uart-low-power")]
-use embassy_futures::select::{Either, select};
-use embassy_time::Delay;
+use embassy_futures::select::select;
+use embassy_futures::select::{Either, Either3};
 #[cfg(all(feature = "host-usb", not(feature = "host-uart-low-power")))]
-use embassy_time::{Instant, Timer};
+use embassy_futures::select::{select, select3};
+#[cfg(all(feature = "host-usb", not(feature = "host-uart-low-power")))]
+use embassy_time::Timer;
+use embassy_time::{Delay, Duration, Instant};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use esp_backtrace as _;
 use esp_hal::Config;
@@ -47,7 +47,8 @@ use radio_hand::dispatch;
 use radio_hand::executive::{ChipDiagnostics, Face, RadioState};
 use radio_hand::link::HostLink;
 use selvage::{
-    CommandStream, EVENT_DIAGNOSTIC, EVENT_RX, MAX_COMMAND_LEN, MESHTASTIC_SYNC_WORD, WAKE_BYTE,
+    CommandStream, EVENT_DIAGNOSTIC, EVENT_EXCURSION, EVENT_RX, ExcursionByte, ExcursionStream,
+    MAX_COMMAND_LEN, MESHTASTIC_SYNC_WORD, WAKE_BYTE, decode_excursion_command,
 };
 
 mod board;
@@ -60,6 +61,7 @@ mod control_fixture;
 mod control_store;
 mod gnss;
 mod host;
+mod murmuration;
 #[cfg(all(feature = "host-usb", not(feature = "host-uart-low-power")))]
 mod physical_presence;
 mod power;
@@ -383,6 +385,8 @@ async fn main(spawner: Spawner) {
     };
     let mut owner =
         radio_owner::V4RadioOwner::new(lora, radio, local_status, face, store, settings);
+    let mut murmuration =
+        murmuration::BoardExcursion::new(owner.profile(), embassy_time::Instant::now().as_millis());
 
     // WN1 durable recovery is a boot-only action: before a host exists, before RNode gets
     // exclusive custody, and before any receive or sleep machinery starts. A missing settings
@@ -477,6 +481,7 @@ async fn main(spawner: Spawner) {
     let _ = host.write_all(online).await;
     let _ = host.write_all(&identity_line[..identity_line_len]).await;
     let mut command_stream = CommandStream::new();
+    let mut excursion_stream = ExcursionStream::new();
     let mut usb_command = [0_u8; MAX_COMMAND_LEN];
     let mut control_stream = channels::ControlFrameStream::new();
     #[cfg(all(feature = "host-usb", not(feature = "host-uart-low-power")))]
@@ -495,19 +500,81 @@ async fn main(spawner: Spawner) {
     power::arm(esp_hal::rtc_cntl::Rtc::new(peripherals.LPWR));
 
     loop {
+        // This check runs before every RX/host operation, so a busy USB stream or repeated
+        // receive IRQ cannot postpone an already owed restore. The only awaited transition is
+        // guarded by the owner and resets if it is cancelled or becomes uncertain.
+        let board_now = embassy_time::Instant::now().as_millis();
+        if murmuration.is_active()
+            && murmuration
+                .next_deadline()
+                .is_some_and(|deadline| board_now >= deadline.saturating_add(2_000))
+        {
+            esp_hal::system::software_reset();
+        }
+        if owner.quiet_preflight() == radio_owner::V4QuietPreflight::Ready {
+            match murmuration.tick(board_now) {
+                Ok(Some(transition)) => {
+                    let returning = transition.to == selvage::personality::PersonalityId(0);
+                    if !matches!(
+                        embassy_time::with_timeout(
+                            Duration::from_millis(1_500),
+                            murmuration.apply(&mut owner, transition)
+                        )
+                        .await,
+                        Ok(Ok(()))
+                    ) {
+                        esp_hal::system::software_reset();
+                    }
+                    if returning {
+                        let mut report = [0_u8; 18];
+                        report[0] = EVENT_EXCURSION;
+                        report[1] = 1;
+                        report[2..10].copy_from_slice(&murmuration.last_deadline().to_le_bytes());
+                        report[10..].copy_from_slice(
+                            &embassy_time::Instant::now().as_millis().to_le_bytes(),
+                        );
+                        let _ = embassy_time::with_timeout(
+                            Duration::from_millis(20),
+                            host.write_all(&report),
+                        )
+                        .await;
+                    }
+                }
+                Ok(None) => {}
+                Err(_) => {
+                    esp_hal::system::software_reset();
+                }
+            }
+        }
         {
             // Configuring the radio is SPI traffic; sleeping through it would abandon a
             // half-finished transaction.
             let _awake = power::Awake::new();
-            match owner.ensure_rx().await {
+            let setup = if murmuration.is_active() {
+                match embassy_time::with_timeout(Duration::from_millis(1_500), owner.ensure_rx())
+                    .await
+                {
+                    Ok(result) => result,
+                    Err(_) => esp_hal::system::software_reset(),
+                }
+            } else {
+                owner.ensure_rx().await
+            };
+            match setup {
                 Ok(true) => owner.radio_online(),
                 Ok(false) => {}
                 Err(radio_owner::RxSetupFault::Prepare) => {
+                    if murmuration.is_active() {
+                        esp_hal::system::software_reset();
+                    }
                     owner.radio_fault(5, "RX SETUP");
                     let _ = host.write_all(b"radio rx setup failed\r\n").await;
                     continue;
                 }
                 Err(radio_owner::RxSetupFault::Arm) => {
+                    if murmuration.is_active() {
+                        esp_hal::system::software_reset();
+                    }
                     let _ = host.write_all(b"radio rx arm failed\n").await;
                     continue;
                 }
@@ -559,7 +626,15 @@ async fn main(spawner: Spawner) {
         // chip: interrupt consumed, bytes left for the next packet to overwrite, nothing
         // reported. This half holds no transaction and leaves the radio listening.
         #[cfg(not(all(feature = "host-uart-low-power", feature = "rf-sleep-proof")))]
-        let radio_receive = owner.wait_rx_irq();
+        let radio_receive = async {
+            // A completed level-high IRQ wins even if the deadline is already
+            // ready. Do not repeatedly cancel registration before collecting it.
+            if wake_input::radio_is_high() {
+                Ok(())
+            } else {
+                owner.wait_rx_irq().await
+            }
+        };
         // The USB image also waits on the armed candidate's deadline, so an unconfirmed
         // provisional change rolls back on time without a host frame to prompt it.
         #[cfg(all(feature = "host-usb", not(feature = "host-uart-low-power")))]
@@ -573,11 +648,25 @@ async fn main(spawner: Spawner) {
             }
         };
         #[cfg(all(feature = "host-usb", not(feature = "host-uart-low-power")))]
+        let excursion_expiry = async {
+            match murmuration.next_deadline() {
+                Some(deadline_ms) => Timer::at(Instant::from_millis(deadline_ms)).await,
+                None => core::future::pending::<()>().await,
+            }
+        };
+        #[cfg(all(feature = "host-usb", not(feature = "host-uart-low-power")))]
         let waiting = async {
-            match select3(host_read, radio_receive, expiry).await {
-                Either3::First(host) => Either3::First(host),
-                Either3::Second(radio) => Either3::Second(radio),
-                Either3::Third(()) => Either3::Third(()),
+            match select3(radio_receive, host_read, async {
+                match select(expiry, excursion_expiry).await {
+                    Either::First(()) => 0_u8,
+                    Either::Second(()) => 1_u8,
+                }
+            })
+            .await
+            {
+                Either3::First(radio) => Either3::Second(radio),
+                Either3::Second(host) => Either3::First(host),
+                Either3::Third(expiry) => Either3::Third(expiry),
             }
         };
         #[cfg(not(all(feature = "host-usb", not(feature = "host-uart-low-power"))))]
@@ -596,7 +685,7 @@ async fn main(spawner: Spawner) {
         // Everything past here touches SPI, the radio, or the host link.
         let _awake = power::Awake::new();
         match outcome {
-            Either3::Third(()) => {
+            Either3::Third(0) => {
                 #[cfg(all(feature = "host-usb", not(feature = "host-uart-low-power")))]
                 if let Some(ready) = control_ready.as_mut()
                     && !control_carrier::expire_provisional(&mut owner, ready).await
@@ -605,6 +694,8 @@ async fn main(spawner: Spawner) {
                     Timer::after_millis(200).await;
                 }
             }
+            Either3::Third(1) => {}
+            Either3::Third(_) => unreachable!("only two deadline sources are constructed"),
             Either3::Second(Ok(())) => {
                 // Deliberately not raced: the frame is in the radio until it is read out.
                 let Some(frame) = (match owner.collect(&mut radio_frame).await {
@@ -612,6 +703,9 @@ async fn main(spawner: Spawner) {
                     Err(_) => {
                         // Said out loud, matching the T114. A radio that stops receiving is
                         // the whole failure on a board whose only job is receiving.
+                        if murmuration.is_active() {
+                            esp_hal::system::software_reset();
+                        }
                         owner.radio_fault(6, "RADIO RX");
                         if host.write_all(b"radio rx failed\r\n").await.is_err() {
                             break;
@@ -623,6 +717,10 @@ async fn main(spawner: Spawner) {
                 };
                 let length = frame.len;
                 owner.note_radio_frame(&frame);
+                if murmuration.is_active() {
+                    // Completed RF is recorded locally; USB backpressure cannot own the timer.
+                    continue;
+                }
 
                 // The low-power board's UART host is intentionally absent from this bench.
                 // A feature-gated RF challenge therefore returns the counters through the
@@ -666,6 +764,9 @@ async fn main(spawner: Spawner) {
             // `wait_for_irq()` reports waiter/interrupt errors here. CRC and header outcomes
             // belong to the unraced `rx_collect()` above, where the frame is actually read.
             Either3::Second(Err(_)) => {
+                if murmuration.is_active() {
+                    esp_hal::system::software_reset();
+                }
                 owner.radio_fault(6, "RADIO RX");
                 let _ = host.write_all(b"radio rx failed\r\n").await;
             }
@@ -677,7 +778,10 @@ async fn main(spawner: Spawner) {
                 // Discard host wake bytes, but only while the parser sits at a frame
                 // boundary: the same value is perfectly legal inside a length field or a
                 // payload, so stripping it anywhere else would corrupt the frame.
-                if command_stream.is_boundary() {
+                if command_stream.is_boundary()
+                    && !excursion_stream.pending()
+                    && !control_stream.in_frame()
+                {
                     let skip = packet
                         .iter()
                         .position(|byte| *byte != WAKE_BYTE)
@@ -688,14 +792,93 @@ async fn main(spawner: Spawner) {
                     }
                 }
                 let at_boundary = command_stream.is_boundary();
+                if murmuration.is_active() {
+                    continue;
+                }
                 // A read which contains a diagnostic delimiter (or completes a
                 // prior fragmented diagnostic frame) is demultiplexed one byte
                 // at a time. Every non-diagnostic byte reaches the ordinary
                 // direct-PHY parser immediately, so bytes before and after a
                 // KISS request in one USB read are never discarded and a FEND
                 // inside an ordinary command remains ordinary payload.
-                if control_stream.in_frame() || packet.contains(&selvage::kiss::FEND) {
+                if excursion_stream.pending()
+                    || packet.contains(&selvage::CMD_EXCURSION)
+                    || control_stream.in_frame()
+                    || packet.contains(&selvage::kiss::FEND)
+                {
                     for &byte in packet {
+                        // An admitted excursion owns this read's remaining bytes too.
+                        if murmuration.is_active() {
+                            break;
+                        }
+                        let byte = match excursion_stream.push(
+                            command_stream.is_boundary() && !control_stream.in_frame(),
+                            byte,
+                        ) {
+                            ExcursionByte::Ordinary(byte) => byte,
+                            ExcursionByte::Pending => continue,
+                            ExcursionByte::Complete(command) => {
+                                #[cfg(not(all(
+                                    feature = "host-usb",
+                                    not(feature = "host-uart-low-power"),
+                                    not(feature = "rf-sleep-proof")
+                                )))]
+                                let admitted = false;
+                                #[cfg(all(
+                                    feature = "host-usb",
+                                    not(feature = "host-uart-low-power"),
+                                    not(feature = "rf-sleep-proof")
+                                ))]
+                                let admitted = {
+                                    control_ready
+                                        .as_ref()
+                                        .and_then(|ready| ready.runtime.provisional_deadline_ms())
+                                        .is_none()
+                                        && owner.quiet_preflight()
+                                            == radio_owner::V4QuietPreflight::Ready
+                                };
+                                let mut report = [0_u8; 18];
+                                report[0] = EVENT_EXCURSION;
+                                report[1] = 2;
+                                if admitted
+                                    && let Ok((profile, duration)) =
+                                        decode_excursion_command(&command)
+                                    && owner.excursion_profile_admitted(&profile)
+                                {
+                                    match murmuration.request(
+                                        Instant::now().as_millis(),
+                                        owner.profile(),
+                                        profile,
+                                        duration,
+                                    ) {
+                                        Ok(transition) => {
+                                            // The owner guard resets on cancellation; do not permit
+                                            // an unbounded SPI wait to postpone the return deadline.
+                                            match embassy_time::with_timeout(
+                                                Duration::from_millis(1_500),
+                                                murmuration.apply(&mut owner, transition),
+                                            )
+                                            .await
+                                            {
+                                                Ok(Ok(())) => report[1] = 0,
+                                                _ => esp_hal::system::software_reset(),
+                                            }
+                                        }
+                                        Err(_) => report[1] = 2,
+                                    }
+                                }
+                                report[2..10]
+                                    .copy_from_slice(&murmuration.last_deadline().to_le_bytes());
+                                report[10..]
+                                    .copy_from_slice(&Instant::now().as_millis().to_le_bytes());
+                                let _ = embassy_time::with_timeout(
+                                    Duration::from_millis(20),
+                                    host.write_all(&report),
+                                )
+                                .await;
+                                continue;
+                            }
+                        };
                         let demux = control_stream.demux_byte(command_stream.is_boundary(), byte);
                         match demux {
                             channels::ControlDemux::Ordinary => {

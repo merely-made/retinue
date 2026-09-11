@@ -1,7 +1,8 @@
 # Murmuration controller implementation plan
 
 **Status, 2026-09-11: MC0–MC2, MC3a packet adapters, MC3b host-retained
-sessions and MC3c resource drain complete; full MC3 remains open.** The user authorized
+sessions, MC3c resource drain, MC3d explicit loss and MC3e board PHY deadlines
+complete at their stated scope; full MC3 remains open.** The user authorized
 implementation planning, Luna/Terra work, then real-radio integration and guarded
 flashing. Software and [physical receipts](2026-09-10_murmuration_physical_receipt.md)
 cover the controller and host-driven adapters. Product authority is the
@@ -275,3 +276,58 @@ and ten encrypted messages on the retained link. Both boot IDs and original
 profiles were preserved. Eleven pause tests, strict example/test Clippy, scoped
 formatting and registry verification passed. Exact evidence is appended to the
 [session receipt](2026-09-11_murmuration_session_receipt.md#mc3c-extension-resource-drain-before-departure).
+
+### MC3d / MC3e: explicit interruption and board deadlines, 2026-09-11
+
+**Status: passed at the scope below, user authorized both lanes.** MC3d adds explicit permission
+for Node-wide session loss, a complete bounded report of discarded links,
+handshakes, resources and transit bridges, and best-effort encrypted close packets.
+The caller owns cancellation of previously issued actions and the physical I/O
+boundary. No close packet or local state change proves remote acknowledgement.
+Identity, freshness history and IV sequence must survive interruption.
+
+MC3e integrates a configured one-shot PHY excursion into the V4 owner loop with
+an on-board return deadline, without waiting for a subsequent host command.
+The image is currently allocation-free direct PHY, not a Retinue/Sennet protocol
+host. Keep that distinction in every receipt. Reuse the controller through a
+core-only shared home if needed; retain one radio owner, completed-frame
+handling, pin/admission checks and explicit recovery on uncertain restoration.
+
+Parent owns Node implementation, integration, docs and hardware. Terra owns
+the board lane after its seam review; Luna owns independent interruption tests.
+Done: focused software tests and exact-build V4/T114 physical evidence for
+explicit session loss, fresh re-establishment, and board-timed return while
+host scheduling is absent. Preserve profile/identity settings and existing WIP.
+
+MC3d software now reports every affected ID independently of action-queue
+capacity and never mutates on denied permission. A real transit test proves
+old bridged traffic stops forwarding after loss. Sixteen pause tests pass.
+Physical run `mc3d-1` cancels one held resource request, reports local loss,
+delivers an encrypted close over RF, observes peer LinkDown/resource cleanup,
+and completes a fresh handshake on the same Nodes. It records 41 exact RF
+receives and twelve encrypted application messages across old/new sessions.
+
+MC3e moved the unchanged controller implementation to no_std `selvage`, with
+Tulle re-exporting it. V4 USB accepts a volatile 24-byte `CMD_EXCURSION` (0x06),
+captures current home, and returns using its own clock. The controller permits
+explicit gaps for this stateless PHY consumer; there are no resident protocol
+sessions in this image. Duration is caller-selected up to 60 seconds. Return
+budget is two seconds, individual transition bound 1.5 seconds. Provisional
+configuration, non-quiet entry, invalid duration/profile and unsupported host
+builds refuse admission. Active work fences competing USB commands and records
+RF locally without waiting for host output. A completed level-high radio IRQ
+is collected ahead of a ready timer. Uncertain transition or overdue recovery
+resets and is a failed excursion, not a successful reboot-free return.
+
+Physical `mc3e-1` accepted a fragmented two-second request, then returned 20 ms
+after its board deadline during 3.5 seconds without host writes or reads. Two
+subsequent RF packets prove restored reception in both directions. The guarded
+V4 installation preserved the 32 KiB durable region byte-for-byte. The same V4
+boot ID spans MC3e and MC3d. Release USB build and UART check passed; 29 Selvage
+unit, seven wire, and 85 Tulle tests passed, plus strict Clippy/Rustdoc.
+
+Still open: resident firmware Retinue/Sennet adapters, recurring schedule/UI
+settings, firmware pin controls, authenticated coverage, power-cut/driver-fault
+injection and adversarial RX/host stress. The ordinary successful physical
+returns do not qualify those fault paths. See the extended
+[session receipt](2026-09-11_murmuration_session_receipt.md).

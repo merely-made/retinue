@@ -1,8 +1,11 @@
 #![forbid(unsafe_code)]
 #![no_std]
 
+pub mod excursion_stream;
 pub mod kiss;
 pub mod observation;
+pub use excursion_stream::{ExcursionByte, ExcursionStream};
+pub mod personality;
 pub use observation::{CMD_OBSERVATION, EVENT_OBSERVATION};
 
 /// Meshtastic's documented LoRa synchronization byte.
@@ -18,6 +21,8 @@ pub const CMD_CONFIG: u8 = 0x02;
 /// The payload is owned by `radio-face`; this transport crate treats it as
 /// opaque bytes.
 pub const CMD_UI_SNAPSHOT: u8 = 0x03;
+/// Request one bounded, board-timed alternate PHY interval.
+pub const CMD_EXCURSION: u8 = 0x06;
 
 /// Direct-PHY firmware-to-host event markers.
 pub const EVENT_RX: u8 = 0x81;
@@ -27,9 +32,13 @@ pub const EVENT_CONFIG: u8 = 0x83;
 pub const EVENT_DIAGNOSTIC: u8 = 0x84;
 /// Result of a [`CMD_UI_SNAPSHOT`] command.
 pub const EVENT_UI_SNAPSHOT: u8 = 0x85;
+/// Board-timed excursion admission and restoration status.
+pub const EVENT_EXCURSION: u8 = 0x87;
 
 /// Bytes in a complete [`CMD_CONFIG`] command.
 pub const CONFIG_COMMAND_LEN: usize = 16;
+/// Bytes in a complete [`CMD_EXCURSION`] command: profile command plus LE duration ms.
+pub const EXCURSION_COMMAND_LEN: usize = CONFIG_COMMAND_LEN + 8;
 /// Largest radio payload carried by [`CMD_TX`].
 pub const MAX_RADIO_FRAME_LEN: usize = 255;
 /// Largest opaque `radio-face` snapshot accepted by board firmware.
@@ -115,6 +124,7 @@ pub enum CommandKind {
     Configure,
     UiSnapshot,
     Observation,
+    Excursion,
 }
 
 /// Result of feeding one byte to [`CommandStream`].
@@ -243,12 +253,14 @@ impl CommandStream {
                 CMD_CONFIG => CommandKind::Configure,
                 CMD_UI_SNAPSHOT => CommandKind::UiSnapshot,
                 CMD_OBSERVATION => CommandKind::Observation,
+                CMD_EXCURSION => CommandKind::Excursion,
                 marker => return CommandEvent::Unknown { marker },
             };
             self.buffer[0] = byte;
             self.len = 1;
             self.expected = match kind {
                 CommandKind::Configure => CONFIG_COMMAND_LEN,
+                CommandKind::Excursion => EXCURSION_COMMAND_LEN,
                 CommandKind::Transmit | CommandKind::UiSnapshot | CommandKind::Observation => 0,
             };
             return CommandEvent::Pending;
@@ -259,6 +271,7 @@ impl CommandStream {
             CMD_CONFIG => CommandKind::Configure,
             CMD_UI_SNAPSHOT => CommandKind::UiSnapshot,
             CMD_OBSERVATION => CommandKind::Observation,
+            CMD_EXCURSION => CommandKind::Excursion,
             _ => unreachable!("only known command markers enter the buffer"),
         };
 
@@ -455,6 +468,21 @@ pub fn decode_config_command(command: &[u8]) -> Result<PhyProfile, ProfileError>
         tx_power_dbm: command[15] as i8,
     }
     .validate()
+}
+
+/// Decode a bounded excursion request. The profile uses the normal canonical config body;
+/// duration is caller-monotonic milliseconds and is deliberately not an RF packet format.
+pub fn decode_excursion_command(command: &[u8]) -> Result<(PhyProfile, u64), ProfileError> {
+    if command.len() != EXCURSION_COMMAND_LEN || command.first().copied() != Some(CMD_EXCURSION) {
+        return Err(ProfileError::Length);
+    }
+    let mut profile_command = [0_u8; CONFIG_COMMAND_LEN];
+    profile_command.copy_from_slice(&command[..CONFIG_COMMAND_LEN]);
+    profile_command[0] = CMD_CONFIG;
+    let profile = decode_config_command(&profile_command)?;
+    let mut duration = [0_u8; 8];
+    duration.copy_from_slice(&command[CONFIG_COMMAND_LEN..]);
+    Ok((profile, u64::from_le_bytes(duration)))
 }
 
 /// Convert the canonical one-byte LoRa sync word to the SX126x register form.

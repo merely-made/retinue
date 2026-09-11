@@ -12,7 +12,7 @@ A tulle is a fine net fabric: the material every protocol is woven across.
 `serial-async` feature adds the real Tokio serial pump with DTR/RTS discipline,
 initialisation retry, airtime pacing, and bounded frame queues.
 
-The `personality` module provides a radio-free controller for explicit bounded
+The `personality` module re-exports Selvage's allocation-free controller for explicit bounded
 excursions from a configured home personality. It checks pinning, interruption
 permission and caller-supplied coverage, and requires transition acknowledgement
 before reporting restoration. Configuration is immutable in this first slice;
@@ -24,7 +24,8 @@ recovery. A host-driven Retinue/Sennet packet-adapter bench now has a
 [physical receipt](../../design_docs/2026-09-10_murmuration_physical_receipt.md).
 Host-retained Retinue links, proof-dependent resource drain and Sennet duplicate state have a
 [session receipt](../../design_docs/2026-09-11_murmuration_session_receipt.md).
-Active-resource interruption and autonomous firmware integration remain open; the
+Explicit Retinue session loss and V4 board-timed PHY return are also verified.
+Resident firmware protocol adapters and physical fault-injection coverage remain open; the
 [controller plan](../../design_docs/2026-09-10_murmuration_controller_plan.md)
 separates model tests from physical acceptance.
 

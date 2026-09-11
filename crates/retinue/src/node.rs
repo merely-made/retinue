@@ -354,6 +354,31 @@ pub enum PauseBlocked {
     LinkExpiresAt { expiry: u64, return_by: u64 },
 }
 
+/// Caller admission for a destructive, Node-wide interruption.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InterruptionPermission {
+    PreserveSessions,
+    AllowSessionLoss,
+}
+
+/// A refused interruption leaves all protocol state untouched.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SessionLossNotPermitted;
+
+/// Complete local loss report, independent of the ordinary action queue capacity.
+///
+/// Close packets are best effort. The caller chooses their interfaces and must
+/// record any it cannot transmit. They do not acknowledge remote termination.
+#[derive(Debug)]
+pub struct InterruptionReport<const LINKS: usize, const ROUTES: usize> {
+    pub closed_links: BoundedVec<AddressHash, LINKS>,
+    pub close_packets: BoundedVec<Packet, LINKS>,
+    pub pending_links: BoundedVec<AddressHash, LINKS>,
+    pub inbound_resources: BoundedVec<AddressHash, LINKS>,
+    pub outbound_resources: BoundedVec<AddressHash, LINKS>,
+    pub transit_bridges: BoundedVec<AddressHash, ROUTES>,
+}
+
 impl PauseAssessment {
     /// Whether the node has no local obligation that would be interrupted before
     /// `return_by`. The comparison is strict: a link expiring exactly at the
@@ -661,6 +686,71 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
     /// Established links.
     pub fn link_count(&self) -> usize {
         self.links.len()
+    }
+
+    /// Explicitly end all local sessions and transfer obligations.
+    ///
+    /// Before calling, the owner must admit session loss, finish any in-flight
+    /// hardware operation, and cancel or account for every previously returned
+    /// action. Such actions are caller-owned and cannot be revoked here; replaying
+    /// them after interruption can create new remote work. Stop ingesting during
+    /// the switch. New incoming requests after return can establish new sessions.
+    ///
+    /// Returns every affected ID and encrypted close packet without squeezing
+    /// loss notifications into `ACTIONS`. Generate a fresh IV for each link using
+    /// the caller's normal entropy source. Denied permission never calls it.
+    /// Identity, peers, route/freshness history and the resource IV counter are
+    /// retained. This operation neither freezes time nor reports a radio change.
+    pub fn force_interrupt(
+        &mut self,
+        permission: InterruptionPermission,
+        mut iv: impl FnMut() -> [u8; crate::token::IV_LEN],
+    ) -> Result<InterruptionReport<LINKS, ROUTES>, SessionLossNotPermitted> {
+        if permission != InterruptionPermission::AllowSessionLoss {
+            return Err(SessionLossNotPermitted);
+        }
+        let mut report = InterruptionReport {
+            closed_links: BoundedVec::new(),
+            close_packets: BoundedVec::new(),
+            pending_links: BoundedVec::new(),
+            inbound_resources: BoundedVec::new(),
+            outbound_resources: BoundedVec::new(),
+            transit_bridges: BoundedVec::new(),
+        };
+        // Each output has exactly the capacity of its source table. Prepare the
+        // complete report before mutation, so no ordinary Actions overflow can
+        // hide a discarded session or transfer.
+        for (link, _, _) in &self.links {
+            report.closed_links.push(link.id()).expect("link bound");
+            report
+                .close_packets
+                .push(link.close_packet(&iv()))
+                .expect("link bound");
+        }
+        for pending in &self.pending {
+            report
+                .pending_links
+                .push(pending.link_id())
+                .expect("pending bound");
+        }
+        for (id, _, _) in &self.receivers {
+            report.inbound_resources.push(*id).expect("receiver bound");
+        }
+        for (id, _, _) in &self.senders {
+            report.outbound_resources.push(*id).expect("sender bound");
+        }
+        for bridge in &self.bridges {
+            report
+                .transit_bridges
+                .push(bridge.link_id)
+                .expect("bridge bound");
+        }
+        self.links.clear();
+        self.pending.clear();
+        self.receivers.clear();
+        self.senders.clear();
+        self.bridges.clear();
+        Ok(report)
     }
 
     /// Inspect local work before asking a radio owner to pause this node.
@@ -2767,6 +2857,28 @@ mod tests {
         let counters = relay.transport_counters();
         assert_eq!(counters.forwarded_announces, 1);
         assert_eq!(counters.forwarded_packets, 2);
+
+        // An explicit interruption reports the transit obligation without
+        // pretending to close either remote endpoint. Late link data loses its
+        // return path, while learned destination/freshness state is retained.
+        let id = source.links[0].0.id();
+        let late = sent(
+            &source
+                .send(id, IFACE, b"after-relay-loss", &[0xA1; 16])
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(relay.pause_assessment().transit_bridges, 1);
+        let report = relay
+            .force_interrupt(InterruptionPermission::AllowSessionLoss, || {
+                panic!("transit-only node has no local link to close")
+            })
+            .unwrap();
+        assert_eq!(report.transit_bridges.as_slice(), [id]);
+        assert!(report.closed_links.is_empty());
+        assert_eq!(relay.pause_assessment().transit_bridges, 0);
+        assert!(relay.ingest(IFACE, &late, 6).is_empty());
+        assert!(relay.peers().knows(destination.destination()));
     }
 
     /// This is the desk half of the T114 flood: enough distinct signed announces to turn the

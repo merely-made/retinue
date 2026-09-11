@@ -137,6 +137,16 @@ where
                 kind: CommandKind::Configure,
                 ..
             } => unreachable!("configure commands have a fixed length"),
+            // This volatile board-owner operation is intentionally handled only by the V4
+            // scheduler. Other direct-PHY owners must not mistake it for a profile change.
+            CommandEvent::Complete {
+                kind: CommandKind::Excursion,
+                ..
+            }
+            | CommandEvent::TooLong {
+                kind: CommandKind::Excursion,
+                ..
+            } => Flow::from(link.write_all(&[EVENT_TX, TX_UNKNOWN_COMMAND, 0, 0]).await),
             CommandEvent::Complete {
                 kind: CommandKind::UiSnapshot,
                 len,

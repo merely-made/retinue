@@ -382,6 +382,9 @@ async fn run(
     sessions
         .resource_before_excursion(&mut dut, &mut peer, events)
         .await?;
+    sessions
+        .forced_resource_interruption(&mut dut, &mut peer, events)
+        .await?;
     transfer(
         &mut dut,
         &mut peer,
