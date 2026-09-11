@@ -18,6 +18,7 @@
 //! drive the same state machine and the same views the binary runs.
 
 pub mod audio;
+pub mod availability;
 pub mod device_mere;
 pub mod flow;
 pub mod messages;
@@ -103,6 +104,16 @@ pub fn focused_revision_field(
             get: Box::new(|s: &DesktopState| &s.message_contact_name),
             get_mut: Box::new(|s: &mut DesktopState| &mut s.message_contact_name),
         }),
+        Some("observation-load-path") => Some(cambium_genet_winit_host::FocusedTextSlot {
+            node,
+            get: Box::new(|s: &DesktopState| &s.observation_load_path),
+            get_mut: Box::new(|s: &mut DesktopState| &mut s.observation_load_path),
+        }),
+        Some("observation-export-path") => Some(cambium_genet_winit_host::FocusedTextSlot {
+            node,
+            get: Box::new(|s: &DesktopState| &s.observation_export_path),
+            get_mut: Box::new(|s: &mut DesktopState| &mut s.observation_export_path),
+        }),
         _ => None,
     }
 }
@@ -117,6 +128,18 @@ pub fn default_message_store_path() -> std::path::PathBuf {
         .map(std::path::PathBuf::from)
         .unwrap_or_else(std::env::temp_dir);
     root.join("Merely").join("Signalman").join("messages.redb")
+}
+
+pub fn default_availability_settings_path() -> std::path::PathBuf {
+    if let Some(path) = std::env::var_os("SIGNALMAN_AVAILABILITY_SETTINGS") {
+        return path.into();
+    }
+    let root = std::env::var_os("LOCALAPPDATA")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
+    root.join("Merely")
+        .join("Signalman")
+        .join("radio-availability.json")
 }
 
 /// Where the packaged firmware catalog lives.

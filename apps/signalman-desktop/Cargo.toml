@@ -85,16 +85,17 @@ postilion = { version = "0.1.0", path = "../../crates/postilion" }
 personae = { git = "https://github.com/merely-made/mere.git", rev = "d82afa17e2cca86da843f07a2d718d2e69eb9f10" }
 pandect = { git = "https://github.com/merely-made/mere.git", rev = "d82afa17e2cca86da843f07a2d718d2e69eb9f10" }
 serde_json = "1"
+tempfile = "3"
 tokio = { version = "1", features = ["rt", "time"] }
 
 [dev-dependencies]
 # The accessibility receipt asserts against the projection the AccessKit
 # adapter is handed, so it names AccessKit's own types.
 accesskit = "0.24"
-tempfile = "3"
 # The live bench receipt's announcing peer: a plain Postilion station with a
 # short-lived random identity on the second attached board.
 retinue = { version = "0.1.1", path = "../../crates/retinue" }
+radio-hand = { version = "0.0.1", path = "../../crates/radio-hand" }
 getrandom = "0.3"
 
 # Genet's graph needs the same patches its own workspace applies; a `[patch]`

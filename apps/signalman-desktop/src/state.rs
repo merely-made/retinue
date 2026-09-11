@@ -30,6 +30,7 @@ use signalman::{
 use crate::audio::{
     AudioDeviceChoice, AudioEvent, AudioInventory, AudioOperation, CapturedVoice, PlaybackReceipt,
 };
+use crate::availability::AvailabilityCapture;
 use crate::device_mere::{DeviceMere, DeviceProjection, ReconcileReceipt};
 use crate::messages::MessageStore;
 use crate::network::{
@@ -43,8 +44,16 @@ pub enum DesktopSection {
     Devices,
     Network,
     Messages,
+    Radio,
     Map,
     Browse,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ObservationRequest {
+    Load,
+    Export,
+    SaveSettings,
 }
 
 /// The pinned Cambium canvas has one honest label-density seam: labels shown
@@ -202,6 +211,16 @@ pub struct DesktopState {
     /// Live-station presentation status: connected, or why the actor stopped.
     /// Facts still arrive only through `apply_management_material`.
     pub station_notice: Option<String>,
+    pub availability: Vec<AvailabilityCapture>,
+    pub selected_availability: Option<usize>,
+    pub observation_load_path: cambium::TextInput,
+    pub observation_export_path: cambium::TextInput,
+    pub observation_durable: bool,
+    pub observation_retention_entries: usize,
+    pub observation_retention_bytes: usize,
+    pub observation_retention_age_ms: u64,
+    pub observation_notice: Option<String>,
+    pending_observation: Option<ObservationRequest>,
 
     pub message_store: MessageStore,
     pub message_local: Option<MessagePeer>,
@@ -288,6 +307,16 @@ impl DesktopState {
             pending_network: None,
             network_drag: None,
             station_notice: None,
+            availability: Vec::new(),
+            selected_availability: None,
+            observation_load_path: cambium::TextInput::default(),
+            observation_export_path: cambium::TextInput::default(),
+            observation_durable: false,
+            observation_retention_entries: 4096,
+            observation_retention_bytes: 512 * 1024,
+            observation_retention_age_ms: 7 * 24 * 60 * 60 * 1000,
+            observation_notice: None,
+            pending_observation: None,
             message_store: MessageStore::memory("signalman-local"),
             message_local: None,
             message_recipient: cambium::TextInput::default(),
@@ -330,6 +359,71 @@ impl DesktopState {
 
     pub fn show_section(&mut self, section: DesktopSection) {
         self.section = section;
+    }
+
+    pub fn request_observation_load(&mut self) {
+        self.pending_observation = Some(ObservationRequest::Load);
+    }
+
+    pub fn request_observation_export(&mut self) {
+        self.pending_observation = Some(ObservationRequest::Export);
+    }
+
+    pub fn take_observation_request(&mut self) -> Option<ObservationRequest> {
+        self.pending_observation.take()
+    }
+
+    pub fn adopt_availability(&mut self, capture: AvailabilityCapture) {
+        self.availability.push(capture);
+        self.selected_availability = Some(self.availability.len() - 1);
+        self.observation_notice = Some("Observation capture loaded and replayed.".into());
+    }
+
+    pub fn select_availability(&mut self, index: usize) {
+        if index < self.availability.len() {
+            self.selected_availability = Some(index);
+        }
+    }
+
+    pub fn toggle_observation_durable(&mut self) {
+        self.observation_durable = !self.observation_durable;
+        self.pending_observation = Some(ObservationRequest::SaveSettings);
+        self.observation_notice = Some(
+            if self.observation_durable {
+                "Durable capture requested. Storage status is reported when a capture arrives."
+            } else {
+                "Automatic durable capture is off. Explicit export remains available."
+            }
+            .into(),
+        );
+    }
+
+    pub fn cycle_observation_entry_bound(&mut self) {
+        self.observation_retention_entries = match self.observation_retention_entries {
+            0..=1_024 => 4_096,
+            1_025..=4_096 => 16_384,
+            _ => 1_024,
+        };
+        self.pending_observation = Some(ObservationRequest::SaveSettings);
+    }
+
+    pub fn cycle_observation_byte_bound(&mut self) {
+        self.observation_retention_bytes = match self.observation_retention_bytes {
+            0..=131_072 => 524_288,
+            131_073..=524_288 => 2_097_152,
+            _ => 131_072,
+        };
+        self.pending_observation = Some(ObservationRequest::SaveSettings);
+    }
+
+    pub fn cycle_observation_age_bound(&mut self) {
+        const DAY_MS: u64 = 24 * 60 * 60 * 1_000;
+        self.observation_retention_age_ms = match self.observation_retention_age_ms {
+            0..=DAY_MS => 7 * DAY_MS,
+            value if value <= 7 * DAY_MS => 30 * DAY_MS,
+            _ => DAY_MS,
+        };
+        self.pending_observation = Some(ObservationRequest::SaveSettings);
     }
 
     pub fn replace_message_store(&mut self, store: MessageStore) {
@@ -731,7 +825,8 @@ impl DesktopState {
                 port,
                 expires_at_ms: _,
             } => {
-                self.station_notice = Some(format!("Station \u{201c}{name}\u{201d} is live on {port}."));
+                self.station_notice =
+                    Some(format!("Station \u{201c}{name}\u{201d} is live on {port}."));
             }
             crate::station::StationEvent::Snapshot {
                 snapshot,
@@ -1327,7 +1422,10 @@ fn parse_address(text: &str) -> Option<[u8; 16]> {
         return None;
     }
     let mut bytes = [0_u8; 16];
-    for (slot, pair) in bytes.iter_mut().zip(text.as_bytes().chunks_exact(2)) {
+    for (slot, pair) in bytes
+        .iter_mut()
+        .zip(text.as_bytes().as_chunks::<2>().0.iter())
+    {
         let high = hex_nibble(pair[0])?;
         let low = hex_nibble(pair[1])?;
         *slot = (high << 4) | low;

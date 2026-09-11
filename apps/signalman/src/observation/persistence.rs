@@ -53,6 +53,7 @@ pub enum PersistenceError {
     Admission(AdmissionError),
     FileTooLarge,
     RetentionTooSmall,
+    OmissionCountOverflow,
 }
 
 impl std::fmt::Display for PersistenceError {
@@ -249,6 +250,32 @@ pub fn encode(
     Ok(serde_json::to_vec_pretty(&disk)?)
 }
 
+/// Apply retention once and return the exact envelope used for projection,
+/// persistence, and later export.
+pub fn retained_capture(
+    bundle: &ObservationBundle,
+    now_unix_ms: u64,
+    retention: Retention,
+    prior_omitted_prefix_entries: usize,
+) -> Result<StoredCapture, PersistenceError> {
+    let bytes = encode(bundle, now_unix_ms, retention)?;
+    let mut stored = decode(
+        &bytes,
+        ReadLimits {
+            max_file_bytes: bytes.len(),
+            admission: Admission {
+                max_frames: retention.max_entries,
+                max_bytes: retention.max_payload_bytes,
+            },
+        },
+    )?;
+    stored.omitted_prefix_entries = stored
+        .omitted_prefix_entries
+        .checked_add(prior_omitted_prefix_entries)
+        .ok_or(PersistenceError::OmissionCountOverflow)?;
+    Ok(stored)
+}
+
 pub fn encode_stored(capture: &StoredCapture) -> Result<Vec<u8>, PersistenceError> {
     let disk = disk_bundle(
         &capture.bundle,
@@ -388,6 +415,10 @@ pub fn read(path: &Path, limits: ReadLimits) -> Result<StoredCapture, Persistenc
     decode(&bytes, limits)
 }
 
+pub fn write_stored(path: &Path, capture: &StoredCapture) -> Result<(), PersistenceError> {
+    publish_new(path, &encode_stored(capture)?)
+}
+
 pub fn store(
     destination: &DurableCapture,
     bundle: &ObservationBundle,
@@ -398,6 +429,14 @@ pub fn store(
         return Ok(StoreOutcome::Disabled);
     };
     let bytes = encode(bundle, now_unix_ms, retention)?;
+    publish_new(path, &bytes)?;
+    Ok(StoreOutcome::Written {
+        bytes: bytes.len(),
+        entries: retained_entries(bundle, now_unix_ms, retention)?.len(),
+    })
+}
+
+fn publish_new(path: &Path, bytes: &[u8]) -> Result<(), PersistenceError> {
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     let name = path
         .file_name()
@@ -426,7 +465,7 @@ pub fn store(
         )
     })?;
     let publish = (|| -> io::Result<()> {
-        file.write_all(&bytes)?;
+        file.write_all(bytes)?;
         file.sync_all()?;
         drop(file);
         fs::hard_link(&temporary_path, path)?;
@@ -434,8 +473,5 @@ pub fn store(
     })();
     let _ = fs::remove_file(&temporary_path);
     publish?;
-    Ok(StoreOutcome::Written {
-        bytes: bytes.len(),
-        entries: retained_entries(bundle, now_unix_ms, retention)?.len(),
-    })
+    Ok(())
 }

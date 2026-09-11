@@ -10,14 +10,20 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use cambium_genet_winit_host::{AppCtx, HostHooks, HostOptions, Init, run};
+use signalman::observation::persistence::{DurableCapture, StoreOutcome};
 use signalman_desktop::audio::{self, AudioEvent, AudioOperation, AudioWorker};
+use signalman_desktop::availability::{
+    AvailabilitySettings, accept_live_bundle, export_capture, load_capture, load_settings,
+    save_settings,
+};
 use signalman_desktop::network::{LayoutWake, NETWORK_LEAF_KEY, NetworkWorker, paint_network_leaf};
-use signalman_desktop::state::{AudioRequest, DesktopState, NetworkRequest};
+use signalman_desktop::state::{AudioRequest, DesktopState, NetworkRequest, ObservationRequest};
 use signalman_desktop::station::{self, StationWorker};
 use signalman_desktop::views::{Child, Logic};
 use signalman_desktop::worker::Worker;
 use signalman_desktop::{
-    MessageStore, default_catalog_path, default_message_store_path, flow, root, sheet, survey,
+    MessageStore, default_availability_settings_path, default_catalog_path,
+    default_message_store_path, flow, root, sheet, survey,
 };
 
 type Ctx<'a> = AppCtx<'a, DesktopState, Logic, Child>;
@@ -77,6 +83,42 @@ fn perform_audio_request(
     }
 }
 
+fn perform_observation_request(state: &mut DesktopState, request: ObservationRequest) {
+    match request {
+        ObservationRequest::Load => {
+            let path = std::path::PathBuf::from(state.observation_load_path.text());
+            match load_capture(&path) {
+                Ok(capture) => state.adopt_availability(capture),
+                Err(error) => state.observation_notice = Some(error),
+            }
+        }
+        ObservationRequest::Export => {
+            let Some(index) = state.selected_availability else {
+                state.observation_notice = Some("Select a loaded capture before exporting.".into());
+                return;
+            };
+            let path = std::path::PathBuf::from(state.observation_export_path.text());
+            state.observation_notice =
+                Some(match export_capture(&path, &state.availability[index]) {
+                    Ok(()) => format!("Exported the selected capture to {}.", path.display()),
+                    Err(error) => error,
+                });
+        }
+        ObservationRequest::SaveSettings => {
+            let settings = AvailabilitySettings {
+                durable: state.observation_durable,
+                retention_entries: state.observation_retention_entries,
+                retention_bytes: state.observation_retention_bytes,
+                retention_age_ms: state.observation_retention_age_ms,
+            };
+            if let Err(error) = save_settings(&default_availability_settings_path(), settings) {
+                state.observation_notice =
+                    Some(format!("Availability settings were not saved: {error}"));
+            }
+        }
+    }
+}
+
 fn main() {
     // The worker lives beside the host, not inside it: the host knows nothing
     // about threads, and this is application code.
@@ -94,6 +136,11 @@ fn main() {
     let init_station = station.clone();
     let last_leaf = Rc::new(RefCell::new(None));
     let frame_leaf = last_leaf.clone();
+    let (fixture_tx, fixture_rx) = std::sync::mpsc::channel::<
+        Result<signalman_desktop::availability::AvailabilityCapture, String>,
+    >();
+    let fixture_rx = Rc::new(RefCell::new(fixture_rx));
+    let wake_fixtures = fixture_rx.clone();
 
     let hooks: HostHooks<DesktopState, Logic, Child> = HostHooks {
         // Installation progress is event-driven: a Signalman worker calls the
@@ -136,10 +183,12 @@ fn main() {
                 .as_ref()
                 .map(StationWorker::drain)
                 .unwrap_or_default();
+            let fixture_events: Vec<_> = wake_fixtures.borrow().try_iter().collect();
             if messages.is_empty()
                 && layout.is_none()
                 && audio_events.is_empty()
                 && station_events.is_empty()
+                && fixture_events.is_empty()
             {
                 return;
             }
@@ -156,6 +205,76 @@ fn main() {
                 }
                 for event in station_events {
                     state.apply_station_event(event);
+                }
+                for event in fixture_events {
+                    match event {
+                        Ok(capture) => {
+                            let settings = AvailabilitySettings {
+                                durable: state.observation_durable,
+                                retention_entries: state.observation_retention_entries,
+                                retention_bytes: state.observation_retention_bytes,
+                                retention_age_ms: state.observation_retention_age_ms,
+                            };
+                            let durable_directory =
+                                std::env::var_os("SIGNALMAN_OBSERVATION_DURABLE_DIR")
+                                    .map(std::path::PathBuf::from);
+                            let mut destination_error = None;
+                            let destination = match (settings.durable, durable_directory) {
+                                (true, Some(directory)) => {
+                                    match std::fs::create_dir_all(&directory) {
+                                        Ok(()) => DurableCapture::CreateNew(directory.join(
+                                            format!(
+                                                "fixture-{}-{}.json",
+                                                capture.stored.captured_unix_ms,
+                                                state.availability.len()
+                                            ),
+                                        )),
+                                        Err(error) => {
+                                            destination_error = Some(format!(
+                                                "Durable capture directory is unavailable: {error}"
+                                            ));
+                                            DurableCapture::Disabled
+                                        }
+                                    }
+                                }
+                                (true, None) => {
+                                    destination_error = Some(
+                                        "Durable capture is on, but no capture directory is configured."
+                                            .into(),
+                                    );
+                                    DurableCapture::Disabled
+                                }
+                                _ => DurableCapture::Disabled,
+                            };
+                            match accept_live_bundle(
+                                capture.source,
+                                &capture.stored.bundle,
+                                capture.stored.captured_unix_ms,
+                                settings,
+                                &destination,
+                                capture.stored.omitted_prefix_entries,
+                            ) {
+                                Ok((capture, outcome)) => {
+                                    state.adopt_availability(capture);
+                                    state.observation_notice = Some(
+                                        destination_error.unwrap_or_else(|| match outcome {
+                                            Ok(StoreOutcome::Disabled) => {
+                                                "Live observation rendered without a host write.".into()
+                                            }
+                                            Ok(StoreOutcome::Written { bytes, entries }) => format!(
+                                                "Durable capture wrote {entries} entries in {bytes} bytes."
+                                            ),
+                                            Err(error) => format!(
+                                                "Live observation rendered, but durable storage failed: {error}"
+                                            ),
+                                        }),
+                                    );
+                                }
+                                Err(error) => state.observation_notice = Some(error),
+                            }
+                        }
+                        Err(error) => state.observation_notice = Some(error),
+                    }
                 }
                 network_request = state.take_network_request();
             });
@@ -175,23 +294,28 @@ fn main() {
             let wake = ctx.wake.callback();
             let mut network_request = None;
             let mut audio_request = None;
+            let mut observation_request = None;
             ctx.runner.update(|state| {
                 if let Some(request) = state.take_request() {
                     flow::perform(state, request, &mut worker, wake.clone());
                 }
                 network_request = state.take_network_request();
                 audio_request = state.take_audio_request();
+                observation_request = state.take_observation_request();
             });
             drop(worker);
             if let Some(request) = network_request {
                 perform_network_request(&mut dispatch_network.borrow_mut(), request, wake.clone());
             }
-            if let Some(request) = audio_request {
-                if let Err(event) =
+            if let Some(request) = audio_request
+                && let Err(event) =
                     perform_audio_request(&mut dispatch_audio.borrow_mut(), request, wake)
-                {
-                    ctx.runner.update(|state| state.apply_audio_event(event));
-                }
+            {
+                ctx.runner.update(|state| state.apply_audio_event(event));
+            }
+            if let Some(request) = observation_request {
+                ctx.runner
+                    .update(|state| perform_observation_request(state, request));
             }
         }),
         // A running firmware transfer needs its process, device, and recovery
@@ -219,6 +343,50 @@ fn main() {
         options,
         move |_window, _commands, wake| {
             let mut state = DesktopState::new(&default_catalog_path());
+            let settings_path = default_availability_settings_path();
+            if settings_path.exists() {
+                match load_settings(&settings_path) {
+                    Ok(settings) => {
+                        state.observation_durable = settings.durable;
+                        state.observation_retention_entries = settings.retention_entries;
+                        state.observation_retention_bytes = settings.retention_bytes;
+                        state.observation_retention_age_ms = settings.retention_age_ms;
+                    }
+                    Err(error) => {
+                        state.observation_notice = Some(format!(
+                            "Availability settings were refused; safe defaults are active: {error}"
+                        ));
+                    }
+                }
+            }
+            if let Some(paths) = std::env::var_os("SIGNALMAN_OBSERVATION_FIXTURES") {
+                let paths: Vec<_> = std::env::split_paths(&paths).collect();
+                let delay_ms = std::env::var("SIGNALMAN_OBSERVATION_FIXTURE_DELAY_MS")
+                    .ok()
+                    .and_then(|value| value.parse::<u64>().ok())
+                    .unwrap_or(1_500);
+                let tx = fixture_tx.clone();
+                let fixture_wake = wake.callback();
+                std::thread::spawn(move || {
+                    for path in paths {
+                        std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+                        let loaded = load_capture(&path).map(|mut capture| {
+                            capture.source = format!("fixture {}", path.display());
+                            capture
+                        });
+                        if tx.send(loaded).is_err() {
+                            break;
+                        }
+                        fixture_wake();
+                    }
+                });
+                state.section = signalman_desktop::state::DesktopSection::Radio;
+                let fixture_notice = "Receipt fixtures will arrive through the live wake path.";
+                state.observation_notice = Some(match state.observation_notice.take() {
+                    Some(previous) => format!("{previous} {fixture_notice}"),
+                    None => fixture_notice.into(),
+                });
+            }
             // The live station is a bench activation for now: it starts only
             // when SIGNALMAN_STATION_PORT names a running Retinue board. The
             // actor's events land in after_wake like every other worker's.

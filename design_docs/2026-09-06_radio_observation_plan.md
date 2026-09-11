@@ -1,6 +1,6 @@
 # Radio observation and Signalman availability plan
 
-**Status (2026-09-10): O1/O2 complete in software; O3 refusal and zero-flash-write checks now verified.**
+**Status (2026-09-11): O1/O2 complete in software; O3 refusal and zero-flash-write checks verified; O5 desktop software integrated.**
 T114 owner emission, bounded read-only direct-PHY collection and a finite
 Signalman capture command now exist. T114 receive, TX, cursor loss, repeated
 reads, pressured-session reconnect, power-cut history reset, retune refusal and
@@ -9,8 +9,9 @@ IRQ/FIFO and USB timing costs remain unmeasured. V4 USB emission passes automate
 checks and a declared-load physical run after an explicit application reboot;
 clean-start reliability, pressured-host retirement, quiet/sleep and full O4
 cost acceptance remain open. O5's
-bounded durable capture/export software rung has landed with an automated
-receipt; its owner-facing settings and headed availability view remain open.
+bounded durable capture/export, desktop availability view, load/export actions
+and owner-facing settings have automated receipts. Headed acceptance and a
+production collector-to-desktop connection remain open.
 Existing counters and host events do not substitute for the physical receipts
 in O3-O6.
 
@@ -348,8 +349,20 @@ cover an independently written literal container, byte-stable envelope
 re-export, corrupt/unknown/oversize/over-budget refusal, age/entry retention,
 source-gap replay, disabled storage, complete publication, and overwrite
 refusal. Together with the unchanged 15 reducer tests, all 20 focused tests pass
-locked and offline. The headed availability view, owner-facing settings and
-load/export actions remain open, so O5 is partial.
+locked and offline.
+
+The September 11 reconciliation integrates the desktop Radio section, capture
+load/export, persistent owner retention/durability settings, and the shared
+retained envelope used for projection and export. Retention preserves the
+prior omitted-prefix count; storage failure leaves the live projection usable.
+Five availability-face tests and six management-shell tests pass locked and
+offline, including settings restart, overwrite refusal, retention, navigation
+and accessibility. The 15 observation-flow and five persistence tests also
+pass against the committed root lock; three collector unit tests pass.
+
+The native fixture injector exercises the wake path, but it is not a production
+collector connection. No new headed or physical receipt was obtained in this
+reconciliation. Those acceptance boundaries remain open, so O5 is partial.
 
 ### O6. Murmuration acceptance
 

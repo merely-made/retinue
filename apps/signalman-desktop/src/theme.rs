@@ -245,6 +245,20 @@ input:focus { border: 1px solid #a8c8ee; }
     border-color: #a8c8ee;
     background: #263548;
 }
+.availability-boards { display: block; width: 820px; margin-top: 18px; }
+.availability-board {
+    display: block; padding: 14px; margin-bottom: 12px;
+    background: #171b23; border: 1px solid #33405a;
+}
+.availability-axis, .availability-provenance { display: block; margin: 6px 0; color: #c8ced8; }
+.availability-timeline { display: block; margin-top: 10px; }
+.availability-interval {
+    display: block; padding: 7px 9px; margin-bottom: 3px;
+    background: #171b23;
+}
+.availability-marker { display: block; height: 8px; background: #75bc8b; }
+.availability-marker.incomplete { background: #dda45e; }
+.availability-interval-label { display: block; margin-top: 4px; }
 ";
 
 pub fn sheet() -> String {

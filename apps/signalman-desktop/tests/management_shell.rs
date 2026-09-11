@@ -1,4 +1,4 @@
-//! Headless receipt for Signalman's five-section management shell.
+//! Headless receipt for Signalman's six-section management shell.
 
 use accesskit::Role;
 use cambium_genet_winit_host::{Harness, HostHooks, Init, inert_hooks};
@@ -102,6 +102,7 @@ fn pointer_reaches_every_section_and_returning_to_devices_restores_the_exact_sta
     let sections = [
         ("Network", DesktopSection::Network),
         ("Messages", DesktopSection::Messages),
+        ("Radio", DesktopSection::Radio),
         ("Map", DesktopSection::Map),
         ("Browse", DesktopSection::Browse),
         ("Devices", DesktopSection::Devices),
@@ -194,7 +195,7 @@ fn messages_face_persists_offline_intent_and_names_its_actual_status() {
 }
 
 #[test]
-fn keyboard_reaches_and_activates_all_five_sections_without_losing_devices() {
+fn keyboard_reaches_and_activates_all_six_sections_without_losing_devices() {
     let mut harness = harness();
     harness.update(|state| state.install_running = true);
     let before = receipt(harness.state());
@@ -202,6 +203,7 @@ fn keyboard_reaches_and_activates_all_five_sections_without_losing_devices() {
         ("Devices", DesktopSection::Devices),
         ("Network", DesktopSection::Network),
         ("Messages", DesktopSection::Messages),
+        ("Radio", DesktopSection::Radio),
         ("Map", DesktopSection::Map),
         ("Browse", DesktopSection::Browse),
     ];
@@ -223,7 +225,7 @@ fn keyboard_reaches_and_activates_all_five_sections_without_losing_devices() {
 }
 
 #[test]
-fn accesskit_names_all_five_primary_sections() {
+fn accesskit_names_all_six_primary_sections() {
     let mut harness = harness();
     let (tree, _) = harness.a11y_tree();
     let buttons = tree
@@ -232,7 +234,7 @@ fn accesskit_names_all_five_primary_sections() {
         .filter(|(_, node)| node.role() == Role::Button)
         .filter_map(|(_, node)| node.label().map(str::to_owned))
         .collect::<Vec<_>>();
-    for section in ["Devices", "Network", "Messages", "Map", "Browse"] {
+    for section in ["Devices", "Network", "Messages", "Radio", "Map", "Browse"] {
         assert!(
             buttons.iter().any(|label| label == section),
             "AccessKit names {section}: {buttons:?}"
