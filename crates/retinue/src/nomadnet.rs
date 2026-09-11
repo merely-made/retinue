@@ -12,7 +12,10 @@ use std::io;
 use std::time::Duration;
 
 use crate::destination::DestinationName;
-use crate::endpoint::{AcceptedResource, Endpoint, PayloadMode, ResourceTransferConfig};
+use crate::endpoint::{
+    AcceptedResource, Endpoint, PayloadMode, ReceivedRequest, ResourceSession,
+    ResourceTransferConfig,
+};
 use crate::hash::AddressHash;
 use crate::identity::Identity;
 use crate::request::Request;
@@ -146,10 +149,16 @@ impl StaticNode {
         endpoint.register_resource(self.name.clone(), &self.app_data);
     }
 
-    /// Serve one inbound request addressed to this node.
-    pub async fn serve_once(&self, endpoint: &Endpoint) -> io::Result<ServedPage> {
-        let accepted = endpoint.accept_resource().await?;
-        self.serve_accepted(endpoint, accepted).await
+    /// Serve one inbound request and return its live session to the caller.
+    /// Keep the session available until peer closure or a host-selected deadline;
+    /// dropping it at the Resource proof can interrupt the peer's response callback.
+    pub async fn serve_once(
+        &self,
+        endpoint: &Endpoint,
+    ) -> io::Result<(ResourceSession, ServedPage)> {
+        let mut accepted = endpoint.accept_resource().await?;
+        let page = self.serve_accepted(endpoint, &mut accepted).await?;
+        Ok((accepted.session, page))
     }
 
     /// Serve one already accepted resource session. The caller owns acceptance
@@ -157,7 +166,7 @@ impl StaticNode {
     pub async fn serve_accepted(
         &self,
         endpoint: &Endpoint,
-        accepted: AcceptedResource,
+        accepted: &mut AcceptedResource,
     ) -> io::Result<ServedPage> {
         if accepted.destination != self.destination(endpoint.identity()) {
             return Err(io::Error::new(
@@ -165,11 +174,27 @@ impl StaticNode {
                 "unexpected Nomad Network destination",
             ));
         }
-        let mut session = accepted.session;
+        self.serve_request(&mut accepted.session).await
+    }
+
+    /// Respond to one request while leaving the link lifetime with its caller.
+    /// A page host should keep this session available for subsequent requests or
+    /// peer closure; a Resource proof acknowledges bytes, not completion of the
+    /// remote application's response callback.
+    pub async fn serve_request(&self, session: &mut ResourceSession) -> io::Result<ServedPage> {
         session.set_config(self.config.transfer);
-        let raw = session.receive_raw_request().await?;
-        let request = Request::unpack(&raw.packed)
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid request envelope"))?;
+        let received = session.receive_request().await?;
+        self.respond_to_request(session, received).await
+    }
+
+    /// Answer an already-received request from the caller's current saved snapshot.
+    pub async fn respond_to_request(
+        &self,
+        session: &mut ResourceSession,
+        received: ReceivedRequest,
+    ) -> io::Result<ServedPage> {
+        session.set_config(self.config.transfer);
+        let request = received.request;
         if !request.data.is_empty() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -183,7 +208,9 @@ impl StaticNode {
             ));
         };
         let body_len = body.len();
-        let mode = session.respond_auto(raw.request_id, body.clone()).await?;
+        let mode = session
+            .respond_auto(received.request_id, body.clone())
+            .await?;
         Ok(ServedPage {
             path_hash: request.path_hash,
             body_bytes: body_len,
