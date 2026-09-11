@@ -21,6 +21,9 @@ pub mod modem;
 #[cfg(feature = "serial-async")]
 pub mod observation_serial;
 pub mod pacing;
+pub mod personality;
+#[cfg(feature = "serial-async")]
+pub mod personality_serial;
 #[cfg(feature = "serial-async")]
 pub mod radio_io;
 pub mod rnode;

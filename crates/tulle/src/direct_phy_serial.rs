@@ -376,6 +376,20 @@ impl DirectPhySerialLink {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn spawn_test_io<T>(
+        io: T,
+        profile: PhyProfile,
+        budget: AirtimeBudget,
+        config: DirectPhySerialConfig,
+    ) -> Self
+    where
+        T: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    {
+        let params = LoRaParams::try_from(profile).expect("test profile must be valid");
+        Self::spawn_io(io, profile, params, budget, config)
+    }
+
     pub fn status(&self) -> PumpStatus {
         self.status.borrow().clone()
     }
@@ -413,6 +427,17 @@ impl DirectPhySerialLink {
 
     pub async fn recv(&mut self) -> Option<Received> {
         self.rx.recv().await
+    }
+
+    /// Discards frames already delivered by the serial pump but not yet assigned
+    /// to a protocol adapter. The personality runtime uses this at a profile
+    /// boundary so an old-profile frame is never delivered to the new adapter.
+    pub(crate) fn discard_buffered_rx(&mut self) -> usize {
+        let mut discarded = 0;
+        while self.rx.try_recv().is_ok() {
+            discarded += 1;
+        }
+        discarded
     }
 
     pub async fn shutdown(mut self) -> Result<(), PumpError> {

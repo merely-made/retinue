@@ -11,8 +11,10 @@ state on its own face. What remains beyond the gates: pressure points 1
 the supervised reboot are BUILT; pressure point 3
 (quiet-window writes) is DISCHARGED by verification rather than machinery, with
 the one gap it exposed closed. Boot-selected channel citizenship exists in the
-image but is superseded as product direction by the resident listener
-executive. The airtime-derived retry floors are BUILT
+image but is superseded as product direction by
+[Tulle-coordinated runtime murmuration](2026-08-09_channel_murmuration.md#current-direction-coordinated-runtime-personalities),
+with configurable home, excursions and pinning. The airtime-derived retry
+floors are BUILT
 (`tulle::pacing`) and validated, but did not turn out to be what gates
 citizenship. Still open: cheaper carrier sense or skipping it inside an owned
 turn, and the foreign-protocol adapters behind the LE gates.

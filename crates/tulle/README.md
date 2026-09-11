@@ -12,6 +12,22 @@ A tulle is a fine net fabric: the material every protocol is woven across.
 `serial-async` feature adds the real Tokio serial pump with DTR/RTS discipline,
 initialisation retry, airtime pacing, and bounded frame queues.
 
+The `personality` module provides a radio-free controller for explicit bounded
+excursions from a configured home personality. It checks pinning, interruption
+permission and caller-supplied coverage, and requires transition acknowledgement
+before reporting restoration. Configuration is immutable in this first slice;
+a pin means a dedicated selected home. Callers retain adapter state and own
+hardware operations. The optional `personality_serial` runtime keeps an exclusive
+direct-PHY session open, applies exact controller transitions and bounds away
+I/O while reserving return time. Uncertain or cancelled hardware operations latch
+recovery. A host-driven Retinue/Sennet packet-adapter bench now has a
+[physical receipt](../../design_docs/2026-09-10_murmuration_physical_receipt.md).
+Host-retained Retinue links and Sennet duplicate state now also have a
+[session receipt](../../design_docs/2026-09-11_murmuration_session_receipt.md).
+Active-resource interruption and autonomous firmware integration remain open; the
+[controller plan](../../design_docs/2026-09-10_murmuration_controller_plan.md)
+separates model tests from physical acceptance.
+
 The same feature now exposes `DirectPhySerialLink`, the reusable host wrapper
 for Tulle's USB direct-PHY firmware. It handles split USB events, bounded queues,
 transmit acknowledgements, RSSI/SNR delivery, and the shared airtime budget.

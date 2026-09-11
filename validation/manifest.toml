@@ -158,3 +158,8 @@ expires = "2026-11-01"
 path = "testing/o4_v4_usb_retirement.py"
 reason = "Physical V4 unread-observation retirement helper; board receipt owns execution."
 expires = "2026-11-01"
+
+[[asset_exemption]]
+path = "testing/mc3_personality_bench.py"
+reason = "Guarded physical MC3 host-personality bench; named board receipt owns execution."
+expires = "2026-11-01"

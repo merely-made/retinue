@@ -26,6 +26,29 @@ use radio_hand::link::{HostLink, LinkFault};
 
 #[cfg(feature = "host-usb")]
 const DIAGNOSTIC_WRITE_DEADLINE: embassy_time::Duration = embassy_time::Duration::from_millis(250);
+#[cfg(feature = "host-usb")]
+const USB_PACKET_BYTES: usize = 64;
+
+/// Write one USB Serial/JTAG record with an unambiguous final packet.
+///
+/// esp-hal completes every 64-byte chunk immediately. Splitting the final byte of an exact
+/// packet multiple therefore gives the host a terminal short packet without changing the byte
+/// stream. UART does not use this helper because it has no USB packet boundary.
+#[cfg(feature = "host-usb")]
+async fn write_usb_record<W: Write>(tx: &mut W, bytes: &[u8]) -> Result<(), LinkFault> {
+    if !bytes.is_empty() && bytes.len() % USB_PACKET_BYTES == 0 {
+        let (whole_packets, final_byte) = bytes.split_at(bytes.len() - 1);
+        tx.write_all(whole_packets)
+            .await
+            .map_err(|_| LinkFault::Detached)?;
+        tx.write_all(final_byte)
+            .await
+            .map_err(|_| LinkFault::Detached)?;
+    } else {
+        tx.write_all(bytes).await.map_err(|_| LinkFault::Detached)?;
+    }
+    tx.flush().await.map_err(|_| LinkFault::Detached)
+}
 
 pub struct SplitHost<R, W> {
     rx: R,
@@ -68,9 +91,15 @@ impl<R: Read, W: Write> HostLink for SplitHost<R, W> {
         // The flush is load-bearing, not hygiene. USB Serial/JTAG holds written bytes in the
         // peripheral until flushed, so an unflushed reply simply never reaches the host: the
         // board looks alive and answers nothing. Dropping it while building this seam cost a
-        // hardware round trip to find.
-        let _ = self.tx.write_all(bytes).await;
-        let _ = self.tx.flush().await;
+        // hardware round trip to find. Exact USB packet multiples also need a terminal short
+        // packet, otherwise the host has no record boundary to deliver.
+        #[cfg(feature = "host-usb")]
+        let _ = write_usb_record(&mut self.tx, bytes).await;
+        #[cfg(feature = "host-uart-low-power")]
+        {
+            let _ = self.tx.write_all(bytes).await;
+            let _ = self.tx.flush().await;
+        }
         Ok(())
     }
 
@@ -93,11 +122,7 @@ impl<R: Read, W: Write> HostLink for SplitHost<R, W> {
             // first await so cancellation is fail-closed too; only full success clears it.
             self.diagnostic_retired = true;
             let result = embassy_time::with_timeout(DIAGNOSTIC_WRITE_DEADLINE, async {
-                self.tx
-                    .write_all(bytes)
-                    .await
-                    .map_err(|_| LinkFault::Detached)?;
-                self.tx.flush().await.map_err(|_| LinkFault::Detached)
+                write_usb_record(&mut self.tx, bytes).await
             })
             .await
             .unwrap_or(Err(LinkFault::Detached));
@@ -106,5 +131,181 @@ impl<R: Read, W: Write> HostLink for SplitHost<R, W> {
             }
             result
         }
+    }
+}
+
+#[cfg(all(test, feature = "host-usb"))]
+mod tests {
+    use super::*;
+    use core::{
+        future::Future,
+        pin::pin,
+        task::{Context, Poll, Waker},
+    };
+    use embedded_io_async::{Error, ErrorKind, ErrorType};
+
+    #[derive(Debug, Clone, Copy)]
+    enum MockError {
+        Write,
+        Flush,
+    }
+
+    impl core::fmt::Display for MockError {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            write!(f, "mock I/O failure")
+        }
+    }
+
+    impl core::error::Error for MockError {}
+
+    impl Error for MockError {
+        fn kind(&self) -> ErrorKind {
+            ErrorKind::Other
+        }
+    }
+
+    struct MockReader;
+
+    impl ErrorType for MockReader {
+        type Error = MockError;
+    }
+
+    impl Read for MockReader {
+        async fn read(&mut self, _buf: &mut [u8]) -> Result<usize, Self::Error> {
+            Ok(0)
+        }
+    }
+
+    struct MockWriter {
+        writes: [WriteRecord; 2],
+        write_count: usize,
+        flushes: usize,
+        fail_write: Option<usize>,
+        fail_flush: bool,
+    }
+
+    #[derive(Clone, Copy)]
+    struct WriteRecord {
+        bytes: [u8; USB_PACKET_BYTES * 2],
+        len: usize,
+    }
+
+    impl WriteRecord {
+        const EMPTY: Self = Self {
+            bytes: [0; USB_PACKET_BYTES * 2],
+            len: 0,
+        };
+    }
+
+    impl MockWriter {
+        fn healthy() -> Self {
+            Self {
+                writes: [WriteRecord::EMPTY; 2],
+                write_count: 0,
+                flushes: 0,
+                fail_write: None,
+                fail_flush: false,
+            }
+        }
+    }
+
+    impl ErrorType for MockWriter {
+        type Error = MockError;
+    }
+
+    impl Write for MockWriter {
+        async fn write(&mut self, bytes: &[u8]) -> Result<usize, Self::Error> {
+            let write_number = self.write_count + 1;
+            if self.fail_write == Some(write_number) {
+                return Err(MockError::Write);
+            }
+            let record = &mut self.writes[self.write_count];
+            record.bytes[..bytes.len()].copy_from_slice(bytes);
+            record.len = bytes.len();
+            self.write_count += 1;
+            Ok(bytes.len())
+        }
+
+        async fn flush(&mut self) -> Result<(), Self::Error> {
+            self.flushes += 1;
+            if self.fail_flush {
+                Err(MockError::Flush)
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    fn block_on<T>(future: impl Future<Output = T>) -> T {
+        let mut future = pin!(future);
+        let waker = Waker::noop();
+        let mut context = Context::from_waker(waker);
+        match future.as_mut().poll(&mut context) {
+            Poll::Ready(value) => value,
+            Poll::Pending => panic!("test mock must not block"),
+        }
+    }
+
+    #[test]
+    fn usb_exact_packet_multiples_end_with_a_short_write() {
+        for length in [64, 128] {
+            let bytes = [0xA5; USB_PACKET_BYTES * 2];
+            let mut host = SplitHost::new(MockReader, MockWriter::healthy());
+
+            assert_eq!(block_on(host.write_all(&bytes[..length])), Ok(()));
+            assert_eq!(host.tx.write_count, 2);
+            assert_eq!(host.tx.writes[0].len, length - 1);
+            assert_eq!(host.tx.writes[1].len, 1);
+            assert_eq!(host.tx.writes[0].bytes[..length - 1], bytes[..length - 1]);
+            assert_eq!(host.tx.writes[1].bytes[..1], bytes[length - 1..length]);
+            assert_eq!(host.tx.flushes, 1);
+        }
+    }
+
+    #[test]
+    fn usb_non_multiple_is_one_write() {
+        let bytes = [0x5A; USB_PACKET_BYTES - 1];
+        let mut host = SplitHost::new(MockReader, MockWriter::healthy());
+
+        assert_eq!(block_on(host.write_all(&bytes)), Ok(()));
+        assert_eq!(host.tx.write_count, 1);
+        assert_eq!(host.tx.writes[0].len, bytes.len());
+        assert_eq!(host.tx.writes[0].bytes[..bytes.len()], bytes);
+        assert_eq!(host.tx.flushes, 1);
+    }
+
+    #[test]
+    fn diagnostic_write_fault_latches_the_host_session() {
+        let mut writer = MockWriter::healthy();
+        writer.fail_write = Some(2);
+        let mut host = SplitHost::new(MockReader, writer);
+
+        assert_eq!(
+            block_on(host.write_diagnostic(&[0xD4; USB_PACKET_BYTES])),
+            Err(LinkFault::Detached)
+        );
+        assert!(host.diagnostic_retired);
+        assert_eq!(block_on(host.write_all(&[1])), Err(LinkFault::Detached));
+        assert_eq!(host.tx.write_count, 1);
+        assert_eq!(host.tx.writes[0].len, USB_PACKET_BYTES - 1);
+        assert_eq!(
+            host.tx.writes[0].bytes[..USB_PACKET_BYTES - 1],
+            [0xD4; USB_PACKET_BYTES - 1]
+        );
+    }
+
+    #[test]
+    fn diagnostic_flush_fault_latches_the_host_session() {
+        let mut writer = MockWriter::healthy();
+        writer.fail_flush = true;
+        let mut host = SplitHost::new(MockReader, writer);
+
+        assert_eq!(
+            block_on(host.write_diagnostic(&[0xD5; USB_PACKET_BYTES - 1])),
+            Err(LinkFault::Detached)
+        );
+        assert!(host.diagnostic_retired);
+        assert_eq!(host.tx.write_count, 1);
+        assert_eq!(host.tx.flushes, 1);
     }
 }

@@ -74,6 +74,9 @@ their gate. `UNKNOWN` means no document states a status — it does not mean ope
 | PN0–PN8 (magnetic pocket node) | Active preparation; iOS probe builds and simulator receipt checked; NFC profile created, phone install awaits M4 signing-key access; every PN gate remains open | [Magnetic pocket-node plan](2026-09-07_magnetic_pocket_node_plan.md) |
 | HW0–HW8 (hardware family) | Planned; logical platform boundary and product priority are ruled, while every code and physical gate remains open | [Hardware-family plan](2026-09-07_radio_hand_hardware_family_plan.md) |
 | CM1 | Absorbed into LE2 | [Channel murmuration](2026-08-09_channel_murmuration.md) |
+| [Murmuration controller plan](2026-09-10_murmuration_controller_plan.md) | MC0–MC2 complete; MC3a packet adapters and MC3b host-retained sessions passed. Active-resource interruption and autonomous firmware remain open. |
+| [Murmuration session receipt](2026-09-11_murmuration_session_receipt.md) | One retained Retinue link, ten encrypted messages across excursions and returns, Sennet RF duplicate recognition; same boot IDs and restored profiles. |
+| [Murmuration physical receipt](2026-09-10_murmuration_physical_receipt.md) | Two V4/T114 runs: 32 exact receives, bounded returns, eight counted home receive gaps, pin refusal; V4 USB packet-boundary fix and preserved settings. |
 | CM2–CM5 | Open, sequenced after LE5 | Same, translated into the executive doc |
 | R0–R10 | All closed | [Retinue v0 plan](2026-07-06_retinue_v0_plan.md) |
 | N0 | Partial — power-loss unplug leg open | [Retinue Small plan](2026-07-31_retinue_small_plan.md) |
@@ -289,8 +292,8 @@ supplying data-graph and identity crates.
 | Document | What it is |
 | --- | --- |
 | [Mesh scaling and asymmetric routing](2026-08-09_mesh_scaling_and_asymmetric_routing.md) | FT1–FT5 authority. |
-| [Listener executive and protocol leases](2026-08-10_listener_executive_and_protocol_leases.md) | LE1–LE5. Supersedes retinue-small's channel-ownership clause. |
-| [Channel murmuration](2026-08-09_channel_murmuration.md) | CM1–CM5. Framing superseded 2026-08-10; rules survive translated. |
+| [Listener executive and protocol leases](2026-08-10_listener_executive_and_protocol_leases.md) | LE1–LE5 interruption/lease work and receipts; product framing superseded by the 2026-09-10 murmuration direction. |
+| [Channel murmuration](2026-08-09_channel_murmuration.md) | Current 2026-09-10 Tulle coordination direction: configurable home, excursions, pinning, independent third-party firmware; controller and MC3a physical receipts. Historical CM1–CM5 retained. |
 | [LE3 T114 scan-physics receipt](2026-08-20_le3_t114_scan_physics_receipt.md) | LE3a/LE3b complete. |
 | [Radio observation plan](2026-09-06_radio_observation_plan.md) | O1–O6. Shared bounded owner events, RAM recording, collection without control-journal writes, availability timeline and export. |
 | [Field node security posture](2026-08-09_field_node_security_posture.md) | FS1–FS6 authority. Also owns the PD0 disclosure-tier ruling. |
@@ -370,6 +373,14 @@ their filenames says so — see the `result` column.
 
 These are not general good practice. Each is here because its absence cost this
 repository something specific and recent.
+
+### Murmuration coordinates our implementations
+
+Follow the [current murmuration direction](2026-08-09_channel_murmuration.md#current-direction-coordinated-runtime-personalities).
+Tulle coordinates admitted personalities; radio-hand owns embedded interruption.
+Home, excursions, pinning and uncovered intervals are explicit user policy.
+Unexpected packets do not authorize switching, and third-party firmware does
+not owe our coordinator a runtime integration.
 
 ### A receipt states what it established, and nothing more
 

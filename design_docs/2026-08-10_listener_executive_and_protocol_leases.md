@@ -1,5 +1,15 @@
 # Listener Executive and Protocol Leases
 
+> **Product framing superseded, 2026-09-10:**
+> [current murmuration direction](2026-08-09_channel_murmuration.md#current-direction-coordinated-runtime-personalities)
+> restores a configurable home, explicit excursions and a pinned personality.
+> Tulle owns coordination among our implementations; radio-hand enforces the
+> embedded interruption lifecycle. The mandatory resident-listener identity,
+> rejection of home/pin controls and receive-driven activation narrative below
+> are historical. Existing scan/lease receipts and open LE gates retain their
+> measured scope. A resident supervisor is optional future integration, and
+> arbitrary third-party firmware runs independently.
+
 Design doc, 2026-08-10. Supersedes the channel-ownership clause of
 [retinue-small structural decision 4](2026-07-31_retinue_small_plan.md) and
 reframes [channel murmuration](2026-08-09_channel_murmuration.md); both carry
@@ -40,7 +50,9 @@ Its expiry rule supersedes the initial planning suggestion of expiry plus
 hysteresis: expired coverage is unusable immediately; hysteresis governs
 re-admission only.
 
-The implementation order below is current authority for LE work. It challenges
+The implementation order below remains the embedded LE lifecycle sequence;
+the current murmuration section defines a separate, radio-free controller slice
+that can proceed before hardware integration. This sequence challenges
 the older implication that the entire channel rewrite, all protocol adapters,
 or emergent peer negotiation must land before a useful scheduler slice can be
 tested.

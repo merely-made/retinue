@@ -1,0 +1,2582 @@
+{
+  "scope": "MC3b host-retained Retinue Node link and Sennet state through physical V4/T114 radios",
+  "qualified_run": "mc3b-2",
+  "prior_firmware_receipt": "2026-09-10_murmuration_physical_receipt.json",
+  "no_flash_this_slice": true,
+  "runs": [
+    {
+      "qualification": "preliminary: review fixes followed",
+      "file": "mc3b-1.json",
+      "sha256": "adb27232cc265204aabd2ed5d31f5dccd6fb8df0cee5699a1d15b908056c37ba",
+      "receipt": {
+        "started_utc": "2026-09-11T06:51:41.049091+00:00",
+        "scope": "host-driven retained Retinue Node link and Sennet state",
+        "firmware_binary_identity": "not read back; live diagnostics and boot nonces recorded",
+        "runner_sha256": "68f58f56bc290d7ce9f282babc0c875f42418c2cc9b5f3b069b14441eef0ae8a",
+        "helper_sha256": "01ffc8bc612074ecdebffe071260596131d1fb9f5654b0a1790bb5dd0ed5e3c9",
+        "exe_sha256": "4a8e30415ebbf3e176316f93b3af210c240c15ea92135723c25a1e5bcf6690f7",
+        "baseline": {
+          "dut": {
+            "status": "tulle/heltec-v4 phy online; version=0.0.1; sx1262 online; sync=2b reg=24b4; longfast=906875000\r\nidentity=loaded slot=B seq=5\r\n",
+            "sync": "2b 24b4\r\n",
+            "cursor": {
+              "request_id": 1701,
+              "status": 0,
+              "boot_id": 93234391158868337,
+              "oldest": 80,
+              "newest": 111,
+              "next": 0,
+              "recorded": 111,
+              "overwritten": 79,
+              "encode_failed": 0,
+              "profile_count": 3,
+              "record_len": 0,
+              "raw_record": "",
+              "record_class": null
+            },
+            "profile": {
+              "request_id": 1702,
+              "status": 0,
+              "boot_id": 93234391158868337,
+              "profile_id": 1,
+              "config": "0278d00d3690d003000b0510002b0311"
+            }
+          },
+          "peer": {
+            "status": "tulle/t114 phy online; version=0.0.1; sx1262 online; spi=software; irq=poll; sync=2b reg=24b4; region=US915 freq=906875000 reset=pin crash=0 timebase=inactive\r\n",
+            "sync": "2b 24b4\r\n",
+            "cursor": {
+              "request_id": 1701,
+              "status": 0,
+              "boot_id": 9426683542982997560,
+              "oldest": 417,
+              "newest": 448,
+              "next": 0,
+              "recorded": 448,
+              "overwritten": 416,
+              "encode_failed": 0,
+              "profile_count": 3,
+              "record_len": 0,
+              "raw_record": "",
+              "record_class": null
+            },
+            "profile": {
+              "request_id": 1702,
+              "status": 0,
+              "boot_id": 9426683542982997560,
+              "profile_id": 1,
+              "config": "0278d00d3690d003000b0510002b0311"
+            }
+          }
+        },
+        "restoration": {
+          "dut": {
+            "restore_ack": {
+              "kind": "config",
+              "status": 0
+            },
+            "cursor": {
+              "request_id": 1801,
+              "status": 0,
+              "boot_id": 93234391158868337,
+              "oldest": 171,
+              "newest": 202,
+              "next": 0,
+              "recorded": 202,
+              "overwritten": 170,
+              "encode_failed": 0,
+              "profile_count": 3,
+              "record_len": 0,
+              "raw_record": "",
+              "record_class": null
+            },
+            "status": "tulle/heltec-v4 phy online; version=0.0.1; sx1262 online; sync=2b reg=24b4; longfast=906875000\r\nidentity=loaded slot=B seq=5\r\n",
+            "sync": "2b 24b4\r\n",
+            "same_boot": true,
+            "same_status": true,
+            "same_sync": true
+          },
+          "peer": {
+            "restore_ack": {
+              "kind": "config",
+              "status": 0
+            },
+            "cursor": {
+              "request_id": 1801,
+              "status": 0,
+              "boot_id": 9426683542982997560,
+              "oldest": 525,
+              "newest": 556,
+              "next": 0,
+              "recorded": 556,
+              "overwritten": 524,
+              "encode_failed": 0,
+              "profile_count": 3,
+              "record_len": 0,
+              "raw_record": "",
+              "record_class": null
+            },
+            "status": "tulle/t114 phy online; version=0.0.1; sx1262 online; spi=software; irq=poll; sync=2b reg=24b4; region=US915 freq=906875000 reset=pin crash=0 timebase=inactive\r\n",
+            "sync": "2b 24b4\r\n",
+            "same_boot": true,
+            "same_status": true,
+            "same_sync": true
+          }
+        },
+        "transcript": [
+          {
+            "utc": "2026-09-11T06:51:41.734802+00:00",
+            "perf": 204360.9436593,
+            "port": "COM7",
+            "direction": "tx",
+            "hex": "7374617475730a"
+          },
+          {
+            "utc": "2026-09-11T06:51:41.846223+00:00",
+            "perf": 204361.0548782,
+            "port": "COM7",
+            "direction": "rx",
+            "hex": "74756c6c652f68656c7465632d763420706879206f6e6c696e653b2076657273696f6e3d302e302e313b20737831323632206f6e6c696e653b2073796e633d3262207265673d323462343b206c6f6e67666173743d3930363837353030300d0a6964656e746974793d6c6f6164656420736c6f743d42207365713d350d0a"
+          },
+          {
+            "utc": "2026-09-11T06:51:43.030137+00:00",
+            "perf": 204362.2389621,
+            "port": "COM7",
+            "direction": "tx",
+            "hex": "73796e630a"
+          },
+          {
+            "utc": "2026-09-11T06:51:43.130983+00:00",
+            "perf": 204362.3396151,
+            "port": "COM7",
+            "direction": "rx",
+            "hex": "326220323462340d0a"
+          },
+          {
+            "utc": "2026-09-11T06:51:44.273673+00:00",
+            "perf": 204363.4824464,
+            "port": "COM7",
+            "direction": "tx",
+            "hex": "0004303130303030303030366135303030303030303030303030303030303030303030303030303030303030303000"
+          },
+          {
+            "utc": "2026-09-11T06:51:44.375612+00:00",
+            "perf": 204363.5843043,
+            "port": "COM7",
+            "direction": "rx",
+            "hex": "8600410100000006a500014b3c2f4ddfc9710000000000000050000000000000006f0000000000000000000000000000006f000000000000004f000000000000000003009d562041"
+          },
+          {
+            "utc": "2026-09-11T06:51:44.375612+00:00",
+            "perf": 204363.5849293,
+            "port": "COM7",
+            "direction": "tx",
+            "hex": "0004303130313030303030366136303134623363326634646466633937313030303030303030303030303030303100"
+          },
+          {
+            "utc": "2026-09-11T06:51:44.488452+00:00",
+            "perf": 204363.6970825,
+            "port": "COM7",
+            "direction": "rx",
+            "hex": "8600200101000006a600014b3c2f4ddfc971010278d00d3690d003000b0510002b03111d0a375b"
+          },
+          {
+            "utc": "2026-09-11T06:51:44.488452+00:00",
+            "perf": 204363.6975811,
+            "port": "COM7",
+            "direction": "tx",
+            "hex": "0278d00d3690d003000b0510002b0311"
+          },
+          {
+            "utc": "2026-09-11T06:51:44.588839+00:00",
+            "perf": 204363.797551,
+            "port": "COM7",
+            "direction": "rx",
+            "hex": "8300"
+          },
+          {
+            "utc": "2026-09-11T06:51:45.175173+00:00",
+            "perf": 204364.3837993,
+            "port": "COM10",
+            "direction": "rx",
+            "hex": "74756c6c652f7431313420706879206f6e6c696e653b2076657273696f6e3d302e302e313b20737831323632206f6e6c696e653b207370693d736f6674776172653b206972713d706f6c6c3b2073796e633d3262207265673d323462343b20726567696f6e3d555339313520667265713d3930363837353030302072657365743d70696e2063726173683d302074696d65626173653d696e6163746976650d0a6964656e746974793d6c6f6164656420736c6f743d41207365713d38340d0a6e6f64653d353939393937633820686561703d302f3439313532206869676877617465723d32340d0a"
+          },
+          {
+            "utc": "2026-09-11T06:51:45.175173+00:00",
+            "perf": 204364.3839607,
+            "port": "COM10",
+            "direction": "tx",
+            "hex": "7374617475730a"
+          },
+          {
+            "utc": "2026-09-11T06:51:45.278583+00:00",
+            "perf": 204364.4872556,
+            "port": "COM10",
+            "direction": "rx",
+            "hex": "74756c6c652f7431313420706879206f6e6c696e653b2076657273696f6e3d302e302e313b20737831323632206f6e6c696e653b207370693d736f6674776172653b206972713d706f6c6c3b2073796e633d3262207265673d323462343b20726567696f6e3d555339313520667265713d3930363837353030302072657365743d70696e2063726173683d302074696d65626173653d696e6163746976650d0a"
+          },
+          {
+            "utc": "2026-09-11T06:51:46.446289+00:00",
+            "perf": 204365.6550176,
+            "port": "COM10",
+            "direction": "tx",
+            "hex": "73796e630a"
+          },
+          {
+            "utc": "2026-09-11T06:51:46.551308+00:00",
+            "perf": 204365.7599812,
+            "port": "COM10",
+            "direction": "rx",
+            "hex": "326220323462340d0a"
+          },
+          {
+            "utc": "2026-09-11T06:51:47.724976+00:00",
+            "perf": 204366.9339047,
+            "port": "COM10",
+            "direction": "tx",
+            "hex": "0004303130303030303030366135303030303030303030303030303030303030303030303030303030303030303000"
+          },
+          {
+            "utc": "2026-09-11T06:51:47.839922+00:00",
+            "perf": 204367.0485354,
+            "port": "COM10",
+            "direction": "rx",
+            "hex": "8600410100000006a50082d24ebcd585b63800000000000001a100000000000001c0000000000000000000000000000001c000000000000001a00000000000000000030081e4bfcd"
+          },
+          {
+            "utc": "2026-09-11T06:51:47.840256+00:00",
+            "perf": 204367.0487488,
+            "port": "COM10",
+            "direction": "tx",
+            "hex": "0004303130313030303030366136383264323465626364353835623633383030303030303030303030303030303100"
+          },
+          {
+            "utc": "2026-09-11T06:51:47.943044+00:00",
+            "perf": 204367.1516958,
+            "port": "COM10",
+            "direction": "rx",
+            "hex": "8600200101000006a60082d24ebcd585b638010278d00d3690d003000b0510002b031177cff7f7"
+          },
+          {
+            "utc": "2026-09-11T06:51:47.943044+00:00",
+            "perf": 204367.1519146,
+            "port": "COM10",
+            "direction": "tx",
+            "hex": "0278d00d3690d003000b0510002b0311"
+          },
+          {
+            "utc": "2026-09-11T06:51:48.048368+00:00",
+            "perf": 204367.2570967,
+            "port": "COM10",
+            "direction": "rx",
+            "hex": "8300"
+          },
+          {
+            "utc": "2026-09-11T06:52:22.937859+00:00",
+            "perf": 204402.1465947,
+            "port": "COM7",
+            "direction": "tx",
+            "hex": "0278d00d3690d003000b0510002b0311"
+          },
+          {
+            "utc": "2026-09-11T06:52:23.042812+00:00",
+            "perf": 204402.2514516,
+            "port": "COM7",
+            "direction": "rx",
+            "hex": "8300"
+          },
+          {
+            "utc": "2026-09-11T06:52:23.042812+00:00",
+            "perf": 204402.2517244,
+            "port": "COM7",
+            "direction": "tx",
+            "hex": "0004303130303030303030373039303030303030303030303030303030303030303030303030303030303030303000"
+          },
+          {
+            "utc": "2026-09-11T06:52:23.146997+00:00",
+            "perf": 204402.3558592,
+            "port": "COM7",
+            "direction": "rx",
+            "hex": "86004101000000070900014b3c2f4ddfc97100000000000000ab00000000000000ca000000000000000000000000000000ca00000000000000aa000000000000000003004083d74e"
+          },
+          {
+            "utc": "2026-09-11T06:52:23.146997+00:00",
+            "perf": 204402.3560487,
+            "port": "COM7",
+            "direction": "tx",
+            "hex": "7374617475730a"
+          },
+          {
+            "utc": "2026-09-11T06:52:23.249061+00:00",
+            "perf": 204402.4577264,
+            "port": "COM7",
+            "direction": "rx",
+            "hex": "74756c6c652f68656c7465632d763420706879206f6e6c696e653b2076657273696f6e3d302e302e313b20737831323632206f6e6c696e653b2073796e633d3262207265673d323462343b206c6f6e67666173743d3930363837353030300d0a6964656e746974793d6c6f6164656420736c6f743d42207365713d350d0a"
+          },
+          {
+            "utc": "2026-09-11T06:52:24.438282+00:00",
+            "perf": 204403.6471344,
+            "port": "COM7",
+            "direction": "tx",
+            "hex": "73796e630a"
+          },
+          {
+            "utc": "2026-09-11T06:52:24.544599+00:00",
+            "perf": 204403.753202,
+            "port": "COM7",
+            "direction": "rx",
+            "hex": "326220323462340d0a"
+          },
+          {
+            "utc": "2026-09-11T06:52:26.283048+00:00",
+            "perf": 204405.4917021,
+            "port": "COM10",
+            "direction": "rx",
+            "hex": "74756c6c652f7431313420706879206f6e6c696e653b2076657273696f6e3d302e302e313b20737831323632206f6e6c696e653b207370693d736f6674776172653b206972713d706f6c6c3b2073796e633d3262207265673d323462343b20726567696f6e3d555339313520667265713d3930363837353030302072657365743d70696e2063726173683d302074696d65626173653d696e6163746976650d0a6964656e746974793d6c6f6164656420736c6f743d41207365713d38340d0a6e6f64653d353939393937633820686561703d302f3439313532206869676877617465723d32340d0a"
+          },
+          {
+            "utc": "2026-09-11T06:52:26.283048+00:00",
+            "perf": 204405.4918809,
+            "port": "COM10",
+            "direction": "tx",
+            "hex": "0278d00d3690d003000b0510002b0311"
+          },
+          {
+            "utc": "2026-09-11T06:52:26.386054+00:00",
+            "perf": 204405.59465,
+            "port": "COM10",
+            "direction": "rx",
+            "hex": "8300"
+          },
+          {
+            "utc": "2026-09-11T06:52:26.386054+00:00",
+            "perf": 204405.5948604,
+            "port": "COM10",
+            "direction": "tx",
+            "hex": "0004303130303030303030373039303030303030303030303030303030303030303030303030303030303030303000"
+          },
+          {
+            "utc": "2026-09-11T06:52:26.491344+00:00",
+            "perf": 204405.7000405,
+            "port": "COM10",
+            "direction": "rx",
+            "hex": "8600410100000007090082d24ebcd585b638000000000000020d000000000000022c0000000000000000000000000000022c000000000000020c0000000000000000030020764d12"
+          },
+          {
+            "utc": "2026-09-11T06:52:26.491344+00:00",
+            "perf": 204405.7002491,
+            "port": "COM10",
+            "direction": "tx",
+            "hex": "7374617475730a"
+          },
+          {
+            "utc": "2026-09-11T06:52:26.594358+00:00",
+            "perf": 204405.8029907,
+            "port": "COM10",
+            "direction": "rx",
+            "hex": "74756c6c652f7431313420706879206f6e6c696e653b2076657273696f6e3d302e302e313b20737831323632206f6e6c696e653b207370693d736f6674776172653b206972713d706f6c6c3b2073796e633d3262207265673d323462343b20726567696f6e3d555339313520667265713d3930363837353030302072657365743d70696e2063726173683d302074696d65626173653d696e6163746976650d0a"
+          },
+          {
+            "utc": "2026-09-11T06:52:27.737508+00:00",
+            "perf": 204406.9463189,
+            "port": "COM10",
+            "direction": "tx",
+            "hex": "73796e630a"
+          },
+          {
+            "utc": "2026-09-11T06:52:27.840800+00:00",
+            "perf": 204407.0495153,
+            "port": "COM10",
+            "direction": "rx",
+            "hex": "326220323462340d0a"
+          }
+        ],
+        "passed": true,
+        "harness_config": {
+          "deadline_text": "after-deadline",
+          "settle_ms": 0,
+          "fresh_dut_baseline": false
+        },
+        "source_sha256": {
+          "Cargo.lock": "89ef5997bec6d634995b8a057f439d38a80e9771d2821114e1c68b2920a215dd",
+          "crates/retinue/Cargo.toml": "092422809f4c80969a307f955d2b01a3971890ede86924478f71f3a859e7bc50",
+          "crates/retinue/examples/murmuration_probe.rs": "3c59c2d587136bc136e6cabfd0fcaf171102ac5cf1d71703b7a5902f837aef7f",
+          "crates/retinue/examples/murmuration/session.rs": "d97220244a7b40fe47bd8d70e70f85ca4b8de278c8b2e6c19575ad83cd1b8f00",
+          "crates/retinue/src/node.rs": "d3e7fca4d82c097debef73074435f8f8fcfcee825db7a29d6d59a45194a05da3",
+          "crates/tulle/src/personality.rs": "688a24414a275c91f664b120cdd3b11813b2686331013373909179c56b2c5624",
+          "crates/tulle/src/personality_serial.rs": "cd6b28acf1ecf211a6e4e110be08c8e5d87d686f46cc390f951f940781698362",
+          "crates/tulle/src/direct_phy_serial.rs": "6f68856f628e5ea0ab50e46fd299073e7dafb25728c52f24549bf2826da0753b",
+          "crates/tulle/src/lib.rs": "bc1d81e522f0a83b2fcec0a8178636115e1ddea9cf8163e8de91d8911572a977"
+        },
+        "base_revision": "13f46b6b3837efa6abfddece8cee25f0d275eff0",
+        "ports": {
+          "COM10": [
+            6421,
+            21023,
+            "TULLE-T114-01"
+          ],
+          "COM6": [
+            12346,
+            4097,
+            "44:1B:F6:6A:FB:28"
+          ],
+          "COM7": [
+            12346,
+            4097,
+            "44:1B:F6:6A:FA:64"
+          ]
+        },
+        "baseline_receipt_sha256": "a3fb5c1498a8641f69ccea2a5bcf427c43743b2e90ce056c33c5ee752654d819",
+        "host_exit": 0,
+        "host_stdout": "{\"elapsed_ms\":34101.93,\"error\":null,\"events\":[{\"away_sync\":43,\"bandwidth_hz\":250000,\"dut\":\"COM7\",\"frequency_hz\":906875000,\"home_sync\":18,\"kind\":\"online\",\"peer\":\"COM10\",\"power_dbm\":7,\"run_id\":\"2d58fb4d94d76b4e\",\"sf\":11},{\"hex\":\"010099438f1118bc6c8fdace181b1ec1eac300b0489049f6c6f77259425614c6fc452b649d87b6d4cf4c1c2a39c60f608bd24796c919851d99d6dc0de23e63322a0cf6fab50bb34418e7428a960dc52c97ee1f6a6b030c7fadc1a2608ad2501fc27e006aa3a50679501d2a122e1c9d1f2be94b6400958f20bbe0804ec5008510b89a53f95733937262bee96c0f9713bb8912ce3fb6a6ca8548d638142cd1bf24056a96ea241c07\",\"kind\":\"session_tx_ack\",\"label\":\"session-announce\"},{\"hex\":\"010099438f1118bc6c8fdace181b1ec1eac300b0489049f6c6f77259425614c6fc452b649d87b6d4cf4c1c2a39c60f608bd24796c919851d99d6dc0de23e63322a0cf6fab50bb34418e7428a960dc52c97ee1f6a6b030c7fadc1a2608ad2501fc27e006aa3a50679501d2a122e1c9d1f2be94b6400958f20bbe0804ec5008510b89a53f95733937262bee96c0f9713bb8912ce3fb6a6ca8548d638142cd1bf24056a96ea241c07\",\"kind\":\"session_rx_exact\",\"label\":\"session-announce\",\"receive_wait_ms\":9.149,\"rssi_dbm\":-23,\"snr_db\":6.0},{\"assessment\":\"PauseAssessment { pending_handshakes: 1, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: None, latest_link_activity: None, link_expiry_overflow: false }\",\"kind\":\"session_busy_refusal\",\"scope\":\"pending real handshake and queued action; no radio retune\"},{\"hex\":\"020099438f1118bc6c8fdace181b1ec1eac3006e19d390279801388f4900de5cfd27acfc57e76672ced240c09722bfe7d4d107438bdc850b821d77dc5d767c66d2f99b8301333a8da03dd35a0b058ce547730c2000ff\",\"kind\":\"session_tx_ack\",\"label\":\"session-request\"},{\"hex\":\"020099438f1118bc6c8fdace181b1ec1eac3006e19d390279801388f4900de5cfd27acfc57e76672ced240c09722bfe7d4d107438bdc850b821d77dc5d767c66d2f99b8301333a8da03dd35a0b058ce547730c2000ff\",\"kind\":\"session_rx_exact\",\"label\":\"session-request\",\"receive_wait_ms\":9.9145,\"rssi_dbm\":-90,\"snr_db\":5.0},{\"hex\":\"0f00640ad796b2c1b055aea7920d68b62987ff2a5760c672cd67ad9b6f913f26d09e2b6e39a3567021883d106a7826f571287f546cf1ba84836cbb41062d8647a40d55262a4251b3af4dc139dbb8ecdf878c0770896882152c3111cba24e03250a025380508e60ad88ad1fcb5ec66be2bb23342000ff\",\"kind\":\"session_tx_ack\",\"label\":\"session-proof\"},{\"hex\":\"0f00640ad796b2c1b055aea7920d68b62987ff2a5760c672cd67ad9b6f913f26d09e2b6e39a3567021883d106a7826f571287f546cf1ba84836cbb41062d8647a40d55262a4251b3af4dc139dbb8ecdf878c0770896882152c3111cba24e03250a025380508e60ad88ad1fcb5ec66be2bb23342000ff\",\"kind\":\"session_rx_exact\",\"label\":\"session-proof\",\"receive_wait_ms\":9.056099999999999,\"rssi_dbm\":-23,\"snr_db\":6.0},{\"handshakes\":1,\"kind\":\"session_established\",\"link\":\"AddressHash(640ad796b2c1b055aea7920d68b62987)\"},{\"hex\":\"0c00640ad796b2c1b055aea7920d68b62987001ba340a49501317832140f09224f349f5864e5b6c1467bf405ec9c6b49a2a9c7cc0ec8bfe8405df24a6105a4b445cab9d92d276bb519c5e4688d52a87293662bd7e4ba2f081f23f571e3d9dec9043ed00b21e25960d7fa0382a006bcad34922f\",\"kind\":\"session_tx_ack\",\"label\":\"before-excursion-0\"},{\"hex\":\"0c00640ad796b2c1b055aea7920d68b62987001ba340a49501317832140f09224f349f5864e5b6c1467bf405ec9c6b49a2a9c7cc0ec8bfe8405df24a6105a4b445cab9d92d276bb519c5e4688d52a87293662bd7e4ba2f081f23f571e3d9dec9043ed00b21e25960d7fa0382a006bcad34922f\",\"kind\":\"session_rx_exact\",\"label\":\"before-excursion-0\",\"receive_wait_ms\":11.5473,\"rssi_dbm\":-90,\"snr_db\":5.0},{\"direction\":0,\"kind\":\"session_data\",\"label\":\"before-excursion\",\"link\":\"AddressHash(640ad796b2c1b055aea7920d68b62987)\",\"plaintext\":\"before-excursion:0:retained-link\"},{\"hex\":\"0c00640ad796b2c1b055aea7920d68b629870043e0c7edf8be4b6df063bd99db3720223d11771d647160f26174dc00164ae69f28f942ab4806ccc5bdc9742b0db74ab3c87aca97ea0e833180ab8c76acb04610aa685a5659384e6600f3ce9b63195703886b8b626e8c50be1b8ce8f977621776\",\"kind\":\"session_tx_ack\",\"label\":\"before-excursion-1\"},{\"hex\":\"0c00640ad796b2c1b055aea7920d68b629870043e0c7edf8be4b6df063bd99db3720223d11771d647160f26174dc00164ae69f28f942ab4806ccc5bdc9742b0db74ab3c87aca97ea0e833180ab8c76acb04610aa685a5659384e6600f3ce9b63195703886b8b626e8c50be1b8ce8f977621776\",\"kind\":\"session_rx_exact\",\"label\":\"before-excursion-1\",\"receive_wait_ms\":9.176,\"rssi_dbm\":-23,\"snr_db\":6.0},{\"direction\":1,\"kind\":\"session_data\",\"label\":\"before-excursion\",\"link\":\"AddressHash(640ad796b2c1b055aea7920d68b62987)\",\"plaintext\":\"before-excursion:1:retained-link\"},{\"airtime_ms\":641.024,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d6475743a313a626173656c696e65\",\"kind\":\"tx_ack\",\"label\":\"baseline-dut\"},{\"decoded\":{\"payload\":\"2d58fb4d94d76b4e-dut:1:baseline\",\"protocol\":\"retinue-plain-data\"},\"elapsed_ms\":665.769,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d6475743a313a626173656c696e65\",\"kind\":\"rx_exact\",\"label\":\"baseline-dut\",\"rssi_dbm\":-90,\"snr_db\":5.0,\"unrelated_frames\":0},{\"airtime_ms\":641.024,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d706565723a313a626173656c696e65\",\"kind\":\"tx_ack\",\"label\":\"baseline-peer\"},{\"decoded\":{\"payload\":\"2d58fb4d94d76b4e-peer:1:baseline\",\"protocol\":\"retinue-plain-data\"},\"elapsed_ms\":666.0729,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d706565723a313a626173656c696e65\",\"kind\":\"rx_exact\",\"label\":\"baseline-peer\",\"rssi_dbm\":-24,\"snr_db\":6.0,\"unrelated_frames\":0},{\"airtime_ms\":681.984,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d706565723a323a7573622d626f756e646172797878\",\"kind\":\"tx_ack\",\"label\":\"usb-64-peer\"},{\"decoded\":{\"payload\":\"2d58fb4d94d76b4e-peer:2:usb-boundaryxx\",\"protocol\":\"retinue-plain-data\"},\"elapsed_ms\":710.51,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d706565723a323a7573622d626f756e646172797878\",\"kind\":\"rx_exact\",\"label\":\"usb-64-peer\",\"rssi_dbm\":-23,\"snr_db\":7.0,\"unrelated_frames\":0},{\"airtime_ms\":681.984,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d6475743a323a7573622d626f756e64617279787878\",\"kind\":\"tx_ack\",\"label\":\"usb-64-dut\"},{\"decoded\":{\"payload\":\"2d58fb4d94d76b4e-dut:2:usb-boundaryxxx\",\"protocol\":\"retinue-plain-data\"},\"elapsed_ms\":707.4517999999999,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d6475743a323a7573622d626f756e64617279787878\",\"kind\":\"rx_exact\",\"label\":\"usb-64-dut\",\"rssi_dbm\":-89,\"snr_db\":5.0,\"unrelated_frames\":0},{\"airtime_ms\":1132.544,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d706565723a333a7573622d626f756e64617279787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878\",\"kind\":\"tx_ack\",\"label\":\"usb-128-peer\"},{\"decoded\":{\"payload\":\"2d58fb4d94d76b4e-peer:3:usb-boundaryxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"protocol\":\"retinue-plain-data\"},\"elapsed_ms\":1161.0921999999998,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d706565723a333a7573622d626f756e64617279787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878\",\"kind\":\"rx_exact\",\"label\":\"usb-128-peer\",\"rssi_dbm\":-24,\"snr_db\":6.0,\"unrelated_frames\":0},{\"airtime_ms\":1132.544,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d6475743a333a7573622d626f756e6461727978787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878\",\"kind\":\"tx_ack\",\"label\":\"usb-128-dut\"},{\"decoded\":{\"payload\":\"2d58fb4d94d76b4e-dut:3:usb-boundaryxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"protocol\":\"retinue-plain-data\"},\"elapsed_ms\":1160.9665,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d6475743a333a7573622d626f756e6461727978787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878\",\"kind\":\"rx_exact\",\"label\":\"usb-128-dut\",\"rssi_dbm\":-90,\"snr_db\":6.0,\"unrelated_frames\":0},{\"assessment\":\"PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(905883), latest_link_activity: Some(5883), link_expiry_overflow: false }\",\"kind\":\"session_pause_ready\",\"now_ms\":10955,\"return_bound_ms\":41955,\"side\":\"dut\"},{\"assessment\":\"PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(904764), latest_link_activity: Some(4764), link_expiry_overflow: false }\",\"kind\":\"session_pause_ready\",\"now_ms\":10955,\"return_bound_ms\":41955,\"side\":\"peer\"},{\"discarded_rx\":0,\"elapsed_ms\":1.858,\"kind\":\"excursion_ack\",\"label\":\"dut-0\",\"state\":\"Away { target: PersonalityId(2), excursion_deadline: 36821, return_by: 41821, interruption: ResumableOnly }\",\"transition_id\":1},{\"airtime_ms\":681.984,\"cycle\":0,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d706565723a343a616273656e742d686f6d652d302d30\",\"kind\":\"home_wave_tx_ack\"},{\"airtime_ms\":681.984,\"cycle\":0,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d706565723a353a616273656e742d686f6d652d302d31\",\"kind\":\"home_wave_tx_ack\"},{\"captured\":0,\"cycle\":0,\"injected_tx_acked\":2,\"interval_ms\":2318.2634000000003,\"kind\":\"home_absence\",\"not_observed\":2,\"scope\":\"DUT receive opportunity absent; no independent on-air witness\",\"unrelated_frames\":0},{\"assessment\":\"PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(905883), latest_link_activity: Some(5883), link_expiry_overflow: false }\",\"kind\":\"session_pause_ready\",\"now_ms\":13276,\"return_bound_ms\":44276,\"side\":\"dut\"},{\"assessment\":\"PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(904764), latest_link_activity: Some(4764), link_expiry_overflow: false }\",\"kind\":\"session_pause_ready\",\"now_ms\":13276,\"return_bound_ms\":44276,\"side\":\"peer\"},{\"discarded_rx\":0,\"elapsed_ms\":10.5868,\"kind\":\"excursion_ack\",\"label\":\"peer-0\",\"state\":\"Away { target: PersonalityId(2), excursion_deadline: 38286, return_by: 43286, interruption: ResumableOnly }\",\"transition_id\":1},{\"airtime_ms\":559.104,\"hex\":\"ffffffff9d166324010000000008009da5346731fb22ccc4e68e748de3037267dddf757e85b428524f7b\",\"kind\":\"tx_ack\",\"label\":\"sennet-dut\"},{\"decoded\":{\"packet_id\":1,\"protocol\":\"sennet\",\"source\":610473629,\"text\":\"2d58fb4d94d76b4e:dut:0\"},\"elapsed_ms\":589.8842,\"hex\":\"ffffffff9d166324010000000008009da5346731fb22ccc4e68e748de3037267dddf757e85b428524f7b\",\"kind\":\"rx_exact\",\"label\":\"sennet-dut\",\"rssi_dbm\":-90,\"snr_db\":5.0,\"unrelated_frames\":0},{\"airtime_ms\":559.104,\"hex\":\"ffffffff1e860d23010000000008001e2d9b55516c0d3ad6a95aba1b7a4e7bea1953f6e79b6a85984dc709\",\"kind\":\"tx_ack\",\"label\":\"sennet-peer\"},{\"decoded\":{\"packet_id\":1,\"protocol\":\"sennet\",\"source\":588088862,\"text\":\"2d58fb4d94d76b4e:peer:0\"},\"elapsed_ms\":583.9121,\"hex\":\"ffffffff1e860d23010000000008001e2d9b55516c0d3ad6a95aba1b7a4e7bea1953f6e79b6a85984dc709\",\"kind\":\"rx_exact\",\"label\":\"sennet-peer\",\"rssi_dbm\":-23,\"snr_db\":7.0,\"unrelated_frames\":0},{\"discarded_rx\":0,\"kind\":\"home_ack\",\"label\":\"dut-0\",\"return_ms\":1.9368,\"transition_id\":2},{\"discarded_rx\":0,\"kind\":\"home_ack\",\"label\":\"peer-0\",\"return_ms\":2.7489,\"transition_id\":2},{\"hex\":\"0c00640ad796b2c1b055aea7920d68b6298700562c985a44950189e6de751dce537fe60ebe80672b4721fbd88a73d3e2180e0672a9b9ae87ded43fb7f41cf779ef24b26985dd4f3bcf4412bbcdf842142d0ea851c90978847d59d094fee72291ca209bcdd14acfcdeb6fcc7e585016d2099345\",\"kind\":\"session_tx_ack\",\"label\":\"after-excursion-0-0\"},{\"hex\":\"0c00640ad796b2c1b055aea7920d68b6298700562c985a44950189e6de751dce537fe60ebe80672b4721fbd88a73d3e2180e0672a9b9ae87ded43fb7f41cf779ef24b26985dd4f3bcf4412bbcdf842142d0ea851c90978847d59d094fee72291ca209bcdd14acfcdeb6fcc7e585016d2099345\",\"kind\":\"session_rx_exact\",\"label\":\"after-excursion-0-0\",\"receive_wait_ms\":11.188,\"rssi_dbm\":-90,\"snr_db\":5.0},{\"direction\":0,\"kind\":\"session_data\",\"label\":\"after-excursion-0\",\"link\":\"AddressHash(640ad796b2c1b055aea7920d68b62987)\",\"plaintext\":\"after-excursion-0:0:retained-link\"},{\"hex\":\"0c00640ad796b2c1b055aea7920d68b6298700edc9cb86017654702ef0ce574b92ec832195700b04fb4991cdcb691db887c4c6604e7b3bc884bd53813e5052ccc15e217c3d62ed545e9e0d52a3076b1dd00ffb65dda0536b284e031b258d1274551714c7b2731a0cfefd5334554dbbf62bf018\",\"kind\":\"session_tx_ack\",\"label\":\"after-excursion-0-1\"},{\"hex\":\"0c00640ad796b2c1b055aea7920d68b6298700edc9cb86017654702ef0ce574b92ec832195700b04fb4991cdcb691db887c4c6604e7b3bc884bd53813e5052ccc15e217c3d62ed545e9e0d52a3076b1dd00ffb65dda0536b284e031b258d1274551714c7b2731a0cfefd5334554dbbf62bf018\",\"kind\":\"session_rx_exact\",\"label\":\"after-excursion-0-1\",\"receive_wait_ms\":9.222299999999999,\"rssi_dbm\":-23,\"snr_db\":6.0},{\"direction\":1,\"kind\":\"session_data\",\"label\":\"after-excursion-0\",\"link\":\"AddressHash(640ad796b2c1b055aea7920d68b62987)\",\"plaintext\":\"after-excursion-0:1:retained-link\"},{\"airtime_ms\":641.024,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d6475743a343a72657475726e6564\",\"kind\":\"tx_ack\",\"label\":\"returned-dut\"},{\"decoded\":{\"payload\":\"2d58fb4d94d76b4e-dut:4:returned\",\"protocol\":\"retinue-plain-data\"},\"elapsed_ms\":665.7942,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d6475743a343a72657475726e6564\",\"kind\":\"rx_exact\",\"label\":\"returned-dut\",\"rssi_dbm\":-90,\"snr_db\":5.0,\"unrelated_frames\":0},{\"airtime_ms\":641.024,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d706565723a363a72657475726e6564\",\"kind\":\"tx_ack\",\"label\":\"returned-peer\"},{\"decoded\":{\"payload\":\"2d58fb4d94d76b4e-peer:6:returned\",\"protocol\":\"retinue-plain-data\"},\"elapsed_ms\":666.1361,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d706565723a363a72657475726e6564\",\"kind\":\"rx_exact\",\"label\":\"returned-peer\",\"rssi_dbm\":-24,\"snr_db\":6.0,\"unrelated_frames\":0},{\"assessment\":\"PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(916718), latest_link_activity: Some(16718), link_expiry_overflow: false }\",\"kind\":\"session_pause_ready\",\"now_ms\":18050,\"return_bound_ms\":49050,\"side\":\"dut\"},{\"assessment\":\"PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(915598), latest_link_activity: Some(15598), link_expiry_overflow: false }\",\"kind\":\"session_pause_ready\",\"now_ms\":18050,\"return_bound_ms\":49050,\"side\":\"peer\"},{\"discarded_rx\":0,\"elapsed_ms\":1.567,\"kind\":\"excursion_ack\",\"label\":\"dut-1\",\"state\":\"Away { target: PersonalityId(2), excursion_deadline: 43915, return_by: 48915, interruption: ResumableOnly }\",\"transition_id\":3},{\"airtime_ms\":681.984,\"cycle\":1,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d706565723a373a616273656e742d686f6d652d312d30\",\"kind\":\"home_wave_tx_ack\"},{\"airtime_ms\":681.984,\"cycle\":1,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d706565723a383a616273656e742d686f6d652d312d31\",\"kind\":\"home_wave_tx_ack\"},{\"captured\":0,\"cycle\":1,\"injected_tx_acked\":2,\"interval_ms\":2313.9186,\"kind\":\"home_absence\",\"not_observed\":2,\"scope\":\"DUT receive opportunity absent; no independent on-air witness\",\"unrelated_frames\":0},{\"assessment\":\"PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(916718), latest_link_activity: Some(16718), link_expiry_overflow: false }\",\"kind\":\"session_pause_ready\",\"now_ms\":20366,\"return_bound_ms\":51366,\"side\":\"dut\"},{\"assessment\":\"PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(915598), latest_link_activity: Some(15598), link_expiry_overflow: false }\",\"kind\":\"session_pause_ready\",\"now_ms\":20366,\"return_bound_ms\":51366,\"side\":\"peer\"},{\"discarded_rx\":0,\"elapsed_ms\":10.089300000000001,\"kind\":\"excursion_ack\",\"label\":\"peer-1\",\"state\":\"Away { target: PersonalityId(2), excursion_deadline: 45376, return_by: 50376, interruption: ResumableOnly }\",\"transition_id\":3},{\"airtime_ms\":559.104,\"hex\":\"ffffffff9d166324020000000008009df30bf5e015e5d44770fd6d33fdee874d7370c1de812c4321e84d\",\"kind\":\"tx_ack\",\"label\":\"sennet-dut\"},{\"decoded\":{\"packet_id\":2,\"protocol\":\"sennet\",\"source\":610473629,\"text\":\"2d58fb4d94d76b4e:dut:1\"},\"elapsed_ms\":589.0349,\"hex\":\"ffffffff9d166324020000000008009df30bf5e015e5d44770fd6d33fdee874d7370c1de812c4321e84d\",\"kind\":\"rx_exact\",\"label\":\"sennet-dut\",\"rssi_dbm\":-90,\"snr_db\":4.0,\"unrelated_frames\":0},{\"airtime_ms\":559.104,\"hex\":\"ffffffff9d166324010000000008009da5346731fb22ccc4e68e748de3037267dddf757e85b428524f7b\",\"kind\":\"tx_ack\",\"label\":\"sennet-replay-after-pause\"},{\"decoded\":{\"packet_id\":1,\"protocol\":\"sennet\",\"source\":610473629,\"text\":\"2d58fb4d94d76b4e:dut:0\"},\"elapsed_ms\":587.0005,\"hex\":\"ffffffff9d166324010000000008009da5346731fb22ccc4e68e748de3037267dddf757e85b428524f7b\",\"kind\":\"rx_exact\",\"label\":\"sennet-replay-after-pause\",\"rssi_dbm\":-90,\"snr_db\":4.0,\"unrelated_frames\":0},{\"kind\":\"sennet_duplicate_retained\",\"relay_decision\":\"Ignore(Duplicate)\",\"scope\":\"same RF frame recognized by retained ManagedFlood; not a session protocol\"},{\"airtime_ms\":559.104,\"hex\":\"ffffffff1e860d23020000000008001e4524619d3e308c62761b68c1500ac9a0baee5adb33afbe03b8367d\",\"kind\":\"tx_ack\",\"label\":\"sennet-peer\"},{\"decoded\":{\"packet_id\":2,\"protocol\":\"sennet\",\"source\":588088862,\"text\":\"2d58fb4d94d76b4e:peer:1\"},\"elapsed_ms\":584.0079999999999,\"hex\":\"ffffffff1e860d23020000000008001e4524619d3e308c62761b68c1500ac9a0baee5adb33afbe03b8367d\",\"kind\":\"rx_exact\",\"label\":\"sennet-peer\",\"rssi_dbm\":-24,\"snr_db\":6.0,\"unrelated_frames\":0},{\"event\":\"ReturnRequired(Cancelled)\",\"kind\":\"explicit_cancellation\"},{\"discarded_rx\":0,\"kind\":\"home_ack\",\"label\":\"dut-1\",\"return_ms\":1.7581,\"transition_id\":4},{\"discarded_rx\":0,\"kind\":\"home_ack\",\"label\":\"peer-1\",\"return_ms\":2.7292,\"transition_id\":4},{\"hex\":\"0c00640ad796b2c1b055aea7920d68b629870037939af1cb973a5544f18257578d7c4df9970449d38ab7d071e2898d317e2a3ca12f62541ec67f85c3709f4ad0d150bd65a6d239f4c51f2a85b770dc6dc5277773b61fa5ef145c84682748e0bdbc3f97cd5f4936f40ff8df99f253c5b5552ad8\",\"kind\":\"session_tx_ack\",\"label\":\"after-excursion-1-0\"},{\"hex\":\"0c00640ad796b2c1b055aea7920d68b629870037939af1cb973a5544f18257578d7c4df9970449d38ab7d071e2898d317e2a3ca12f62541ec67f85c3709f4ad0d150bd65a6d239f4c51f2a85b770dc6dc5277773b61fa5ef145c84682748e0bdbc3f97cd5f4936f40ff8df99f253c5b5552ad8\",\"kind\":\"session_rx_exact\",\"label\":\"after-excursion-1-0\",\"receive_wait_ms\":11.013,\"rssi_dbm\":-89,\"snr_db\":5.0},{\"direction\":0,\"kind\":\"session_data\",\"label\":\"after-excursion-1\",\"link\":\"AddressHash(640ad796b2c1b055aea7920d68b62987)\",\"plaintext\":\"after-excursion-1:0:retained-link\"},{\"hex\":\"0c00640ad796b2c1b055aea7920d68b6298700e719701156bc39a7c0693f85ac3d74db98a24e5291134e67fb7144ede93b197d87cee6a793c5f0d729eecb89626b152d0b54136b84663485970129f28b38a18e6f476846c1192c8a9fe21fe030a77d141e98c8dd88cc0c970f80423af16cc8a3\",\"kind\":\"session_tx_ack\",\"label\":\"after-excursion-1-1\"},{\"hex\":\"0c00640ad796b2c1b055aea7920d68b6298700e719701156bc39a7c0693f85ac3d74db98a24e5291134e67fb7144ede93b197d87cee6a793c5f0d729eecb89626b152d0b54136b84663485970129f28b38a18e6f476846c1192c8a9fe21fe030a77d141e98c8dd88cc0c970f80423af16cc8a3\",\"kind\":\"session_rx_exact\",\"label\":\"after-excursion-1-1\",\"receive_wait_ms\":9.3736,\"rssi_dbm\":-24,\"snr_db\":7.0},{\"direction\":1,\"kind\":\"session_data\",\"label\":\"after-excursion-1\",\"link\":\"AddressHash(640ad796b2c1b055aea7920d68b62987)\",\"plaintext\":\"after-excursion-1:1:retained-link\"},{\"airtime_ms\":641.024,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d6475743a353a72657475726e6564\",\"kind\":\"tx_ack\",\"label\":\"returned-dut\"},{\"decoded\":{\"payload\":\"2d58fb4d94d76b4e-dut:5:returned\",\"protocol\":\"retinue-plain-data\"},\"elapsed_ms\":665.8304,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d6475743a353a72657475726e6564\",\"kind\":\"rx_exact\",\"label\":\"returned-dut\",\"rssi_dbm\":-90,\"snr_db\":5.0,\"unrelated_frames\":0},{\"airtime_ms\":641.024,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d706565723a393a72657475726e6564\",\"kind\":\"tx_ack\",\"label\":\"returned-peer\"},{\"decoded\":{\"payload\":\"2d58fb4d94d76b4e-peer:9:returned\",\"protocol\":\"retinue-plain-data\"},\"elapsed_ms\":666.036,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d706565723a393a72657475726e6564\",\"kind\":\"rx_exact\",\"label\":\"returned-peer\",\"rssi_dbm\":-24,\"snr_db\":6.0,\"unrelated_frames\":0},{\"assessment\":\"PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(924390), latest_link_activity: Some(24390), link_expiry_overflow: false }\",\"kind\":\"session_pause_ready\",\"now_ms\":25722,\"return_bound_ms\":56722,\"side\":\"dut\"},{\"assessment\":\"PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(923270), latest_link_activity: Some(23270), link_expiry_overflow: false }\",\"kind\":\"session_pause_ready\",\"now_ms\":25722,\"return_bound_ms\":56722,\"side\":\"peer\"},{\"discarded_rx\":0,\"elapsed_ms\":1.6586999999999998,\"kind\":\"excursion_ack\",\"label\":\"deadline-dut\",\"state\":\"Away { target: PersonalityId(2), excursion_deadline: 27587, return_by: 32587, interruption: ResumableOnly }\",\"transition_id\":5},{\"discarded_rx\":0,\"kind\":\"home_ack\",\"label\":\"deadline-dut\",\"return_ms\":7.0543000000000005,\"transition_id\":6},{\"hex\":\"0c00640ad796b2c1b055aea7920d68b6298700185ed13d85a24099a5955127baf42df756066d8ab0f70c4c105ae35ee41929d41ea7ba03438e96bbdc0cceda37266d47fed0d471c3020079a147d60916612252715e7d101694e0cedea985947068f27d\",\"kind\":\"session_tx_ack\",\"label\":\"after-deadline-0\"},{\"hex\":\"0c00640ad796b2c1b055aea7920d68b6298700185ed13d85a24099a5955127baf42df756066d8ab0f70c4c105ae35ee41929d41ea7ba03438e96bbdc0cceda37266d47fed0d471c3020079a147d60916612252715e7d101694e0cedea985947068f27d\",\"kind\":\"session_rx_exact\",\"label\":\"after-deadline-0\",\"receive_wait_ms\":10.5384,\"rssi_dbm\":-90,\"snr_db\":5.0},{\"direction\":0,\"kind\":\"session_data\",\"label\":\"after-deadline\",\"link\":\"AddressHash(640ad796b2c1b055aea7920d68b62987)\",\"plaintext\":\"after-deadline:0:retained-link\"},{\"hex\":\"0c00640ad796b2c1b055aea7920d68b6298700db5303a6ad5ee97eac0132d7373a60dc0a1595a2e491c357efb1ad0aa84321ed2269dcf41923be69c5163a64cd42619813d0dbce1c1db3d6418e6612e498eccc405f6f83637ffa87db4d2bc622e7f07c\",\"kind\":\"session_tx_ack\",\"label\":\"after-deadline-1\"},{\"hex\":\"0c00640ad796b2c1b055aea7920d68b6298700db5303a6ad5ee97eac0132d7373a60dc0a1595a2e491c357efb1ad0aa84321ed2269dcf41923be69c5163a64cd42619813d0dbce1c1db3d6418e6612e498eccc405f6f83637ffa87db4d2bc622e7f07c\",\"kind\":\"session_rx_exact\",\"label\":\"after-deadline-1\",\"receive_wait_ms\":9.9722,\"rssi_dbm\":-23,\"snr_db\":6.0},{\"direction\":1,\"kind\":\"session_data\",\"label\":\"after-deadline\",\"link\":\"AddressHash(640ad796b2c1b055aea7920d68b62987)\",\"plaintext\":\"after-deadline:1:retained-link\"},{\"airtime_ms\":681.984,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d706565723a31303a61667465722d646561646c696e65\",\"kind\":\"tx_ack\",\"label\":\"after-deadline\"},{\"decoded\":{\"payload\":\"2d58fb4d94d76b4e-peer:10:after-deadline\",\"protocol\":\"retinue-plain-data\"},\"elapsed_ms\":709.6183000000001,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d706565723a31303a61667465722d646561646c696e65\",\"kind\":\"rx_exact\",\"label\":\"after-deadline\",\"rssi_dbm\":-23,\"snr_db\":6.0,\"unrelated_frames\":0},{\"kind\":\"pinned_refusal\",\"result\":\"Err(Controller(Pinned(PersonalityId(1))))\",\"same_serial_session\":true},{\"airtime_ms\":641.024,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d706565723a31313a70696e6e65642d686f6d65\",\"kind\":\"tx_ack\",\"label\":\"pinned-home\"},{\"decoded\":{\"payload\":\"2d58fb4d94d76b4e-peer:11:pinned-home\",\"protocol\":\"retinue-plain-data\"},\"elapsed_ms\":670.1181,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d706565723a31313a70696e6e65642d686f6d65\",\"kind\":\"rx_exact\",\"label\":\"pinned-home\",\"rssi_dbm\":-23,\"snr_db\":6.0,\"unrelated_frames\":0},{\"kind\":\"retained_state\",\"retinue_dut_sequence\":5,\"retinue_peer_sequence\":11,\"scope\":\"caller-owned packet counters and channel state; no remote sessions\",\"sennet_dut_reserved\":2,\"sennet_peer_reserved\":2},{\"hex\":\"0c00640ad796b2c1b055aea7920d68b629870079b28b46099f89f04facbb618cb8d66201bb6025aca305e3d026847a42d87caf046e0b8af16b64d609e2ab8f0d552ef3855586ab8b1a5818cedb7cb3dda11840641f129bc3d4d48b166d586a9b5946478c59844237c09155a422550d8e69e319\",\"kind\":\"session_tx_ack\",\"label\":\"pinned-retained-link-0\"},{\"hex\":\"0c00640ad796b2c1b055aea7920d68b629870079b28b46099f89f04facbb618cb8d66201bb6025aca305e3d026847a42d87caf046e0b8af16b64d609e2ab8f0d552ef3855586ab8b1a5818cedb7cb3dda11840641f129bc3d4d48b166d586a9b5946478c59844237c09155a422550d8e69e319\",\"kind\":\"session_rx_exact\",\"label\":\"pinned-retained-link-0\",\"receive_wait_ms\":11.1983,\"rssi_dbm\":-90,\"snr_db\":5.0},{\"direction\":0,\"kind\":\"session_data\",\"label\":\"pinned-retained-link\",\"link\":\"AddressHash(640ad796b2c1b055aea7920d68b62987)\",\"plaintext\":\"pinned-retained-link:0:retained-link\"},{\"hex\":\"0c00640ad796b2c1b055aea7920d68b629870001266a4d918c303a5e367f36a0093e7131105edc12d9209c8f58c7436c2c320b81bee39dea57f7acbb85da06dfc8d7c64fe7b058d61dfb4e77fad98f1be1eff59a9d664bdfc38e39c83934b718bae0cfb5948f7b40a68e72aa95034f40654305\",\"kind\":\"session_tx_ack\",\"label\":\"pinned-retained-link-1\"},{\"hex\":\"0c00640ad796b2c1b055aea7920d68b629870001266a4d918c303a5e367f36a0093e7131105edc12d9209c8f58c7436c2c320b81bee39dea57f7acbb85da06dfc8d7c64fe7b058d61dfb4e77fad98f1be1eff59a9d664bdfc38e39c83934b718bae0cfb5948f7b40a68e72aa95034f40654305\",\"kind\":\"session_rx_exact\",\"label\":\"pinned-retained-link-1\",\"receive_wait_ms\":9.439400000000001,\"rssi_dbm\":-23,\"snr_db\":7.0},{\"direction\":1,\"kind\":\"session_data\",\"label\":\"pinned-retained-link\",\"link\":\"AddressHash(640ad796b2c1b055aea7920d68b62987)\",\"plaintext\":\"pinned-retained-link:1:retained-link\"}],\"passed\":true,\"scope\":\"host-driven retained Retinue Node link and Sennet state through board radio owner; no autonomous firmware or third-party peer survival claim\"}\n",
+        "host_stderr": "",
+        "host": {
+          "elapsed_ms": 34101.93,
+          "error": null,
+          "events": [
+            {
+              "away_sync": 43,
+              "bandwidth_hz": 250000,
+              "dut": "COM7",
+              "frequency_hz": 906875000,
+              "home_sync": 18,
+              "kind": "online",
+              "peer": "COM10",
+              "power_dbm": 7,
+              "run_id": "2d58fb4d94d76b4e",
+              "sf": 11
+            },
+            {
+              "hex": "010099438f1118bc6c8fdace181b1ec1eac300b0489049f6c6f77259425614c6fc452b649d87b6d4cf4c1c2a39c60f608bd24796c919851d99d6dc0de23e63322a0cf6fab50bb34418e7428a960dc52c97ee1f6a6b030c7fadc1a2608ad2501fc27e006aa3a50679501d2a122e1c9d1f2be94b6400958f20bbe0804ec5008510b89a53f95733937262bee96c0f9713bb8912ce3fb6a6ca8548d638142cd1bf24056a96ea241c07",
+              "kind": "session_tx_ack",
+              "label": "session-announce"
+            },
+            {
+              "hex": "010099438f1118bc6c8fdace181b1ec1eac300b0489049f6c6f77259425614c6fc452b649d87b6d4cf4c1c2a39c60f608bd24796c919851d99d6dc0de23e63322a0cf6fab50bb34418e7428a960dc52c97ee1f6a6b030c7fadc1a2608ad2501fc27e006aa3a50679501d2a122e1c9d1f2be94b6400958f20bbe0804ec5008510b89a53f95733937262bee96c0f9713bb8912ce3fb6a6ca8548d638142cd1bf24056a96ea241c07",
+              "kind": "session_rx_exact",
+              "label": "session-announce",
+              "receive_wait_ms": 9.149,
+              "rssi_dbm": -23,
+              "snr_db": 6.0
+            },
+            {
+              "assessment": "PauseAssessment { pending_handshakes: 1, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: None, latest_link_activity: None, link_expiry_overflow: false }",
+              "kind": "session_busy_refusal",
+              "scope": "pending real handshake and queued action; no radio retune"
+            },
+            {
+              "hex": "020099438f1118bc6c8fdace181b1ec1eac3006e19d390279801388f4900de5cfd27acfc57e76672ced240c09722bfe7d4d107438bdc850b821d77dc5d767c66d2f99b8301333a8da03dd35a0b058ce547730c2000ff",
+              "kind": "session_tx_ack",
+              "label": "session-request"
+            },
+            {
+              "hex": "020099438f1118bc6c8fdace181b1ec1eac3006e19d390279801388f4900de5cfd27acfc57e76672ced240c09722bfe7d4d107438bdc850b821d77dc5d767c66d2f99b8301333a8da03dd35a0b058ce547730c2000ff",
+              "kind": "session_rx_exact",
+              "label": "session-request",
+              "receive_wait_ms": 9.9145,
+              "rssi_dbm": -90,
+              "snr_db": 5.0
+            },
+            {
+              "hex": "0f00640ad796b2c1b055aea7920d68b62987ff2a5760c672cd67ad9b6f913f26d09e2b6e39a3567021883d106a7826f571287f546cf1ba84836cbb41062d8647a40d55262a4251b3af4dc139dbb8ecdf878c0770896882152c3111cba24e03250a025380508e60ad88ad1fcb5ec66be2bb23342000ff",
+              "kind": "session_tx_ack",
+              "label": "session-proof"
+            },
+            {
+              "hex": "0f00640ad796b2c1b055aea7920d68b62987ff2a5760c672cd67ad9b6f913f26d09e2b6e39a3567021883d106a7826f571287f546cf1ba84836cbb41062d8647a40d55262a4251b3af4dc139dbb8ecdf878c0770896882152c3111cba24e03250a025380508e60ad88ad1fcb5ec66be2bb23342000ff",
+              "kind": "session_rx_exact",
+              "label": "session-proof",
+              "receive_wait_ms": 9.056099999999999,
+              "rssi_dbm": -23,
+              "snr_db": 6.0
+            },
+            {
+              "handshakes": 1,
+              "kind": "session_established",
+              "link": "AddressHash(640ad796b2c1b055aea7920d68b62987)"
+            },
+            {
+              "hex": "0c00640ad796b2c1b055aea7920d68b62987001ba340a49501317832140f09224f349f5864e5b6c1467bf405ec9c6b49a2a9c7cc0ec8bfe8405df24a6105a4b445cab9d92d276bb519c5e4688d52a87293662bd7e4ba2f081f23f571e3d9dec9043ed00b21e25960d7fa0382a006bcad34922f",
+              "kind": "session_tx_ack",
+              "label": "before-excursion-0"
+            },
+            {
+              "hex": "0c00640ad796b2c1b055aea7920d68b62987001ba340a49501317832140f09224f349f5864e5b6c1467bf405ec9c6b49a2a9c7cc0ec8bfe8405df24a6105a4b445cab9d92d276bb519c5e4688d52a87293662bd7e4ba2f081f23f571e3d9dec9043ed00b21e25960d7fa0382a006bcad34922f",
+              "kind": "session_rx_exact",
+              "label": "before-excursion-0",
+              "receive_wait_ms": 11.5473,
+              "rssi_dbm": -90,
+              "snr_db": 5.0
+            },
+            {
+              "direction": 0,
+              "kind": "session_data",
+              "label": "before-excursion",
+              "link": "AddressHash(640ad796b2c1b055aea7920d68b62987)",
+              "plaintext": "before-excursion:0:retained-link"
+            },
+            {
+              "hex": "0c00640ad796b2c1b055aea7920d68b629870043e0c7edf8be4b6df063bd99db3720223d11771d647160f26174dc00164ae69f28f942ab4806ccc5bdc9742b0db74ab3c87aca97ea0e833180ab8c76acb04610aa685a5659384e6600f3ce9b63195703886b8b626e8c50be1b8ce8f977621776",
+              "kind": "session_tx_ack",
+              "label": "before-excursion-1"
+            },
+            {
+              "hex": "0c00640ad796b2c1b055aea7920d68b629870043e0c7edf8be4b6df063bd99db3720223d11771d647160f26174dc00164ae69f28f942ab4806ccc5bdc9742b0db74ab3c87aca97ea0e833180ab8c76acb04610aa685a5659384e6600f3ce9b63195703886b8b626e8c50be1b8ce8f977621776",
+              "kind": "session_rx_exact",
+              "label": "before-excursion-1",
+              "receive_wait_ms": 9.176,
+              "rssi_dbm": -23,
+              "snr_db": 6.0
+            },
+            {
+              "direction": 1,
+              "kind": "session_data",
+              "label": "before-excursion",
+              "link": "AddressHash(640ad796b2c1b055aea7920d68b62987)",
+              "plaintext": "before-excursion:1:retained-link"
+            },
+            {
+              "airtime_ms": 641.024,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d6475743a313a626173656c696e65",
+              "kind": "tx_ack",
+              "label": "baseline-dut"
+            },
+            {
+              "decoded": {
+                "payload": "2d58fb4d94d76b4e-dut:1:baseline",
+                "protocol": "retinue-plain-data"
+              },
+              "elapsed_ms": 665.769,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d6475743a313a626173656c696e65",
+              "kind": "rx_exact",
+              "label": "baseline-dut",
+              "rssi_dbm": -90,
+              "snr_db": 5.0,
+              "unrelated_frames": 0
+            },
+            {
+              "airtime_ms": 641.024,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d706565723a313a626173656c696e65",
+              "kind": "tx_ack",
+              "label": "baseline-peer"
+            },
+            {
+              "decoded": {
+                "payload": "2d58fb4d94d76b4e-peer:1:baseline",
+                "protocol": "retinue-plain-data"
+              },
+              "elapsed_ms": 666.0729,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d706565723a313a626173656c696e65",
+              "kind": "rx_exact",
+              "label": "baseline-peer",
+              "rssi_dbm": -24,
+              "snr_db": 6.0,
+              "unrelated_frames": 0
+            },
+            {
+              "airtime_ms": 681.984,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d706565723a323a7573622d626f756e646172797878",
+              "kind": "tx_ack",
+              "label": "usb-64-peer"
+            },
+            {
+              "decoded": {
+                "payload": "2d58fb4d94d76b4e-peer:2:usb-boundaryxx",
+                "protocol": "retinue-plain-data"
+              },
+              "elapsed_ms": 710.51,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d706565723a323a7573622d626f756e646172797878",
+              "kind": "rx_exact",
+              "label": "usb-64-peer",
+              "rssi_dbm": -23,
+              "snr_db": 7.0,
+              "unrelated_frames": 0
+            },
+            {
+              "airtime_ms": 681.984,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d6475743a323a7573622d626f756e64617279787878",
+              "kind": "tx_ack",
+              "label": "usb-64-dut"
+            },
+            {
+              "decoded": {
+                "payload": "2d58fb4d94d76b4e-dut:2:usb-boundaryxxx",
+                "protocol": "retinue-plain-data"
+              },
+              "elapsed_ms": 707.4517999999999,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d6475743a323a7573622d626f756e64617279787878",
+              "kind": "rx_exact",
+              "label": "usb-64-dut",
+              "rssi_dbm": -89,
+              "snr_db": 5.0,
+              "unrelated_frames": 0
+            },
+            {
+              "airtime_ms": 1132.544,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d706565723a333a7573622d626f756e64617279787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878",
+              "kind": "tx_ack",
+              "label": "usb-128-peer"
+            },
+            {
+              "decoded": {
+                "payload": "2d58fb4d94d76b4e-peer:3:usb-boundaryxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                "protocol": "retinue-plain-data"
+              },
+              "elapsed_ms": 1161.0921999999998,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d706565723a333a7573622d626f756e64617279787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878",
+              "kind": "rx_exact",
+              "label": "usb-128-peer",
+              "rssi_dbm": -24,
+              "snr_db": 6.0,
+              "unrelated_frames": 0
+            },
+            {
+              "airtime_ms": 1132.544,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d6475743a333a7573622d626f756e6461727978787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878",
+              "kind": "tx_ack",
+              "label": "usb-128-dut"
+            },
+            {
+              "decoded": {
+                "payload": "2d58fb4d94d76b4e-dut:3:usb-boundaryxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                "protocol": "retinue-plain-data"
+              },
+              "elapsed_ms": 1160.9665,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d6475743a333a7573622d626f756e6461727978787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878",
+              "kind": "rx_exact",
+              "label": "usb-128-dut",
+              "rssi_dbm": -90,
+              "snr_db": 6.0,
+              "unrelated_frames": 0
+            },
+            {
+              "assessment": "PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(905883), latest_link_activity: Some(5883), link_expiry_overflow: false }",
+              "kind": "session_pause_ready",
+              "now_ms": 10955,
+              "return_bound_ms": 41955,
+              "side": "dut"
+            },
+            {
+              "assessment": "PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(904764), latest_link_activity: Some(4764), link_expiry_overflow: false }",
+              "kind": "session_pause_ready",
+              "now_ms": 10955,
+              "return_bound_ms": 41955,
+              "side": "peer"
+            },
+            {
+              "discarded_rx": 0,
+              "elapsed_ms": 1.858,
+              "kind": "excursion_ack",
+              "label": "dut-0",
+              "state": "Away { target: PersonalityId(2), excursion_deadline: 36821, return_by: 41821, interruption: ResumableOnly }",
+              "transition_id": 1
+            },
+            {
+              "airtime_ms": 681.984,
+              "cycle": 0,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d706565723a343a616273656e742d686f6d652d302d30",
+              "kind": "home_wave_tx_ack"
+            },
+            {
+              "airtime_ms": 681.984,
+              "cycle": 0,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d706565723a353a616273656e742d686f6d652d302d31",
+              "kind": "home_wave_tx_ack"
+            },
+            {
+              "captured": 0,
+              "cycle": 0,
+              "injected_tx_acked": 2,
+              "interval_ms": 2318.2634000000003,
+              "kind": "home_absence",
+              "not_observed": 2,
+              "scope": "DUT receive opportunity absent; no independent on-air witness",
+              "unrelated_frames": 0
+            },
+            {
+              "assessment": "PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(905883), latest_link_activity: Some(5883), link_expiry_overflow: false }",
+              "kind": "session_pause_ready",
+              "now_ms": 13276,
+              "return_bound_ms": 44276,
+              "side": "dut"
+            },
+            {
+              "assessment": "PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(904764), latest_link_activity: Some(4764), link_expiry_overflow: false }",
+              "kind": "session_pause_ready",
+              "now_ms": 13276,
+              "return_bound_ms": 44276,
+              "side": "peer"
+            },
+            {
+              "discarded_rx": 0,
+              "elapsed_ms": 10.5868,
+              "kind": "excursion_ack",
+              "label": "peer-0",
+              "state": "Away { target: PersonalityId(2), excursion_deadline: 38286, return_by: 43286, interruption: ResumableOnly }",
+              "transition_id": 1
+            },
+            {
+              "airtime_ms": 559.104,
+              "hex": "ffffffff9d166324010000000008009da5346731fb22ccc4e68e748de3037267dddf757e85b428524f7b",
+              "kind": "tx_ack",
+              "label": "sennet-dut"
+            },
+            {
+              "decoded": {
+                "packet_id": 1,
+                "protocol": "sennet",
+                "source": 610473629,
+                "text": "2d58fb4d94d76b4e:dut:0"
+              },
+              "elapsed_ms": 589.8842,
+              "hex": "ffffffff9d166324010000000008009da5346731fb22ccc4e68e748de3037267dddf757e85b428524f7b",
+              "kind": "rx_exact",
+              "label": "sennet-dut",
+              "rssi_dbm": -90,
+              "snr_db": 5.0,
+              "unrelated_frames": 0
+            },
+            {
+              "airtime_ms": 559.104,
+              "hex": "ffffffff1e860d23010000000008001e2d9b55516c0d3ad6a95aba1b7a4e7bea1953f6e79b6a85984dc709",
+              "kind": "tx_ack",
+              "label": "sennet-peer"
+            },
+            {
+              "decoded": {
+                "packet_id": 1,
+                "protocol": "sennet",
+                "source": 588088862,
+                "text": "2d58fb4d94d76b4e:peer:0"
+              },
+              "elapsed_ms": 583.9121,
+              "hex": "ffffffff1e860d23010000000008001e2d9b55516c0d3ad6a95aba1b7a4e7bea1953f6e79b6a85984dc709",
+              "kind": "rx_exact",
+              "label": "sennet-peer",
+              "rssi_dbm": -23,
+              "snr_db": 7.0,
+              "unrelated_frames": 0
+            },
+            {
+              "discarded_rx": 0,
+              "kind": "home_ack",
+              "label": "dut-0",
+              "return_ms": 1.9368,
+              "transition_id": 2
+            },
+            {
+              "discarded_rx": 0,
+              "kind": "home_ack",
+              "label": "peer-0",
+              "return_ms": 2.7489,
+              "transition_id": 2
+            },
+            {
+              "hex": "0c00640ad796b2c1b055aea7920d68b6298700562c985a44950189e6de751dce537fe60ebe80672b4721fbd88a73d3e2180e0672a9b9ae87ded43fb7f41cf779ef24b26985dd4f3bcf4412bbcdf842142d0ea851c90978847d59d094fee72291ca209bcdd14acfcdeb6fcc7e585016d2099345",
+              "kind": "session_tx_ack",
+              "label": "after-excursion-0-0"
+            },
+            {
+              "hex": "0c00640ad796b2c1b055aea7920d68b6298700562c985a44950189e6de751dce537fe60ebe80672b4721fbd88a73d3e2180e0672a9b9ae87ded43fb7f41cf779ef24b26985dd4f3bcf4412bbcdf842142d0ea851c90978847d59d094fee72291ca209bcdd14acfcdeb6fcc7e585016d2099345",
+              "kind": "session_rx_exact",
+              "label": "after-excursion-0-0",
+              "receive_wait_ms": 11.188,
+              "rssi_dbm": -90,
+              "snr_db": 5.0
+            },
+            {
+              "direction": 0,
+              "kind": "session_data",
+              "label": "after-excursion-0",
+              "link": "AddressHash(640ad796b2c1b055aea7920d68b62987)",
+              "plaintext": "after-excursion-0:0:retained-link"
+            },
+            {
+              "hex": "0c00640ad796b2c1b055aea7920d68b6298700edc9cb86017654702ef0ce574b92ec832195700b04fb4991cdcb691db887c4c6604e7b3bc884bd53813e5052ccc15e217c3d62ed545e9e0d52a3076b1dd00ffb65dda0536b284e031b258d1274551714c7b2731a0cfefd5334554dbbf62bf018",
+              "kind": "session_tx_ack",
+              "label": "after-excursion-0-1"
+            },
+            {
+              "hex": "0c00640ad796b2c1b055aea7920d68b6298700edc9cb86017654702ef0ce574b92ec832195700b04fb4991cdcb691db887c4c6604e7b3bc884bd53813e5052ccc15e217c3d62ed545e9e0d52a3076b1dd00ffb65dda0536b284e031b258d1274551714c7b2731a0cfefd5334554dbbf62bf018",
+              "kind": "session_rx_exact",
+              "label": "after-excursion-0-1",
+              "receive_wait_ms": 9.222299999999999,
+              "rssi_dbm": -23,
+              "snr_db": 6.0
+            },
+            {
+              "direction": 1,
+              "kind": "session_data",
+              "label": "after-excursion-0",
+              "link": "AddressHash(640ad796b2c1b055aea7920d68b62987)",
+              "plaintext": "after-excursion-0:1:retained-link"
+            },
+            {
+              "airtime_ms": 641.024,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d6475743a343a72657475726e6564",
+              "kind": "tx_ack",
+              "label": "returned-dut"
+            },
+            {
+              "decoded": {
+                "payload": "2d58fb4d94d76b4e-dut:4:returned",
+                "protocol": "retinue-plain-data"
+              },
+              "elapsed_ms": 665.7942,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d6475743a343a72657475726e6564",
+              "kind": "rx_exact",
+              "label": "returned-dut",
+              "rssi_dbm": -90,
+              "snr_db": 5.0,
+              "unrelated_frames": 0
+            },
+            {
+              "airtime_ms": 641.024,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d706565723a363a72657475726e6564",
+              "kind": "tx_ack",
+              "label": "returned-peer"
+            },
+            {
+              "decoded": {
+                "payload": "2d58fb4d94d76b4e-peer:6:returned",
+                "protocol": "retinue-plain-data"
+              },
+              "elapsed_ms": 666.1361,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d706565723a363a72657475726e6564",
+              "kind": "rx_exact",
+              "label": "returned-peer",
+              "rssi_dbm": -24,
+              "snr_db": 6.0,
+              "unrelated_frames": 0
+            },
+            {
+              "assessment": "PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(916718), latest_link_activity: Some(16718), link_expiry_overflow: false }",
+              "kind": "session_pause_ready",
+              "now_ms": 18050,
+              "return_bound_ms": 49050,
+              "side": "dut"
+            },
+            {
+              "assessment": "PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(915598), latest_link_activity: Some(15598), link_expiry_overflow: false }",
+              "kind": "session_pause_ready",
+              "now_ms": 18050,
+              "return_bound_ms": 49050,
+              "side": "peer"
+            },
+            {
+              "discarded_rx": 0,
+              "elapsed_ms": 1.567,
+              "kind": "excursion_ack",
+              "label": "dut-1",
+              "state": "Away { target: PersonalityId(2), excursion_deadline: 43915, return_by: 48915, interruption: ResumableOnly }",
+              "transition_id": 3
+            },
+            {
+              "airtime_ms": 681.984,
+              "cycle": 1,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d706565723a373a616273656e742d686f6d652d312d30",
+              "kind": "home_wave_tx_ack"
+            },
+            {
+              "airtime_ms": 681.984,
+              "cycle": 1,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d706565723a383a616273656e742d686f6d652d312d31",
+              "kind": "home_wave_tx_ack"
+            },
+            {
+              "captured": 0,
+              "cycle": 1,
+              "injected_tx_acked": 2,
+              "interval_ms": 2313.9186,
+              "kind": "home_absence",
+              "not_observed": 2,
+              "scope": "DUT receive opportunity absent; no independent on-air witness",
+              "unrelated_frames": 0
+            },
+            {
+              "assessment": "PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(916718), latest_link_activity: Some(16718), link_expiry_overflow: false }",
+              "kind": "session_pause_ready",
+              "now_ms": 20366,
+              "return_bound_ms": 51366,
+              "side": "dut"
+            },
+            {
+              "assessment": "PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(915598), latest_link_activity: Some(15598), link_expiry_overflow: false }",
+              "kind": "session_pause_ready",
+              "now_ms": 20366,
+              "return_bound_ms": 51366,
+              "side": "peer"
+            },
+            {
+              "discarded_rx": 0,
+              "elapsed_ms": 10.089300000000001,
+              "kind": "excursion_ack",
+              "label": "peer-1",
+              "state": "Away { target: PersonalityId(2), excursion_deadline: 45376, return_by: 50376, interruption: ResumableOnly }",
+              "transition_id": 3
+            },
+            {
+              "airtime_ms": 559.104,
+              "hex": "ffffffff9d166324020000000008009df30bf5e015e5d44770fd6d33fdee874d7370c1de812c4321e84d",
+              "kind": "tx_ack",
+              "label": "sennet-dut"
+            },
+            {
+              "decoded": {
+                "packet_id": 2,
+                "protocol": "sennet",
+                "source": 610473629,
+                "text": "2d58fb4d94d76b4e:dut:1"
+              },
+              "elapsed_ms": 589.0349,
+              "hex": "ffffffff9d166324020000000008009df30bf5e015e5d44770fd6d33fdee874d7370c1de812c4321e84d",
+              "kind": "rx_exact",
+              "label": "sennet-dut",
+              "rssi_dbm": -90,
+              "snr_db": 4.0,
+              "unrelated_frames": 0
+            },
+            {
+              "airtime_ms": 559.104,
+              "hex": "ffffffff9d166324010000000008009da5346731fb22ccc4e68e748de3037267dddf757e85b428524f7b",
+              "kind": "tx_ack",
+              "label": "sennet-replay-after-pause"
+            },
+            {
+              "decoded": {
+                "packet_id": 1,
+                "protocol": "sennet",
+                "source": 610473629,
+                "text": "2d58fb4d94d76b4e:dut:0"
+              },
+              "elapsed_ms": 587.0005,
+              "hex": "ffffffff9d166324010000000008009da5346731fb22ccc4e68e748de3037267dddf757e85b428524f7b",
+              "kind": "rx_exact",
+              "label": "sennet-replay-after-pause",
+              "rssi_dbm": -90,
+              "snr_db": 4.0,
+              "unrelated_frames": 0
+            },
+            {
+              "kind": "sennet_duplicate_retained",
+              "relay_decision": "Ignore(Duplicate)",
+              "scope": "same RF frame recognized by retained ManagedFlood; not a session protocol"
+            },
+            {
+              "airtime_ms": 559.104,
+              "hex": "ffffffff1e860d23020000000008001e4524619d3e308c62761b68c1500ac9a0baee5adb33afbe03b8367d",
+              "kind": "tx_ack",
+              "label": "sennet-peer"
+            },
+            {
+              "decoded": {
+                "packet_id": 2,
+                "protocol": "sennet",
+                "source": 588088862,
+                "text": "2d58fb4d94d76b4e:peer:1"
+              },
+              "elapsed_ms": 584.0079999999999,
+              "hex": "ffffffff1e860d23020000000008001e4524619d3e308c62761b68c1500ac9a0baee5adb33afbe03b8367d",
+              "kind": "rx_exact",
+              "label": "sennet-peer",
+              "rssi_dbm": -24,
+              "snr_db": 6.0,
+              "unrelated_frames": 0
+            },
+            {
+              "event": "ReturnRequired(Cancelled)",
+              "kind": "explicit_cancellation"
+            },
+            {
+              "discarded_rx": 0,
+              "kind": "home_ack",
+              "label": "dut-1",
+              "return_ms": 1.7581,
+              "transition_id": 4
+            },
+            {
+              "discarded_rx": 0,
+              "kind": "home_ack",
+              "label": "peer-1",
+              "return_ms": 2.7292,
+              "transition_id": 4
+            },
+            {
+              "hex": "0c00640ad796b2c1b055aea7920d68b629870037939af1cb973a5544f18257578d7c4df9970449d38ab7d071e2898d317e2a3ca12f62541ec67f85c3709f4ad0d150bd65a6d239f4c51f2a85b770dc6dc5277773b61fa5ef145c84682748e0bdbc3f97cd5f4936f40ff8df99f253c5b5552ad8",
+              "kind": "session_tx_ack",
+              "label": "after-excursion-1-0"
+            },
+            {
+              "hex": "0c00640ad796b2c1b055aea7920d68b629870037939af1cb973a5544f18257578d7c4df9970449d38ab7d071e2898d317e2a3ca12f62541ec67f85c3709f4ad0d150bd65a6d239f4c51f2a85b770dc6dc5277773b61fa5ef145c84682748e0bdbc3f97cd5f4936f40ff8df99f253c5b5552ad8",
+              "kind": "session_rx_exact",
+              "label": "after-excursion-1-0",
+              "receive_wait_ms": 11.013,
+              "rssi_dbm": -89,
+              "snr_db": 5.0
+            },
+            {
+              "direction": 0,
+              "kind": "session_data",
+              "label": "after-excursion-1",
+              "link": "AddressHash(640ad796b2c1b055aea7920d68b62987)",
+              "plaintext": "after-excursion-1:0:retained-link"
+            },
+            {
+              "hex": "0c00640ad796b2c1b055aea7920d68b6298700e719701156bc39a7c0693f85ac3d74db98a24e5291134e67fb7144ede93b197d87cee6a793c5f0d729eecb89626b152d0b54136b84663485970129f28b38a18e6f476846c1192c8a9fe21fe030a77d141e98c8dd88cc0c970f80423af16cc8a3",
+              "kind": "session_tx_ack",
+              "label": "after-excursion-1-1"
+            },
+            {
+              "hex": "0c00640ad796b2c1b055aea7920d68b6298700e719701156bc39a7c0693f85ac3d74db98a24e5291134e67fb7144ede93b197d87cee6a793c5f0d729eecb89626b152d0b54136b84663485970129f28b38a18e6f476846c1192c8a9fe21fe030a77d141e98c8dd88cc0c970f80423af16cc8a3",
+              "kind": "session_rx_exact",
+              "label": "after-excursion-1-1",
+              "receive_wait_ms": 9.3736,
+              "rssi_dbm": -24,
+              "snr_db": 7.0
+            },
+            {
+              "direction": 1,
+              "kind": "session_data",
+              "label": "after-excursion-1",
+              "link": "AddressHash(640ad796b2c1b055aea7920d68b62987)",
+              "plaintext": "after-excursion-1:1:retained-link"
+            },
+            {
+              "airtime_ms": 641.024,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d6475743a353a72657475726e6564",
+              "kind": "tx_ack",
+              "label": "returned-dut"
+            },
+            {
+              "decoded": {
+                "payload": "2d58fb4d94d76b4e-dut:5:returned",
+                "protocol": "retinue-plain-data"
+              },
+              "elapsed_ms": 665.8304,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d6475743a353a72657475726e6564",
+              "kind": "rx_exact",
+              "label": "returned-dut",
+              "rssi_dbm": -90,
+              "snr_db": 5.0,
+              "unrelated_frames": 0
+            },
+            {
+              "airtime_ms": 641.024,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d706565723a393a72657475726e6564",
+              "kind": "tx_ack",
+              "label": "returned-peer"
+            },
+            {
+              "decoded": {
+                "payload": "2d58fb4d94d76b4e-peer:9:returned",
+                "protocol": "retinue-plain-data"
+              },
+              "elapsed_ms": 666.036,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d706565723a393a72657475726e6564",
+              "kind": "rx_exact",
+              "label": "returned-peer",
+              "rssi_dbm": -24,
+              "snr_db": 6.0,
+              "unrelated_frames": 0
+            },
+            {
+              "assessment": "PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(924390), latest_link_activity: Some(24390), link_expiry_overflow: false }",
+              "kind": "session_pause_ready",
+              "now_ms": 25722,
+              "return_bound_ms": 56722,
+              "side": "dut"
+            },
+            {
+              "assessment": "PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(923270), latest_link_activity: Some(23270), link_expiry_overflow: false }",
+              "kind": "session_pause_ready",
+              "now_ms": 25722,
+              "return_bound_ms": 56722,
+              "side": "peer"
+            },
+            {
+              "discarded_rx": 0,
+              "elapsed_ms": 1.6586999999999998,
+              "kind": "excursion_ack",
+              "label": "deadline-dut",
+              "state": "Away { target: PersonalityId(2), excursion_deadline: 27587, return_by: 32587, interruption: ResumableOnly }",
+              "transition_id": 5
+            },
+            {
+              "discarded_rx": 0,
+              "kind": "home_ack",
+              "label": "deadline-dut",
+              "return_ms": 7.0543000000000005,
+              "transition_id": 6
+            },
+            {
+              "hex": "0c00640ad796b2c1b055aea7920d68b6298700185ed13d85a24099a5955127baf42df756066d8ab0f70c4c105ae35ee41929d41ea7ba03438e96bbdc0cceda37266d47fed0d471c3020079a147d60916612252715e7d101694e0cedea985947068f27d",
+              "kind": "session_tx_ack",
+              "label": "after-deadline-0"
+            },
+            {
+              "hex": "0c00640ad796b2c1b055aea7920d68b6298700185ed13d85a24099a5955127baf42df756066d8ab0f70c4c105ae35ee41929d41ea7ba03438e96bbdc0cceda37266d47fed0d471c3020079a147d60916612252715e7d101694e0cedea985947068f27d",
+              "kind": "session_rx_exact",
+              "label": "after-deadline-0",
+              "receive_wait_ms": 10.5384,
+              "rssi_dbm": -90,
+              "snr_db": 5.0
+            },
+            {
+              "direction": 0,
+              "kind": "session_data",
+              "label": "after-deadline",
+              "link": "AddressHash(640ad796b2c1b055aea7920d68b62987)",
+              "plaintext": "after-deadline:0:retained-link"
+            },
+            {
+              "hex": "0c00640ad796b2c1b055aea7920d68b6298700db5303a6ad5ee97eac0132d7373a60dc0a1595a2e491c357efb1ad0aa84321ed2269dcf41923be69c5163a64cd42619813d0dbce1c1db3d6418e6612e498eccc405f6f83637ffa87db4d2bc622e7f07c",
+              "kind": "session_tx_ack",
+              "label": "after-deadline-1"
+            },
+            {
+              "hex": "0c00640ad796b2c1b055aea7920d68b6298700db5303a6ad5ee97eac0132d7373a60dc0a1595a2e491c357efb1ad0aa84321ed2269dcf41923be69c5163a64cd42619813d0dbce1c1db3d6418e6612e498eccc405f6f83637ffa87db4d2bc622e7f07c",
+              "kind": "session_rx_exact",
+              "label": "after-deadline-1",
+              "receive_wait_ms": 9.9722,
+              "rssi_dbm": -23,
+              "snr_db": 6.0
+            },
+            {
+              "direction": 1,
+              "kind": "session_data",
+              "label": "after-deadline",
+              "link": "AddressHash(640ad796b2c1b055aea7920d68b62987)",
+              "plaintext": "after-deadline:1:retained-link"
+            },
+            {
+              "airtime_ms": 681.984,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d706565723a31303a61667465722d646561646c696e65",
+              "kind": "tx_ack",
+              "label": "after-deadline"
+            },
+            {
+              "decoded": {
+                "payload": "2d58fb4d94d76b4e-peer:10:after-deadline",
+                "protocol": "retinue-plain-data"
+              },
+              "elapsed_ms": 709.6183000000001,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d706565723a31303a61667465722d646561646c696e65",
+              "kind": "rx_exact",
+              "label": "after-deadline",
+              "rssi_dbm": -23,
+              "snr_db": 6.0,
+              "unrelated_frames": 0
+            },
+            {
+              "kind": "pinned_refusal",
+              "result": "Err(Controller(Pinned(PersonalityId(1))))",
+              "same_serial_session": true
+            },
+            {
+              "airtime_ms": 641.024,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d706565723a31313a70696e6e65642d686f6d65",
+              "kind": "tx_ack",
+              "label": "pinned-home"
+            },
+            {
+              "decoded": {
+                "payload": "2d58fb4d94d76b4e-peer:11:pinned-home",
+                "protocol": "retinue-plain-data"
+              },
+              "elapsed_ms": 670.1181,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00326435386662346439346437366234652d706565723a31313a70696e6e65642d686f6d65",
+              "kind": "rx_exact",
+              "label": "pinned-home",
+              "rssi_dbm": -23,
+              "snr_db": 6.0,
+              "unrelated_frames": 0
+            },
+            {
+              "kind": "retained_state",
+              "retinue_dut_sequence": 5,
+              "retinue_peer_sequence": 11,
+              "scope": "caller-owned packet counters and channel state; no remote sessions",
+              "sennet_dut_reserved": 2,
+              "sennet_peer_reserved": 2
+            },
+            {
+              "hex": "0c00640ad796b2c1b055aea7920d68b629870079b28b46099f89f04facbb618cb8d66201bb6025aca305e3d026847a42d87caf046e0b8af16b64d609e2ab8f0d552ef3855586ab8b1a5818cedb7cb3dda11840641f129bc3d4d48b166d586a9b5946478c59844237c09155a422550d8e69e319",
+              "kind": "session_tx_ack",
+              "label": "pinned-retained-link-0"
+            },
+            {
+              "hex": "0c00640ad796b2c1b055aea7920d68b629870079b28b46099f89f04facbb618cb8d66201bb6025aca305e3d026847a42d87caf046e0b8af16b64d609e2ab8f0d552ef3855586ab8b1a5818cedb7cb3dda11840641f129bc3d4d48b166d586a9b5946478c59844237c09155a422550d8e69e319",
+              "kind": "session_rx_exact",
+              "label": "pinned-retained-link-0",
+              "receive_wait_ms": 11.1983,
+              "rssi_dbm": -90,
+              "snr_db": 5.0
+            },
+            {
+              "direction": 0,
+              "kind": "session_data",
+              "label": "pinned-retained-link",
+              "link": "AddressHash(640ad796b2c1b055aea7920d68b62987)",
+              "plaintext": "pinned-retained-link:0:retained-link"
+            },
+            {
+              "hex": "0c00640ad796b2c1b055aea7920d68b629870001266a4d918c303a5e367f36a0093e7131105edc12d9209c8f58c7436c2c320b81bee39dea57f7acbb85da06dfc8d7c64fe7b058d61dfb4e77fad98f1be1eff59a9d664bdfc38e39c83934b718bae0cfb5948f7b40a68e72aa95034f40654305",
+              "kind": "session_tx_ack",
+              "label": "pinned-retained-link-1"
+            },
+            {
+              "hex": "0c00640ad796b2c1b055aea7920d68b629870001266a4d918c303a5e367f36a0093e7131105edc12d9209c8f58c7436c2c320b81bee39dea57f7acbb85da06dfc8d7c64fe7b058d61dfb4e77fad98f1be1eff59a9d664bdfc38e39c83934b718bae0cfb5948f7b40a68e72aa95034f40654305",
+              "kind": "session_rx_exact",
+              "label": "pinned-retained-link-1",
+              "receive_wait_ms": 9.439400000000001,
+              "rssi_dbm": -23,
+              "snr_db": 7.0
+            },
+            {
+              "direction": 1,
+              "kind": "session_data",
+              "label": "pinned-retained-link",
+              "link": "AddressHash(640ad796b2c1b055aea7920d68b62987)",
+              "plaintext": "pinned-retained-link:1:retained-link"
+            }
+          ],
+          "passed": true,
+          "scope": "host-driven retained Retinue Node link and Sennet state through board radio owner; no autonomous firmware or third-party peer survival claim"
+        },
+        "finished_utc": "2026-09-11T06:52:29.170304+00:00"
+      }
+    },
+    {
+      "qualification": "qualified",
+      "file": "mc3b-2.json",
+      "sha256": "7e0effc43eaaea53e19873706549d143b932f5b13570a004dbc6e59d3c9447fd",
+      "receipt": {
+        "started_utc": "2026-09-11T06:56:31.800444+00:00",
+        "scope": "host-driven retained Retinue Node link and Sennet state",
+        "firmware_binary_identity": "not read back; live diagnostics and boot nonces recorded",
+        "runner_sha256": "68f58f56bc290d7ce9f282babc0c875f42418c2cc9b5f3b069b14441eef0ae8a",
+        "helper_sha256": "01ffc8bc612074ecdebffe071260596131d1fb9f5654b0a1790bb5dd0ed5e3c9",
+        "exe_sha256": "0df8ff519da555f11b1b65388d4d26c9f4323feb4356208d6a271675d267c2ff",
+        "baseline": {
+          "dut": {
+            "status": "tulle/heltec-v4 phy online; version=0.0.1; sx1262 online; sync=2b reg=24b4; longfast=906875000\r\nidentity=loaded slot=B seq=5\r\n",
+            "sync": "2b 24b4\r\n",
+            "cursor": {
+              "request_id": 1701,
+              "status": 0,
+              "boot_id": 93234391158868337,
+              "oldest": 171,
+              "newest": 202,
+              "next": 0,
+              "recorded": 202,
+              "overwritten": 170,
+              "encode_failed": 0,
+              "profile_count": 3,
+              "record_len": 0,
+              "raw_record": "",
+              "record_class": null
+            },
+            "profile": {
+              "request_id": 1702,
+              "status": 0,
+              "boot_id": 93234391158868337,
+              "profile_id": 1,
+              "config": "0278d00d3690d003000b0510002b0311"
+            }
+          },
+          "peer": {
+            "status": "tulle/t114 phy online; version=0.0.1; sx1262 online; spi=software; irq=poll; sync=2b reg=24b4; region=US915 freq=906875000 reset=pin crash=0 timebase=inactive\r\n",
+            "sync": "2b 24b4\r\n",
+            "cursor": {
+              "request_id": 1701,
+              "status": 0,
+              "boot_id": 9426683542982997560,
+              "oldest": 525,
+              "newest": 556,
+              "next": 0,
+              "recorded": 556,
+              "overwritten": 524,
+              "encode_failed": 0,
+              "profile_count": 3,
+              "record_len": 0,
+              "raw_record": "",
+              "record_class": null
+            },
+            "profile": {
+              "request_id": 1702,
+              "status": 0,
+              "boot_id": 9426683542982997560,
+              "profile_id": 1,
+              "config": "0278d00d3690d003000b0510002b0311"
+            }
+          }
+        },
+        "restoration": {
+          "dut": {
+            "restore_ack": {
+              "kind": "config",
+              "status": 0
+            },
+            "cursor": {
+              "request_id": 1801,
+              "status": 0,
+              "boot_id": 93234391158868337,
+              "oldest": 262,
+              "newest": 293,
+              "next": 0,
+              "recorded": 293,
+              "overwritten": 261,
+              "encode_failed": 0,
+              "profile_count": 3,
+              "record_len": 0,
+              "raw_record": "",
+              "record_class": null
+            },
+            "status": "tulle/heltec-v4 phy online; version=0.0.1; sx1262 online; sync=2b reg=24b4; longfast=906875000\r\nidentity=loaded slot=B seq=5\r\n",
+            "sync": "2b 24b4\r\n",
+            "same_boot": true,
+            "same_status": true,
+            "same_sync": true
+          },
+          "peer": {
+            "restore_ack": {
+              "kind": "config",
+              "status": 0
+            },
+            "cursor": {
+              "request_id": 1801,
+              "status": 0,
+              "boot_id": 9426683542982997560,
+              "oldest": 633,
+              "newest": 664,
+              "next": 0,
+              "recorded": 664,
+              "overwritten": 632,
+              "encode_failed": 0,
+              "profile_count": 3,
+              "record_len": 0,
+              "raw_record": "",
+              "record_class": null
+            },
+            "status": "tulle/t114 phy online; version=0.0.1; sx1262 online; spi=software; irq=poll; sync=2b reg=24b4; region=US915 freq=906875000 reset=pin crash=0 timebase=inactive\r\n",
+            "sync": "2b 24b4\r\n",
+            "same_boot": true,
+            "same_status": true,
+            "same_sync": true
+          }
+        },
+        "transcript": [
+          {
+            "utc": "2026-09-11T06:56:32.492884+00:00",
+            "perf": 204651.7017951,
+            "port": "COM7",
+            "direction": "tx",
+            "hex": "7374617475730a"
+          },
+          {
+            "utc": "2026-09-11T06:56:32.608248+00:00",
+            "perf": 204651.816884,
+            "port": "COM7",
+            "direction": "rx",
+            "hex": "74756c6c652f68656c7465632d763420706879206f6e6c696e653b2076657273696f6e3d302e302e313b20737831323632206f6e6c696e653b2073796e633d3262207265673d323462343b206c6f6e67666173743d3930363837353030300d0a6964656e746974793d6c6f6164656420736c6f743d42207365713d350d0a"
+          },
+          {
+            "utc": "2026-09-11T06:56:33.768060+00:00",
+            "perf": 204652.9769517,
+            "port": "COM7",
+            "direction": "tx",
+            "hex": "73796e630a"
+          },
+          {
+            "utc": "2026-09-11T06:56:33.871126+00:00",
+            "perf": 204653.0797595,
+            "port": "COM7",
+            "direction": "rx",
+            "hex": "326220323462340d0a"
+          },
+          {
+            "utc": "2026-09-11T06:56:35.041979+00:00",
+            "perf": 204654.2508409,
+            "port": "COM7",
+            "direction": "tx",
+            "hex": "0004303130303030303030366135303030303030303030303030303030303030303030303030303030303030303000"
+          },
+          {
+            "utc": "2026-09-11T06:56:35.145539+00:00",
+            "perf": 204654.3541462,
+            "port": "COM7",
+            "direction": "rx",
+            "hex": "8600410100000006a500014b3c2f4ddfc97100000000000000ab00000000000000ca000000000000000000000000000000ca00000000000000aa00000000000000000300af92e65c"
+          },
+          {
+            "utc": "2026-09-11T06:56:35.145539+00:00",
+            "perf": 204654.3544105,
+            "port": "COM7",
+            "direction": "tx",
+            "hex": "0004303130313030303030366136303134623363326634646466633937313030303030303030303030303030303100"
+          },
+          {
+            "utc": "2026-09-11T06:56:35.252988+00:00",
+            "perf": 204654.4616614,
+            "port": "COM7",
+            "direction": "rx",
+            "hex": "8600200101000006a600014b3c2f4ddfc971010278d00d3690d003000b0510002b03111d0a375b"
+          },
+          {
+            "utc": "2026-09-11T06:56:35.252988+00:00",
+            "perf": 204654.4618749,
+            "port": "COM7",
+            "direction": "tx",
+            "hex": "0278d00d3690d003000b0510002b0311"
+          },
+          {
+            "utc": "2026-09-11T06:56:35.364051+00:00",
+            "perf": 204654.5726539,
+            "port": "COM7",
+            "direction": "rx",
+            "hex": "8300"
+          },
+          {
+            "utc": "2026-09-11T06:56:35.944548+00:00",
+            "perf": 204655.1531988,
+            "port": "COM10",
+            "direction": "rx",
+            "hex": "74756c6c652f7431313420706879206f6e6c696e653b2076657273696f6e3d302e302e313b20737831323632206f6e6c696e653b207370693d736f6674776172653b206972713d706f6c6c3b2073796e633d3262207265673d323462343b20726567696f6e3d555339313520667265713d3930363837353030302072657365743d70696e2063726173683d302074696d65626173653d696e6163746976650d0a6964656e746974793d6c6f6164656420736c6f743d41207365713d38340d0a6e6f64653d353939393937633820686561703d302f3439313532206869676877617465723d32340d0a"
+          },
+          {
+            "utc": "2026-09-11T06:56:35.944548+00:00",
+            "perf": 204655.1533803,
+            "port": "COM10",
+            "direction": "tx",
+            "hex": "7374617475730a"
+          },
+          {
+            "utc": "2026-09-11T06:56:36.045113+00:00",
+            "perf": 204655.2536802,
+            "port": "COM10",
+            "direction": "rx",
+            "hex": "74756c6c652f7431313420706879206f6e6c696e653b2076657273696f6e3d302e302e313b20737831323632206f6e6c696e653b207370693d736f6674776172653b206972713d706f6c6c3b2073796e633d3262207265673d323462343b20726567696f6e3d555339313520667265713d3930363837353030302072657365743d70696e2063726173683d302074696d65626173653d696e6163746976650d0a"
+          },
+          {
+            "utc": "2026-09-11T06:56:37.222436+00:00",
+            "perf": 204656.4313311,
+            "port": "COM10",
+            "direction": "tx",
+            "hex": "73796e630a"
+          },
+          {
+            "utc": "2026-09-11T06:56:37.331774+00:00",
+            "perf": 204656.5404171,
+            "port": "COM10",
+            "direction": "rx",
+            "hex": "326220323462340d0a"
+          },
+          {
+            "utc": "2026-09-11T06:56:38.502825+00:00",
+            "perf": 204657.7116049,
+            "port": "COM10",
+            "direction": "tx",
+            "hex": "0004303130303030303030366135303030303030303030303030303030303030303030303030303030303030303000"
+          },
+          {
+            "utc": "2026-09-11T06:56:38.607595+00:00",
+            "perf": 204657.8162083,
+            "port": "COM10",
+            "direction": "rx",
+            "hex": "8600410100000006a50082d24ebcd585b638000000000000020d000000000000022c0000000000000000000000000000022c000000000000020c00000000000000000300cf677c00"
+          },
+          {
+            "utc": "2026-09-11T06:56:38.607595+00:00",
+            "perf": 204657.8164386,
+            "port": "COM10",
+            "direction": "tx",
+            "hex": "0004303130313030303030366136383264323465626364353835623633383030303030303030303030303030303100"
+          },
+          {
+            "utc": "2026-09-11T06:56:38.708598+00:00",
+            "perf": 204657.9172133,
+            "port": "COM10",
+            "direction": "rx",
+            "hex": "8600200101000006a60082d24ebcd585b638010278d00d3690d003000b0510002b031177cff7f7"
+          },
+          {
+            "utc": "2026-09-11T06:56:38.708598+00:00",
+            "perf": 204657.9173935,
+            "port": "COM10",
+            "direction": "tx",
+            "hex": "0278d00d3690d003000b0510002b0311"
+          },
+          {
+            "utc": "2026-09-11T06:56:38.814520+00:00",
+            "perf": 204658.0231442,
+            "port": "COM10",
+            "direction": "rx",
+            "hex": "8300"
+          },
+          {
+            "utc": "2026-09-11T06:57:14.155482+00:00",
+            "perf": 204693.3642909,
+            "port": "COM7",
+            "direction": "tx",
+            "hex": "0278d00d3690d003000b0510002b0311"
+          },
+          {
+            "utc": "2026-09-11T06:57:14.267329+00:00",
+            "perf": 204693.4759608,
+            "port": "COM7",
+            "direction": "rx",
+            "hex": "8300"
+          },
+          {
+            "utc": "2026-09-11T06:57:14.267329+00:00",
+            "perf": 204693.4761752,
+            "port": "COM7",
+            "direction": "tx",
+            "hex": "0004303130303030303030373039303030303030303030303030303030303030303030303030303030303030303000"
+          },
+          {
+            "utc": "2026-09-11T06:57:14.371917+00:00",
+            "perf": 204693.5805502,
+            "port": "COM7",
+            "direction": "rx",
+            "hex": "86004101000000070900014b3c2f4ddfc97100000000000001060000000000000125000000000000000000000000000001250000000000000105000000000000000003007b410b75"
+          },
+          {
+            "utc": "2026-09-11T06:57:14.371917+00:00",
+            "perf": 204693.5807843,
+            "port": "COM7",
+            "direction": "tx",
+            "hex": "7374617475730a"
+          },
+          {
+            "utc": "2026-09-11T06:57:14.487686+00:00",
+            "perf": 204693.6962878,
+            "port": "COM7",
+            "direction": "rx",
+            "hex": "74756c6c652f68656c7465632d763420706879206f6e6c696e653b2076657273696f6e3d302e302e313b20737831323632206f6e6c696e653b2073796e633d3262207265673d323462343b206c6f6e67666173743d3930363837353030300d0a6964656e746974793d6c6f6164656420736c6f743d42207365713d350d0a"
+          },
+          {
+            "utc": "2026-09-11T06:57:15.665711+00:00",
+            "perf": 204694.8745112,
+            "port": "COM7",
+            "direction": "tx",
+            "hex": "73796e630a"
+          },
+          {
+            "utc": "2026-09-11T06:57:15.772981+00:00",
+            "perf": 204694.9816393,
+            "port": "COM7",
+            "direction": "rx",
+            "hex": "326220323462340d0a"
+          },
+          {
+            "utc": "2026-09-11T06:57:17.516211+00:00",
+            "perf": 204696.7248354,
+            "port": "COM10",
+            "direction": "rx",
+            "hex": "74756c6c652f7431313420706879206f6e6c696e653b2076657273696f6e3d302e302e313b20737831323632206f6e6c696e653b207370693d736f6674776172653b206972713d706f6c6c3b2073796e633d3262207265673d323462343b20726567696f6e3d555339313520667265713d3930363837353030302072657365743d70696e2063726173683d302074696d65626173653d696e6163746976650d0a6964656e746974793d6c6f6164656420736c6f743d41207365713d38340d0a6e6f64653d353939393937633820686561703d302f3439313532206869676877617465723d32340d0a"
+          },
+          {
+            "utc": "2026-09-11T06:57:17.516211+00:00",
+            "perf": 204696.7249856,
+            "port": "COM10",
+            "direction": "tx",
+            "hex": "0278d00d3690d003000b0510002b0311"
+          },
+          {
+            "utc": "2026-09-11T06:57:17.618139+00:00",
+            "perf": 204696.8267159,
+            "port": "COM10",
+            "direction": "rx",
+            "hex": "8300"
+          },
+          {
+            "utc": "2026-09-11T06:57:17.618139+00:00",
+            "perf": 204696.8269211,
+            "port": "COM10",
+            "direction": "tx",
+            "hex": "0004303130303030303030373039303030303030303030303030303030303030303030303030303030303030303000"
+          },
+          {
+            "utc": "2026-09-11T06:57:17.720223+00:00",
+            "perf": 204696.9288572,
+            "port": "COM10",
+            "direction": "rx",
+            "hex": "8600410100000007090082d24ebcd585b63800000000000002790000000000000298000000000000000000000000000002980000000000000278000000000000000003004575f486"
+          },
+          {
+            "utc": "2026-09-11T06:57:17.720223+00:00",
+            "perf": 204696.9290519,
+            "port": "COM10",
+            "direction": "tx",
+            "hex": "7374617475730a"
+          },
+          {
+            "utc": "2026-09-11T06:57:17.823305+00:00",
+            "perf": 204697.0319922,
+            "port": "COM10",
+            "direction": "rx",
+            "hex": "74756c6c652f7431313420706879206f6e6c696e653b2076657273696f6e3d302e302e313b20737831323632206f6e6c696e653b207370693d736f6674776172653b206972713d706f6c6c3b2073796e633d3262207265673d323462343b20726567696f6e3d555339313520667265713d3930363837353030302072657365743d70696e2063726173683d302074696d65626173653d696e6163746976650d0a"
+          },
+          {
+            "utc": "2026-09-11T06:57:18.988195+00:00",
+            "perf": 204698.1970973,
+            "port": "COM10",
+            "direction": "tx",
+            "hex": "73796e630a"
+          },
+          {
+            "utc": "2026-09-11T06:57:19.102626+00:00",
+            "perf": 204698.3112478,
+            "port": "COM10",
+            "direction": "rx",
+            "hex": "326220323462340d0a"
+          }
+        ],
+        "passed": true,
+        "harness_config": {
+          "deadline_text": "after-deadline",
+          "settle_ms": 0,
+          "fresh_dut_baseline": false
+        },
+        "source_sha256": {
+          "Cargo.lock": "89ef5997bec6d634995b8a057f439d38a80e9771d2821114e1c68b2920a215dd",
+          "crates/retinue/Cargo.toml": "092422809f4c80969a307f955d2b01a3971890ede86924478f71f3a859e7bc50",
+          "crates/retinue/examples/murmuration_probe.rs": "3a539e741966143cb5dd560f029628339a936532d6e5893632ae9e61bbff4e4b",
+          "crates/retinue/examples/murmuration/session.rs": "93b7ae4c18eee7da9a5ccd77943746f07aa83a8c9782676c602c4831b9f1c366",
+          "crates/retinue/src/node.rs": "d3e7fca4d82c097debef73074435f8f8fcfcee825db7a29d6d59a45194a05da3",
+          "crates/tulle/src/personality.rs": "688a24414a275c91f664b120cdd3b11813b2686331013373909179c56b2c5624",
+          "crates/tulle/src/personality_serial.rs": "cd6b28acf1ecf211a6e4e110be08c8e5d87d686f46cc390f951f940781698362",
+          "crates/tulle/src/direct_phy_serial.rs": "6f68856f628e5ea0ab50e46fd299073e7dafb25728c52f24549bf2826da0753b",
+          "crates/tulle/src/lib.rs": "bc1d81e522f0a83b2fcec0a8178636115e1ddea9cf8163e8de91d8911572a977"
+        },
+        "base_revision": "13f46b6b3837efa6abfddece8cee25f0d275eff0",
+        "ports": {
+          "COM10": [
+            6421,
+            21023,
+            "TULLE-T114-01"
+          ],
+          "COM6": [
+            12346,
+            4097,
+            "44:1B:F6:6A:FB:28"
+          ],
+          "COM7": [
+            12346,
+            4097,
+            "44:1B:F6:6A:FA:64"
+          ]
+        },
+        "baseline_receipt_sha256": "adb27232cc265204aabd2ed5d31f5dccd6fb8df0cee5699a1d15b908056c37ba",
+        "host_exit": 0,
+        "host_stdout": "{\"elapsed_ms\":34500.6943,\"error\":null,\"events\":[{\"away_sync\":43,\"bandwidth_hz\":250000,\"dut\":\"COM7\",\"frequency_hz\":906875000,\"home_sync\":18,\"kind\":\"online\",\"peer\":\"COM10\",\"power_dbm\":7,\"run_id\":\"aaa208202d082ca1\",\"sf\":11},{\"hex\":\"0100c8e921e09e9ec3c741b231f03f4b596a00b5cb077b0d8c747abbb0d5fbc97656d722e67c21ad498174ab03193fe9ee8966a14310fe4bd4cb446ce3f7c09d27dfa0e4180a45f55d824452409891bccd5d256a6b030c7fadc1a2608a1c0a82903d006aa3a628169afc6c60fa97a5016fca0f5e5c7195a47345778359fcf0ee9b42b13e2d23e032c86f76d866a0616b71e746462cbdca8e1f1dff4305eb86c2d7f146d66ad906\",\"kind\":\"session_tx_ack\",\"label\":\"session-announce\"},{\"hex\":\"0100c8e921e09e9ec3c741b231f03f4b596a00b5cb077b0d8c747abbb0d5fbc97656d722e67c21ad498174ab03193fe9ee8966a14310fe4bd4cb446ce3f7c09d27dfa0e4180a45f55d824452409891bccd5d256a6b030c7fadc1a2608a1c0a82903d006aa3a628169afc6c60fa97a5016fca0f5e5c7195a47345778359fcf0ee9b42b13e2d23e032c86f76d866a0616b71e746462cbdca8e1f1dff4305eb86c2d7f146d66ad906\",\"kind\":\"session_rx_exact\",\"label\":\"session-announce\",\"receive_wait_ms\":9.976,\"rssi_dbm\":-23,\"snr_db\":6.0},{\"assessment\":\"PauseAssessment { pending_handshakes: 1, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: None, latest_link_activity: None, link_expiry_overflow: false }\",\"kind\":\"session_busy_refusal\",\"scope\":\"pending real handshake and queued action; no radio retune\"},{\"hex\":\"0200c8e921e09e9ec3c741b231f03f4b596a004edc096fa52061f7f6ea1bc9a2a74da9e0a49e3eba8a0e0f572348dcb3564b1d83086c3d7fb358c78bc0cded2666e4a914e58517110befcae6b5373befc4f5152000ff\",\"kind\":\"session_tx_ack\",\"label\":\"session-request\"},{\"hex\":\"0200c8e921e09e9ec3c741b231f03f4b596a004edc096fa52061f7f6ea1bc9a2a74da9e0a49e3eba8a0e0f572348dcb3564b1d83086c3d7fb358c78bc0cded2666e4a914e58517110befcae6b5373befc4f5152000ff\",\"kind\":\"session_rx_exact\",\"label\":\"session-request\",\"receive_wait_ms\":9.6691,\"rssi_dbm\":-90,\"snr_db\":5.0},{\"hex\":\"0f00cfe33c4cc703ffd3fd2a189b2351de15ff1c26987cd76e5d83b2ea3202043f32e86ae4c47e65e2936af0ca184a6e657a93f0b206855cd9fbef06f8229297177528e5627bea9aa0df1531c1c38ae732f90fad6441b7772b607f1546328dc33ea02082e6bfb8d415424240d5901ba286f04a2000ff\",\"kind\":\"session_tx_ack\",\"label\":\"session-proof\"},{\"hex\":\"0f00cfe33c4cc703ffd3fd2a189b2351de15ff1c26987cd76e5d83b2ea3202043f32e86ae4c47e65e2936af0ca184a6e657a93f0b206855cd9fbef06f8229297177528e5627bea9aa0df1531c1c38ae732f90fad6441b7772b607f1546328dc33ea02082e6bfb8d415424240d5901ba286f04a2000ff\",\"kind\":\"session_rx_exact\",\"label\":\"session-proof\",\"receive_wait_ms\":9.8961,\"rssi_dbm\":-23,\"snr_db\":6.0},{\"handshakes\":1,\"kind\":\"session_established\",\"link\":\"AddressHash(cfe33c4cc703ffd3fd2a189b2351de15)\"},{\"hex\":\"0c00cfe33c4cc703ffd3fd2a189b2351de150045c62f64f36baeff432a46387ffadb76d2cb446ecc01d7392e0f54d42d678a73843c96e30d500af6f2378d37f3ba1d9244c2ed82d85ce77c83753ee9aa1cb8a2e7e8605167f0f1121daf50cc70ee406b54fd4941ea69bf5b33a7637090b492b2\",\"kind\":\"session_tx_ack\",\"label\":\"before-excursion-0\"},{\"hex\":\"0c00cfe33c4cc703ffd3fd2a189b2351de150045c62f64f36baeff432a46387ffadb76d2cb446ecc01d7392e0f54d42d678a73843c96e30d500af6f2378d37f3ba1d9244c2ed82d85ce77c83753ee9aa1cb8a2e7e8605167f0f1121daf50cc70ee406b54fd4941ea69bf5b33a7637090b492b2\",\"kind\":\"session_rx_exact\",\"label\":\"before-excursion-0\",\"receive_wait_ms\":11.1044,\"rssi_dbm\":-90,\"snr_db\":5.0},{\"direction\":0,\"dut_links\":1,\"kind\":\"session_data\",\"label\":\"before-excursion\",\"link\":\"AddressHash(cfe33c4cc703ffd3fd2a189b2351de15)\",\"peer_links\":1,\"plaintext\":\"before-excursion:0:retained-link\"},{\"hex\":\"0c00cfe33c4cc703ffd3fd2a189b2351de1500a48930a2ca80e8d80ed3715053ec419e6d0cc8eee81fbe05e5b6538005896edb92da4f55a80a5068458ef19fd5f020a6b4b65be8786ebe57ed81e73d6db01aab8a4d8294e23865dd3b30ac483c13e107a240f77b1ec9eab424d0db57859e78f8\",\"kind\":\"session_tx_ack\",\"label\":\"before-excursion-1\"},{\"hex\":\"0c00cfe33c4cc703ffd3fd2a189b2351de1500a48930a2ca80e8d80ed3715053ec419e6d0cc8eee81fbe05e5b6538005896edb92da4f55a80a5068458ef19fd5f020a6b4b65be8786ebe57ed81e73d6db01aab8a4d8294e23865dd3b30ac483c13e107a240f77b1ec9eab424d0db57859e78f8\",\"kind\":\"session_rx_exact\",\"label\":\"before-excursion-1\",\"receive_wait_ms\":9.521099999999999,\"rssi_dbm\":-23,\"snr_db\":6.0},{\"direction\":1,\"dut_links\":1,\"kind\":\"session_data\",\"label\":\"before-excursion\",\"link\":\"AddressHash(cfe33c4cc703ffd3fd2a189b2351de15)\",\"peer_links\":1,\"plaintext\":\"before-excursion:1:retained-link\"},{\"airtime_ms\":641.024,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d6475743a313a626173656c696e65\",\"kind\":\"tx_ack\",\"label\":\"baseline-dut\"},{\"decoded\":{\"payload\":\"aaa208202d082ca1-dut:1:baseline\",\"protocol\":\"retinue-plain-data\"},\"elapsed_ms\":665.5075,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d6475743a313a626173656c696e65\",\"kind\":\"rx_exact\",\"label\":\"baseline-dut\",\"rssi_dbm\":-91,\"snr_db\":5.0,\"unrelated_frames\":0},{\"airtime_ms\":641.024,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d706565723a313a626173656c696e65\",\"kind\":\"tx_ack\",\"label\":\"baseline-peer\"},{\"decoded\":{\"payload\":\"aaa208202d082ca1-peer:1:baseline\",\"protocol\":\"retinue-plain-data\"},\"elapsed_ms\":666.1166,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d706565723a313a626173656c696e65\",\"kind\":\"rx_exact\",\"label\":\"baseline-peer\",\"rssi_dbm\":-24,\"snr_db\":6.0,\"unrelated_frames\":0},{\"airtime_ms\":681.984,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d706565723a323a7573622d626f756e646172797878\",\"kind\":\"tx_ack\",\"label\":\"usb-64-peer\"},{\"decoded\":{\"payload\":\"aaa208202d082ca1-peer:2:usb-boundaryxx\",\"protocol\":\"retinue-plain-data\"},\"elapsed_ms\":710.335,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d706565723a323a7573622d626f756e646172797878\",\"kind\":\"rx_exact\",\"label\":\"usb-64-peer\",\"rssi_dbm\":-23,\"snr_db\":6.0,\"unrelated_frames\":0},{\"airtime_ms\":681.984,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d6475743a323a7573622d626f756e64617279787878\",\"kind\":\"tx_ack\",\"label\":\"usb-64-dut\"},{\"decoded\":{\"payload\":\"aaa208202d082ca1-dut:2:usb-boundaryxxx\",\"protocol\":\"retinue-plain-data\"},\"elapsed_ms\":707.4717,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d6475743a323a7573622d626f756e64617279787878\",\"kind\":\"rx_exact\",\"label\":\"usb-64-dut\",\"rssi_dbm\":-90,\"snr_db\":5.0,\"unrelated_frames\":0},{\"airtime_ms\":1132.544,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d706565723a333a7573622d626f756e64617279787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878\",\"kind\":\"tx_ack\",\"label\":\"usb-128-peer\"},{\"decoded\":{\"payload\":\"aaa208202d082ca1-peer:3:usb-boundaryxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"protocol\":\"retinue-plain-data\"},\"elapsed_ms\":1161.183,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d706565723a333a7573622d626f756e64617279787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878\",\"kind\":\"rx_exact\",\"label\":\"usb-128-peer\",\"rssi_dbm\":-24,\"snr_db\":6.0,\"unrelated_frames\":0},{\"airtime_ms\":1132.544,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d6475743a333a7573622d626f756e6461727978787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878\",\"kind\":\"tx_ack\",\"label\":\"usb-128-dut\"},{\"decoded\":{\"payload\":\"aaa208202d082ca1-dut:3:usb-boundaryxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"protocol\":\"retinue-plain-data\"},\"elapsed_ms\":1160.7561,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d6475743a333a7573622d626f756e6461727978787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878\",\"kind\":\"rx_exact\",\"label\":\"usb-128-dut\",\"rssi_dbm\":-90,\"snr_db\":5.0,\"unrelated_frames\":0},{\"assessment\":\"PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(905887), latest_link_activity: Some(5887), link_expiry_overflow: false }\",\"kind\":\"session_pause_ready\",\"now_ms\":10959,\"return_bound_ms\":46959,\"side\":\"dut\"},{\"assessment\":\"PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(904767), latest_link_activity: Some(4767), link_expiry_overflow: false }\",\"kind\":\"session_pause_ready\",\"now_ms\":10959,\"return_bound_ms\":46959,\"side\":\"peer\"},{\"discarded_rx\":0,\"elapsed_ms\":1.9837000000000002,\"kind\":\"excursion_ack\",\"label\":\"dut-0\",\"state\":\"Away { target: PersonalityId(2), excursion_deadline: 36815, return_by: 41815, interruption: ResumableOnly }\",\"transition_id\":1},{\"airtime_ms\":681.984,\"cycle\":0,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d706565723a343a616273656e742d686f6d652d302d30\",\"kind\":\"home_wave_tx_ack\"},{\"airtime_ms\":681.984,\"cycle\":0,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d706565723a353a616273656e742d686f6d652d302d31\",\"kind\":\"home_wave_tx_ack\"},{\"captured\":0,\"cycle\":0,\"injected_tx_acked\":2,\"interval_ms\":2314.6969999999997,\"kind\":\"home_absence\",\"not_observed\":2,\"scope\":\"DUT receive opportunity absent; no independent on-air witness\",\"unrelated_frames\":0},{\"assessment\":\"PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(905887), latest_link_activity: Some(5887), link_expiry_overflow: false }\",\"kind\":\"session_pause_ready\",\"now_ms\":13276,\"return_bound_ms\":49276,\"side\":\"dut\"},{\"assessment\":\"PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(904767), latest_link_activity: Some(4767), link_expiry_overflow: false }\",\"kind\":\"session_pause_ready\",\"now_ms\":13276,\"return_bound_ms\":49276,\"side\":\"peer\"},{\"discarded_rx\":0,\"elapsed_ms\":9.9792,\"kind\":\"excursion_ack\",\"label\":\"peer-0\",\"state\":\"Away { target: PersonalityId(2), excursion_deadline: 38286, return_by: 43286, interruption: ResumableOnly }\",\"transition_id\":1},{\"airtime_ms\":559.104,\"hex\":\"ffffffffd25754a501000000000800d2b410aad7a045d4fc819ed0cd15e41cc58cca07d56ad686769017\",\"kind\":\"tx_ack\",\"label\":\"sennet-dut\"},{\"decoded\":{\"packet_id\":1,\"protocol\":\"sennet\",\"source\":2773768146,\"text\":\"aaa208202d082ca1:dut:0\"},\"elapsed_ms\":589.8683,\"hex\":\"ffffffffd25754a501000000000800d2b410aad7a045d4fc819ed0cd15e41cc58cca07d56ad686769017\",\"kind\":\"rx_exact\",\"label\":\"sennet-dut\",\"rssi_dbm\":-90,\"snr_db\":3.0,\"unrelated_frames\":0},{\"airtime_ms\":559.104,\"hex\":\"ffffffffc273856601000000000800c298ad1eb287efef6fc08c9bb77d3c43945e0fc40ec9fae41ca348ee\",\"kind\":\"tx_ack\",\"label\":\"sennet-peer\"},{\"decoded\":{\"packet_id\":1,\"protocol\":\"sennet\",\"source\":1720021954,\"text\":\"aaa208202d082ca1:peer:0\"},\"elapsed_ms\":583.978,\"hex\":\"ffffffffc273856601000000000800c298ad1eb287efef6fc08c9bb77d3c43945e0fc40ec9fae41ca348ee\",\"kind\":\"rx_exact\",\"label\":\"sennet-peer\",\"rssi_dbm\":-23,\"snr_db\":6.0,\"unrelated_frames\":0},{\"assessment\":\"PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(905887), latest_link_activity: Some(5887), link_expiry_overflow: false }\",\"kind\":\"session_pause_ready\",\"now_ms\":14544,\"return_bound_ms\":20544,\"side\":\"dut\"},{\"assessment\":\"PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(904767), latest_link_activity: Some(4767), link_expiry_overflow: false }\",\"kind\":\"session_pause_ready\",\"now_ms\":14544,\"return_bound_ms\":20544,\"side\":\"peer\"},{\"discarded_rx\":0,\"kind\":\"home_ack\",\"label\":\"dut-0\",\"return_ms\":1.5955,\"transition_id\":2},{\"assessment\":\"PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(905887), latest_link_activity: Some(5887), link_expiry_overflow: false }\",\"kind\":\"session_pause_ready\",\"now_ms\":14545,\"return_bound_ms\":20545,\"side\":\"dut\"},{\"assessment\":\"PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(904767), latest_link_activity: Some(4767), link_expiry_overflow: false }\",\"kind\":\"session_pause_ready\",\"now_ms\":14545,\"return_bound_ms\":20545,\"side\":\"peer\"},{\"discarded_rx\":0,\"kind\":\"home_ack\",\"label\":\"peer-0\",\"return_ms\":3.1458,\"transition_id\":2},{\"hex\":\"0c00cfe33c4cc703ffd3fd2a189b2351de1500e55b25cdf607c1597291d8a5f319d518ce52a00da92a745c6e381b65f231d14386325aed02e68d5a7716916eed76d1c290190aeaa843c600daa483a4df0d1dfee210b68d669bf27a918d1e253fb04476a14f1dcd30ec9052915e99498c5da6c6\",\"kind\":\"session_tx_ack\",\"label\":\"after-excursion-0-0\"},{\"hex\":\"0c00cfe33c4cc703ffd3fd2a189b2351de1500e55b25cdf607c1597291d8a5f319d518ce52a00da92a745c6e381b65f231d14386325aed02e68d5a7716916eed76d1c290190aeaa843c600daa483a4df0d1dfee210b68d669bf27a918d1e253fb04476a14f1dcd30ec9052915e99498c5da6c6\",\"kind\":\"session_rx_exact\",\"label\":\"after-excursion-0-0\",\"receive_wait_ms\":10.684600000000001,\"rssi_dbm\":-90,\"snr_db\":4.0},{\"direction\":0,\"dut_links\":1,\"kind\":\"session_data\",\"label\":\"after-excursion-0\",\"link\":\"AddressHash(cfe33c4cc703ffd3fd2a189b2351de15)\",\"peer_links\":1,\"plaintext\":\"after-excursion-0:0:retained-link\"},{\"hex\":\"0c00cfe33c4cc703ffd3fd2a189b2351de1500d6ea6a68bbebae402be268a49a355867c7fecf559cb3ceab318d22395195ccac380528f5c04f3d0624b307415b875dc88e059fbc4f2b34a6f1d22390c00e56924dfb13ff82ee1c3e0592724aa32ee9a6be6e5e9b0638ae2830996babd30438bc\",\"kind\":\"session_tx_ack\",\"label\":\"after-excursion-0-1\"},{\"hex\":\"0c00cfe33c4cc703ffd3fd2a189b2351de1500d6ea6a68bbebae402be268a49a355867c7fecf559cb3ceab318d22395195ccac380528f5c04f3d0624b307415b875dc88e059fbc4f2b34a6f1d22390c00e56924dfb13ff82ee1c3e0592724aa32ee9a6be6e5e9b0638ae2830996babd30438bc\",\"kind\":\"session_rx_exact\",\"label\":\"after-excursion-0-1\",\"receive_wait_ms\":9.3215,\"rssi_dbm\":-24,\"snr_db\":6.0},{\"direction\":1,\"dut_links\":1,\"kind\":\"session_data\",\"label\":\"after-excursion-0\",\"link\":\"AddressHash(cfe33c4cc703ffd3fd2a189b2351de15)\",\"peer_links\":1,\"plaintext\":\"after-excursion-0:1:retained-link\"},{\"airtime_ms\":641.024,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d6475743a343a72657475726e6564\",\"kind\":\"tx_ack\",\"label\":\"returned-dut\"},{\"decoded\":{\"payload\":\"aaa208202d082ca1-dut:4:returned\",\"protocol\":\"retinue-plain-data\"},\"elapsed_ms\":665.8695,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d6475743a343a72657475726e6564\",\"kind\":\"rx_exact\",\"label\":\"returned-dut\",\"rssi_dbm\":-91,\"snr_db\":5.0,\"unrelated_frames\":0},{\"airtime_ms\":641.024,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d706565723a363a72657475726e6564\",\"kind\":\"tx_ack\",\"label\":\"returned-peer\"},{\"decoded\":{\"payload\":\"aaa208202d082ca1-peer:6:returned\",\"protocol\":\"retinue-plain-data\"},\"elapsed_ms\":666.1712,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d706565723a363a72657475726e6564\",\"kind\":\"rx_exact\",\"label\":\"returned-peer\",\"rssi_dbm\":-24,\"snr_db\":6.0,\"unrelated_frames\":0},{\"assessment\":\"PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(916796), latest_link_activity: Some(16796), link_expiry_overflow: false }\",\"kind\":\"session_pause_ready\",\"now_ms\":18128,\"return_bound_ms\":54128,\"side\":\"dut\"},{\"assessment\":\"PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(915676), latest_link_activity: Some(15676), link_expiry_overflow: false }\",\"kind\":\"session_pause_ready\",\"now_ms\":18128,\"return_bound_ms\":54128,\"side\":\"peer\"},{\"discarded_rx\":0,\"elapsed_ms\":1.5378,\"kind\":\"excursion_ack\",\"label\":\"dut-1\",\"state\":\"Away { target: PersonalityId(2), excursion_deadline: 43984, return_by: 48984, interruption: ResumableOnly }\",\"transition_id\":3},{\"airtime_ms\":681.984,\"cycle\":1,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d706565723a373a616273656e742d686f6d652d312d30\",\"kind\":\"home_wave_tx_ack\"},{\"airtime_ms\":681.984,\"cycle\":1,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d706565723a383a616273656e742d686f6d652d312d31\",\"kind\":\"home_wave_tx_ack\"},{\"captured\":0,\"cycle\":1,\"injected_tx_acked\":2,\"interval_ms\":2316.7717,\"kind\":\"home_absence\",\"not_observed\":2,\"scope\":\"DUT receive opportunity absent; no independent on-air witness\",\"unrelated_frames\":0},{\"assessment\":\"PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(916796), latest_link_activity: Some(16796), link_expiry_overflow: false }\",\"kind\":\"session_pause_ready\",\"now_ms\":20446,\"return_bound_ms\":56446,\"side\":\"dut\"},{\"assessment\":\"PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(915676), latest_link_activity: Some(15676), link_expiry_overflow: false }\",\"kind\":\"session_pause_ready\",\"now_ms\":20446,\"return_bound_ms\":56446,\"side\":\"peer\"},{\"discarded_rx\":0,\"elapsed_ms\":10.0622,\"kind\":\"excursion_ack\",\"label\":\"peer-1\",\"state\":\"Away { target: PersonalityId(2), excursion_deadline: 45456, return_by: 50456, interruption: ResumableOnly }\",\"transition_id\":3},{\"airtime_ms\":559.104,\"hex\":\"ffffffffd25754a502000000000800d293e049d765ea8ca6b1f323b61e5cfd7a44c3402dc1a2f0ea4723\",\"kind\":\"tx_ack\",\"label\":\"sennet-dut\"},{\"decoded\":{\"packet_id\":2,\"protocol\":\"sennet\",\"source\":2773768146,\"text\":\"aaa208202d082ca1:dut:1\"},\"elapsed_ms\":589.2941000000001,\"hex\":\"ffffffffd25754a502000000000800d293e049d765ea8ca6b1f323b61e5cfd7a44c3402dc1a2f0ea4723\",\"kind\":\"rx_exact\",\"label\":\"sennet-dut\",\"rssi_dbm\":-90,\"snr_db\":5.0,\"unrelated_frames\":0},{\"airtime_ms\":559.104,\"hex\":\"ffffffffd25754a501000000000800d2b410aad7a045d4fc819ed0cd15e41cc58cca07d56ad686769017\",\"kind\":\"tx_ack\",\"label\":\"sennet-replay-after-pause\"},{\"decoded\":{\"packet_id\":1,\"protocol\":\"sennet\",\"source\":2773768146,\"text\":\"aaa208202d082ca1:dut:0\"},\"elapsed_ms\":586.8314,\"hex\":\"ffffffffd25754a501000000000800d2b410aad7a045d4fc819ed0cd15e41cc58cca07d56ad686769017\",\"kind\":\"rx_exact\",\"label\":\"sennet-replay-after-pause\",\"rssi_dbm\":-90,\"snr_db\":5.0,\"unrelated_frames\":0},{\"kind\":\"sennet_duplicate_retained\",\"relay_decision\":\"Ignore(Duplicate)\",\"scope\":\"same RF frame recognized by retained ManagedFlood; not a session protocol\"},{\"airtime_ms\":559.104,\"hex\":\"ffffffffc273856602000000000800c29be65dcf4859aaca7a0a993f0bc94e5cf50828a8748d409cc2d9e3\",\"kind\":\"tx_ack\",\"label\":\"sennet-peer\"},{\"decoded\":{\"packet_id\":2,\"protocol\":\"sennet\",\"source\":1720021954,\"text\":\"aaa208202d082ca1:peer:1\"},\"elapsed_ms\":584.0144,\"hex\":\"ffffffffc273856602000000000800c29be65dcf4859aaca7a0a993f0bc94e5cf50828a8748d409cc2d9e3\",\"kind\":\"rx_exact\",\"label\":\"sennet-peer\",\"rssi_dbm\":-23,\"snr_db\":6.0,\"unrelated_frames\":0},{\"event\":\"ReturnRequired(Cancelled)\",\"kind\":\"explicit_cancellation\"},{\"assessment\":\"PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(916796), latest_link_activity: Some(16796), link_expiry_overflow: false }\",\"kind\":\"session_pause_ready\",\"now_ms\":22263,\"return_bound_ms\":28263,\"side\":\"dut\"},{\"assessment\":\"PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(915676), latest_link_activity: Some(15676), link_expiry_overflow: false }\",\"kind\":\"session_pause_ready\",\"now_ms\":22263,\"return_bound_ms\":28263,\"side\":\"peer\"},{\"discarded_rx\":0,\"kind\":\"home_ack\",\"label\":\"dut-1\",\"return_ms\":1.7819,\"transition_id\":4},{\"assessment\":\"PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(916796), latest_link_activity: Some(16796), link_expiry_overflow: false }\",\"kind\":\"session_pause_ready\",\"now_ms\":22265,\"return_bound_ms\":28265,\"side\":\"dut\"},{\"assessment\":\"PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(915676), latest_link_activity: Some(15676), link_expiry_overflow: false }\",\"kind\":\"session_pause_ready\",\"now_ms\":22265,\"return_bound_ms\":28265,\"side\":\"peer\"},{\"discarded_rx\":0,\"kind\":\"home_ack\",\"label\":\"peer-1\",\"return_ms\":2.6245000000000003,\"transition_id\":4},{\"hex\":\"0c00cfe33c4cc703ffd3fd2a189b2351de150035042268e3c2868fc480468235139c306f8dab77d6c37f34291ab1433c207c0234f3088c3ac515d2dd57e6a69893a00340722b8db1ae4c1f4e99c61a87d2f5aa69aaa35a66cd4e45ce031363c39b6efda408eac82fb123802a140a577edb8f2e\",\"kind\":\"session_tx_ack\",\"label\":\"after-excursion-1-0\"},{\"hex\":\"0c00cfe33c4cc703ffd3fd2a189b2351de150035042268e3c2868fc480468235139c306f8dab77d6c37f34291ab1433c207c0234f3088c3ac515d2dd57e6a69893a00340722b8db1ae4c1f4e99c61a87d2f5aa69aaa35a66cd4e45ce031363c39b6efda408eac82fb123802a140a577edb8f2e\",\"kind\":\"session_rx_exact\",\"label\":\"after-excursion-1-0\",\"receive_wait_ms\":11.065999999999999,\"rssi_dbm\":-90,\"snr_db\":5.0},{\"direction\":0,\"dut_links\":1,\"kind\":\"session_data\",\"label\":\"after-excursion-1\",\"link\":\"AddressHash(cfe33c4cc703ffd3fd2a189b2351de15)\",\"peer_links\":1,\"plaintext\":\"after-excursion-1:0:retained-link\"},{\"hex\":\"0c00cfe33c4cc703ffd3fd2a189b2351de150076ba16a60b5df65c8baa20bbbd745275b1c13b5893f2bc5580db84bd7d69cca0bcbd414f07e98378bae849ff08a0fcc866e94e919ee584a08b562bf4492a27db172c39947b3a9a98237cc4e10bfd8f77b45a4c2e4a6d21783971b4affc790dc7\",\"kind\":\"session_tx_ack\",\"label\":\"after-excursion-1-1\"},{\"hex\":\"0c00cfe33c4cc703ffd3fd2a189b2351de150076ba16a60b5df65c8baa20bbbd745275b1c13b5893f2bc5580db84bd7d69cca0bcbd414f07e98378bae849ff08a0fcc866e94e919ee584a08b562bf4492a27db172c39947b3a9a98237cc4e10bfd8f77b45a4c2e4a6d21783971b4affc790dc7\",\"kind\":\"session_rx_exact\",\"label\":\"after-excursion-1-1\",\"receive_wait_ms\":9.3616,\"rssi_dbm\":-24,\"snr_db\":6.0},{\"direction\":1,\"dut_links\":1,\"kind\":\"session_data\",\"label\":\"after-excursion-1\",\"link\":\"AddressHash(cfe33c4cc703ffd3fd2a189b2351de15)\",\"peer_links\":1,\"plaintext\":\"after-excursion-1:1:retained-link\"},{\"airtime_ms\":641.024,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d6475743a353a72657475726e6564\",\"kind\":\"tx_ack\",\"label\":\"returned-dut\"},{\"decoded\":{\"payload\":\"aaa208202d082ca1-dut:5:returned\",\"protocol\":\"retinue-plain-data\"},\"elapsed_ms\":665.6864999999999,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d6475743a353a72657475726e6564\",\"kind\":\"rx_exact\",\"label\":\"returned-dut\",\"rssi_dbm\":-90,\"snr_db\":5.0,\"unrelated_frames\":0},{\"airtime_ms\":641.024,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d706565723a393a72657475726e6564\",\"kind\":\"tx_ack\",\"label\":\"returned-peer\"},{\"decoded\":{\"payload\":\"aaa208202d082ca1-peer:9:returned\",\"protocol\":\"retinue-plain-data\"},\"elapsed_ms\":666.0078000000001,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d706565723a393a72657475726e6564\",\"kind\":\"rx_exact\",\"label\":\"returned-peer\",\"rssi_dbm\":-24,\"snr_db\":6.0,\"unrelated_frames\":0},{\"assessment\":\"PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(924516), latest_link_activity: Some(24516), link_expiry_overflow: false }\",\"kind\":\"session_pause_ready\",\"now_ms\":25847,\"return_bound_ms\":37847,\"side\":\"dut\"},{\"assessment\":\"PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(923396), latest_link_activity: Some(23396), link_expiry_overflow: false }\",\"kind\":\"session_pause_ready\",\"now_ms\":25847,\"return_bound_ms\":37847,\"side\":\"peer\"},{\"discarded_rx\":0,\"elapsed_ms\":1.6141,\"kind\":\"excursion_ack\",\"label\":\"deadline-dut\",\"state\":\"Away { target: PersonalityId(2), excursion_deadline: 27703, return_by: 32703, interruption: ResumableOnly }\",\"transition_id\":5},{\"assessment\":\"PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(924516), latest_link_activity: Some(24516), link_expiry_overflow: false }\",\"kind\":\"session_pause_ready\",\"now_ms\":26866,\"return_bound_ms\":32866,\"side\":\"dut\"},{\"assessment\":\"PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(923396), latest_link_activity: Some(23396), link_expiry_overflow: false }\",\"kind\":\"session_pause_ready\",\"now_ms\":26866,\"return_bound_ms\":32866,\"side\":\"peer\"},{\"discarded_rx\":0,\"kind\":\"home_ack\",\"label\":\"deadline-dut\",\"return_ms\":7.0936,\"transition_id\":6},{\"hex\":\"0c00cfe33c4cc703ffd3fd2a189b2351de15000cf6519176cd059991a600d0005866544078d08345b83845b42461187d617b95c15ecbdcd5f5f7f0428d678f069969b9bf5f6cc6c2f1f5ce9b770f68463ce728380956985a1ff0f1fc11df27e61f8672\",\"kind\":\"session_tx_ack\",\"label\":\"after-deadline-0\"},{\"hex\":\"0c00cfe33c4cc703ffd3fd2a189b2351de15000cf6519176cd059991a600d0005866544078d08345b83845b42461187d617b95c15ecbdcd5f5f7f0428d678f069969b9bf5f6cc6c2f1f5ce9b770f68463ce728380956985a1ff0f1fc11df27e61f8672\",\"kind\":\"session_rx_exact\",\"label\":\"after-deadline-0\",\"receive_wait_ms\":10.8293,\"rssi_dbm\":-90,\"snr_db\":5.0},{\"direction\":0,\"dut_links\":1,\"kind\":\"session_data\",\"label\":\"after-deadline\",\"link\":\"AddressHash(cfe33c4cc703ffd3fd2a189b2351de15)\",\"peer_links\":1,\"plaintext\":\"after-deadline:0:retained-link\"},{\"hex\":\"0c00cfe33c4cc703ffd3fd2a189b2351de150008fea006c77d4fb04e4c686742789101544b7da78d53e54d875855cd16c0744500d0c8ab3e17123946127d0ef87741d7ffa8f6e7bb67b2efb256337d2d949a98510a248446e82a71d4ed642c1d86d350\",\"kind\":\"session_tx_ack\",\"label\":\"after-deadline-1\"},{\"hex\":\"0c00cfe33c4cc703ffd3fd2a189b2351de150008fea006c77d4fb04e4c686742789101544b7da78d53e54d875855cd16c0744500d0c8ab3e17123946127d0ef87741d7ffa8f6e7bb67b2efb256337d2d949a98510a248446e82a71d4ed642c1d86d350\",\"kind\":\"session_rx_exact\",\"label\":\"after-deadline-1\",\"receive_wait_ms\":9.2468,\"rssi_dbm\":-23,\"snr_db\":5.0},{\"direction\":1,\"dut_links\":1,\"kind\":\"session_data\",\"label\":\"after-deadline\",\"link\":\"AddressHash(cfe33c4cc703ffd3fd2a189b2351de15)\",\"peer_links\":1,\"plaintext\":\"after-deadline:1:retained-link\"},{\"airtime_ms\":681.984,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d706565723a31303a61667465722d646561646c696e65\",\"kind\":\"tx_ack\",\"label\":\"after-deadline\"},{\"decoded\":{\"payload\":\"aaa208202d082ca1-peer:10:after-deadline\",\"protocol\":\"retinue-plain-data\"},\"elapsed_ms\":710.373,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d706565723a31303a61667465722d646561646c696e65\",\"kind\":\"rx_exact\",\"label\":\"after-deadline\",\"rssi_dbm\":-23,\"snr_db\":6.0,\"unrelated_frames\":0},{\"kind\":\"pinned_refusal\",\"result\":\"Err(Controller(Pinned(PersonalityId(1))))\",\"same_serial_session\":true},{\"airtime_ms\":641.024,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d706565723a31313a70696e6e65642d686f6d65\",\"kind\":\"tx_ack\",\"label\":\"pinned-home\"},{\"decoded\":{\"payload\":\"aaa208202d082ca1-peer:11:pinned-home\",\"protocol\":\"retinue-plain-data\"},\"elapsed_ms\":669.7574,\"hex\":\"08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d706565723a31313a70696e6e65642d686f6d65\",\"kind\":\"rx_exact\",\"label\":\"pinned-home\",\"rssi_dbm\":-23,\"snr_db\":6.0,\"unrelated_frames\":0},{\"kind\":\"retained_state\",\"retinue_dut_sequence\":5,\"retinue_peer_sequence\":11,\"scope\":\"caller-owned packet counters and channel state; no remote sessions\",\"sennet_dut_reserved\":2,\"sennet_peer_reserved\":2},{\"hex\":\"0c00cfe33c4cc703ffd3fd2a189b2351de150046e0a38a7dc484ae3e420ded6af3d3f639469d3a3ad6f9cd8deae9b7002533ede30ae66fee6be27cbe9ded1565fd97333359c5cd2a4201063b8670eb620cb969c21686639a54bdfd348f53e36ac60f2f3d96c0c8e7f2509083741471e77e51c7\",\"kind\":\"session_tx_ack\",\"label\":\"pinned-retained-link-0\"},{\"hex\":\"0c00cfe33c4cc703ffd3fd2a189b2351de150046e0a38a7dc484ae3e420ded6af3d3f639469d3a3ad6f9cd8deae9b7002533ede30ae66fee6be27cbe9ded1565fd97333359c5cd2a4201063b8670eb620cb969c21686639a54bdfd348f53e36ac60f2f3d96c0c8e7f2509083741471e77e51c7\",\"kind\":\"session_rx_exact\",\"label\":\"pinned-retained-link-0\",\"receive_wait_ms\":11.637099999999998,\"rssi_dbm\":-90,\"snr_db\":5.0},{\"direction\":0,\"dut_links\":1,\"kind\":\"session_data\",\"label\":\"pinned-retained-link\",\"link\":\"AddressHash(cfe33c4cc703ffd3fd2a189b2351de15)\",\"peer_links\":1,\"plaintext\":\"pinned-retained-link:0:retained-link\"},{\"hex\":\"0c00cfe33c4cc703ffd3fd2a189b2351de15002abe97253687e73c4d76466ace3fe69ac3cead8d31e286b08ca301499f5c2908903b4c36e13dfc6ca3a3d902c7e718114c033633be1d235d16fad1cb416500339e2a78ed429ce9fbe2f12538c1b1aa499b66fdac686bec33235472a82409c0e2\",\"kind\":\"session_tx_ack\",\"label\":\"pinned-retained-link-1\"},{\"hex\":\"0c00cfe33c4cc703ffd3fd2a189b2351de15002abe97253687e73c4d76466ace3fe69ac3cead8d31e286b08ca301499f5c2908903b4c36e13dfc6ca3a3d902c7e718114c033633be1d235d16fad1cb416500339e2a78ed429ce9fbe2f12538c1b1aa499b66fdac686bec33235472a82409c0e2\",\"kind\":\"session_rx_exact\",\"label\":\"pinned-retained-link-1\",\"receive_wait_ms\":9.634,\"rssi_dbm\":-24,\"snr_db\":6.0},{\"direction\":1,\"dut_links\":1,\"kind\":\"session_data\",\"label\":\"pinned-retained-link\",\"link\":\"AddressHash(cfe33c4cc703ffd3fd2a189b2351de15)\",\"peer_links\":1,\"plaintext\":\"pinned-retained-link:1:retained-link\"}],\"passed\":true,\"scope\":\"host-driven retained Retinue Node link and Sennet state through board radio owner; no autonomous firmware or third-party peer survival claim\"}\n",
+        "host_stderr": "",
+        "host": {
+          "elapsed_ms": 34500.6943,
+          "error": null,
+          "events": [
+            {
+              "away_sync": 43,
+              "bandwidth_hz": 250000,
+              "dut": "COM7",
+              "frequency_hz": 906875000,
+              "home_sync": 18,
+              "kind": "online",
+              "peer": "COM10",
+              "power_dbm": 7,
+              "run_id": "aaa208202d082ca1",
+              "sf": 11
+            },
+            {
+              "hex": "0100c8e921e09e9ec3c741b231f03f4b596a00b5cb077b0d8c747abbb0d5fbc97656d722e67c21ad498174ab03193fe9ee8966a14310fe4bd4cb446ce3f7c09d27dfa0e4180a45f55d824452409891bccd5d256a6b030c7fadc1a2608a1c0a82903d006aa3a628169afc6c60fa97a5016fca0f5e5c7195a47345778359fcf0ee9b42b13e2d23e032c86f76d866a0616b71e746462cbdca8e1f1dff4305eb86c2d7f146d66ad906",
+              "kind": "session_tx_ack",
+              "label": "session-announce"
+            },
+            {
+              "hex": "0100c8e921e09e9ec3c741b231f03f4b596a00b5cb077b0d8c747abbb0d5fbc97656d722e67c21ad498174ab03193fe9ee8966a14310fe4bd4cb446ce3f7c09d27dfa0e4180a45f55d824452409891bccd5d256a6b030c7fadc1a2608a1c0a82903d006aa3a628169afc6c60fa97a5016fca0f5e5c7195a47345778359fcf0ee9b42b13e2d23e032c86f76d866a0616b71e746462cbdca8e1f1dff4305eb86c2d7f146d66ad906",
+              "kind": "session_rx_exact",
+              "label": "session-announce",
+              "receive_wait_ms": 9.976,
+              "rssi_dbm": -23,
+              "snr_db": 6.0
+            },
+            {
+              "assessment": "PauseAssessment { pending_handshakes: 1, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: None, latest_link_activity: None, link_expiry_overflow: false }",
+              "kind": "session_busy_refusal",
+              "scope": "pending real handshake and queued action; no radio retune"
+            },
+            {
+              "hex": "0200c8e921e09e9ec3c741b231f03f4b596a004edc096fa52061f7f6ea1bc9a2a74da9e0a49e3eba8a0e0f572348dcb3564b1d83086c3d7fb358c78bc0cded2666e4a914e58517110befcae6b5373befc4f5152000ff",
+              "kind": "session_tx_ack",
+              "label": "session-request"
+            },
+            {
+              "hex": "0200c8e921e09e9ec3c741b231f03f4b596a004edc096fa52061f7f6ea1bc9a2a74da9e0a49e3eba8a0e0f572348dcb3564b1d83086c3d7fb358c78bc0cded2666e4a914e58517110befcae6b5373befc4f5152000ff",
+              "kind": "session_rx_exact",
+              "label": "session-request",
+              "receive_wait_ms": 9.6691,
+              "rssi_dbm": -90,
+              "snr_db": 5.0
+            },
+            {
+              "hex": "0f00cfe33c4cc703ffd3fd2a189b2351de15ff1c26987cd76e5d83b2ea3202043f32e86ae4c47e65e2936af0ca184a6e657a93f0b206855cd9fbef06f8229297177528e5627bea9aa0df1531c1c38ae732f90fad6441b7772b607f1546328dc33ea02082e6bfb8d415424240d5901ba286f04a2000ff",
+              "kind": "session_tx_ack",
+              "label": "session-proof"
+            },
+            {
+              "hex": "0f00cfe33c4cc703ffd3fd2a189b2351de15ff1c26987cd76e5d83b2ea3202043f32e86ae4c47e65e2936af0ca184a6e657a93f0b206855cd9fbef06f8229297177528e5627bea9aa0df1531c1c38ae732f90fad6441b7772b607f1546328dc33ea02082e6bfb8d415424240d5901ba286f04a2000ff",
+              "kind": "session_rx_exact",
+              "label": "session-proof",
+              "receive_wait_ms": 9.8961,
+              "rssi_dbm": -23,
+              "snr_db": 6.0
+            },
+            {
+              "handshakes": 1,
+              "kind": "session_established",
+              "link": "AddressHash(cfe33c4cc703ffd3fd2a189b2351de15)"
+            },
+            {
+              "hex": "0c00cfe33c4cc703ffd3fd2a189b2351de150045c62f64f36baeff432a46387ffadb76d2cb446ecc01d7392e0f54d42d678a73843c96e30d500af6f2378d37f3ba1d9244c2ed82d85ce77c83753ee9aa1cb8a2e7e8605167f0f1121daf50cc70ee406b54fd4941ea69bf5b33a7637090b492b2",
+              "kind": "session_tx_ack",
+              "label": "before-excursion-0"
+            },
+            {
+              "hex": "0c00cfe33c4cc703ffd3fd2a189b2351de150045c62f64f36baeff432a46387ffadb76d2cb446ecc01d7392e0f54d42d678a73843c96e30d500af6f2378d37f3ba1d9244c2ed82d85ce77c83753ee9aa1cb8a2e7e8605167f0f1121daf50cc70ee406b54fd4941ea69bf5b33a7637090b492b2",
+              "kind": "session_rx_exact",
+              "label": "before-excursion-0",
+              "receive_wait_ms": 11.1044,
+              "rssi_dbm": -90,
+              "snr_db": 5.0
+            },
+            {
+              "direction": 0,
+              "dut_links": 1,
+              "kind": "session_data",
+              "label": "before-excursion",
+              "link": "AddressHash(cfe33c4cc703ffd3fd2a189b2351de15)",
+              "peer_links": 1,
+              "plaintext": "before-excursion:0:retained-link"
+            },
+            {
+              "hex": "0c00cfe33c4cc703ffd3fd2a189b2351de1500a48930a2ca80e8d80ed3715053ec419e6d0cc8eee81fbe05e5b6538005896edb92da4f55a80a5068458ef19fd5f020a6b4b65be8786ebe57ed81e73d6db01aab8a4d8294e23865dd3b30ac483c13e107a240f77b1ec9eab424d0db57859e78f8",
+              "kind": "session_tx_ack",
+              "label": "before-excursion-1"
+            },
+            {
+              "hex": "0c00cfe33c4cc703ffd3fd2a189b2351de1500a48930a2ca80e8d80ed3715053ec419e6d0cc8eee81fbe05e5b6538005896edb92da4f55a80a5068458ef19fd5f020a6b4b65be8786ebe57ed81e73d6db01aab8a4d8294e23865dd3b30ac483c13e107a240f77b1ec9eab424d0db57859e78f8",
+              "kind": "session_rx_exact",
+              "label": "before-excursion-1",
+              "receive_wait_ms": 9.521099999999999,
+              "rssi_dbm": -23,
+              "snr_db": 6.0
+            },
+            {
+              "direction": 1,
+              "dut_links": 1,
+              "kind": "session_data",
+              "label": "before-excursion",
+              "link": "AddressHash(cfe33c4cc703ffd3fd2a189b2351de15)",
+              "peer_links": 1,
+              "plaintext": "before-excursion:1:retained-link"
+            },
+            {
+              "airtime_ms": 641.024,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d6475743a313a626173656c696e65",
+              "kind": "tx_ack",
+              "label": "baseline-dut"
+            },
+            {
+              "decoded": {
+                "payload": "aaa208202d082ca1-dut:1:baseline",
+                "protocol": "retinue-plain-data"
+              },
+              "elapsed_ms": 665.5075,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d6475743a313a626173656c696e65",
+              "kind": "rx_exact",
+              "label": "baseline-dut",
+              "rssi_dbm": -91,
+              "snr_db": 5.0,
+              "unrelated_frames": 0
+            },
+            {
+              "airtime_ms": 641.024,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d706565723a313a626173656c696e65",
+              "kind": "tx_ack",
+              "label": "baseline-peer"
+            },
+            {
+              "decoded": {
+                "payload": "aaa208202d082ca1-peer:1:baseline",
+                "protocol": "retinue-plain-data"
+              },
+              "elapsed_ms": 666.1166,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d706565723a313a626173656c696e65",
+              "kind": "rx_exact",
+              "label": "baseline-peer",
+              "rssi_dbm": -24,
+              "snr_db": 6.0,
+              "unrelated_frames": 0
+            },
+            {
+              "airtime_ms": 681.984,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d706565723a323a7573622d626f756e646172797878",
+              "kind": "tx_ack",
+              "label": "usb-64-peer"
+            },
+            {
+              "decoded": {
+                "payload": "aaa208202d082ca1-peer:2:usb-boundaryxx",
+                "protocol": "retinue-plain-data"
+              },
+              "elapsed_ms": 710.335,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d706565723a323a7573622d626f756e646172797878",
+              "kind": "rx_exact",
+              "label": "usb-64-peer",
+              "rssi_dbm": -23,
+              "snr_db": 6.0,
+              "unrelated_frames": 0
+            },
+            {
+              "airtime_ms": 681.984,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d6475743a323a7573622d626f756e64617279787878",
+              "kind": "tx_ack",
+              "label": "usb-64-dut"
+            },
+            {
+              "decoded": {
+                "payload": "aaa208202d082ca1-dut:2:usb-boundaryxxx",
+                "protocol": "retinue-plain-data"
+              },
+              "elapsed_ms": 707.4717,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d6475743a323a7573622d626f756e64617279787878",
+              "kind": "rx_exact",
+              "label": "usb-64-dut",
+              "rssi_dbm": -90,
+              "snr_db": 5.0,
+              "unrelated_frames": 0
+            },
+            {
+              "airtime_ms": 1132.544,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d706565723a333a7573622d626f756e64617279787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878",
+              "kind": "tx_ack",
+              "label": "usb-128-peer"
+            },
+            {
+              "decoded": {
+                "payload": "aaa208202d082ca1-peer:3:usb-boundaryxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                "protocol": "retinue-plain-data"
+              },
+              "elapsed_ms": 1161.183,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d706565723a333a7573622d626f756e64617279787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878",
+              "kind": "rx_exact",
+              "label": "usb-128-peer",
+              "rssi_dbm": -24,
+              "snr_db": 6.0,
+              "unrelated_frames": 0
+            },
+            {
+              "airtime_ms": 1132.544,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d6475743a333a7573622d626f756e6461727978787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878",
+              "kind": "tx_ack",
+              "label": "usb-128-dut"
+            },
+            {
+              "decoded": {
+                "payload": "aaa208202d082ca1-dut:3:usb-boundaryxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+                "protocol": "retinue-plain-data"
+              },
+              "elapsed_ms": 1160.7561,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d6475743a333a7573622d626f756e6461727978787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878787878",
+              "kind": "rx_exact",
+              "label": "usb-128-dut",
+              "rssi_dbm": -90,
+              "snr_db": 5.0,
+              "unrelated_frames": 0
+            },
+            {
+              "assessment": "PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(905887), latest_link_activity: Some(5887), link_expiry_overflow: false }",
+              "kind": "session_pause_ready",
+              "now_ms": 10959,
+              "return_bound_ms": 46959,
+              "side": "dut"
+            },
+            {
+              "assessment": "PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(904767), latest_link_activity: Some(4767), link_expiry_overflow: false }",
+              "kind": "session_pause_ready",
+              "now_ms": 10959,
+              "return_bound_ms": 46959,
+              "side": "peer"
+            },
+            {
+              "discarded_rx": 0,
+              "elapsed_ms": 1.9837000000000002,
+              "kind": "excursion_ack",
+              "label": "dut-0",
+              "state": "Away { target: PersonalityId(2), excursion_deadline: 36815, return_by: 41815, interruption: ResumableOnly }",
+              "transition_id": 1
+            },
+            {
+              "airtime_ms": 681.984,
+              "cycle": 0,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d706565723a343a616273656e742d686f6d652d302d30",
+              "kind": "home_wave_tx_ack"
+            },
+            {
+              "airtime_ms": 681.984,
+              "cycle": 0,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d706565723a353a616273656e742d686f6d652d302d31",
+              "kind": "home_wave_tx_ack"
+            },
+            {
+              "captured": 0,
+              "cycle": 0,
+              "injected_tx_acked": 2,
+              "interval_ms": 2314.6969999999997,
+              "kind": "home_absence",
+              "not_observed": 2,
+              "scope": "DUT receive opportunity absent; no independent on-air witness",
+              "unrelated_frames": 0
+            },
+            {
+              "assessment": "PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(905887), latest_link_activity: Some(5887), link_expiry_overflow: false }",
+              "kind": "session_pause_ready",
+              "now_ms": 13276,
+              "return_bound_ms": 49276,
+              "side": "dut"
+            },
+            {
+              "assessment": "PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(904767), latest_link_activity: Some(4767), link_expiry_overflow: false }",
+              "kind": "session_pause_ready",
+              "now_ms": 13276,
+              "return_bound_ms": 49276,
+              "side": "peer"
+            },
+            {
+              "discarded_rx": 0,
+              "elapsed_ms": 9.9792,
+              "kind": "excursion_ack",
+              "label": "peer-0",
+              "state": "Away { target: PersonalityId(2), excursion_deadline: 38286, return_by: 43286, interruption: ResumableOnly }",
+              "transition_id": 1
+            },
+            {
+              "airtime_ms": 559.104,
+              "hex": "ffffffffd25754a501000000000800d2b410aad7a045d4fc819ed0cd15e41cc58cca07d56ad686769017",
+              "kind": "tx_ack",
+              "label": "sennet-dut"
+            },
+            {
+              "decoded": {
+                "packet_id": 1,
+                "protocol": "sennet",
+                "source": 2773768146,
+                "text": "aaa208202d082ca1:dut:0"
+              },
+              "elapsed_ms": 589.8683,
+              "hex": "ffffffffd25754a501000000000800d2b410aad7a045d4fc819ed0cd15e41cc58cca07d56ad686769017",
+              "kind": "rx_exact",
+              "label": "sennet-dut",
+              "rssi_dbm": -90,
+              "snr_db": 3.0,
+              "unrelated_frames": 0
+            },
+            {
+              "airtime_ms": 559.104,
+              "hex": "ffffffffc273856601000000000800c298ad1eb287efef6fc08c9bb77d3c43945e0fc40ec9fae41ca348ee",
+              "kind": "tx_ack",
+              "label": "sennet-peer"
+            },
+            {
+              "decoded": {
+                "packet_id": 1,
+                "protocol": "sennet",
+                "source": 1720021954,
+                "text": "aaa208202d082ca1:peer:0"
+              },
+              "elapsed_ms": 583.978,
+              "hex": "ffffffffc273856601000000000800c298ad1eb287efef6fc08c9bb77d3c43945e0fc40ec9fae41ca348ee",
+              "kind": "rx_exact",
+              "label": "sennet-peer",
+              "rssi_dbm": -23,
+              "snr_db": 6.0,
+              "unrelated_frames": 0
+            },
+            {
+              "assessment": "PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(905887), latest_link_activity: Some(5887), link_expiry_overflow: false }",
+              "kind": "session_pause_ready",
+              "now_ms": 14544,
+              "return_bound_ms": 20544,
+              "side": "dut"
+            },
+            {
+              "assessment": "PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(904767), latest_link_activity: Some(4767), link_expiry_overflow: false }",
+              "kind": "session_pause_ready",
+              "now_ms": 14544,
+              "return_bound_ms": 20544,
+              "side": "peer"
+            },
+            {
+              "discarded_rx": 0,
+              "kind": "home_ack",
+              "label": "dut-0",
+              "return_ms": 1.5955,
+              "transition_id": 2
+            },
+            {
+              "assessment": "PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(905887), latest_link_activity: Some(5887), link_expiry_overflow: false }",
+              "kind": "session_pause_ready",
+              "now_ms": 14545,
+              "return_bound_ms": 20545,
+              "side": "dut"
+            },
+            {
+              "assessment": "PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(904767), latest_link_activity: Some(4767), link_expiry_overflow: false }",
+              "kind": "session_pause_ready",
+              "now_ms": 14545,
+              "return_bound_ms": 20545,
+              "side": "peer"
+            },
+            {
+              "discarded_rx": 0,
+              "kind": "home_ack",
+              "label": "peer-0",
+              "return_ms": 3.1458,
+              "transition_id": 2
+            },
+            {
+              "hex": "0c00cfe33c4cc703ffd3fd2a189b2351de1500e55b25cdf607c1597291d8a5f319d518ce52a00da92a745c6e381b65f231d14386325aed02e68d5a7716916eed76d1c290190aeaa843c600daa483a4df0d1dfee210b68d669bf27a918d1e253fb04476a14f1dcd30ec9052915e99498c5da6c6",
+              "kind": "session_tx_ack",
+              "label": "after-excursion-0-0"
+            },
+            {
+              "hex": "0c00cfe33c4cc703ffd3fd2a189b2351de1500e55b25cdf607c1597291d8a5f319d518ce52a00da92a745c6e381b65f231d14386325aed02e68d5a7716916eed76d1c290190aeaa843c600daa483a4df0d1dfee210b68d669bf27a918d1e253fb04476a14f1dcd30ec9052915e99498c5da6c6",
+              "kind": "session_rx_exact",
+              "label": "after-excursion-0-0",
+              "receive_wait_ms": 10.684600000000001,
+              "rssi_dbm": -90,
+              "snr_db": 4.0
+            },
+            {
+              "direction": 0,
+              "dut_links": 1,
+              "kind": "session_data",
+              "label": "after-excursion-0",
+              "link": "AddressHash(cfe33c4cc703ffd3fd2a189b2351de15)",
+              "peer_links": 1,
+              "plaintext": "after-excursion-0:0:retained-link"
+            },
+            {
+              "hex": "0c00cfe33c4cc703ffd3fd2a189b2351de1500d6ea6a68bbebae402be268a49a355867c7fecf559cb3ceab318d22395195ccac380528f5c04f3d0624b307415b875dc88e059fbc4f2b34a6f1d22390c00e56924dfb13ff82ee1c3e0592724aa32ee9a6be6e5e9b0638ae2830996babd30438bc",
+              "kind": "session_tx_ack",
+              "label": "after-excursion-0-1"
+            },
+            {
+              "hex": "0c00cfe33c4cc703ffd3fd2a189b2351de1500d6ea6a68bbebae402be268a49a355867c7fecf559cb3ceab318d22395195ccac380528f5c04f3d0624b307415b875dc88e059fbc4f2b34a6f1d22390c00e56924dfb13ff82ee1c3e0592724aa32ee9a6be6e5e9b0638ae2830996babd30438bc",
+              "kind": "session_rx_exact",
+              "label": "after-excursion-0-1",
+              "receive_wait_ms": 9.3215,
+              "rssi_dbm": -24,
+              "snr_db": 6.0
+            },
+            {
+              "direction": 1,
+              "dut_links": 1,
+              "kind": "session_data",
+              "label": "after-excursion-0",
+              "link": "AddressHash(cfe33c4cc703ffd3fd2a189b2351de15)",
+              "peer_links": 1,
+              "plaintext": "after-excursion-0:1:retained-link"
+            },
+            {
+              "airtime_ms": 641.024,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d6475743a343a72657475726e6564",
+              "kind": "tx_ack",
+              "label": "returned-dut"
+            },
+            {
+              "decoded": {
+                "payload": "aaa208202d082ca1-dut:4:returned",
+                "protocol": "retinue-plain-data"
+              },
+              "elapsed_ms": 665.8695,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d6475743a343a72657475726e6564",
+              "kind": "rx_exact",
+              "label": "returned-dut",
+              "rssi_dbm": -91,
+              "snr_db": 5.0,
+              "unrelated_frames": 0
+            },
+            {
+              "airtime_ms": 641.024,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d706565723a363a72657475726e6564",
+              "kind": "tx_ack",
+              "label": "returned-peer"
+            },
+            {
+              "decoded": {
+                "payload": "aaa208202d082ca1-peer:6:returned",
+                "protocol": "retinue-plain-data"
+              },
+              "elapsed_ms": 666.1712,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d706565723a363a72657475726e6564",
+              "kind": "rx_exact",
+              "label": "returned-peer",
+              "rssi_dbm": -24,
+              "snr_db": 6.0,
+              "unrelated_frames": 0
+            },
+            {
+              "assessment": "PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(916796), latest_link_activity: Some(16796), link_expiry_overflow: false }",
+              "kind": "session_pause_ready",
+              "now_ms": 18128,
+              "return_bound_ms": 54128,
+              "side": "dut"
+            },
+            {
+              "assessment": "PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(915676), latest_link_activity: Some(15676), link_expiry_overflow: false }",
+              "kind": "session_pause_ready",
+              "now_ms": 18128,
+              "return_bound_ms": 54128,
+              "side": "peer"
+            },
+            {
+              "discarded_rx": 0,
+              "elapsed_ms": 1.5378,
+              "kind": "excursion_ack",
+              "label": "dut-1",
+              "state": "Away { target: PersonalityId(2), excursion_deadline: 43984, return_by: 48984, interruption: ResumableOnly }",
+              "transition_id": 3
+            },
+            {
+              "airtime_ms": 681.984,
+              "cycle": 1,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d706565723a373a616273656e742d686f6d652d312d30",
+              "kind": "home_wave_tx_ack"
+            },
+            {
+              "airtime_ms": 681.984,
+              "cycle": 1,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d706565723a383a616273656e742d686f6d652d312d31",
+              "kind": "home_wave_tx_ack"
+            },
+            {
+              "captured": 0,
+              "cycle": 1,
+              "injected_tx_acked": 2,
+              "interval_ms": 2316.7717,
+              "kind": "home_absence",
+              "not_observed": 2,
+              "scope": "DUT receive opportunity absent; no independent on-air witness",
+              "unrelated_frames": 0
+            },
+            {
+              "assessment": "PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(916796), latest_link_activity: Some(16796), link_expiry_overflow: false }",
+              "kind": "session_pause_ready",
+              "now_ms": 20446,
+              "return_bound_ms": 56446,
+              "side": "dut"
+            },
+            {
+              "assessment": "PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(915676), latest_link_activity: Some(15676), link_expiry_overflow: false }",
+              "kind": "session_pause_ready",
+              "now_ms": 20446,
+              "return_bound_ms": 56446,
+              "side": "peer"
+            },
+            {
+              "discarded_rx": 0,
+              "elapsed_ms": 10.0622,
+              "kind": "excursion_ack",
+              "label": "peer-1",
+              "state": "Away { target: PersonalityId(2), excursion_deadline: 45456, return_by: 50456, interruption: ResumableOnly }",
+              "transition_id": 3
+            },
+            {
+              "airtime_ms": 559.104,
+              "hex": "ffffffffd25754a502000000000800d293e049d765ea8ca6b1f323b61e5cfd7a44c3402dc1a2f0ea4723",
+              "kind": "tx_ack",
+              "label": "sennet-dut"
+            },
+            {
+              "decoded": {
+                "packet_id": 2,
+                "protocol": "sennet",
+                "source": 2773768146,
+                "text": "aaa208202d082ca1:dut:1"
+              },
+              "elapsed_ms": 589.2941000000001,
+              "hex": "ffffffffd25754a502000000000800d293e049d765ea8ca6b1f323b61e5cfd7a44c3402dc1a2f0ea4723",
+              "kind": "rx_exact",
+              "label": "sennet-dut",
+              "rssi_dbm": -90,
+              "snr_db": 5.0,
+              "unrelated_frames": 0
+            },
+            {
+              "airtime_ms": 559.104,
+              "hex": "ffffffffd25754a501000000000800d2b410aad7a045d4fc819ed0cd15e41cc58cca07d56ad686769017",
+              "kind": "tx_ack",
+              "label": "sennet-replay-after-pause"
+            },
+            {
+              "decoded": {
+                "packet_id": 1,
+                "protocol": "sennet",
+                "source": 2773768146,
+                "text": "aaa208202d082ca1:dut:0"
+              },
+              "elapsed_ms": 586.8314,
+              "hex": "ffffffffd25754a501000000000800d2b410aad7a045d4fc819ed0cd15e41cc58cca07d56ad686769017",
+              "kind": "rx_exact",
+              "label": "sennet-replay-after-pause",
+              "rssi_dbm": -90,
+              "snr_db": 5.0,
+              "unrelated_frames": 0
+            },
+            {
+              "kind": "sennet_duplicate_retained",
+              "relay_decision": "Ignore(Duplicate)",
+              "scope": "same RF frame recognized by retained ManagedFlood; not a session protocol"
+            },
+            {
+              "airtime_ms": 559.104,
+              "hex": "ffffffffc273856602000000000800c29be65dcf4859aaca7a0a993f0bc94e5cf50828a8748d409cc2d9e3",
+              "kind": "tx_ack",
+              "label": "sennet-peer"
+            },
+            {
+              "decoded": {
+                "packet_id": 2,
+                "protocol": "sennet",
+                "source": 1720021954,
+                "text": "aaa208202d082ca1:peer:1"
+              },
+              "elapsed_ms": 584.0144,
+              "hex": "ffffffffc273856602000000000800c29be65dcf4859aaca7a0a993f0bc94e5cf50828a8748d409cc2d9e3",
+              "kind": "rx_exact",
+              "label": "sennet-peer",
+              "rssi_dbm": -23,
+              "snr_db": 6.0,
+              "unrelated_frames": 0
+            },
+            {
+              "event": "ReturnRequired(Cancelled)",
+              "kind": "explicit_cancellation"
+            },
+            {
+              "assessment": "PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(916796), latest_link_activity: Some(16796), link_expiry_overflow: false }",
+              "kind": "session_pause_ready",
+              "now_ms": 22263,
+              "return_bound_ms": 28263,
+              "side": "dut"
+            },
+            {
+              "assessment": "PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(915676), latest_link_activity: Some(15676), link_expiry_overflow: false }",
+              "kind": "session_pause_ready",
+              "now_ms": 22263,
+              "return_bound_ms": 28263,
+              "side": "peer"
+            },
+            {
+              "discarded_rx": 0,
+              "kind": "home_ack",
+              "label": "dut-1",
+              "return_ms": 1.7819,
+              "transition_id": 4
+            },
+            {
+              "assessment": "PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(916796), latest_link_activity: Some(16796), link_expiry_overflow: false }",
+              "kind": "session_pause_ready",
+              "now_ms": 22265,
+              "return_bound_ms": 28265,
+              "side": "dut"
+            },
+            {
+              "assessment": "PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(915676), latest_link_activity: Some(15676), link_expiry_overflow: false }",
+              "kind": "session_pause_ready",
+              "now_ms": 22265,
+              "return_bound_ms": 28265,
+              "side": "peer"
+            },
+            {
+              "discarded_rx": 0,
+              "kind": "home_ack",
+              "label": "peer-1",
+              "return_ms": 2.6245000000000003,
+              "transition_id": 4
+            },
+            {
+              "hex": "0c00cfe33c4cc703ffd3fd2a189b2351de150035042268e3c2868fc480468235139c306f8dab77d6c37f34291ab1433c207c0234f3088c3ac515d2dd57e6a69893a00340722b8db1ae4c1f4e99c61a87d2f5aa69aaa35a66cd4e45ce031363c39b6efda408eac82fb123802a140a577edb8f2e",
+              "kind": "session_tx_ack",
+              "label": "after-excursion-1-0"
+            },
+            {
+              "hex": "0c00cfe33c4cc703ffd3fd2a189b2351de150035042268e3c2868fc480468235139c306f8dab77d6c37f34291ab1433c207c0234f3088c3ac515d2dd57e6a69893a00340722b8db1ae4c1f4e99c61a87d2f5aa69aaa35a66cd4e45ce031363c39b6efda408eac82fb123802a140a577edb8f2e",
+              "kind": "session_rx_exact",
+              "label": "after-excursion-1-0",
+              "receive_wait_ms": 11.065999999999999,
+              "rssi_dbm": -90,
+              "snr_db": 5.0
+            },
+            {
+              "direction": 0,
+              "dut_links": 1,
+              "kind": "session_data",
+              "label": "after-excursion-1",
+              "link": "AddressHash(cfe33c4cc703ffd3fd2a189b2351de15)",
+              "peer_links": 1,
+              "plaintext": "after-excursion-1:0:retained-link"
+            },
+            {
+              "hex": "0c00cfe33c4cc703ffd3fd2a189b2351de150076ba16a60b5df65c8baa20bbbd745275b1c13b5893f2bc5580db84bd7d69cca0bcbd414f07e98378bae849ff08a0fcc866e94e919ee584a08b562bf4492a27db172c39947b3a9a98237cc4e10bfd8f77b45a4c2e4a6d21783971b4affc790dc7",
+              "kind": "session_tx_ack",
+              "label": "after-excursion-1-1"
+            },
+            {
+              "hex": "0c00cfe33c4cc703ffd3fd2a189b2351de150076ba16a60b5df65c8baa20bbbd745275b1c13b5893f2bc5580db84bd7d69cca0bcbd414f07e98378bae849ff08a0fcc866e94e919ee584a08b562bf4492a27db172c39947b3a9a98237cc4e10bfd8f77b45a4c2e4a6d21783971b4affc790dc7",
+              "kind": "session_rx_exact",
+              "label": "after-excursion-1-1",
+              "receive_wait_ms": 9.3616,
+              "rssi_dbm": -24,
+              "snr_db": 6.0
+            },
+            {
+              "direction": 1,
+              "dut_links": 1,
+              "kind": "session_data",
+              "label": "after-excursion-1",
+              "link": "AddressHash(cfe33c4cc703ffd3fd2a189b2351de15)",
+              "peer_links": 1,
+              "plaintext": "after-excursion-1:1:retained-link"
+            },
+            {
+              "airtime_ms": 641.024,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d6475743a353a72657475726e6564",
+              "kind": "tx_ack",
+              "label": "returned-dut"
+            },
+            {
+              "decoded": {
+                "payload": "aaa208202d082ca1-dut:5:returned",
+                "protocol": "retinue-plain-data"
+              },
+              "elapsed_ms": 665.6864999999999,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d6475743a353a72657475726e6564",
+              "kind": "rx_exact",
+              "label": "returned-dut",
+              "rssi_dbm": -90,
+              "snr_db": 5.0,
+              "unrelated_frames": 0
+            },
+            {
+              "airtime_ms": 641.024,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d706565723a393a72657475726e6564",
+              "kind": "tx_ack",
+              "label": "returned-peer"
+            },
+            {
+              "decoded": {
+                "payload": "aaa208202d082ca1-peer:9:returned",
+                "protocol": "retinue-plain-data"
+              },
+              "elapsed_ms": 666.0078000000001,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d706565723a393a72657475726e6564",
+              "kind": "rx_exact",
+              "label": "returned-peer",
+              "rssi_dbm": -24,
+              "snr_db": 6.0,
+              "unrelated_frames": 0
+            },
+            {
+              "assessment": "PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(924516), latest_link_activity: Some(24516), link_expiry_overflow: false }",
+              "kind": "session_pause_ready",
+              "now_ms": 25847,
+              "return_bound_ms": 37847,
+              "side": "dut"
+            },
+            {
+              "assessment": "PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(923396), latest_link_activity: Some(23396), link_expiry_overflow: false }",
+              "kind": "session_pause_ready",
+              "now_ms": 25847,
+              "return_bound_ms": 37847,
+              "side": "peer"
+            },
+            {
+              "discarded_rx": 0,
+              "elapsed_ms": 1.6141,
+              "kind": "excursion_ack",
+              "label": "deadline-dut",
+              "state": "Away { target: PersonalityId(2), excursion_deadline: 27703, return_by: 32703, interruption: ResumableOnly }",
+              "transition_id": 5
+            },
+            {
+              "assessment": "PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(924516), latest_link_activity: Some(24516), link_expiry_overflow: false }",
+              "kind": "session_pause_ready",
+              "now_ms": 26866,
+              "return_bound_ms": 32866,
+              "side": "dut"
+            },
+            {
+              "assessment": "PauseAssessment { pending_handshakes: 0, inbound_resources: 0, outbound_resources: 0, transit_bridges: 0, earliest_link_expiry: Some(923396), latest_link_activity: Some(23396), link_expiry_overflow: false }",
+              "kind": "session_pause_ready",
+              "now_ms": 26866,
+              "return_bound_ms": 32866,
+              "side": "peer"
+            },
+            {
+              "discarded_rx": 0,
+              "kind": "home_ack",
+              "label": "deadline-dut",
+              "return_ms": 7.0936,
+              "transition_id": 6
+            },
+            {
+              "hex": "0c00cfe33c4cc703ffd3fd2a189b2351de15000cf6519176cd059991a600d0005866544078d08345b83845b42461187d617b95c15ecbdcd5f5f7f0428d678f069969b9bf5f6cc6c2f1f5ce9b770f68463ce728380956985a1ff0f1fc11df27e61f8672",
+              "kind": "session_tx_ack",
+              "label": "after-deadline-0"
+            },
+            {
+              "hex": "0c00cfe33c4cc703ffd3fd2a189b2351de15000cf6519176cd059991a600d0005866544078d08345b83845b42461187d617b95c15ecbdcd5f5f7f0428d678f069969b9bf5f6cc6c2f1f5ce9b770f68463ce728380956985a1ff0f1fc11df27e61f8672",
+              "kind": "session_rx_exact",
+              "label": "after-deadline-0",
+              "receive_wait_ms": 10.8293,
+              "rssi_dbm": -90,
+              "snr_db": 5.0
+            },
+            {
+              "direction": 0,
+              "dut_links": 1,
+              "kind": "session_data",
+              "label": "after-deadline",
+              "link": "AddressHash(cfe33c4cc703ffd3fd2a189b2351de15)",
+              "peer_links": 1,
+              "plaintext": "after-deadline:0:retained-link"
+            },
+            {
+              "hex": "0c00cfe33c4cc703ffd3fd2a189b2351de150008fea006c77d4fb04e4c686742789101544b7da78d53e54d875855cd16c0744500d0c8ab3e17123946127d0ef87741d7ffa8f6e7bb67b2efb256337d2d949a98510a248446e82a71d4ed642c1d86d350",
+              "kind": "session_tx_ack",
+              "label": "after-deadline-1"
+            },
+            {
+              "hex": "0c00cfe33c4cc703ffd3fd2a189b2351de150008fea006c77d4fb04e4c686742789101544b7da78d53e54d875855cd16c0744500d0c8ab3e17123946127d0ef87741d7ffa8f6e7bb67b2efb256337d2d949a98510a248446e82a71d4ed642c1d86d350",
+              "kind": "session_rx_exact",
+              "label": "after-deadline-1",
+              "receive_wait_ms": 9.2468,
+              "rssi_dbm": -23,
+              "snr_db": 5.0
+            },
+            {
+              "direction": 1,
+              "dut_links": 1,
+              "kind": "session_data",
+              "label": "after-deadline",
+              "link": "AddressHash(cfe33c4cc703ffd3fd2a189b2351de15)",
+              "peer_links": 1,
+              "plaintext": "after-deadline:1:retained-link"
+            },
+            {
+              "airtime_ms": 681.984,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d706565723a31303a61667465722d646561646c696e65",
+              "kind": "tx_ack",
+              "label": "after-deadline"
+            },
+            {
+              "decoded": {
+                "payload": "aaa208202d082ca1-peer:10:after-deadline",
+                "protocol": "retinue-plain-data"
+              },
+              "elapsed_ms": 710.373,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d706565723a31303a61667465722d646561646c696e65",
+              "kind": "rx_exact",
+              "label": "after-deadline",
+              "rssi_dbm": -23,
+              "snr_db": 6.0,
+              "unrelated_frames": 0
+            },
+            {
+              "kind": "pinned_refusal",
+              "result": "Err(Controller(Pinned(PersonalityId(1))))",
+              "same_serial_session": true
+            },
+            {
+              "airtime_ms": 641.024,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d706565723a31313a70696e6e65642d686f6d65",
+              "kind": "tx_ack",
+              "label": "pinned-home"
+            },
+            {
+              "decoded": {
+                "payload": "aaa208202d082ca1-peer:11:pinned-home",
+                "protocol": "retinue-plain-data"
+              },
+              "elapsed_ms": 669.7574,
+              "hex": "08004d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d00616161323038323032643038326361312d706565723a31313a70696e6e65642d686f6d65",
+              "kind": "rx_exact",
+              "label": "pinned-home",
+              "rssi_dbm": -23,
+              "snr_db": 6.0,
+              "unrelated_frames": 0
+            },
+            {
+              "kind": "retained_state",
+              "retinue_dut_sequence": 5,
+              "retinue_peer_sequence": 11,
+              "scope": "caller-owned packet counters and channel state; no remote sessions",
+              "sennet_dut_reserved": 2,
+              "sennet_peer_reserved": 2
+            },
+            {
+              "hex": "0c00cfe33c4cc703ffd3fd2a189b2351de150046e0a38a7dc484ae3e420ded6af3d3f639469d3a3ad6f9cd8deae9b7002533ede30ae66fee6be27cbe9ded1565fd97333359c5cd2a4201063b8670eb620cb969c21686639a54bdfd348f53e36ac60f2f3d96c0c8e7f2509083741471e77e51c7",
+              "kind": "session_tx_ack",
+              "label": "pinned-retained-link-0"
+            },
+            {
+              "hex": "0c00cfe33c4cc703ffd3fd2a189b2351de150046e0a38a7dc484ae3e420ded6af3d3f639469d3a3ad6f9cd8deae9b7002533ede30ae66fee6be27cbe9ded1565fd97333359c5cd2a4201063b8670eb620cb969c21686639a54bdfd348f53e36ac60f2f3d96c0c8e7f2509083741471e77e51c7",
+              "kind": "session_rx_exact",
+              "label": "pinned-retained-link-0",
+              "receive_wait_ms": 11.637099999999998,
+              "rssi_dbm": -90,
+              "snr_db": 5.0
+            },
+            {
+              "direction": 0,
+              "dut_links": 1,
+              "kind": "session_data",
+              "label": "pinned-retained-link",
+              "link": "AddressHash(cfe33c4cc703ffd3fd2a189b2351de15)",
+              "peer_links": 1,
+              "plaintext": "pinned-retained-link:0:retained-link"
+            },
+            {
+              "hex": "0c00cfe33c4cc703ffd3fd2a189b2351de15002abe97253687e73c4d76466ace3fe69ac3cead8d31e286b08ca301499f5c2908903b4c36e13dfc6ca3a3d902c7e718114c033633be1d235d16fad1cb416500339e2a78ed429ce9fbe2f12538c1b1aa499b66fdac686bec33235472a82409c0e2",
+              "kind": "session_tx_ack",
+              "label": "pinned-retained-link-1"
+            },
+            {
+              "hex": "0c00cfe33c4cc703ffd3fd2a189b2351de15002abe97253687e73c4d76466ace3fe69ac3cead8d31e286b08ca301499f5c2908903b4c36e13dfc6ca3a3d902c7e718114c033633be1d235d16fad1cb416500339e2a78ed429ce9fbe2f12538c1b1aa499b66fdac686bec33235472a82409c0e2",
+              "kind": "session_rx_exact",
+              "label": "pinned-retained-link-1",
+              "receive_wait_ms": 9.634,
+              "rssi_dbm": -24,
+              "snr_db": 6.0
+            },
+            {
+              "direction": 1,
+              "dut_links": 1,
+              "kind": "session_data",
+              "label": "pinned-retained-link",
+              "link": "AddressHash(cfe33c4cc703ffd3fd2a189b2351de15)",
+              "peer_links": 1,
+              "plaintext": "pinned-retained-link:1:retained-link"
+            }
+          ],
+          "passed": true,
+          "scope": "host-driven retained Retinue Node link and Sennet state through board radio owner; no autonomous firmware or third-party peer survival claim"
+        },
+        "finished_utc": "2026-09-11T06:57:20.416065+00:00"
+      }
+    }
+  ]
+}

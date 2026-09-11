@@ -315,6 +315,90 @@ pub struct TransportCounters {
     pub evicted_freshness_blobs: u16,
 }
 
+/// Side-effect-free local state relevant to pausing this node's radio.
+///
+/// These are local protocol facts, not a promise that a remote peer will keep a
+/// link while this node is away. A caller supplies its own monotonic millisecond
+/// clock to [`Self::can_pause_through`] and must still drain every already-issued
+/// [`Action`] before changing the radio personality.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PauseAssessment {
+    /// Link requests awaiting a proof. They have no local retry deadline.
+    pub pending_handshakes: usize,
+    /// Inbound resource reassemblies that still need radio traffic.
+    pub inbound_resources: usize,
+    /// Outbound resource publications that still need radio traffic.
+    pub outbound_resources: usize,
+    /// Transit-link return-path records that still name this radio interface.
+    pub transit_bridges: usize,
+    /// Earliest established-link idle expiry, when every `last_seen + timeout`
+    /// calculation fits in the caller's monotonic clock domain.
+    pub earliest_link_expiry: Option<u64>,
+    /// Latest observed activity on any retained established link. A caller
+    /// whose clock precedes this value cannot safely assess a pause.
+    pub latest_link_activity: Option<u64>,
+    /// An established link's idle expiry overflowed `u64`; fail closed rather
+    /// than treating that link as indefinitely safe to pause.
+    pub link_expiry_overflow: bool,
+}
+
+/// Why [`PauseAssessment::can_pause_through`] refuses a proposed return bound.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PauseBlocked {
+    ReturnBoundBeforeNow { now: u64, return_by: u64 },
+    ClockBeforeLinkActivity { now: u64, latest_activity: u64 },
+    PendingHandshakes { count: usize },
+    ActiveResources { inbound: usize, outbound: usize },
+    ActiveTransitBridges { count: usize },
+    LinkExpiryOverflow,
+    LinkExpiresAt { expiry: u64, return_by: u64 },
+}
+
+impl PauseAssessment {
+    /// Whether the node has no local obligation that would be interrupted before
+    /// `return_by`. The comparison is strict: a link expiring exactly at the
+    /// promised return time is not resumable. This method does not mutate node
+    /// state or stop its timers.
+    pub fn can_pause_through(self, now: u64, return_by: u64) -> Result<(), PauseBlocked> {
+        if return_by < now {
+            return Err(PauseBlocked::ReturnBoundBeforeNow { now, return_by });
+        }
+        if let Some(latest_activity) = self.latest_link_activity
+            && now < latest_activity
+        {
+            return Err(PauseBlocked::ClockBeforeLinkActivity {
+                now,
+                latest_activity,
+            });
+        }
+        if self.pending_handshakes != 0 {
+            return Err(PauseBlocked::PendingHandshakes {
+                count: self.pending_handshakes,
+            });
+        }
+        if self.inbound_resources != 0 || self.outbound_resources != 0 {
+            return Err(PauseBlocked::ActiveResources {
+                inbound: self.inbound_resources,
+                outbound: self.outbound_resources,
+            });
+        }
+        if self.transit_bridges != 0 {
+            return Err(PauseBlocked::ActiveTransitBridges {
+                count: self.transit_bridges,
+            });
+        }
+        if self.link_expiry_overflow {
+            return Err(PauseBlocked::LinkExpiryOverflow);
+        }
+        if let Some(expiry) = self.earliest_link_expiry
+            && expiry <= return_by
+        {
+            return Err(PauseBlocked::LinkExpiresAt { expiry, return_by });
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 struct Route {
     destination: AddressHash,
@@ -577,6 +661,43 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
     /// Established links.
     pub fn link_count(&self) -> usize {
         self.links.len()
+    }
+
+    /// Inspect local work before asking a radio owner to pause this node.
+    ///
+    /// This neither polls nor expires state. In particular, established links
+    /// retain their original `last_seen` timestamps while the caller is away;
+    /// call [`PauseAssessment::can_pause_through`] with the caller's monotonic
+    /// `now` and proposed return bound before admission, then call [`Self::poll`]
+    /// normally after return. Remote peers may still expire independently.
+    pub fn pause_assessment(&self) -> PauseAssessment {
+        let mut earliest_link_expiry: Option<u64> = None;
+        let mut latest_link_activity: Option<u64> = None;
+        let mut link_expiry_overflow = false;
+        for (_, _, last_seen) in &self.links {
+            latest_link_activity = Some(match latest_link_activity {
+                Some(current) => current.max(*last_seen),
+                None => *last_seen,
+            });
+            match last_seen.checked_add(LINK_IDLE_TIMEOUT) {
+                Some(expiry) => {
+                    earliest_link_expiry = Some(match earliest_link_expiry {
+                        Some(current) => current.min(expiry),
+                        None => expiry,
+                    });
+                }
+                None => link_expiry_overflow = true,
+            }
+        }
+        PauseAssessment {
+            pending_handshakes: self.pending.len(),
+            inbound_resources: self.receivers.len(),
+            outbound_resources: self.senders.len(),
+            transit_bridges: self.bridges.len(),
+            earliest_link_expiry,
+            latest_link_activity,
+            link_expiry_overflow,
+        }
     }
 
     /// Number of fresh or not-yet-polled route entries currently held.
@@ -1530,6 +1651,25 @@ mod tests {
         let proof = sent(&b.ingest(IFACE, &request, 0)).unwrap();
         let id = link_up(&a.ingest(IFACE, &proof, 0)).expect("link did not come up");
         (a, b, id)
+    }
+
+    #[test]
+    fn pause_assessment_rejects_a_clock_before_retained_link_activity() {
+        let (mut a, mut b) = pair();
+        a.ingest(IFACE, &b.announce(&blob([2; RAND_HASH_LEN]), None), 1_000);
+        let request = sent(&a.open_link(b.destination(), IFACE, &[0x31; 64]).unwrap()).unwrap();
+        let proof = sent(&b.ingest(IFACE, &request, 1_000)).unwrap();
+        a.ingest(IFACE, &proof, 1_000);
+
+        let assessment = a.pause_assessment();
+        assert_eq!(assessment.latest_link_activity, Some(1_000));
+        assert_eq!(
+            assessment.can_pause_through(0, 100),
+            Err(PauseBlocked::ClockBeforeLinkActivity {
+                now: 0,
+                latest_activity: 1_000,
+            })
+        );
     }
 
     fn node() -> Node {

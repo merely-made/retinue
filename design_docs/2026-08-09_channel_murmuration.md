@@ -1,14 +1,132 @@
 # Channel Murmuration: Runtime Channel Scheduling
 
-> **Framing superseded, 2026-08-10.** The
-> [listener executive and protocol leases](2026-08-10_listener_executive_and_protocol_leases.md)
-> design removes this doc's center: there is no home channel and no visit.
-> The executive's DetectionProfile/ReceiveProfile scan plan is the resident
-> identity, and speaking any protocol is a bounded lease. The design rules and CM ladder
-> below survive translated (mapping in that doc's "What dies, what survives"),
-> and this doc remains their authority read through the lease model. CM1 is
-> absorbed into LE2; CM2 through CM5 carry, with visit schedules read as scan
-> plans and coverage division.
+**Status, 2026-09-11: controller, host-driven packet switching and retained
+Retinue links have software and [physical receipts](2026-09-11_murmuration_session_receipt.md); autonomous firmware protocol
+switching remains open.** This section is the current authority for murmuration's
+product behavior and ownership. It supersedes the 2026-08-10 rejection of a
+home personality and mandatory resident-listener identity in the
+[listener executive plan](2026-08-10_listener_executive_and_protocol_leases.md).
+Its interruption, lease, observation and physical-validation work remains useful.
+The original proposal below is historical where it differs from this section.
+
+## Current direction: coordinated runtime personalities
+
+**Murmuration** is the cooperative capability for deliberate runtime switching
+among our own protocol implementations on Tulle. The repository names are
+**Retinue** (Reticulum implementation), **Sennet** (independent mesh messaging
+implementation), and **Tucket** (MeshCore interop). This does not imply that all
+three are installed firmware adapters or have equal compatibility receipts.
+
+Tulle owns the shared radio interface and coordination contract. Protocol state
+and pause/resume behavior belong to each implementation. On embedded targets,
+`radio-hand` and the board radio owner enforce safe interruption, physical radio
+access, airtime limits and restoration. Signalman exposes controls and outcomes.
+This ownership does not require moving embedded hardware code into the host
+`tulle` crate or making Retinue supervise sibling protocols.
+
+The user configures a **home personality**, with Reticulum through Retinue the
+preferred default where that adapter is supported. An explicit temporary
+excursion names an installed personality, a bounded duration and interruption
+policy; completion, cancellation or deadline requests return home. A **pinned
+personality** keeps a dedicated node on the selected implementation and refuses
+conflicting excursions until the user changes that setting. Reject unsupported
+choices explicitly. An excursion does not silently replace the saved home.
+
+Switch without reboot during normal operation. Preserve each adapter's state
+where its lifecycle supports it; do not promise that remote sessions survive an
+absence. Admission must distinguish a resumable pause, a bounded deferral while
+work completes, and a transition requiring an explicitly permitted session
+interruption. Report affected sessions, queued work and retry deadlines. An
+unrecoverable radio state may still require reset as fault recovery; that is a
+failed transition, not successful reboot-free switching.
+
+One radio may miss home traffic while away. A user may allow that gap on a lone
+node. Required peer coverage is a configurable constraint, not an unconditional
+ban on leaving home. If configured as required, missing or expired coverage
+refuses conflicting work. Peer coordination can arrange coverage and rendezvous
+windows, but neither a promise nor matching PHY settings proves capture or
+protocol compatibility. Count absence, opportunities, captures, misses and unknown
+outcomes using the existing observation vocabulary.
+
+Requests and configured schedules authorize switching. Malformed, unexpected or
+unrecognized packets are observations, not automatic personality-switch triggers.
+Reception may inform later scheduling within the user's admitted policy. Each
+adapter still validates its own traffic; switching does not authorize forwarding
+between meshes or link their identities automatically.
+
+### Third-party firmware and tooling
+
+Third-party firmware remains installable and runs on its own terms. Use supported
+board/bootloader recovery and Linkboy restore paths where the board and artifact
+have receipts; do not assume automatic return, retained protocol state or a
+rollback slot. We do not coordinate inside arbitrary unmodified third-party
+firmware. A resident supervisor is optional future integration for cooperating
+images, not a mandatory persistent interceptor. Keep devices controllable and
+reflashable without taking ownership of every external protocol's internals.
+
+The V4's [`cargo +esp` build](../firmware/heltec-v4-phy/README.md) and the
+[retinue-small toolchain investigation](2026-07-31_retinue_small_plan.md) concern
+**espup developer toolchain provisioning**. Provisioning a compiler, flashing an
+image, and switching a running personality are three separate operations.
+
+### Findings verified in code, 2026-09-10
+
+- [`tulle`](../crates/tulle/src/lib.rs) already provides the common interface
+  beneath the three stacks, including direct PHY, RNode and pacing. The new
+  [`personality` controller](../crates/tulle/src/personality.rs) models explicit
+  excursions, bounded return and trusted caller acknowledgements. Its fake-adapter
+  acceptance does not establish hardware or remote-session behavior.
+- [`Channel` and `Personality`](../crates/radio-hand/src/channel.rs) currently
+  select Modem, Node or Rnode at boot. `stop` ends a host session; it is not a
+  safe adapter suspension contract. `at_boundary` concerns host parser framing,
+  not proof that RX/TX and protocol obligations are quiescent.
+- [`scheduler.rs`](../crates/radio-hand/src/scheduler.rs) provides bounded leases,
+  static keepers, expiry and acknowledged return to listening. It has no firmware
+  consumer, personality target or home/pin settings. Its mandatory coverage
+  model must not be presented as the new optional-gap policy already implemented.
+- [`V4RadioOwner`](../firmware/heltec-v4-phy/src/radio_owner.rs) supplies completed
+  event checks, collection protection and quiet-window restore/reset behavior.
+  This is an interruption foundation, not a three-stack hot-switch receipt.
+- [Sennet provenance](../crates/sennet/PROVENANCE.md) remains authoritative:
+  public descriptions and black-box serial/RF captures supply protocol facts;
+  prohibited third-party source, schemas and generated clients are not inputs.
+  GPL/AGPL material remains license-report-only for this work. No external
+  protocol implementation was inspected in this design pass.
+
+### Controller slice and next hardware gate
+
+Implementation is tracked in the
+[2026-09-10 controller plan](2026-09-10_murmuration_controller_plan.md).
+
+The implemented radio-free model at Tulle's coordination boundary uses two
+fake adapters in acceptance tests and caller-supplied monotonic time. It models
+home, pin, explicit excursion/return, deadlines, adapter pause capability and
+interruption policy. Hardware acknowledgement stays separate from a decision to
+restore. A future caller bridge must apply the existing lease/coverage rules
+without duplicating the radio-hand hardware owner; allowed uncovered intervals
+are an explicit controller policy.
+
+**Done conditions:** deterministic scenarios prove pin refusal, unsupported
+adapter refusal, resumable state retention, busy deferral, authorized session
+interruption, cancellation, deadline return, optional versus required peer
+coverage, and refusal to report home restored before acknowledgement. An unknown
+radio result reports recovery required; arbitrary received bytes cannot request a
+transition. State clearly that this proves controller behavior only.
+
+The [MC3a physical receipt](2026-09-10_murmuration_physical_receipt.md) now proves
+host-driven real packet codecs through existing board radio ownership: explicit
+switch/return, deadline return, pin refusal, caller-owned packet state and counted
+home receive gaps. It pins the V4 build and records the T114's live identity and
+boot continuity. Config acknowledgements are not an RX-ready signal. Busy RX/TX,
+physical cancellation/failed restoration, full protocol-session suspension and
+autonomous board operation remain open. Peer choreography and additional adapters
+are later slices. Existing LE/CM gates retain their recorded scope.
+
+## Historical proposal, 2026-08-09
+
+The original rules and CM ladder below are retained for traceability. Claims of
+universal coverage, a lone-node stay-home rule, mandatory gateway duty and the
+old firmware-only ownership are superseded by the current direction above.
 
 Design doc, 2026-08-09. Lifts the question the
 [retinue-small plan](2026-07-31_retinue_small_plan.md) deliberately deferred.
