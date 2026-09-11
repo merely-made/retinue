@@ -379,6 +379,9 @@ async fn run(
     sessions
         .exchange(&mut dut, &mut peer, "before-excursion", events)
         .await?;
+    sessions
+        .resource_before_excursion(&mut dut, &mut peer, events)
+        .await?;
     transfer(
         &mut dut,
         &mut peer,

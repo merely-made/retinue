@@ -106,6 +106,7 @@ def main():
     report["harness_config"]={"deadline_text":a.deadline_text,"settle_ms":a.settle_ms,"fresh_dut_baseline":a.fresh_dut_baseline}
     source_paths=["Cargo.lock", "crates/retinue/Cargo.toml", "crates/retinue/examples/murmuration_probe.rs",
                   "crates/retinue/examples/murmuration/session.rs", "crates/retinue/src/node.rs",
+                  "crates/retinue/src/resource_transfer.rs", "crates/retinue/src/resource.rs",
                   "crates/tulle/src/personality.rs", "crates/tulle/src/personality_serial.rs",
                   "crates/tulle/src/direct_phy_serial.rs", "crates/tulle/src/lib.rs"]
     report["source_sha256"]={name:hashlib.sha256(Path(name).read_bytes()).hexdigest() for name in source_paths}

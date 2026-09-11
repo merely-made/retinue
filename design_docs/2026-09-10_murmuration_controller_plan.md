@@ -1,7 +1,7 @@
 # Murmuration controller implementation plan
 
-**Status, 2026-09-11: MC0–MC2, MC3a packet adapters and MC3b host-retained
-sessions complete; full MC3 remains open.** The user authorized
+**Status, 2026-09-11: MC0–MC2, MC3a packet adapters, MC3b host-retained
+sessions and MC3c resource drain complete; full MC3 remains open.** The user authorized
 implementation planning, Luna/Terra work, then real-radio integration and guarded
 flashing. Software and [physical receipts](2026-09-10_murmuration_physical_receipt.md)
 cover the controller and host-driven adapters. Product authority is the
@@ -242,3 +242,36 @@ and measure cancellation return. Preserve MC3a artifacts and board profiles.
 Autonomous firmware, full resource interruption and keeper coverage remain
 separate gates. A core-only controller extraction must have a real firmware
 consumer before it becomes an implementation lane.
+
+### MC3c: drain active resources before departure, 2026-09-11
+
+**Status: passed.** MC0–MC3b committed as `95393fb`. Exercise an active
+Retinue resource on the existing physical pair: departure must remain refused
+while either endpoint owes transfer work, including a sender waiting for proof
+after receiver delivery. Drain the actual RF action queue, verify exact resource
+delivery and cleared obligations, then admit an excursion and retain the link.
+Terra owns the session harness method; Luna owns independent completion and
+lost-proof regressions. Parent owns integration, physical access and receipts.
+
+Done: software regressions and a guarded physical run prove refusal, completion,
+subsequent admitted departure and encrypted same-link return. Reuse the session
+receipt for this extension. No forced session discard or arbitrary retry time
+is introduced. Autonomous scheduling, active-resource interruption with explicit
+loss and physical failed-restoration recovery remain separate follow-ons.
+
+Review also restored the `alloc` requirement on the new `node_pause` test target.
+The allocation-free library/test configuration passes 23 tests. Resource part
+size already follows negotiated link MTU; this slice needs no wire-format change.
+
+Deferred finding from `Node::poll`: idle-link expiry removes the link but does
+not itself purge associated resource entries. Keep pause refusal conservative;
+do not advertise timeout-based resource cleanup or invent a retry deadline.
+Explicit interruption/cleanup must define caller-visible loss and queued-action
+ownership before changing that behavior.
+
+Qualified physical run `mc3c-1` passed: a 350-byte resource in two parts, three
+busy-stage refusals, proof-dependent completion, subsequent admitted excursions
+and ten encrypted messages on the retained link. Both boot IDs and original
+profiles were preserved. Eleven pause tests, strict example/test Clippy, scoped
+formatting and registry verification passed. Exact evidence is appended to the
+[session receipt](2026-09-11_murmuration_session_receipt.md#mc3c-extension-resource-drain-before-departure).

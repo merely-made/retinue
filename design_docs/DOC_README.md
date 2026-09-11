@@ -74,8 +74,8 @@ their gate. `UNKNOWN` means no document states a status — it does not mean ope
 | PN0–PN8 (magnetic pocket node) | Active preparation; iOS probe builds and simulator receipt checked; NFC profile created, phone install awaits M4 signing-key access; every PN gate remains open | [Magnetic pocket-node plan](2026-09-07_magnetic_pocket_node_plan.md) |
 | HW0–HW8 (hardware family) | Planned; logical platform boundary and product priority are ruled, while every code and physical gate remains open | [Hardware-family plan](2026-09-07_radio_hand_hardware_family_plan.md) |
 | CM1 | Absorbed into LE2 | [Channel murmuration](2026-08-09_channel_murmuration.md) |
-| [Murmuration controller plan](2026-09-10_murmuration_controller_plan.md) | MC0–MC2 complete; MC3a packet adapters and MC3b host-retained sessions passed. Active-resource interruption and autonomous firmware remain open. |
-| [Murmuration session receipt](2026-09-11_murmuration_session_receipt.md) | One retained Retinue link, ten encrypted messages across excursions and returns, Sennet RF duplicate recognition; same boot IDs and restored profiles. |
+| [Murmuration controller plan](2026-09-10_murmuration_controller_plan.md) | MC0–MC2 complete; MC3a packet adapters, MC3b retained sessions and MC3c resource drain passed. Forced interruption and autonomous firmware remain open. |
+| [Murmuration session receipt](2026-09-11_murmuration_session_receipt.md) | Retained Retinue link, encrypted traffic across excursions, Sennet duplicate recognition and proof-dependent resource drain; same boot IDs and restored profiles. |
 | [Murmuration physical receipt](2026-09-10_murmuration_physical_receipt.md) | Two V4/T114 runs: 32 exact receives, bounded returns, eight counted home receive gaps, pin refusal; V4 USB packet-boundary fix and preserved settings. |
 | CM2–CM5 | Open, sequenced after LE5 | Same, translated into the executive doc |
 | R0–R10 | All closed | [Retinue v0 plan](2026-07-06_retinue_v0_plan.md) |

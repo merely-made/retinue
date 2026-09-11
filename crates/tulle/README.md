@@ -22,7 +22,7 @@ direct-PHY session open, applies exact controller transitions and bounds away
 I/O while reserving return time. Uncertain or cancelled hardware operations latch
 recovery. A host-driven Retinue/Sennet packet-adapter bench now has a
 [physical receipt](../../design_docs/2026-09-10_murmuration_physical_receipt.md).
-Host-retained Retinue links and Sennet duplicate state now also have a
+Host-retained Retinue links, proof-dependent resource drain and Sennet duplicate state have a
 [session receipt](../../design_docs/2026-09-11_murmuration_session_receipt.md).
 Active-resource interruption and autonomous firmware integration remain open; the
 [controller plan](../../design_docs/2026-09-10_murmuration_controller_plan.md)

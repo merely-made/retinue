@@ -21,6 +21,7 @@ fn pair() -> (TestNode, TestNode) {
 }
 
 fn sent<const N: usize>(actions: &Actions<N>) -> Packet {
+    assert_eq!(actions.overflowed(), 0, "packet actions overflowed");
     actions
         .iter()
         .find_map(|action| match action {
@@ -28,6 +29,16 @@ fn sent<const N: usize>(actions: &Actions<N>) -> Packet {
             _ => None,
         })
         .expect("action should contain a packet")
+}
+
+fn sent_context<const N: usize>(actions: &Actions<N>, context: u8) -> Packet {
+    actions
+        .iter()
+        .find_map(|action| match action {
+            Action::Send { packet, .. } if packet.context == context => Some(packet.clone()),
+            _ => None,
+        })
+        .expect("action should contain the requested resource packet")
 }
 
 fn link_up<const N: usize>(actions: &Actions<N>) -> retinue::hash::AddressHash {
@@ -151,6 +162,134 @@ fn return_bound_before_now_is_rejected() {
             now: 50,
             return_by: 49
         })
+    ));
+}
+
+fn pump_resource(
+    a: &mut TestNode,
+    b: &mut TestNode,
+    first: Packet,
+    id: retinue::hash::AddressHash,
+    drop_proof: bool,
+) -> (Vec<Vec<u8>>, bool, bool) {
+    let mut queue: Vec<(bool, Packet)> = vec![(false, first)];
+    let mut received = Vec::new();
+    let mut sender_busy_when_received = false;
+    let mut dropped_proof = false;
+    for _ in 0..128 {
+        if queue.is_empty() {
+            break;
+        }
+        let mut next = Vec::new();
+        for (to_b, packet) in queue.drain(..) {
+            if drop_proof && !to_b && packet.context == retinue::link::CTX_RESOURCE_PRF {
+                dropped_proof = true;
+                continue;
+            }
+            let actions = if to_b {
+                b.ingest(IFACE, &packet, 1)
+            } else {
+                a.ingest(IFACE, &packet, 1)
+            };
+            assert_eq!(actions.overflowed(), 0, "resource actions overflowed");
+            for action in actions {
+                match action {
+                    Action::Send { interface, packet } => {
+                        assert_eq!(interface, IFACE);
+                        next.push((!to_b, packet));
+                    }
+                    Action::Resource { link_id, data } => {
+                        assert!(to_b, "only the receiver may deliver this resource");
+                        assert_eq!(link_id, id);
+                        received.push(data);
+                        sender_busy_when_received |= a.transfer_active(id);
+                    }
+                    Action::LinkUp { .. } | Action::LinkDown { .. } => {
+                        panic!("link lifecycle action during established resource")
+                    }
+                    Action::Learned { .. } | Action::Data { .. } => {
+                        panic!("unexpected non-resource action during resource pump")
+                    }
+                }
+            }
+        }
+        queue = next;
+    }
+    assert!(
+        queue.is_empty(),
+        "resource action queue must drain within bound"
+    );
+    (received, sender_busy_when_received, dropped_proof)
+}
+
+#[test]
+fn multipart_resource_blocks_then_completion_allows_pause() {
+    let (mut a, mut b, id) = linked();
+    let payload: Vec<u8> = (0..3_000u32).map(|n| (n.wrapping_mul(17)) as u8).collect();
+    let started = a
+        .publish(id, IFACE, &payload, [0x91; 4], &[0x92; 16], 0)
+        .unwrap();
+    assert!(matches!(
+        a.pause_assessment().can_pause_through(0, 100),
+        Err(PauseBlocked::ActiveResources { outbound: 1, .. })
+    ));
+    let advertisement = sent(&started);
+    let offer = b.ingest(IFACE, &advertisement, 1);
+    assert_eq!(b.pause_assessment().inbound_resources, 1);
+    assert!(matches!(
+        b.pause_assessment().can_pause_through(1, 100),
+        Err(PauseBlocked::ActiveResources { inbound: 1, .. })
+    ));
+    let request = sent(&offer);
+    let (received, sender_busy_when_received, dropped_proof) =
+        pump_resource(&mut a, &mut b, request, id, false);
+    assert_eq!(received, vec![payload]);
+    assert!(
+        sender_busy_when_received,
+        "delivery precedes final sender proof"
+    );
+    assert!(!dropped_proof);
+    assert!(!a.transfer_active(id));
+    assert!(!b.transfer_active(id));
+    a.pause_assessment().can_pause_through(1, 100).unwrap();
+    b.pause_assessment().can_pause_through(1, 100).unwrap();
+    let data = sent(&a.send(id, IFACE, b"after-resource", &[0x93; 16]).unwrap());
+    assert!(b.ingest(IFACE, &data, 2).iter().any(
+        |action| matches!(action, Action::Data { payload, .. } if payload == b"after-resource")
+    ));
+}
+
+#[test]
+fn dropped_final_proof_keeps_sender_busy_and_poll_retries() {
+    let (mut a, mut b, id) = linked();
+    let payload = vec![0xA5; 1_024];
+    let started = a
+        .publish(id, IFACE, &payload, [0xA7; 4], &[0xA8; 16], 0)
+        .unwrap();
+    let advertisement = sent(&started);
+    let offer = b.ingest(IFACE, &advertisement, 1);
+    let request = sent(&offer);
+    let (received, busy_at_delivery, dropped) = pump_resource(&mut a, &mut b, request, id, true);
+    assert_eq!(received, vec![payload]);
+    assert!(busy_at_delivery);
+    assert!(dropped);
+    assert!(a.transfer_active(id));
+    assert!(matches!(
+        a.pause_assessment().can_pause_through(1, 100),
+        Err(PauseBlocked::ActiveResources { outbound: 1, .. })
+    ));
+
+    let retry = a.poll(retinue::node::RESOURCE_RETRY_INTERVAL + 1, IFACE, None);
+    assert_eq!(retry.overflowed(), 0);
+    let retry_packet = sent_context(&retry, retinue::link::CTX_RESOURCE_ADV);
+    assert_eq!(retry_packet.context, retinue::link::CTX_RESOURCE_ADV);
+    assert!(a.transfer_active(id));
+    assert!(matches!(
+        a.pause_assessment().can_pause_through(
+            retinue::node::RESOURCE_RETRY_INTERVAL + 1,
+            retinue::node::RESOURCE_RETRY_INTERVAL + 100
+        ),
+        Err(PauseBlocked::ActiveResources { outbound: 1, .. })
     ));
 }
 
