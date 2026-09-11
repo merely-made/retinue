@@ -86,6 +86,10 @@ impl MessageStore {
         self.book.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.book.is_empty()
+    }
+
     pub fn log_len(&self) -> usize {
         self.log.len()
     }

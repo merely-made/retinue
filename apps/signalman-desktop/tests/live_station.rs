@@ -53,8 +53,7 @@ fn live_station_shows_a_real_announce_and_route() {
             let mut secret = [0_u8; 64];
             getrandom::fill(&mut secret).expect("peer identity entropy");
             let identity = retinue::identity::PrivateIdentity::from_secret_bytes(&secret);
-            let mut config =
-                postilion::StationConfig::new(peer_port, "S2 bench peer", identity);
+            let mut config = postilion::StationConfig::new(peer_port, "S2 bench peer", identity);
             config.announce_interval = Duration::from_secs(5);
             let station = postilion::Station::open(config).await.expect("peer opens");
             station.announce();
@@ -99,7 +98,9 @@ fn live_station_shows_a_real_announce_and_route() {
         let heard = vocabularies
             .iter()
             .any(|kind| kind == "signalman:heard-announce");
-        let routed = vocabularies.iter().any(|kind| kind == "signalman:route-via");
+        let routed = vocabularies
+            .iter()
+            .any(|kind| kind == "signalman:route-via");
         if connected && projection.nodes.len() >= 2 && heard && routed {
             receipt = Some((projection.nodes.len(), vocabularies));
             break;
@@ -109,9 +110,7 @@ fn live_station_shows_a_real_announce_and_route() {
 
     let (nodes, vocabularies) =
         receipt.expect("no live announce and route arrived before the deadline");
-    println!(
-        "live receipt: station on {station_port}, {nodes} nodes, relations {vocabularies:?}"
-    );
+    println!("live receipt: station on {station_port}, {nodes} nodes, relations {vocabularies:?}");
     drop(worker);
     let _ = peer.join();
 }

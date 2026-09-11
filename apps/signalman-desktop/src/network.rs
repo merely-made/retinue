@@ -156,20 +156,21 @@ impl NetworkWorker {
                         None => {}
                     }
 
-                    if running && ticks_remaining > 0 {
-                        if let Some(epoch) = active_epoch {
-                            simulation.tick(1.0 / 60.0);
-                            ticks_remaining -= 1;
-                            let layout = NetworkLayout {
-                                epoch,
-                                snapshot: simulation.snapshot(epoch),
-                                worker_thread,
-                            };
-                            let (slot, changed) = &*actor_latest;
-                            *slot.lock().unwrap() = Some(layout);
-                            changed.notify_all();
-                            wake();
-                        }
+                    if running
+                        && ticks_remaining > 0
+                        && let Some(epoch) = active_epoch
+                    {
+                        simulation.tick(1.0 / 60.0);
+                        ticks_remaining -= 1;
+                        let layout = NetworkLayout {
+                            epoch,
+                            snapshot: simulation.snapshot(epoch),
+                            worker_thread,
+                        };
+                        let (slot, changed) = &*actor_latest;
+                        *slot.lock().unwrap() = Some(layout);
+                        changed.notify_all();
+                        wake();
                     }
                 }
             })
