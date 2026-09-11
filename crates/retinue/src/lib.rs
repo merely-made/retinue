@@ -96,6 +96,8 @@ pub mod lossy;
 pub mod msgpack;
 #[cfg(feature = "alloc")]
 pub mod node;
+#[cfg(feature = "tokio")]
+pub mod nomadnet;
 #[cfg(feature = "alloc")]
 pub mod packet;
 #[cfg(feature = "alloc")]
