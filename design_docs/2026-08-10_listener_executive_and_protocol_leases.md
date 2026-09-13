@@ -520,5 +520,7 @@ or physical power-cut recovery.
 The executive may coordinate only our own installed implementations through a
 configured home, optional pin and explicit bounded excursion. It never infers
 a switch from arbitrary packets and never controls unmodified foreign
-firmware. The Nordic PPK2 lane must inventory fixture wiring and calibration,
-then measure idle, RX, TX and transition current; power-cut proof follows.
+firmware. The Nordic PPK2 lane, planned as
+[MC5](2026-09-10_murmuration_controller_plan.md#mc5-shared-radio-cost-and-missed-traffic-measurement),
+inventories fixture wiring and calibration, then measures each protocol's
+baseline and the shared-radio extra cost; power-cut proof is a separate gate.

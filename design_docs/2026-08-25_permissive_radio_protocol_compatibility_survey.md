@@ -377,8 +377,10 @@ tests, not a missing universal protocol layer.
 | Independent reference | Official/RNS/LXMF/MeshCore executable behavior | Black-box oracle and headed peer harnesses | Separate from resident image | No claim transfers from the V4 self-peer run; each protocol needs its own exact pinned reference receipt. |
 
 Resident switching remains limited to our own implementations, configured home
-and bounded excursions. The Nordic PPK2 gate starts with fixture inventory,
-wiring and calibration, followed by idle/RX/TX/transition measurements.
+and bounded excursions. The Nordic PPK2 gate is planned as
+[MC5](2026-09-10_murmuration_controller_plan.md#mc5-shared-radio-cost-and-missed-traffic-measurement):
+fixture inventory, wiring and calibration, then per-protocol baselines and
+the shared-radio extra cost and missed traffic.
 Physical power-cut recovery remains pending. Protocol identities and delivery
 facts stay distinct across rows; no public/shared-key observation is labeled
 secret or individually authenticated without an independent receipt.

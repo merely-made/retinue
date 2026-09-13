@@ -744,3 +744,106 @@ Next done-condition: measured stack high-water and fragmentation under the
 configured capacity workload, physical power removal during reservations,
 driver/restoration fault injection, and adversarial host/RX pressure. Recurring
 schedules and authenticated peer coverage remain later slices.
+
+### MC5: shared-radio cost and missed-traffic measurement
+
+**Status, 2026-09-13: planned; no hardware touched.** Scope follows the
+[reception scope](2026-08-09_channel_murmuration.md#reception-scope-2026-09-13):
+this lane prices sharing one radio, it does not decide a reception default.
+
+#### Question
+
+What does sharing one radio among the three resident instances cost, measured
+against each protocol's own single-instance baseline on the same board and
+supply, and how much home traffic does each away interval actually miss? Both
+answers come from one wiring session so the qualified DUT pair is not rewired.
+
+#### Fixture inventory (F0, before any measurement)
+
+Record before the first trace and keep with the receipt:
+
+- PPK2 serial, firmware version, and the Power Profiler application version.
+- Supply mode: source-meter mode, voltage set to the V4's nominal battery rail
+  through its battery connector. The USB link that carries control and the
+  resident event stream must not supply VBUS; use a data-only cable or a USB
+  power blocker, and prove it by watching the PPK2 current with the board
+  running while the cable is attached.
+- Calibration: a no-load zero check and a known-resistor check at the working
+  range, both recorded, both repeated at session end.
+- Sample rate, averaging, and the trace export format.
+- DUT choice. The [MC4c bench](#mc4c-execution-2026-09-13) leaves a third V4 on
+  COM6 unused; wiring that board once as the permanent power DUT avoids
+  dismantling the qualified COM7 board between sessions. It is a different
+  board, so every run records its own identity, firmware hash and PHY profiles,
+  and no MC4c result is transferred to it.
+- Event alignment: the PPK2 logic-port inputs can carry one V4 GPIO that the
+  resident loop toggles on activation and confirmed return. That gives
+  hardware-timed transition edges on the same trace as current. It is a small
+  firmware addition and optional; without it, alignment uses a distinctive
+  first transmission as the marker and is recorded as timestamp-aligned only.
+
+#### Measurement matrix (F1 to F3, one session)
+
+Every run records supply voltage, board identity, firmware hash, PHY profiles,
+sample rate, steady and peak current, observation interval, energy over the
+interval, and the event markers, extending the bench columns already fixed in
+the [low-power UART doc](2026-07-24_low_power_uart_personality.md#bench-procedure-v0-baseline-then-v2).
+
+F1, per-protocol baselines. Resident image with one instance configured as
+home and no excursions, for Retinue, Sennet and Tucket in turn:
+
+| Run | What is measured |
+| --- | --- |
+| Standby | Radio in standby, loop idle |
+| Home RX | Continuous reception armed on the home profile, no traffic |
+| TX | A fixed frame at the profile's configured power, repeated for a stable mean |
+| Workload | The protocol's ordinary traffic from the T114 peer: Retinue announce plus link, Sennet text plus ACK, Tucket advert plus text plus ACK |
+
+The ordinary direct-PHY image runs the same Standby and Home RX rows once as
+the control, so the resident loop's own idle cost is visible.
+
+F2, shared radio. Resident image with all three configured, Retinue home:
+
+| Run | What is measured |
+| --- | --- |
+| Transition | Energy and time from assess through suspend, retune, arm and activate, and the same on return; per direction, repeated |
+| Excursion overhead | Energy of a bounded Sennet and a bounded Tucket excursion with its workload, minus the F1 workload energy for the same traffic |
+| Schedule | A fixed recurring schedule over a set interval; mean current and duty cycle against F1 Home RX |
+
+F3, missed traffic. The peer transmits on home at a known cadence through each
+F2 away interval. Count opportunities, captures, misses and unknown outcomes in
+the vocabulary of the [observation plan](2026-09-06_radio_observation_plan.md#o6-murmuration-acceptance),
+and report missing observation time separately from every ratio.
+
+#### Done conditions
+
+- F0 inventory and both calibration checks are in the receipt, and the VBUS
+  isolation check is recorded.
+- F1 yields one baseline table per protocol with energy per interval, tied to
+  exact firmware hashes.
+- F2 yields per-transition energy and time, and each excursion's extra energy
+  as a difference against F1, not as a standalone number.
+- F3 yields one row per away interval with opportunities, captures, misses,
+  unknown, and unobserved time.
+- The receipt states which board was measured and that nothing transfers to
+  the qualified COM7 DUT.
+
+#### Stop rules
+
+- The qualified COM7 and COM10 pair is not rewired for this lane.
+- A trace without the session's calibration checks is not a receipt.
+- A measurement on one armed PHY profile says nothing about reception on any
+  other profile; the reception-scope table decides what was dispatchable.
+- Numbers from this lane do not close any other gate. See the ledger below.
+
+#### Distinct gates
+
+Each gate has its own evidence home and closes only on its own receipt.
+
+| Gate | Evidence home | Status 2026-09-13 |
+| --- | --- | --- |
+| Protocol-reference parity | Per-protocol pinned black-box or headed reference receipts; the [compatibility survey](2026-08-25_permissive_radio_protocol_compatibility_survey.md) | Asymmetric; T114 self-peer runs do not transfer |
+| Memory | MC4c physical receipt plus the open high-water, fragmentation and stress runs | Allocation peaks measured; high-water open |
+| Power-cut recovery | Its own physical receipt during reservations | Open |
+| Driver and restoration faults | Fault-injection receipt through the board owner | Open |
+| Shared-radio cost and missed traffic | This MC5 receipt | Planned |

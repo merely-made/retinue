@@ -337,6 +337,35 @@ firmware version. MeshCore headed evidence is
 official companion 1.15.0 plus repeater 1.16.0. These are reference or peer
 pins, not claims that the resident image embeds those implementations.
 
-The next physical lane inventories the Nordic PPK2 fixture, wiring and
-calibration, then measures idle, RX, TX and transition current before testing
-power removal. Physical power-cut recovery remains open.
+The next physical lane is [MC5](2026-09-10_murmuration_controller_plan.md#mc5-shared-radio-cost-and-missed-traffic-measurement):
+inventory the Nordic PPK2 fixture, wiring and calibration, measure each
+protocol's own idle, RX, TX and workload baseline, then measure the extra
+energy and missed traffic that sharing one radio adds. Physical power-cut
+recovery remains a separate open gate.
+
+## Reception scope, 2026-09-13
+
+Supporting three protocols on one board does not by itself require continuous
+reception. Continuous reception is an availability choice for unsolicited
+traffic on the configured home, paid for in measured current, not an automatic
+consequence of installed formats. Knowing a packet format establishes nothing
+about when a peer will transmit; only a configured schedule, an authenticated
+coverage promise, or a recorded capture does. The mandatory always-scanning
+listener in the [2026-08-10 executive doc](2026-08-10_listener_executive_and_protocol_leases.md)
+stays historical and is not revived by this section.
+
+Reception on a resident board is scoped by four configured facts:
+
+| Scope | What it decides |
+| --- | --- |
+| Role | Which installed instances accept unsolicited traffic at all. The home personality normally does; a pinned instance always does; an alternate instance only does during its own excursion unless the user gives it an accept role. An instance without an accept role transmits and polls inside its windows and is otherwise absent. |
+| Known profile | What the radio is armed for. Frames that differ only in format above a shared PHY profile (same frequency, bandwidth, spreading factor, coding rate, sync word and preamble) are dispatched after reception to whichever instance validates them. Different frequency, modulation or sync settings are not dispatchable: they need a retune, a coordinated window, or a separate radio. |
+| Rendezvous window | When an instance whose peers transmit at agreed times is armed. Outside its window that instance's absence is counted, not hidden. |
+| Acceptable absence | How much missed home traffic the user allows on a lone node. A coverage-required configuration refuses conflicting excursions until an authenticated coverage source is connected. |
+
+Dispatch after reception is therefore the only free sharing. Every other
+combination costs either a retune blackout, a window the peer must honor, or a
+second collision domain, and the [MC5 measurement plan](2026-09-10_murmuration_controller_plan.md#mc5-shared-radio-cost-and-missed-traffic-measurement)
+prices each of those against the single-protocol baseline before any default
+is chosen. A foreign or malformed packet remains an observation and never
+requests a role, a window, or a switch.
