@@ -654,12 +654,11 @@ impl Link {
     }
 
     /// The RTT packet the initiator sends after a proof, which moves the link to active on
-    /// the peer. RNS expects a msgpack-encoded float; the exact value is not load-bearing.
+    /// the peer. Use a MessagePack float64: some peers do not activate on float32.
     pub fn rtt_packet(&self, rtt_seconds: f32, iv: &[u8; IV_LEN]) -> Packet {
-        // msgpack float32: 0xca then big-endian bytes.
-        let mut plain = Vec::with_capacity(5);
-        plain.push(0xca);
-        plain.extend_from_slice(&rtt_seconds.to_be_bytes());
+        let mut plain = Vec::with_capacity(9);
+        plain.push(0xcb);
+        plain.extend_from_slice(&f64::from(rtt_seconds).to_be_bytes());
         link_packet(CTX_LRRTT, self.id, self.keys.encrypt(&plain, iv))
     }
 

@@ -1,5 +1,10 @@
 # NomadNet resource interoperability receipts
 
+**Latest finding:** the Retinue-to-rns-net 0.7.0 Resource-response stall was
+resolved by float64 RTT activation encoding. See the final section. Earlier
+matrices preserve the pre-fix results; stock NomadNet client defects and the old
+server API limitations remain separate.
+
 ## Scope
 
 This is a local-loopback receipt for Retinue's response-Resource sender. It covers the
@@ -220,3 +225,44 @@ Executed server SHA-256 values: old
 new `e5d0dcdab69ef5fedc1e14f89020f998ffc4fc62c9228f576b24c83e234ce886`.
 All task-owned peer processes were stopped. No hardware or public-network claim
 is made by these loopback tests.
+
+### Confirmed activation mismatch and Retinue fix
+
+The isolated activation comparison changed only the RTT packet's MessagePack
+encoding from float32 (`0xca`) to float64 (`0xcb`), preserving the public `f32`
+API and its numeric value. The newer rns-rs server's public callback showed no
+link activation for the original client, although its page handler ran. With
+float64, LINK_ACTIVE preceded the handler and all Resource responses completed.
+This confirms the activation boundary for the tested Retinue/rns-net 0.7.0 pair;
+it does not diagnose every upstream link failure.
+
+| Native Fedora comparison | Small | Compressible 128 KiB | Incompressible 128 KiB |
+| --- | --- | --- | --- |
+| Original Retinue → rns-net 0.7.0 explicit Resource server | Timeout, no LINK_ACTIVE | Prior timeout | Prior timeout |
+| Float64 RTT Retinue → same server | Exact, LINK_ACTIVE | Exact, LINK_ACTIVE | Exact, LINK_ACTIVE |
+| Float64 RTT Retinue → stock Python RNS 1.5.3 page server | Exact | Exact | Exact |
+
+The fix is applied in `Link::rtt_packet`. Float32 is valid MessagePack, but the
+tested external Rust peer requires float64 to activate this link. The regression
+test decrypts an RTT packet established from the existing Python proof fixture
+and checks the independently specified nine-byte float64 encoding of 0.125.
+Request timestamps, response-size fields and production peer dependencies are
+unchanged. The old NomadNet server still needs a Resource-capable response API;
+its client correlation/decoding defects are not repaired by this RTT change.
+
+Native logs and byte receipts are retained under
+`C:\t\nomadnet-rust-interop-20260913\diagnostic-20260913-134934` (activation
+comparison) and `diagnostic-20260913-135037` (Python reference), copied from the
+ThinkPad. The probe was built from Retinue `2c38da3` with only the RTT encoder
+change; its SHA-256 is
+`d69ced48869a6a68f917f8dd60a5ba446cc0514fed173a81cca299a9a5f99fc8`.
+The callback-instrumented external server SHA-256 is
+`74a238457cb7a05c0bab37d10efc8fb97d16005121e996a7cf4c27c183b4e0a8`.
+
+The current production source passed all nine focused tests: three in
+`link_session` and six in `endpoint_resource`. They ran via the isolated
+`main-validation/Cargo.toml`, which points at the actual repository library and
+test files, with copies of the existing fixtures. The root workspace's offline
+resolution required an uncached, unrelated Signalman/Mere dependency; no workspace
+dependency or lockfile was changed to work around that. Logs are in
+`main-validation.log`. All task-owned peer processes were stopped after testing.

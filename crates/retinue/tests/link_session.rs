@@ -99,3 +99,27 @@ fn a_tampered_proof_is_rejected() {
     let proof = Packet::decode(&raw).unwrap();
     assert!(pending.prove(&proof).is_err());
 }
+
+/// Independent literal encoding of 0.125 as MessagePack float64. The float32
+/// form is valid MessagePack but leaves the tested rns-net 0.7.0 peer inactive.
+#[test]
+fn activation_rtt_uses_interoperable_float64() {
+    let (pending, _) = PendingLink::open(
+        destination_hash(),
+        peer_identity(),
+        &hex64(EPHEMERAL_SEED),
+        LinkTrailer {
+            mode: LinkMode::Aes256Cbc,
+            mtu: 500,
+        },
+    );
+    let proof = Packet::decode(&fixture("link_proof.bin")).unwrap();
+    let link = pending.prove(&proof).unwrap();
+    let packet = link.rtt_packet(0.125, &[0x55; 16]);
+    assert_eq!(packet.context, retinue::link::CTX_LRRTT);
+    assert_eq!(packet.destination, link.id());
+    assert_eq!(
+        link.decrypt(&packet).unwrap(),
+        [0xcb, 0x3f, 0xc0, 0, 0, 0, 0, 0, 0]
+    );
+}
