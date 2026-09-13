@@ -5,6 +5,90 @@ resolved by float64 RTT activation encoding. See the final section. Earlier
 matrices preserve the pre-fix results; stock NomadNet client defects and the old
 server API limitations remain separate.
 
+## Unsent upstream issue drafts
+
+These drafts preserve the findings for maintainer review. Nothing has been posted.
+The measured versions below are the scope of each report, not a claim about current
+upstream HEAD. The diagnostic client changes were not adopted as production fixes.
+
+### nomadnet-rs: preserve request identity between dispatch and response lookup
+
+**Target:** TeskesLab/nomadnet-rs, published MIT crate 0.3.1.
+
+`fetch_with_data` creates a random pending request ID, but both immediate dispatch
+and queued dispatch call `send_request` without that ID. The response handler
+removes an entry using the returned wire request ID. Instrumentation showed that
+the wire and pending IDs differ, and the browser drops the otherwise completed
+response. A small page is sufficient to reproduce this against either a Retinue
+server or the external Rust server.
+
+Expected: a successfully returned response completes its originating fetch and
+emits `PageReceived`. Actual: the response arrives, but its ID misses the pending
+map. In the published browser source, inspect lines 690–692 (queued dispatch),
+715–730 (response lookup), and 952–971 (pending insertion/immediate dispatch).
+
+Diagnostic control: matching the sole pending request allows completion. This is
+not a proposed fix: it can misattribute concurrent, timed-out, or stale responses.
+The production solution should preserve or map the actual wire request identity
+and test simultaneous requests plus delayed responses after timeout.
+
+Evidence: `diagnostic-20260913-130534` under the task artifact directory below;
+the MIT-only diagnostic patch is `browser-diagnostic.patch`.
+
+### nomadnet-rs: decode the response value before exposing page bytes
+
+**Target:** the same published 0.3.1 browser, after the diagnostic correlation
+correction above. This issue is independently visible once responses are delivered.
+
+Expected: a 14-byte page produces those exact 14 bytes in `PageReceived`.
+Actual: the callback produces 16 bytes starting with MessagePack binary header
+`c4 0e`. A 131,072-byte page produces 131,077 bytes before decoding. Unpacking one
+binary value restores the exact page and its independently calculated SHA-256.
+This was observed with both the Retinue server and the external Rust server;
+it is not specific to one server implementation.
+
+Suggested regression: assert exact callback bytes for small and Resource-sized
+responses, including bodies that themselves begin with MessagePack-looking bytes,
+so decoding happens once at the response envelope boundary.
+
+Evidence: `diagnostic-20260913-130757` (WSL) and
+`diagnostic-20260913-130840` (native Fedora), following the first diagnostic above.
+
+### rns-rs: float32 RTT does not activate the tested incoming link
+
+**Target:** lelloman/rns-rs at
+`6c6d79b83516feff271d15c97d39dd1de7798afe`, rns-net 0.7.0 / rns-core 0.1.16.
+This report uses public APIs and black-box observations only.
+
+With Retinue initiating a link, the server's page handler runs but its public
+`LINK_ACTIVE` callback does not fire, and an explicit Resource response times out.
+Changing only the encrypted RTT payload from MessagePack float32 (`0xca`) to
+float64 (`0xcb`), with the same numeric value, makes `LINK_ACTIVE` precede the
+handler and completes small, compressible 128 KiB, and incompressible 128 KiB pages
+byte-for-byte. The same float64 client passes all three against stock Python
+RNS 1.5.3. Native host: Fedora on ThinkPad, Rust 1.97.1, loopback TCP.
+
+Retinue now emits float64 in commit `85e716c7f06dac0a5253effe5ef06d05b266f02f`.
+Maintainer question: should activation accept either MessagePack float width,
+or should the required float64 wire representation be explicitly documented?
+Validity as MessagePack alone does not establish the Reticulum wire contract.
+
+Evidence: `diagnostic-20260913-134934` and `diagnostic-20260913-135037`;
+the final receipt section below records binary hashes and the comparison matrix.
+The similar LXMF-rs upstream activation failure is a lead, not an established
+instance of this same cause.
+
+### Related server API compatibility note
+
+Published nomadnet-rs 0.3.1 resolves rns-net 0.5.6. Its plain byte-returning handler
+served small pages but not either 128 KiB fixture. Upgrading that same handler to
+rns-net 0.7.0 did not repair the large-page case. The newer explicit
+`register_request_handler_response` / `RequestResponse::Resource` API did, when
+used with an activated link; the old version lacks that API. A useful upstream
+server follow-up is to adopt the Resource-capable response path and add exact-byte
+large-page tests. This is distinct from the browser defects and RTT activation.
+See `diagnostic-20260913-132928` and `diagnostic-20260913-133303`.
+
 ## Scope
 
 This is a local-loopback receipt for Retinue's response-Resource sender. It covers the
