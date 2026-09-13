@@ -242,6 +242,7 @@ supplying data-graph and identity crates.
 
 | Document | What it is |
 | --- | --- |
+| [NomadNet resource interoperability receipts](2026-09-13_nomadnet_go_resource_compression_receipt.md) | Go/Python compression receipts and Rust nomadnet-rs qualification, including failed client self-control and multipart limits. |
 | [Retinue v0 plan](2026-07-06_retinue_v0_plan.md) | Historical protocol ledger. R0–R10 all closed. Its "next actions" block is not a queue. |
 | [RNS wire format reference](2026-07-13_rns_wire_format_reference.md) | Wire reference. Historical byte-fixture corpus is pinned at RNS 1.3.8; current announce and route probes use RNS 1.5.2. |
 | [Announce timebase plan](2026-08-25_announce_timebase_plan.md) | Active phased plan for the 5+5 announce blob, persistent stock-RNS decision probes, bounded receive freshness, and crash-monotonic firmware reservations. |

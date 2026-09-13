@@ -1,4 +1,4 @@
-# NomadNet Go resource compression receipt
+# NomadNet resource interoperability receipts
 
 ## Scope
 
@@ -43,3 +43,52 @@ resources.
 
 Task-local command logs and the minimal black-box setup are retained at
 `C:\t\micron-go-interop-20260912`.
+
+## Rust peer qualification: nomadnet-rs 0.3.1
+
+The additional Rust candidate was tested on 2026-09-13. Its published package is
+MIT licensed, but its resolved `rns-core 0.1.9`, `rns-crypto 0.1.5` and
+`rns-net 0.5.6` dependencies use the custom Reticulum License. Those dependencies
+were treated as black boxes; only their license text was inspected. No runtime
+dependency was added and no Retinue implementation changed for this qualification.
+
+Native Windows compilation failed with 87 errors involving Unix/serial APIs.
+Unmodified `nomadnet-serve` and separate public-API harnesses built on WSL Ubuntu
+with Rust 1.97.1. The harness used actual announces, loopback TCP and bounded
+timeouts. Retinue was pinned to `2c38da3b611777da8d7e3c74e636c6bc34054b96`.
+The downloaded crate SHA-256 was
+`f8afb390bb052508fed38ca1cb113ba783cf07d83ad92a3723d15ec11fcfe522`.
+
+| Direction | Small, 14 bytes | Compressible, 131,072 bytes | Incompressible, 131,072 bytes |
+| --- | --- | --- | --- |
+| Rust browser API fetching its own raw PageCache server | No PageReceived before deadline | No PageReceived before deadline | No PageReceived before deadline |
+| Retinue fetching Rust raw PageCache server | Exact match | Response receive timeout | Response receive timeout |
+| Rust browser API fetching Retinue | No PageReceived before deadline | No PageReceived before deadline | No PageReceived before deadline |
+| Retinue fetching stock nomadnet-serve | Exact match | Response receive timeout | Not tested |
+
+The small fixture hash was
+`43f5fa9ef511939985588b51995258a37a545a50205c2875d42e1078302db811`;
+the large and incompressible hashes are those listed above. There were two exact
+matches in eleven cases. Failed cases produced no page output. The stock CLI
+performs lossy UTF-8 conversion and `$SELF` substitution, so the opaque binary
+fixture was tested only through a separate raw PageCache harness.
+
+The first client harness blocked when dispatching inside the link callback.
+The final harness dispatches from an application worker thread. It receives a
+small RESPONSE callback but still emits no PageReceived in self-control. In the
+MIT package's `src/browser.rs`, pending requests use a generated ID (lines
+952-967), dispatch does not pass that ID to `send_request` (690-692, 969-971),
+and response handling removes by the returned ID (715-730). This appears to
+explain a request-correlation failure. It is not a diagnosis of the black-box
+RNS implementation. The failed self-control prevents attributing the forward
+failures to Retinue or qualifying this browser as a reference peer.
+
+The candidate remains experimental. Requalification requires a passing client
+self-control, then byte-exact small and multipart transfers in both directions.
+Windows support needs a separate build receipt. These are loopback results,
+not radio, GUI or Micron rendering acceptance.
+
+The final matrix and per-case logs are retained at
+`C:\t\nomadnet-rust-interop-20260913\run-20260913-122704\receipt.json`.
+The parent directory contains the harness sources, Cargo locks and build logs.
+All test child processes were stopped after the run.
