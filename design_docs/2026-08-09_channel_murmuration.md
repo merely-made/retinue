@@ -1,19 +1,16 @@
 # Channel Murmuration: Runtime Channel Scheduling
 
-**Status, 2026-09-11: retained Retinue links, explicit session loss and V4
-board-timed PHY return have software and [physical receipts](2026-09-11_murmuration_session_receipt.md).
-Resident firmware protocol adapters remain open.** This section is the current authority for murmuration's
+**Status, 2026-09-13: MC4c retained resident traffic has a [physical receipt](2026-09-13_murmuration_resident_physical_receipt.json).
+Memory, power-cut and driver-fault acceptance remain open.** This section is the current authority for murmuration's
 product behavior and ownership. It supersedes the 2026-08-10 rejection of a
 home personality and mandatory resident-listener identity in the
 [listener executive plan](2026-08-10_listener_executive_and_protocol_leases.md).
 Its interruption, lease, observation and physical-validation work remains useful.
 The original proposal below is historical where it differs from this section.
 
-**2026-09-13 update:** Retinue, Sennet and Tucket now compile together as embedded
-protocol cores. MC4a adds explicit capacities and a measured host workload plus
-Xtensa layouts and a linked memory-reservation image. It does not yet install
-retained protocol instances in the board loop. See the
-[controller plan](2026-09-10_murmuration_controller_plan.md#mc4a-result-2026-09-13).
+Older MC4a capacity and build-only statements below are historical snapshots.
+The current retained-instance result is recorded in the controller plan and
+the receipt linked above.
 
 ## Current direction: coordinated runtime personalities
 
@@ -320,3 +317,26 @@ design rule 2: it waits on logged demand from CM2 through CM5 deployments.
   but the question interacts with the region-locked-firmware posture
   ([FCC reselling doc](2026-07-20_fcc_reselling_flashed_radios.md)) and should
   be answered before murmuration ships in a sold unit.
+
+## Current implementation and evidence boundary, 2026-09-13
+
+MC4c has qualified physical ordinary-resident traffic on the V4 with a separate
+T114 physical peer running our implementation. The receipt covers Retinue home, Sennet and Tucket
+visits, stable identities, increasing Sennet reservations, automatic return,
+explicit interruption/lost-ACK reporting, missed home traffic and reset
+continuity. It does not establish universal coverage, autonomous third-party
+firmware control or equal protocol parity.
+
+Only our own Retinue, Sennet and Tucket implementations may become resident
+adapters. A foreign packet is an observation and cannot trigger switching.
+Third-party firmware remains a separately installed and recoverable artifact.
+
+Parity is asymmetric: the black-box oracle requirements pin RNS 1.5.2 and
+LXMF 1.1.1; the cited Sennet reference captures lack an exact stock Meshtastic
+firmware version. MeshCore headed evidence is
+official companion 1.15.0 plus repeater 1.16.0. These are reference or peer
+pins, not claims that the resident image embeds those implementations.
+
+The next physical lane inventories the Nordic PPK2 fixture, wiring and
+calibration, then measures idle, RX, TX and transition current before testing
+power removal. Physical power-cut recovery remains open.

@@ -1,5 +1,9 @@
 # Listener Executive and Protocol Leases
 
+**Current status, 2026-09-13:** the retained resident V4 path has the
+[MC4c physical receipt](2026-09-13_murmuration_resident_physical_receipt.json).
+The older LE scan and build-only snapshots below retain their original scope.
+
 > **Product framing superseded, 2026-09-10:**
 > [current murmuration direction](2026-08-09_channel_murmuration.md#current-direction-coordinated-runtime-personalities)
 > restores a configurable home, explicit excursions and a pinned personality.
@@ -503,3 +507,18 @@ logged demand, per murmuration rule 2.
 - **Same-detection scheduling.** Whether one CAD hit should trigger a preferred
   ReceiveProfile, a short rotation across every compatible sync word, or a
   flock capability hint needs measured receipts. CAD alone cannot choose.
+
+## Current evidence boundary, 2026-09-13
+
+MC4c physical evidence is now ordinary resident traffic on the V4 against a
+separate T114 physical peer running our implementation. It proves bounded Retinue-home, Sennet and Tucket
+activations, identity and reservation continuity, automatic return, explicit
+interruption/lost-ACK handling and a measured missed-home opportunity. It does
+not close autonomous scheduling, authenticated coverage, driver-fault recovery
+or physical power-cut recovery.
+
+The executive may coordinate only our own installed implementations through a
+configured home, optional pin and explicit bounded excursion. It never infers
+a switch from arbitrary packets and never controls unmodified foreign
+firmware. The Nordic PPK2 lane must inventory fixture wiring and calibration,
+then measure idle, RX, TX and transition current; power-cut proof follows.

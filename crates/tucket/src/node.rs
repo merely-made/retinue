@@ -112,6 +112,8 @@ pub enum CapacityError {
     UnknownContact,
     /// Contact state is full and the incoming advert has no existing slot.
     ContactsFull,
+    /// A different full identity shares the one-byte hash of a learned contact.
+    ContactHashCollision,
     /// A text body cannot fit in one encrypted MeshCore payload.
     TextTooLong,
     /// Advert application data cannot fit in its fixed wire field.
@@ -264,8 +266,8 @@ pub struct Node {
     me: Identity,
     seen: SeenTable,
     allow_forward: bool,
-    /// Learned contacts, keyed by 1-byte node hash. A collision (two peers sharing a hash byte)
-    /// keeps the most recently advertised, matching the wire's 1-byte addressing.
+    /// Learned contacts, keyed by 1-byte node hash. A collision with a different full identity
+    /// is refused, so it cannot replace the existing identity or route.
     contacts: Vec<(u8, Contact)>,
     capacity: NodeCapacity,
 }
@@ -377,12 +379,19 @@ impl Node {
         })
     }
 
-    /// Add or refresh a contact without evicting an unrelated one.
+    /// Add a contact or refresh an identical identity without evicting an unrelated one.
+    ///
+    /// A different identity with an occupied one-byte wire hash is refused. The current wire
+    /// addressing remains one byte, so this does not resolve the ambiguity on the network; it
+    /// only preserves the contact and route already selected locally.
     pub fn try_add_contact(&mut self, identity: Identity) -> Result<(), CapacityError> {
         let hash = identity.hash()[0];
         if let Some((_, contact)) = self.contacts.iter_mut().find(|(key, _)| *key == hash) {
-            contact.identity = identity;
-            return Ok(());
+            return if contact.identity == identity {
+                Ok(())
+            } else {
+                Err(CapacityError::ContactHashCollision)
+            };
         }
         if self.contacts.len() == self.capacity.contacts {
             return Err(CapacityError::ContactsFull);
@@ -856,6 +865,52 @@ mod tests {
         ));
         assert_eq!(
             alice.route_to(bob.my_hash()).expect("route stored").path(),
+            &[0x33]
+        );
+    }
+
+    #[test]
+    fn a_same_identity_refresh_keeps_the_learned_route() {
+        let mut alice = node(0x11, false);
+        let bob = node(0x22, false);
+        let identity = bob.identity().clone();
+        let hash = identity.hash()[0];
+
+        alice.try_add_contact(identity.clone()).unwrap();
+        assert!(alice.set_route(
+            hash,
+            DirectRoute::new(1, &[0x33]).expect("valid one-hop route")
+        ));
+
+        assert_eq!(alice.try_add_contact(identity.clone()), Ok(()));
+        assert_eq!(alice.contact(hash), Some(&identity));
+        assert_eq!(
+            alice.route_to(hash).expect("route preserved").path(),
+            &[0x33]
+        );
+    }
+
+    #[test]
+    fn a_hash_collision_refuses_to_replace_contact_or_route() {
+        let mut alice = node(0x11, false);
+        let primary = Identity::new([0xa5; crate::packet::PUB_KEY_SIZE]);
+        let mut colliding = primary.clone();
+        colliding.pub_key[1] ^= 0xff;
+        let hash = primary.hash()[0];
+
+        alice.try_add_contact(primary.clone()).unwrap();
+        assert!(alice.set_route(
+            hash,
+            DirectRoute::new(1, &[0x33]).expect("valid one-hop route")
+        ));
+
+        assert_eq!(
+            alice.try_add_contact(colliding),
+            Err(CapacityError::ContactHashCollision)
+        );
+        assert_eq!(alice.contact(hash), Some(&primary));
+        assert_eq!(
+            alice.route_to(hash).expect("route preserved").path(),
             &[0x33]
         );
     }

@@ -1,7 +1,8 @@
 # Permissive radio protocol compatibility survey
 
-**Date:** 2026-08-25. **Status:** research and architecture record. This is a
-revision-pinned survey, not a new delivery lane and not a gate receipt.
+**Date:** 2026-08-25. **Status:** revision-pinned research snapshot. The
+current MC4c physical result is recorded in the [resident receipt](2026-09-13_murmuration_resident_physical_receipt.json);
+this survey remains an architecture record, not a new delivery lane or gate receipt.
 
 **Related authority:** [mesh household](2026-07-20_mesh_household_tulle_tucket_sennet.md),
 [listener executive and protocol leases](2026-08-10_listener_executive_and_protocol_leases.md),
@@ -362,3 +363,22 @@ This sequence adds interoperability evidence before abstraction. Retinue's
 existing `ProtocolAdapter`, lease, Tulle, Tucket, Sennet, Outrider and peer
 matrix boundaries are sufficient. The survey found candidates and sharper
 tests, not a missing universal protocol layer.
+
+## Parity matrix and current implementation boundary, 2026-09-13
+
+| Row | Behavior covered | Implementation location | Embedded availability | Remaining independent gap |
+| --- | --- | --- | --- | --- |
+| RNS | RNS 1.5.2 oracle behavior | Retinue core and Outrider oracle harness | Retinue resident path available | `crates/retinue/oracle/requirements.txt` pins the black-box oracle to `rns==1.5.2`; source inspection hashes are not execution pins. |
+| LXMF | Direct, opportunistic and propagation message behavior | Outrider plus stock black-box oracle scripts | T114 image has bounded LXMF probes; V4 resident LXMF is not claimed | `crates/retinue/oracle/requirements.txt` pins `lxmf==1.1.1`; older fixtures are LXMF 0.9.6 / RNS 1.4.2 carried forward, not fresh current observations. |
+| Sennet | Encrypted text, ACK, dedup and packet reservations in core | `crates/sennet`; V4 `resident.rs` | V4 resident text leaf; resident ACK/relay parity is not established | Cited reference captures lack an exact stock Meshtastic firmware version; our resident image identity is recorded separately. |
+| MeshCore | Advert, encrypted text, ACK and repeater behavior | `crates/tucket`; official companion/repeater peers | Resident Tucket instance available | Official headed evidence is companion 1.15.0/repeater 1.16.0; newer pin requires a fresh receipt. |
+| Tucket collision fix | Same-byte/full-identity collision refusal | `crates/tucket/src/node.rs` | Embedded software available | Narrow software result only: Terra's change, 69 tests, Clippy and formatting; no wider MeshCore address parity. |
+| Resident self-peer | Retinue-home, Sennet and Tucket traffic, identity/reservation continuity, bounded return | V4 resident firmware with T114 physical peer | Receipted at MC4c | T114 is our implementation peer, not an independent reference protocol. |
+| Independent reference | Official/RNS/LXMF/MeshCore executable behavior | Black-box oracle and headed peer harnesses | Separate from resident image | No claim transfers from the V4 self-peer run; each protocol needs its own exact pinned reference receipt. |
+
+Resident switching remains limited to our own implementations, configured home
+and bounded excursions. The Nordic PPK2 gate starts with fixture inventory,
+wiring and calibration, followed by idle/RX/TX/transition measurements.
+Physical power-cut recovery remains pending. Protocol identities and delivery
+facts stay distinct across rows; no public/shared-key observation is labeled
+secret or individually authenticated without an independent receipt.
