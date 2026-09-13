@@ -771,11 +771,13 @@ Record before the first trace and keep with the receipt:
 - Calibration: a no-load zero check and a known-resistor check at the working
   range, both recorded, both repeated at session end.
 - Sample rate, averaging, and the trace export format.
-- DUT choice. The [MC4c bench](#mc4c-execution-2026-09-13) leaves a third V4 on
-  COM6 unused; wiring that board once as the permanent power DUT avoids
-  dismantling the qualified COM7 board between sessions. It is a different
-  board, so every run records its own identity, firmware hash and PHY profiles,
-  and no MC4c result is transferred to it.
+- DUT: decided 2026-09-13, the third V4 on COM6 that the
+  [MC4c bench](#mc4c-execution-2026-09-13) left unused. It is wired to the PPK2
+  once and stays wired, so the qualified COM7 board is never dismantled
+  between sessions. It is a different board: every run records its own
+  identity, firmware hash and PHY profiles, and no MC4c result transfers to
+  it. The first session installs the same resident image hash as MC4c and
+  records a fresh baseline before any measurement.
 - Event alignment: the PPK2 logic-port inputs can carry one V4 GPIO that the
   resident loop toggles on activation and confirmed return. That gives
   hardware-timed transition edges on the same trace as current. It is a small
