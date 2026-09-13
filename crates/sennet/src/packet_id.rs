@@ -129,7 +129,7 @@ impl core::fmt::Display for PacketIdError {
     }
 }
 
-impl std::error::Error for PacketIdError {}
+impl core::error::Error for PacketIdError {}
 
 #[cfg(test)]
 mod tests {

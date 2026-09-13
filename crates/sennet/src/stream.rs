@@ -1,85 +1,137 @@
-//! The serial/TCP Stream API framing.
-//!
-//! A publicly documented byte layout used to carry protobuf packets over a serial or TCP
-//! byte stream: a two-byte magic, a big-endian 16-bit length, then that many payload bytes.
-//!
-//! ```text
-//! [0x94] [0xc3] [len_hi] [len_lo] [payload: len bytes]
-//! ```
-//!
-//! This module is derived only from the public description of that frame format and from
-//! Google's public protobuf wire standard; no third-party source was consulted. It is the
-//! transport analog of [`tulle::kiss`](https://github.com/mark-ik/tulle) for the mesh this
-//! crate interoperates with.
+//! Bounded serial/TCP Stream API framing.
 
-/// First magic byte of a stream frame.
+use alloc::vec::Vec;
+
 pub const START1: u8 = 0x94;
-/// Second magic byte of a stream frame.
 pub const START2: u8 = 0xc3;
-/// Largest payload a single frame carries in the documented format.
 pub const MAX_PAYLOAD: usize = 512;
+pub const DEFAULT_INPUT_CAPACITY: usize = 4 + MAX_PAYLOAD;
+pub const DEFAULT_MAX_FRAMES_PER_PUSH: usize = 4;
 
-/// Wrap `payload` in a stream frame: magic, big-endian length, bytes.
-///
-/// # Panics
-/// If `payload` exceeds [`MAX_PAYLOAD`].
-pub fn encode(payload: &[u8]) -> Vec<u8> {
-    assert!(payload.len() <= MAX_PAYLOAD, "payload exceeds MAX_PAYLOAD");
-    let mut out = Vec::with_capacity(4 + payload.len());
-    out.push(START1);
-    out.push(START2);
-    out.extend_from_slice(&(payload.len() as u16).to_be_bytes());
-    out.extend_from_slice(payload);
-    out
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DeframerConfig {
+    pub max_payload: usize,
+    pub max_frames_per_push: usize,
 }
 
-/// A streaming deframer: fed raw bytes, it yields complete payloads.
+impl Default for DeframerConfig {
+    fn default() -> Self {
+        Self {
+            max_payload: MAX_PAYLOAD,
+            max_frames_per_push: DEFAULT_MAX_FRAMES_PER_PUSH,
+        }
+    }
+}
+
+/// Wrap a payload in the documented magic, length, payload frame.
+pub fn encode(payload: &[u8]) -> Result<Vec<u8>, StreamError> {
+    if payload.len() > MAX_PAYLOAD {
+        return Err(StreamError::PayloadTooLong {
+            actual: payload.len(),
+            limit: MAX_PAYLOAD,
+        });
+    }
+    let mut out = Vec::with_capacity(4 + payload.len());
+    out.extend_from_slice(&[START1, START2]);
+    out.extend_from_slice(&(payload.len() as u16).to_be_bytes());
+    out.extend_from_slice(payload);
+    Ok(out)
+}
+
+/// A deframer retaining at most `4 + config.max_payload` bytes.
 ///
-/// It resynchronizes on the two-byte magic (a stream also carries plain-text debug lines that
-/// are not frames), and rejects a declared length beyond [`MAX_PAYLOAD`] by dropping the magic
-/// and resuming the search, so a corrupt or non-frame stream cannot mislead it or grow memory.
+/// A completed-frame quota is explicit. On [`StreamError::OutputFull`], valid
+/// input was not dropped: previously emitted frames are in `out`, the next
+/// complete frame remains retained, and `consumed` identifies the input suffix
+/// to retry after the caller drains `out`.
 pub struct Deframer {
+    config: DeframerConfig,
     buf: Vec<u8>,
 }
 
 impl Deframer {
     pub fn new() -> Self {
-        Deframer { buf: Vec::new() }
+        Self::with_config(DeframerConfig::default()).expect("default stream configuration is valid")
     }
 
-    /// Consume `bytes`, appending any completed payloads to `out`.
-    pub fn push(&mut self, bytes: &[u8], out: &mut Vec<Vec<u8>>) {
-        self.buf.extend_from_slice(bytes);
+    pub fn with_config(config: DeframerConfig) -> Result<Self, StreamConfigError> {
+        if config.max_payload > MAX_PAYLOAD {
+            return Err(StreamConfigError::PayloadLimit(config.max_payload));
+        }
+        if config.max_frames_per_push == 0 {
+            return Err(StreamConfigError::FrameLimit);
+        }
+        Ok(Self {
+            buf: Vec::with_capacity(4 + config.max_payload),
+            config,
+        })
+    }
+
+    pub const fn config(&self) -> DeframerConfig {
+        self.config
+    }
+
+    /// Appends at most `max_frames_per_push` frames, returning consumed input bytes.
+    pub fn push(&mut self, bytes: &[u8], out: &mut Vec<Vec<u8>>) -> Result<usize, StreamError> {
+        let mut consumed = 0;
+        let mut emitted = 0;
         loop {
-            // Find the frame start; discard anything before it (debug text, noise).
-            let Some(start) = find_magic(&self.buf) else {
-                // Keep only a trailing partial magic (a lone START1 at the very end).
-                if self.buf.last() == Some(&START1) {
-                    let last = self.buf.len() - 1;
-                    self.buf.drain(..last);
-                } else {
-                    self.buf.clear();
-                }
-                return;
-            };
-            if start > 0 {
-                self.buf.drain(..start);
+            if self.frame_is_complete() && emitted == self.config.max_frames_per_push {
+                return Err(StreamError::OutputFull {
+                    limit: self.config.max_frames_per_push,
+                    consumed,
+                });
             }
-            // Need magic + length before we can know the frame size.
-            if self.buf.len() < 4 {
-                return;
-            }
-            let len = u16::from_be_bytes([self.buf[2], self.buf[3]]) as usize;
-            if len > MAX_PAYLOAD {
-                // Not a real frame: drop this magic and resync past it.
-                self.buf.drain(..2);
+            if let Some(frame) = self.ready_frame() {
+                out.push(frame);
+                emitted += 1;
                 continue;
             }
-            if self.buf.len() < 4 + len {
-                return; // frame not fully arrived yet
+            let Some(&byte) = bytes.get(consumed) else {
+                return Ok(consumed);
+            };
+            self.buf.push(byte);
+            consumed += 1;
+            self.resynchronize();
+        }
+    }
+
+    fn ready_frame(&mut self) -> Option<Vec<u8>> {
+        if self.buf.len() < 4 || self.buf[0..2] != [START1, START2] {
+            return None;
+        }
+        let len = u16::from_be_bytes([self.buf[2], self.buf[3]]) as usize;
+        if len > self.config.max_payload {
+            self.buf.drain(..2);
+            return None;
+        }
+        if self.buf.len() < 4 + len {
+            return None;
+        }
+        let frame = self.buf[4..4 + len].to_vec();
+        self.buf.drain(..4 + len);
+        Some(frame)
+    }
+
+    fn frame_is_complete(&self) -> bool {
+        if self.buf.len() < 4 || self.buf[0..2] != [START1, START2] {
+            return false;
+        }
+        let len = u16::from_be_bytes([self.buf[2], self.buf[3]]) as usize;
+        len <= self.config.max_payload && self.buf.len() >= 4 + len
+    }
+
+    fn resynchronize(&mut self) {
+        let Some(start) = find_magic(&self.buf) else {
+            if self.buf.last() == Some(&START1) {
+                self.buf.drain(..self.buf.len() - 1);
+            } else {
+                self.buf.clear();
             }
-            out.push(self.buf[4..4 + len].to_vec());
-            self.buf.drain(..4 + len);
+            return;
+        };
+        if start > 0 {
+            self.buf.drain(..start);
         }
     }
 }
@@ -90,7 +142,44 @@ impl Default for Deframer {
     }
 }
 
-/// Index of the first `START1 START2` pair in `buf`, if any.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StreamConfigError {
+    PayloadLimit(usize),
+    FrameLimit,
+}
+
+impl core::fmt::Display for StreamConfigError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::PayloadLimit(limit) => {
+                write!(f, "stream payload limit exceeds {MAX_PAYLOAD}: {limit}")
+            }
+            Self::FrameLimit => write!(f, "stream completed-frame limit must be non-zero"),
+        }
+    }
+}
+impl core::error::Error for StreamConfigError {}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StreamError {
+    PayloadTooLong { actual: usize, limit: usize },
+    OutputFull { limit: usize, consumed: usize },
+}
+impl core::fmt::Display for StreamError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::PayloadTooLong { actual, limit } => {
+                write!(f, "stream payload exceeds {limit} bytes: {actual}")
+            }
+            Self::OutputFull { limit, consumed } => write!(
+                f,
+                "stream output limit {limit} reached after {consumed} input bytes"
+            ),
+        }
+    }
+}
+impl core::error::Error for StreamError {}
+
 fn find_magic(buf: &[u8]) -> Option<usize> {
     buf.windows(2).position(|w| w == [START1, START2])
 }
@@ -98,70 +187,71 @@ fn find_magic(buf: &[u8]) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn deframe_all(d: &mut Deframer, bytes: &[u8]) -> Vec<Vec<u8>> {
+    use alloc::vec;
+    fn all(d: &mut Deframer, bytes: &[u8]) -> Vec<Vec<u8>> {
         let mut out = Vec::new();
-        d.push(bytes, &mut out);
+        assert_eq!(d.push(bytes, &mut out), Ok(bytes.len()));
         out
     }
-
     #[test]
-    fn round_trips_one_frame() {
-        let payload = b"\x08\x01\x12\x03abc";
-        let wire = encode(payload);
-        assert_eq!(&wire[..2], &[START1, START2]);
-        assert_eq!(&wire[2..4], &(payload.len() as u16).to_be_bytes());
+    fn round_trips() {
         let mut d = Deframer::new();
-        assert_eq!(deframe_all(&mut d, &wire), vec![payload.to_vec()]);
+        assert_eq!(all(&mut d, &encode(b"hi").unwrap()), vec![b"hi".to_vec()]);
     }
-
     #[test]
-    fn skips_leading_debug_text_before_a_frame() {
-        let mut wire = b"INFO some log line\r\n".to_vec();
-        wire.extend_from_slice(&encode(b"payload here"));
+    fn skips_leading_noise_and_preserves_a_split_magic() {
         let mut d = Deframer::new();
-        assert_eq!(deframe_all(&mut d, &wire), vec![b"payload here".to_vec()]);
+        assert!(all(&mut d, &[0, START1]).is_empty());
+        let mut tail = vec![START2, 0, 2, b'h', b'i'];
+        tail.extend_from_slice(&encode(b"there").unwrap());
+        assert_eq!(all(&mut d, &tail), vec![b"hi".to_vec(), b"there".to_vec()]);
     }
-
     #[test]
-    fn reassembles_across_chunked_reads() {
-        let wire = encode(&vec![0xAB; 300]);
+    fn chunks() {
+        let wire = encode(&vec![7; 300]).unwrap();
         let mut d = Deframer::new();
         let mut out = Vec::new();
         for chunk in wire.chunks(17) {
-            d.push(chunk, &mut out);
+            d.push(chunk, &mut out).unwrap();
         }
-        assert_eq!(out, vec![vec![0xAB; 300]]);
+        assert_eq!(out, vec![vec![7; 300]]);
     }
-
     #[test]
-    fn back_to_back_frames() {
-        let mut wire = encode(b"one");
-        wire.extend_from_slice(&encode(b"two"));
+    fn corrupt_length_resyncs() {
+        let mut wire = vec![START1, START2, 0xff, 0xff];
+        wire.extend_from_slice(&encode(b"real").unwrap());
         let mut d = Deframer::new();
-        assert_eq!(
-            deframe_all(&mut d, &wire),
-            vec![b"one".to_vec(), b"two".to_vec()]
-        );
+        assert_eq!(all(&mut d, &wire), vec![b"real".to_vec()]);
     }
-
     #[test]
-    fn a_false_magic_with_huge_length_is_resynced_past() {
-        // 0x94 0xc3 followed by a length > MAX_PAYLOAD is not a real frame.
-        let mut wire = vec![START1, START2, 0xFF, 0xFF, 0x00];
-        wire.extend_from_slice(&encode(b"real"));
-        let mut d = Deframer::new();
-        assert_eq!(deframe_all(&mut d, &wire), vec![b"real".to_vec()]);
-    }
-
-    #[test]
-    fn a_split_magic_at_the_buffer_end_is_held() {
-        let mut d = Deframer::new();
-        // A lone START1 arrives; nothing yet.
-        assert!(deframe_all(&mut d, &[0x00, START1]).is_empty());
-        // The rest of the frame arrives next.
+    fn quota_preserves_coalesced_frames() {
+        let mut wire = Vec::new();
+        for p in [b"one".as_slice(), b"two", b"three"] {
+            wire.extend_from_slice(&encode(p).unwrap());
+        }
+        let mut d = Deframer::with_config(DeframerConfig {
+            max_payload: MAX_PAYLOAD,
+            max_frames_per_push: 2,
+        })
+        .unwrap();
         let mut out = Vec::new();
-        d.push(&[START2, 0x00, 0x02, b'h', b'i'], &mut out);
-        assert_eq!(out, vec![b"hi".to_vec()]);
+        let consumed = match d.push(&wire, &mut out) {
+            Err(StreamError::OutputFull { consumed, .. }) => consumed,
+            value => panic!("expected OutputFull, got {value:?}"),
+        };
+        assert_eq!(out, vec![b"one".to_vec(), b"two".to_vec()]);
+        out.clear();
+        assert_eq!(
+            d.push(&wire[consumed..], &mut out),
+            Ok(wire.len() - consumed)
+        );
+        assert_eq!(out, vec![b"three".to_vec()]);
+    }
+    #[test]
+    fn oversized_encode_is_refused() {
+        assert!(matches!(
+            encode(&vec![0; MAX_PAYLOAD + 1]),
+            Err(StreamError::PayloadTooLong { .. })
+        ));
     }
 }

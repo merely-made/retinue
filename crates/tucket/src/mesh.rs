@@ -6,6 +6,8 @@
 //!
 //! Ported from upstream MeshCore (MIT, <https://github.com/ripplebiz/MeshCore>).
 
+use alloc::{boxed::Box, vec, vec::Vec};
+
 use crate::packet::{HASH_SIZE, MAX_PATH, Packet, ROUTE_FLOOD, ROUTE_TRANSPORT_FLOOD};
 
 /// Capacity of the seen-packet ring (MeshCore `SimpleMeshTables`: 128 + 32).
@@ -16,16 +18,27 @@ pub const MAX_PACKET_HASHES: usize = 160;
 /// Matches MeshCore's `hasSeen`: a linear-scan check-and-insert with ring eviction and no time
 /// expiry (an entry ages out only after `MAX_PACKET_HASHES` further distinct packets).
 pub struct SeenTable {
-    hashes: [[u8; HASH_SIZE]; MAX_PACKET_HASHES],
+    hashes: Vec<[u8; HASH_SIZE]>,
     next: usize,
 }
 
 impl SeenTable {
     pub fn new() -> Self {
-        SeenTable {
-            hashes: [[0u8; HASH_SIZE]; MAX_PACKET_HASHES],
+        Self::with_capacity(MAX_PACKET_HASHES).expect("default dedup capacity is nonzero")
+    }
+
+    /// Create a bounded dedup ring. A zero capacity is refused because it would
+    /// silently disable echo and flood suppression.
+    pub fn with_capacity(capacity: usize) -> Option<Self> {
+        (capacity > 0).then(|| SeenTable {
+            hashes: vec![[0u8; HASH_SIZE]; capacity],
             next: 0,
-        }
+        })
+    }
+
+    /// Number of retained packet hashes.
+    pub fn capacity(&self) -> usize {
+        self.hashes.len()
     }
 
     /// Returns `true` if this packet's hash was already recorded (a duplicate); otherwise
@@ -36,7 +49,7 @@ impl SeenTable {
             return true;
         }
         self.hashes[self.next] = h;
-        self.next = (self.next + 1) % MAX_PACKET_HASHES;
+        self.next = (self.next + 1) % self.hashes.len();
         false
     }
 }
@@ -132,6 +145,18 @@ mod tests {
             t.has_seen(&flood(&i.to_le_bytes()));
         }
         assert!(!t.has_seen(&first), "the oldest entry has aged out");
+    }
+
+    #[test]
+    fn configured_seen_capacity_is_an_exact_ring() {
+        let mut t = SeenTable::with_capacity(2).unwrap();
+        assert_eq!(t.capacity(), 2);
+        let first = flood(b"first");
+        assert!(!t.has_seen(&first));
+        t.has_seen(&flood(b"second"));
+        t.has_seen(&flood(b"third"));
+        assert!(!t.has_seen(&first), "two later hashes evict the first");
+        assert!(SeenTable::with_capacity(0).is_none());
     }
 
     #[test]

@@ -1,7 +1,10 @@
 //! Sans-I/O managed-flood relay decisions.
 
-use std::collections::{HashSet, VecDeque};
-use std::time::Duration;
+use alloc::{
+    collections::{BTreeSet, VecDeque},
+    vec::Vec,
+};
+use core::time::Duration;
 
 use crate::transport::{Packet, TransportError};
 
@@ -40,7 +43,7 @@ pub struct ManagedFloodConfig {
 /// transmission time inside the returned delay window.
 pub struct ManagedFlood {
     config: ManagedFloodConfig,
-    seen: HashSet<(u32, u32)>,
+    seen: BTreeSet<(u32, u32)>,
     order: VecDeque<(u32, u32)>,
 }
 
@@ -54,13 +57,18 @@ impl ManagedFlood {
         }
         Ok(Self {
             config,
-            seen: HashSet::with_capacity(config.seen_capacity),
+            seen: BTreeSet::new(),
             order: VecDeque::with_capacity(config.seen_capacity),
         })
     }
 
     pub const fn config(&self) -> ManagedFloodConfig {
         self.config
+    }
+
+    /// Number of retained identities, never greater than `seen_capacity`.
+    pub fn seen_len(&self) -> usize {
+        self.order.len()
     }
 
     /// Inspect one complete radio frame and return the caller's relay action.
@@ -128,12 +136,13 @@ impl core::fmt::Display for FloodConfigError {
     }
 }
 
-impl std::error::Error for FloodConfigError {}
+impl core::error::Error for FloodConfigError {}
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::transport::{BROADCAST_DESTINATION, Header};
+    use alloc::vec;
 
     fn frame(packet_id: u32, hop_limit: u8, channel_hash: u8) -> Vec<u8> {
         Packet {
@@ -177,6 +186,7 @@ mod tests {
             relay.consider(&frame(1, 3, 8)).unwrap(),
             FloodDecision::Relay { .. }
         ));
+        assert_eq!(relay.seen_len(), 1);
     }
 
     #[test]

@@ -1,0 +1,18 @@
+[package]
+name = "protocol-capacity-probe"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "MPL-2.0"
+
+[dependencies]
+retinue = { path = "../../crates/retinue", default-features = false, features = ["alloc"] }
+sennet = { path = "../../crates/sennet", default-features = false }
+tucket = { path = "../../crates/tucket", default-features = false }
+
+[features]
+host = []
+
+[[bin]]
+name = "protocol-capacity-probe"
+required-features = ["host"]

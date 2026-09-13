@@ -1,5 +1,7 @@
 //! Small protocol-facing composition of transport and application layers.
 
+use alloc::{borrow::ToOwned, string::String, vec::Vec};
+
 use crate::application::{self, ApplicationEnvelope, ApplicationError, TEXT_PORT};
 use crate::node_info::{NodeDirectory, OwnedUser};
 use crate::transport::{BROADCAST_DESTINATION, ChannelKey, Header, Packet, TransportError};
@@ -68,7 +70,7 @@ impl Channel {
         header.channel_hash = self.hash;
         let mut packet = Packet {
             header,
-            payload: application::encode_text(text),
+            payload: application::encode_text(text).map_err(NodeError::Application)?,
         };
         packet.apply_channel_cipher(&self.key);
         packet.encode().map_err(NodeError::Transport)
@@ -113,7 +115,7 @@ impl core::fmt::Display for NodeError {
     }
 }
 
-impl std::error::Error for NodeError {}
+impl core::error::Error for NodeError {}
 
 #[cfg(test)]
 mod tests {

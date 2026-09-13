@@ -160,7 +160,7 @@ fn stock_node_accepted_the_reconstructed_text_encoder() {
 
     assert_eq!(
         packet.payload,
-        application::encode_text("sennet semantic api 0722")
+        application::encode_text("sennet semantic api 0722").unwrap()
     );
     assert_eq!(
         ApplicationEnvelope::decode(&packet.payload)

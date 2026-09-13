@@ -45,7 +45,7 @@ fn main() {
             next_hop: 0,
             relay_node: source as u8,
         },
-        payload: encode_text(&args[5..].join(" ")),
+        payload: encode_text(&args[5..].join(" ")).expect("application payload"),
     };
     packet.apply_channel_cipher(&key);
     for byte in packet.encode().expect("transport packet") {

@@ -1,4 +1,5 @@
 #![forbid(unsafe_code)]
+#![no_std]
 
 //! Sennet: an independent, permissively licensed mesh radio protocol
 //! implementation in the retinue family.
@@ -17,6 +18,8 @@
 //! sources only: publicly documented wire and frame layouts, Google's public protobuf wire
 //! standard, or direct observation of bytes a device emits. No third-party protocol source,
 //! schema definition, or client library was consulted. See `PROVENANCE.md`.
+
+extern crate alloc;
 
 pub mod application;
 pub mod flood;

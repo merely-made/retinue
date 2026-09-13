@@ -21,6 +21,8 @@
 //!
 //! Ported from upstream MeshCore (MIT, <https://github.com/ripplebiz/MeshCore>).
 
+use alloc::vec::Vec;
+
 use aes::Aes128;
 use aes::cipher::generic_array::GenericArray;
 use aes::cipher::{BlockDecrypt, BlockEncrypt, KeyInit};
@@ -32,12 +34,18 @@ use crate::packet::{CIPHER_KEY_SIZE, CIPHER_MAC_SIZE};
 
 /// AES block size.
 const BLOCK: usize = 16;
+/// Largest plaintext used by a one-frame Tucket encrypted payload.
+pub const MAX_CIPHER_PLAINTEXT: usize = 176;
 
 /// Encrypt `plaintext` under a 32-byte `secret` and prepend the 2-byte MAC.
 ///
 /// Returns `MAC(2) || ciphertext`, where the ciphertext is `plaintext` zero-padded up to a
 /// 16-byte multiple and AES-128-ECB encrypted block by block.
 pub fn encrypt_then_mac(secret: &[u8; 32], plaintext: &[u8]) -> Vec<u8> {
+    assert!(
+        plaintext.len() <= MAX_CIPHER_PLAINTEXT,
+        "ciphertext exceeds one MeshCore frame"
+    );
     let cipher = Aes128::new(GenericArray::from_slice(&secret[..CIPHER_KEY_SIZE]));
 
     let mut ciphertext = plaintext.to_vec();
@@ -54,6 +62,13 @@ pub fn encrypt_then_mac(secret: &[u8; 32], plaintext: &[u8]) -> Vec<u8> {
     out.extend_from_slice(&mac);
     out.extend_from_slice(&ciphertext);
     out
+}
+
+/// Bounded encrypt-then-MAC for a one-frame protocol payload.
+///
+/// Refuses before allocating when `plaintext` exceeds the frame budget.
+pub fn try_encrypt_then_mac(secret: &[u8; 32], plaintext: &[u8]) -> Option<Vec<u8>> {
+    (plaintext.len() <= MAX_CIPHER_PLAINTEXT).then(|| encrypt_then_mac(secret, plaintext))
 }
 
 /// Verify and decrypt `MAC(2) || ciphertext`.
@@ -147,6 +162,11 @@ mod tests {
     fn too_short_blob_is_rejected() {
         assert!(mac_then_decrypt(&[0; 32], &[]).is_none());
         assert!(mac_then_decrypt(&[0; 32], &[0x00, 0x11]).is_none()); // MAC only, no ct
+    }
+
+    #[test]
+    fn bounded_encrypt_refuses_before_buffering() {
+        assert!(try_encrypt_then_mac(&[0; 32], &[0; MAX_CIPHER_PLAINTEXT + 1]).is_none());
     }
 
     #[test]

@@ -9,6 +9,12 @@ home personality and mandatory resident-listener identity in the
 Its interruption, lease, observation and physical-validation work remains useful.
 The original proposal below is historical where it differs from this section.
 
+**2026-09-13 update:** Retinue, Sennet and Tucket now compile together as embedded
+protocol cores. MC4a adds explicit capacities and a measured host workload plus
+Xtensa layouts and a linked memory-reservation image. It does not yet install
+retained protocol instances in the board loop. See the
+[controller plan](2026-09-10_murmuration_controller_plan.md#mc4a-result-2026-09-13).
+
 ## Current direction: coordinated runtime personalities
 
 **Murmuration** is the cooperative capability for deliberate runtime switching

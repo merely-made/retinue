@@ -6,10 +6,16 @@
 //! the application's bytes. Extra numbered fields are accepted but remain
 //! uninterpreted until a bench experiment gives them a useful meaning.
 
+use alloc::vec::Vec;
+
 use crate::protobuf::{Reader, Value, write_tag, write_varint};
+use crate::transport::MAX_PAYLOAD_LEN;
 
 /// Port observed carrying a UTF-8 text message.
 pub const TEXT_PORT: u32 = 1;
+/// Largest application payload which can fit a Sennet transport packet.
+/// Five bytes reserve the worst-case observed envelope overhead.
+pub const MAX_APPLICATION_PAYLOAD: usize = MAX_PAYLOAD_LEN - 5;
 
 const PORT_FIELD: u32 = 1;
 const PAYLOAD_FIELD: u32 = 2;
@@ -70,14 +76,20 @@ impl<'a> ApplicationEnvelope<'a> {
 
     /// Encode the independently reconstructed field pair. Still-unnamed fields
     /// seen in some captures are deliberately omitted.
-    pub fn encode(self) -> Vec<u8> {
+    pub fn encode(self) -> Result<Vec<u8>, ApplicationError> {
+        if self.payload.len() > MAX_APPLICATION_PAYLOAD {
+            return Err(ApplicationError::PayloadTooLong {
+                actual: self.payload.len(),
+                limit: MAX_APPLICATION_PAYLOAD,
+            });
+        }
         let mut out = Vec::with_capacity(self.payload.len() + 8);
         write_tag(PORT_FIELD, 0, &mut out);
         write_varint(u64::from(self.port), &mut out);
         write_tag(PAYLOAD_FIELD, 2, &mut out);
         write_varint(self.payload.len() as u64, &mut out);
         out.extend_from_slice(self.payload);
-        out
+        Ok(out)
     }
 
     /// Interpret the payload as text only for the port directly observed to
@@ -86,12 +98,12 @@ impl<'a> ApplicationEnvelope<'a> {
         if self.port != TEXT_PORT {
             return Err(ApplicationError::NotTextPort(self.port));
         }
-        std::str::from_utf8(self.payload).map_err(|_| ApplicationError::InvalidUtf8)
+        core::str::from_utf8(self.payload).map_err(|_| ApplicationError::InvalidUtf8)
     }
 }
 
 /// Build the application bytes for a text message.
-pub fn encode_text(text: &str) -> Vec<u8> {
+pub fn encode_text(text: &str) -> Result<Vec<u8>, ApplicationError> {
     ApplicationEnvelope::new(TEXT_PORT, text.as_bytes()).encode()
 }
 
@@ -109,10 +121,11 @@ pub enum ApplicationError {
     PortOutOfRange(u64),
     NotTextPort(u32),
     InvalidUtf8,
+    PayloadTooLong { actual: usize, limit: usize },
 }
 
-impl std::fmt::Display for ApplicationError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for ApplicationError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::MalformedMessage => write!(f, "malformed application message"),
             Self::MissingField(field) => write!(f, "missing application field {field}"),
@@ -123,11 +136,14 @@ impl std::fmt::Display for ApplicationError {
             Self::PortOutOfRange(value) => write!(f, "application port is out of range: {value}"),
             Self::NotTextPort(port) => write!(f, "application port {port} is not text"),
             Self::InvalidUtf8 => write!(f, "text payload is not valid UTF-8"),
+            Self::PayloadTooLong { actual, limit } => {
+                write!(f, "application payload exceeds {limit} bytes: {actual}")
+            }
         }
     }
 }
 
-impl std::error::Error for ApplicationError {}
+impl core::error::Error for ApplicationError {}
 
 #[cfg(test)]
 mod tests {
@@ -143,12 +159,15 @@ mod tests {
 
     #[test]
     fn encodes_only_the_reconstructed_fields() {
-        assert_eq!(encode_text("bench probe"), b"\x08\x01\x12\x0bbench probe");
+        assert_eq!(
+            encode_text("bench probe").unwrap(),
+            b"\x08\x01\x12\x0bbench probe"
+        );
     }
 
     #[test]
     fn application_envelope_round_trips() {
-        let encoded = ApplicationEnvelope::new(67, &[1, 2, 3]).encode();
+        let encoded = ApplicationEnvelope::new(67, &[1, 2, 3]).encode().unwrap();
         assert_eq!(
             ApplicationEnvelope::decode(&encoded).unwrap(),
             ApplicationEnvelope::new(67, &[1, 2, 3])
@@ -180,6 +199,17 @@ mod tests {
         assert_eq!(
             ApplicationEnvelope::decode(b"\x08\x01\x12\x08short"),
             Err(ApplicationError::MalformedMessage)
+        );
+    }
+
+    #[test]
+    fn encoding_refuses_before_allocating_an_oversized_message() {
+        assert_eq!(
+            encode_text(&"x".repeat(MAX_APPLICATION_PAYLOAD + 1)),
+            Err(ApplicationError::PayloadTooLong {
+                actual: MAX_APPLICATION_PAYLOAD + 1,
+                limit: MAX_APPLICATION_PAYLOAD
+            })
         );
     }
 }

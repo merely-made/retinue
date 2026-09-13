@@ -494,6 +494,14 @@ impl Incoming {
         if adv.parts > max_parts as u64 {
             return Err(Error::CapacityExceeded);
         }
+        // The initial hashmap is peer input too. A small advertised count must
+        // not bypass the retained-hash ceiling before the first HMU arrives.
+        if !adv.hashmap.len().is_multiple_of(MAPHASH_LEN)
+            || adv.hashmap.len() / MAPHASH_LEN > adv.parts as usize
+            || adv.random_hash.len() != RANDOM_HASH_LEN
+        {
+            return Err(Error::BadRequest);
+        }
         let mut hash = [0u8; 32];
         hash.copy_from_slice(&adv.resource_hash);
         let order = adv.hashmap.as_chunks::<MAPHASH_LEN>().0.to_vec();
@@ -560,12 +568,13 @@ impl Incoming {
 
     /// Ingest an HMU's hashes, appending any new ones in order. Returns how many were added.
     ///
-    /// Stops at `max_parts`. Bounding `order` bounds `parts` too, because a part is only
+    /// Stops at the advertised part count, itself capped by `max_parts`.
+    /// Bounding `order` bounds `parts` too, because a part is only
     /// accepted for a hash already listed here.
     pub fn ingest_hmu(&mut self, hmu: &Hmu) -> usize {
         let mut added = 0;
         for h in &hmu.hashes {
-            if self.order.len() >= self.max_parts {
+            if self.order.len() >= self.total_parts {
                 break;
             }
             if !self.order.contains(h) {
@@ -1066,6 +1075,36 @@ mod tests {
 
     fn adv_bytes() -> Vec<u8> {
         hex::decode(ADV.replace([' ', '\n'], "")).unwrap()
+    }
+
+    #[test]
+    fn initial_hashmap_cannot_exceed_advertised_part_count() {
+        let mut adv = Advertisement::parse(&adv_bytes()).unwrap();
+        adv.parts = 1;
+        assert!(matches!(
+            Incoming::new_with_max_parts(&adv, 32),
+            Err(Error::BadRequest)
+        ));
+        adv.parts = 2;
+        adv.hashmap.push(0);
+        assert!(matches!(
+            Incoming::new_with_max_parts(&adv, 32),
+            Err(Error::BadRequest)
+        ));
+    }
+
+    #[test]
+    fn hmu_cannot_grow_past_the_advertised_count() {
+        let adv = Advertisement::parse(&adv_bytes()).unwrap();
+        let mut incoming = Incoming::new_with_max_parts(&adv, 32).unwrap();
+        let hmu = parse_hmu(&build_hmu(
+            &incoming.resource_hash(),
+            1,
+            &[[9; MAPHASH_LEN]],
+        ))
+        .unwrap();
+        assert_eq!(incoming.ingest_hmu(&hmu), 0);
+        assert_eq!(incoming.order_len(), 2);
     }
 
     #[test]

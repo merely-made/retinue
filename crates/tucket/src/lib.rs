@@ -1,4 +1,5 @@
 #![forbid(unsafe_code)]
+#![no_std]
 
 //! Tucket: MeshCore interop for the retinue radio family.
 //!
@@ -7,6 +8,8 @@
 //! layer.
 //!
 //! A tucket is a trumpet flourish announcing a single arrival.
+
+extern crate alloc;
 
 pub mod advert;
 pub mod cipher;

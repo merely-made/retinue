@@ -4,7 +4,9 @@
 //! `path_len || path || extra_type || extra`. A PATH received by flood carries the path the
 //! peer should use to return directly; the receiver answers with its reciprocal path.
 
-use crate::cipher::{encrypt_then_mac, mac_then_decrypt};
+use alloc::vec::Vec;
+
+use crate::cipher::{MAX_CIPHER_PLAINTEXT, encrypt_then_mac, mac_then_decrypt};
 use crate::packet::{MAX_PAYLOAD, Packet};
 
 /// A decoded direct route and optional piggy-backed response such as an ACK.
@@ -23,7 +25,8 @@ impl PathMessage {
             return None;
         }
         let byte_len = ((path_len >> 6) as usize + 1) * (path_len & 63) as usize;
-        if path.len() != byte_len {
+        // `2` is the path_len and extra_type.
+        if path.len() != byte_len || path.len() + extra.len() + 2 > MAX_CIPHER_PLAINTEXT {
             return None;
         }
         Some(Self {
@@ -52,6 +55,9 @@ impl PathMessage {
 
     /// Decrypt and validate a pairwise PATH payload.
     pub fn decode(payload: &[u8], secret: &[u8; 32]) -> Option<(u8, u8, Self)> {
+        if payload.len() > MAX_PAYLOAD {
+            return None;
+        }
         let (&dest_hash, rest) = payload.split_first()?;
         let (&src_hash, blob) = rest.split_first()?;
         let plain = mac_then_decrypt(secret, blob)?;
@@ -98,5 +104,10 @@ mod tests {
     #[test]
     fn malformed_path_is_rejected() {
         assert!(PathMessage::new(2, &[0x11], 0, &[]).is_none());
+    }
+
+    #[test]
+    fn standalone_decode_refuses_oversize_payload() {
+        assert!(PathMessage::decode(&[0; MAX_PAYLOAD + 1], &[0; 32]).is_none());
     }
 }

@@ -7,7 +7,7 @@
 //! number agree byte-for-byte as hexadecimal and are retained as the lookup
 //! key needed to attach names to packet endpoints.
 
-use std::collections::BTreeMap;
+use alloc::{borrow::ToOwned, collections::BTreeMap, string::String};
 
 use crate::protobuf::{Reader, Value};
 
@@ -17,6 +17,32 @@ const NODE_USER_FIELD: u32 = 2;
 const USER_ID_FIELD: u32 = 1;
 const USER_LONG_NAME_FIELD: u32 = 2;
 const USER_SHORT_NAME_FIELD: u32 = 3;
+
+/// Default number of retained node-info records per Sennet instance.
+pub const DEFAULT_DIRECTORY_CAPACITY: usize = 32;
+pub const DEFAULT_ID_LIMIT: usize = 32;
+pub const DEFAULT_LONG_NAME_LIMIT: usize = 64;
+pub const DEFAULT_SHORT_NAME_LIMIT: usize = 16;
+
+/// Caller-selected retained directory limits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NodeDirectoryConfig {
+    pub capacity: usize,
+    pub id_limit: usize,
+    pub long_name_limit: usize,
+    pub short_name_limit: usize,
+}
+
+impl Default for NodeDirectoryConfig {
+    fn default() -> Self {
+        Self {
+            capacity: DEFAULT_DIRECTORY_CAPACITY,
+            id_limit: DEFAULT_ID_LIMIT,
+            long_name_limit: DEFAULT_LONG_NAME_LIMIT,
+            short_name_limit: DEFAULT_SHORT_NAME_LIMIT,
+        }
+    }
+}
 
 /// The user-facing identity carried by one node-info record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,14 +68,33 @@ pub struct OwnedUser {
 }
 
 /// The latest observed identity for each numeric node key.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NodeDirectory {
+    config: NodeDirectoryConfig,
     nodes: BTreeMap<u32, OwnedUser>,
 }
 
 impl NodeDirectory {
     pub fn new() -> Self {
-        Self::default()
+        Self::with_config(NodeDirectoryConfig::default())
+            .expect("default node directory configuration is valid")
+    }
+
+    pub fn with_config(config: NodeDirectoryConfig) -> Result<Self, DirectoryConfigError> {
+        if config.capacity == 0 {
+            return Err(DirectoryConfigError::Capacity);
+        }
+        if config.id_limit == 0 || config.long_name_limit == 0 || config.short_name_limit == 0 {
+            return Err(DirectoryConfigError::FieldLimit);
+        }
+        Ok(Self {
+            config,
+            nodes: BTreeMap::new(),
+        })
+    }
+
+    pub const fn config(&self) -> NodeDirectoryConfig {
+        self.config
     }
 
     /// Ingest one client-stream payload.
@@ -60,6 +105,12 @@ impl NodeDirectory {
         let Some(info) = NodeInfo::decode_from_radio(bytes)? else {
             return Ok(false);
         };
+        self.check_user(info.user)?;
+        if !self.nodes.contains_key(&info.number) && self.nodes.len() == self.config.capacity {
+            return Err(NodeInfoError::DirectoryFull {
+                capacity: self.config.capacity,
+            });
+        }
         self.nodes.insert(
             info.number,
             OwnedUser {
@@ -81,6 +132,26 @@ impl NodeDirectory {
 
     pub fn is_empty(&self) -> bool {
         self.nodes.is_empty()
+    }
+
+    fn check_user(&self, user: User<'_>) -> Result<(), NodeInfoError> {
+        check_len("User.id", user.id.len(), self.config.id_limit)?;
+        check_len(
+            "User.long_name",
+            user.long_name.len(),
+            self.config.long_name_limit,
+        )?;
+        check_len(
+            "User.short_name",
+            user.short_name.len(),
+            self.config.short_name_limit,
+        )
+    }
+}
+
+impl Default for NodeDirectory {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -188,6 +259,17 @@ fn utf8<'a>(bytes: &'a [u8], field: &'static str) -> Result<&'a str, NodeInfoErr
     core::str::from_utf8(bytes).map_err(|_| NodeInfoError::InvalidUtf8(field))
 }
 
+fn check_len(field: &'static str, actual: usize, limit: usize) -> Result<(), NodeInfoError> {
+    if actual > limit {
+        return Err(NodeInfoError::FieldTooLong {
+            field,
+            actual,
+            limit,
+        });
+    }
+    Ok(())
+}
+
 fn set_once<T>(
     slot: &mut Option<T>,
     field: &'static str,
@@ -208,6 +290,14 @@ pub enum NodeInfoError {
     WrongWireType(&'static str),
     NumberOutOfRange(u64),
     InvalidUtf8(&'static str),
+    FieldTooLong {
+        field: &'static str,
+        actual: usize,
+        limit: usize,
+    },
+    DirectoryFull {
+        capacity: usize,
+    },
 }
 
 impl core::fmt::Display for NodeInfoError {
@@ -221,11 +311,34 @@ impl core::fmt::Display for NodeInfoError {
                 write!(f, "node number is out of range: {value}")
             }
             Self::InvalidUtf8(field) => write!(f, "{field} is not valid UTF-8"),
+            Self::FieldTooLong {
+                field,
+                actual,
+                limit,
+            } => write!(f, "{field} exceeds {limit} bytes: {actual}"),
+            Self::DirectoryFull { capacity } => {
+                write!(f, "node directory is full at {capacity} records")
+            }
         }
     }
 }
 
-impl std::error::Error for NodeInfoError {}
+impl core::error::Error for NodeInfoError {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DirectoryConfigError {
+    Capacity,
+    FieldLimit,
+}
+impl core::fmt::Display for DirectoryConfigError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Capacity => write!(f, "node directory capacity must be non-zero"),
+            Self::FieldLimit => write!(f, "node directory field limits must be non-zero"),
+        }
+    }
+}
+impl core::error::Error for DirectoryConfigError {}
 
 #[cfg(test)]
 mod tests {
@@ -278,5 +391,40 @@ mod tests {
         );
         assert!(!directory.ingest_from_radio(b"\x68\x01").unwrap());
         assert_eq!(directory.len(), 1);
+    }
+
+    #[test]
+    fn directory_refuses_new_records_at_configured_capacity() {
+        let mut directory = NodeDirectory::with_config(NodeDirectoryConfig {
+            capacity: 1,
+            ..NodeDirectoryConfig::default()
+        })
+        .unwrap();
+        assert!(directory.ingest_from_radio(BASELINE).unwrap());
+        let mut second = BASELINE.to_vec();
+        second[4] = 0xe5;
+        assert_eq!(
+            directory.ingest_from_radio(&second),
+            Err(NodeInfoError::DirectoryFull { capacity: 1 })
+        );
+        assert_eq!(directory.len(), 1);
+    }
+
+    #[test]
+    fn directory_refuses_long_names_before_retaining_them() {
+        let mut directory = NodeDirectory::with_config(NodeDirectoryConfig {
+            long_name_limit: 4,
+            ..NodeDirectoryConfig::default()
+        })
+        .unwrap();
+        assert_eq!(
+            directory.ingest_from_radio(BASELINE),
+            Err(NodeInfoError::FieldTooLong {
+                field: "User.long_name",
+                actual: 15,
+                limit: 4
+            })
+        );
+        assert!(directory.is_empty());
     }
 }

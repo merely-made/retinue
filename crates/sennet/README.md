@@ -34,6 +34,39 @@ Tulle's reusable Rust serial link. It advances and flushes a versioned packet-ID
 state file before transmitting. The protocol layer constructs and opens
 packets; Tulle owns USB framing, pacing, and radio metrics.
 
+## Embedded allocation limits
+
+The default protocol core is `no_std + alloc`. Its errors implement
+`core::error::Error`, which keeps host error conversion available without
+changing embedded dependencies. USB examples require `hardware`.
+
+Sennet refuses inputs before retaining unbounded state. A transport payload is
+at most 237 bytes and an application payload is at most 232 bytes, leaving the
+worst-case envelope overhead. `encode_text`, `ApplicationEnvelope::encode`,
+and stream `encode` return explicit errors when those limits do not fit.
+
+`NodeDirectory::with_config(NodeDirectoryConfig)` bounds retained records and
+the ID, long-name, and short-name bytes copied for each new record. Defaults
+are 32 records with 32, 64, and 16 byte fields. It returns
+`NodeInfoError::FieldTooLong` before copying a field and
+`NodeInfoError::DirectoryFull` for an unseen record beyond capacity. Its owned
+string byte budget is at most
+`capacity * (id_limit + long_name_limit + short_name_limit)`; map allocation
+metadata is allocator-dependent.
+
+`ManagedFloodConfig::seen_capacity` retains at most that many `(source,
+packet_id)` pairs. The logical identity storage is two eight-byte copies per
+entry, one ordered eviction queue and one lookup set: `16 * seen_capacity`
+bytes plus collection metadata. A relayed packet temporarily owns at most a
+237-byte payload and a 253-byte encoded frame.
+
+`DeframerConfig` bounds retained partial input at `4 + max_payload` bytes.
+Its defaults are 516 bytes and four completed payloads per `push`; output is at
+most `4 * 512` payload bytes per call, owned by the caller's output vector.
+When that quota fills, `StreamError::OutputFull { consumed, .. }` reports the
+retry offset while retaining the next complete frame. Drain the output and call
+`push` again with `bytes[consumed..]`; valid coalesced frames are not dropped.
+
 `direct_phy_pair` is the two-independent-radio headed receipt:
 
 ```text

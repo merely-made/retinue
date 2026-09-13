@@ -11,6 +11,16 @@ and wire notes live in [`design_docs/`](design_docs/).
 
 ## What works
 
+Embedded `node::Node` callers can use `new_with_payload_limits` to cap incoming
+packet size, local announce data, link payloads, outbound resources and inbound
+resource part counts. Oversized input is refused before Node allocation or state
+changes. `try_set_app_data` preserves the previous value on refusal. Table sizes
+and freshness history remain separately configurable. Bound raw bytes before
+packet decoding and bound the caller's action queues too. The combined-capacity
+fixture builds with compression disabled; compressed-resource expansion requires
+its own budget. See the repository's
+[`MC4 plan`](../../design_docs/2026-09-10_murmuration_controller_plan.md).
+
 Every layer below is implemented and checked against a black-box RNS oracle
 (never read). The committed byte fixtures under [`tests/fixtures/`](tests/fixtures/)
 retain their observed RNS 1.3.8 provenance; the live mixed-runtime gates pass

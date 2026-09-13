@@ -11,6 +11,9 @@
 //!
 //! Ported from upstream MeshCore (MIT, <https://github.com/ripplebiz/MeshCore>).
 
+use alloc::{borrow::ToOwned, string::String, vec::Vec};
+use core::str;
+
 use crate::identity::{Identity, LocalIdentity};
 use crate::packet::{PUB_KEY_SIZE, SIGNATURE_SIZE};
 
@@ -40,14 +43,21 @@ pub struct AdvertData {
 }
 
 impl AdvertData {
-    pub fn chat(name: impl Into<String>) -> Self {
-        Self {
+    /// Build a chat advert from borrowed input, refusing before allocating an
+    /// application name that cannot fit in the fixed advert-data wire field.
+    pub fn try_chat(name: &str) -> Option<Self> {
+        (name.len() < MAX_ADVERT_DATA).then(|| Self {
             node_type: ADVERT_TYPE_CHAT,
             location_e6: None,
             feature_1: None,
             feature_2: None,
-            name: Some(name.into()),
-        }
+            name: Some(String::from(name)),
+        })
+    }
+
+    /// Build a chat advert. Prefer [`Self::try_chat`] for untrusted input.
+    pub fn chat(name: impl AsRef<str>) -> Self {
+        Self::try_chat(name.as_ref()).expect("chat name fits MeshCore advert data")
     }
 
     pub fn encode(&self) -> Option<Vec<u8>> {
@@ -68,7 +78,15 @@ impl AdvertData {
             flags |= NAME_MASK;
         }
 
-        let mut out = Vec::with_capacity(MAX_ADVERT_DATA);
+        let name_len = self.name.as_ref().map_or(0, |name| name.len());
+        let fixed_len = 1
+            + self.location_e6.map_or(0, |_| 8)
+            + self.feature_1.map_or(0, |_| 2)
+            + self.feature_2.map_or(0, |_| 2);
+        if fixed_len + name_len > MAX_ADVERT_DATA {
+            return None;
+        }
+        let mut out = Vec::with_capacity(fixed_len + name_len);
         out.push(flags);
         if let Some((latitude, longitude)) = self.location_e6 {
             out.extend_from_slice(&latitude.to_le_bytes());
@@ -116,7 +134,7 @@ impl AdvertData {
             None
         };
         let name = if flags & NAME_MASK != 0 {
-            let name = std::str::from_utf8(bytes.get(offset..)?).ok()?;
+            let name = str::from_utf8(bytes.get(offset..)?).ok()?;
             (!name.is_empty()).then(|| name.to_owned())
         } else {
             (offset == bytes.len()).then_some(None)?
@@ -257,6 +275,12 @@ mod tests {
         let encoded = data.encode().unwrap();
         assert_eq!(encoded, b"\x81Tucket");
         assert_eq!(AdvertData::decode(&encoded), Some(data));
+    }
+
+    #[test]
+    fn borrowed_chat_name_is_checked_before_copying() {
+        let name = "x".repeat(MAX_ADVERT_DATA);
+        assert!(AdvertData::try_chat(&name).is_none());
     }
 
     #[test]

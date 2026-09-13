@@ -15,6 +15,7 @@ owned_manifest_globs = [
     "apps/*/Cargo.toml",
     "crates/*/Cargo.toml",
     "firmware/*/Cargo.toml",
+    "testing/*/Cargo.toml",
 ]
 validation_asset_globs = [
     "validation/*.py",
@@ -87,6 +88,11 @@ asset_globs = ["fuzz/Cargo.toml", "fuzz/Cargo.lock", "fuzz/fuzz_targets/*.rs", "
 id = "host-workspace"
 tier = "pr"
 command = ["cargo", "test"]
+
+[[suite]]
+id = "protocol-capacity"
+tier = "local"
+command = ["cargo", "run", "-p", "protocol-capacity-probe", "--features", "host"]
 
 [[suite]]
 id = "retinue-sans-io"

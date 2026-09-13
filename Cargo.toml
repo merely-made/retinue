@@ -15,6 +15,7 @@ members = [
     "crates/radio-hand",
     "firmware/heltec-v4-phy",
     "firmware/t114-phy",
+    "testing/protocol-capacity",
 ]
 
 # `apps/signalman-desktop` is deliberately NOT a member.

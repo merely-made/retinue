@@ -17,13 +17,13 @@
 //!
 //! Ported from upstream MeshCore (MIT, <https://github.com/ripplebiz/MeshCore>).
 
-use std::collections::HashMap;
+use alloc::{string::String, vec::Vec};
 
 use crate::advert::{Advert, AdvertData};
 use crate::identity::{Identity, LocalIdentity};
 use crate::mesh::{Forward, SeenTable, route_recv};
 use crate::message::{TextMessage, decode_ack, encode_ack};
-use crate::packet::{Packet, ROUTE_DIRECT, ROUTE_FLOOD, payload_type};
+use crate::packet::{Packet, PacketRef, ROUTE_DIRECT, ROUTE_FLOOD, payload_type};
 use crate::path::PathMessage;
 
 /// A validated source route to one contact.
@@ -71,7 +71,8 @@ pub struct PendingText {
     text: String,
     policy: TextRetryPolicy,
     next_attempt: u8,
-    expected_acks: Vec<[u8; 4]>,
+    expected_acks: [[u8; 4]; 4],
+    expected_ack_count: u8,
     complete: bool,
 }
 
@@ -91,12 +92,109 @@ impl PendingText {
     /// Accept an ACK from any attempt already emitted. Delayed delivery of an
     /// earlier ACK still completes the send.
     pub fn acknowledge(&mut self, ack: [u8; 4]) -> bool {
-        if self.expected_acks.contains(&ack) {
+        if self.expected_acks[..self.expected_ack_count as usize].contains(&ack) {
             self.complete = true;
             true
         } else {
             false
         }
+    }
+}
+
+/// The largest UTF-8 text body that fits the current one-frame private text
+/// format. It is a wire limit, independent of any node capacity.
+pub use crate::message::MAX_TEXT_BYTES;
+
+/// A refusal from the bounded core.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CapacityError {
+    /// The destination has not advertised a public key yet.
+    UnknownContact,
+    /// Contact state is full and the incoming advert has no existing slot.
+    ContactsFull,
+    /// A text body cannot fit in one encrypted MeshCore payload.
+    TextTooLong,
+    /// Advert application data cannot fit in its fixed wire field.
+    AdvertDataTooLong,
+    /// A caller-owned pending collection is full.
+    PendingFull,
+    /// The public retry fields must still describe the four-attempt wire
+    /// format, even when callers construct the struct directly.
+    InvalidRetryPolicy,
+    /// A capacity of zero would silently disable a required table.
+    ZeroCapacity,
+}
+
+/// Resident state chosen by the firmware integrator.
+///
+/// `contacts` and `dedup` are allocated once by [`Node::with_capacity`] and
+/// never grow while handling frames. Pending sends are deliberately outside the
+/// node: use [`PendingTexts`] or an application-owned equivalent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NodeCapacity {
+    pub contacts: usize,
+    pub dedup: usize,
+}
+
+impl NodeCapacity {
+    pub const fn new(contacts: usize, dedup: usize) -> Result<Self, CapacityError> {
+        if contacts == 0 || dedup == 0 {
+            return Err(CapacityError::ZeroCapacity);
+        }
+        Ok(Self { contacts, dedup })
+    }
+}
+
+impl Default for NodeCapacity {
+    fn default() -> Self {
+        Self {
+            contacts: 32,
+            dedup: crate::mesh::MAX_PACKET_HASHES,
+        }
+    }
+}
+
+/// A bounded caller-owned collection of sends awaiting ACKs.
+///
+/// This type owns no `Node` state. Its capacity bounds only the caller's
+/// outstanding texts, never the number of installed protocol instances.
+#[derive(Clone, Debug)]
+pub struct PendingTexts {
+    entries: Vec<PendingText>,
+    capacity: usize,
+}
+
+impl PendingTexts {
+    pub fn new(capacity: usize) -> Result<Self, CapacityError> {
+        if capacity == 0 {
+            return Err(CapacityError::ZeroCapacity);
+        }
+        Ok(Self {
+            entries: Vec::with_capacity(capacity),
+            capacity,
+        })
+    }
+
+    pub fn push(&mut self, pending: PendingText) -> Result<(), CapacityError> {
+        if self.entries.len() == self.capacity {
+            return Err(CapacityError::PendingFull);
+        }
+        self.entries.push(pending);
+        Ok(())
+    }
+
+    pub fn as_mut_slice(&mut self) -> &mut [PendingText] {
+        &mut self.entries
+    }
+
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+    pub const fn capacity(&self) -> usize {
+        self.capacity
     }
 }
 
@@ -168,21 +266,34 @@ pub struct Node {
     allow_forward: bool,
     /// Learned contacts, keyed by 1-byte node hash. A collision (two peers sharing a hash byte)
     /// keeps the most recently advertised, matching the wire's 1-byte addressing.
-    contacts: HashMap<u8, Contact>,
+    contacts: Vec<(u8, Contact)>,
+    capacity: NodeCapacity,
 }
 
 impl Node {
     /// A node with the given identity. `allow_forward` is `true` for a repeater (retransmits
     /// others' traffic), `false` for a leaf.
     pub fn new(identity: LocalIdentity, allow_forward: bool) -> Self {
+        Self::with_capacity(identity, allow_forward, NodeCapacity::default())
+            .expect("the default Tucket capacity is valid")
+    }
+
+    /// Construct a node with explicitly bounded resident contacts and dedup.
+    pub fn with_capacity(
+        identity: LocalIdentity,
+        allow_forward: bool,
+        capacity: NodeCapacity,
+    ) -> Result<Self, CapacityError> {
         let me = identity.identity();
-        Node {
+        let seen = SeenTable::with_capacity(capacity.dedup).ok_or(CapacityError::ZeroCapacity)?;
+        Ok(Node {
             identity,
             me,
-            seen: SeenTable::new(),
+            seen,
             allow_forward,
-            contacts: HashMap::new(),
-        }
+            contacts: Vec::with_capacity(capacity.contacts),
+            capacity,
+        })
     }
 
     /// Our identity.
@@ -197,12 +308,20 @@ impl Node {
 
     /// A learned contact by node hash.
     pub fn contact(&self, hash: u8) -> Option<&Identity> {
-        self.contacts.get(&hash).map(|contact| &contact.identity)
+        self.contacts
+            .iter()
+            .find(|(key, _)| *key == hash)
+            .map(|(_, contact)| &contact.identity)
     }
 
     /// The authenticated direct route currently learned for a contact.
     pub fn route_to(&self, hash: u8) -> Option<&DirectRoute> {
-        self.contacts.get(&hash)?.route.as_ref()
+        self.contacts
+            .iter()
+            .find(|(key, _)| *key == hash)?
+            .1
+            .route
+            .as_ref()
     }
 
     /// Set an operator-selected route for a known contact.
@@ -210,7 +329,7 @@ impl Node {
     /// This is useful when topology policy or an independently measured path
     /// should take precedence over automatic flood discovery.
     pub fn set_route(&mut self, hash: u8, route: DirectRoute) -> bool {
-        let Some(contact) = self.contacts.get_mut(&hash) else {
+        let Some((_, contact)) = self.contacts.iter_mut().find(|(key, _)| *key == hash) else {
             return false;
         };
         contact.route = Some(route);
@@ -220,30 +339,73 @@ impl Node {
     /// Forget a route after a failed direct delivery so the next send floods and discovers a
     /// fresh one.
     pub fn clear_route(&mut self, hash: u8) {
-        if let Some(contact) = self.contacts.get_mut(&hash) {
+        if let Some((_, contact)) = self.contacts.iter_mut().find(|(key, _)| *key == hash) {
             contact.route = None;
         }
     }
 
     /// Begin a caller-timed private text send. Returns `None` until the peer's
     /// advert has supplied its public key.
+    pub fn try_begin_text(
+        &self,
+        to: u8,
+        timestamp: u32,
+        text: impl AsRef<str>,
+        policy: TextRetryPolicy,
+    ) -> Result<PendingText, CapacityError> {
+        self.contacts
+            .iter()
+            .find(|(key, _)| *key == to)
+            .ok_or(CapacityError::UnknownContact)?;
+        if !(1..=4).contains(&policy.attempts) {
+            return Err(CapacityError::InvalidRetryPolicy);
+        }
+        let text = text.as_ref();
+        if text.len() > MAX_TEXT_BYTES {
+            return Err(CapacityError::TextTooLong);
+        }
+        Ok(PendingText {
+            to,
+            timestamp,
+            // Copy only after validating the borrowed input's wire bound.
+            text: String::from(text),
+            policy,
+            next_attempt: 0,
+            expected_acks: [[0; 4]; 4],
+            expected_ack_count: 0,
+            complete: false,
+        })
+    }
+
+    /// Add or refresh a contact without evicting an unrelated one.
+    pub fn try_add_contact(&mut self, identity: Identity) -> Result<(), CapacityError> {
+        let hash = identity.hash()[0];
+        if let Some((_, contact)) = self.contacts.iter_mut().find(|(key, _)| *key == hash) {
+            contact.identity = identity;
+            return Ok(());
+        }
+        if self.contacts.len() == self.capacity.contacts {
+            return Err(CapacityError::ContactsFull);
+        }
+        self.contacts.push((
+            hash,
+            Contact {
+                identity,
+                route: None,
+            },
+        ));
+        Ok(())
+    }
+
+    /// Compatibility wrapper for callers that only need success or refusal.
     pub fn begin_text(
         &self,
         to: u8,
         timestamp: u32,
-        text: impl Into<String>,
+        text: impl AsRef<str>,
         policy: TextRetryPolicy,
     ) -> Option<PendingText> {
-        self.contacts.get(&to)?;
-        Some(PendingText {
-            to,
-            timestamp,
-            text: text.into(),
-            policy,
-            next_attempt: 0,
-            expected_acks: Vec::with_capacity(policy.attempts as usize),
-            complete: false,
-        })
+        self.try_begin_text(to, timestamp, text, policy).ok()
     }
 
     /// Produce the next numbered attempt. Returns `None` after completion or
@@ -252,7 +414,13 @@ impl Node {
         if pending.complete || pending.next_attempt >= pending.policy.attempts {
             return None;
         }
-        let peer = self.contacts.get(&pending.to)?.identity.clone();
+        let peer = self
+            .contacts
+            .iter()
+            .find(|(key, _)| *key == pending.to)?
+            .1
+            .identity
+            .clone();
         let secret = self.identity.shared_secret(&peer)?;
         let attempt = pending.next_attempt;
         let flood_last = pending.policy.flood_last
@@ -265,14 +433,15 @@ impl Node {
         let mut message = TextMessage::plain(pending.timestamp, pending.text.clone());
         message.attempt = attempt;
         let ack = message.ack_crc(&self.me.pub_key);
-        let payload = message.encode(&secret, pending.to, self.my_hash());
+        let payload = message.try_encode(&secret, pending.to, self.my_hash())?;
         let mut packet = Packet::new(ROUTE_FLOOD, payload_type::TXT_MSG);
         packet.payload = payload;
         let frame = self.route_outgoing(pending.to, packet);
         let flooded = Packet::decode(&frame).is_some_and(|packet| packet.is_flood());
 
         pending.next_attempt += 1;
-        pending.expected_acks.push(ack);
+        pending.expected_acks[pending.expected_ack_count as usize] = ack;
+        pending.expected_ack_count += 1;
         Some(TextAttempt {
             frame,
             ack,
@@ -283,12 +452,17 @@ impl Node {
 
     /// Handle one received raw frame. Returns `(events for the app, frames to retransmit)`.
     pub fn on_frame(&mut self, frame: &[u8]) -> (Vec<Event>, Vec<Vec<u8>>) {
-        let mut events = Vec::new();
-        let mut out = Vec::new();
+        // At most one app event and two outbound frames (a PATH reply plus
+        // forwarding) arise from one frame, so neither vector grows here.
+        let mut events = Vec::with_capacity(1);
+        let mut out = Vec::with_capacity(2);
 
-        let Some(packet) = Packet::decode(frame) else {
+        // Validate bounds and split the raw frame before allocating an owned
+        // packet. Malformed or oversized frames do not touch resident state.
+        let Some(raw) = PacketRef::decode(frame) else {
             return (events, out);
         };
+        let packet = raw.to_owned();
         // A direct packet is processed only by its current next hop. Other radios hear the
         // same transmission but must not mark it seen before it reaches their turn in the
         // source route.
@@ -322,14 +496,9 @@ impl Node {
         match packet.payload_type() {
             payload_type::ADVERT => {
                 if let Some(adv) = Advert::decode(&packet.payload) {
-                    let hash = adv.identity.hash()[0];
-                    self.contacts
-                        .entry(hash)
-                        .and_modify(|contact| contact.identity = adv.identity.clone())
-                        .or_insert(Contact {
-                            identity: adv.identity.clone(),
-                            route: None,
-                        });
+                    if self.try_add_contact(adv.identity.clone()).is_err() {
+                        return false;
+                    }
                     events.push(Event::Advert {
                         identity: adv.identity,
                         timestamp: adv.timestamp,
@@ -346,7 +515,12 @@ impl Node {
                 let Some(&src_hash) = packet.payload.get(1) else {
                     return false;
                 };
-                let Some(sender) = self.contacts.get(&src_hash).map(|c| c.identity.clone()) else {
+                let Some(sender) = self
+                    .contacts
+                    .iter()
+                    .find(|(key, _)| *key == src_hash)
+                    .map(|(_, c)| c.identity.clone())
+                else {
                     // We do not know the sender yet, so we cannot derive the key. Let it forward
                     // in case another node can (and we may learn the sender's advert later).
                     return false;
@@ -402,7 +576,12 @@ impl Node {
         let Some(&src_hash) = packet.payload.get(1) else {
             return false;
         };
-        let Some(sender) = self.contacts.get(&src_hash).map(|c| c.identity.clone()) else {
+        let Some(sender) = self
+            .contacts
+            .iter()
+            .find(|(key, _)| *key == src_hash)
+            .map(|(_, c)| c.identity.clone())
+        else {
             return false;
         };
         let Some(secret) = self.identity.shared_secret(&sender) else {
@@ -419,7 +598,7 @@ impl Node {
             path_len: path.path_len,
             path: path.path.clone(),
         };
-        if let Some(contact) = self.contacts.get_mut(&src_hash) {
+        if let Some((_, contact)) = self.contacts.iter_mut().find(|(key, _)| *key == src_hash) {
             contact.route = Some(route.clone());
         }
         if path.extra_type == payload_type::ACK
@@ -452,7 +631,13 @@ impl Node {
         extra: &[u8],
         direct: Option<&DirectRoute>,
     ) -> Option<Vec<u8>> {
-        let peer = self.contacts.get(&to)?.identity.clone();
+        let peer = self
+            .contacts
+            .iter()
+            .find(|(key, _)| *key == to)?
+            .1
+            .identity
+            .clone();
         let secret = self.identity.shared_secret(&peer)?;
         let message = PathMessage::new(path_len, path, extra_type, extra)?;
         let payload = message.encode(&secret, to, self.my_hash())?;
@@ -473,7 +658,12 @@ impl Node {
     }
 
     fn route_outgoing(&mut self, to: u8, mut packet: Packet) -> Vec<u8> {
-        if let Some(route) = self.contacts.get(&to).and_then(|c| c.route.clone()) {
+        if let Some(route) = self
+            .contacts
+            .iter()
+            .find(|(key, _)| *key == to)
+            .and_then(|(_, c)| c.route.clone())
+        {
             packet.header = (packet.header & !0x03) | ROUTE_DIRECT;
             packet.path_len = route.path_len;
             packet.path = route.path;
@@ -487,13 +677,23 @@ impl Node {
         packet.encode()
     }
 
-    /// A flood advert frame carrying our identity and `app_data`, to broadcast.
-    pub fn advert_frame(&mut self, timestamp: u32, app_data: &[u8]) -> Vec<u8> {
+    /// A fallible flood advert frame for borrowed application data.
+    pub fn try_advert_frame(
+        &mut self,
+        timestamp: u32,
+        app_data: &[u8],
+    ) -> Result<Vec<u8>, CapacityError> {
         let payload = Advert::encode(&self.identity, timestamp, app_data)
-            .expect("advert app_data within limit");
+            .ok_or(CapacityError::AdvertDataTooLong)?;
         let mut packet = Packet::new(ROUTE_FLOOD, payload_type::ADVERT);
         packet.payload = payload;
-        self.seal_outgoing(&packet)
+        Ok(self.seal_outgoing(&packet))
+    }
+
+    /// A flood advert frame carrying our identity and `app_data`, to broadcast.
+    pub fn advert_frame(&mut self, timestamp: u32, app_data: &[u8]) -> Vec<u8> {
+        self.try_advert_frame(timestamp, app_data)
+            .expect("advert app_data fits MeshCore frame")
     }
 
     /// A flood advert using the current structured MeshCore application data.
@@ -527,9 +727,65 @@ impl Node {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::vec;
 
     fn node(seed: u8, forward: bool) -> Node {
         Node::new(LocalIdentity::from_seed([seed; 32]), forward)
+    }
+
+    #[test]
+    fn configured_contact_and_pending_bounds_refuse_without_eviction() {
+        let mut alice = Node::with_capacity(
+            LocalIdentity::from_seed([0x10; 32]),
+            false,
+            NodeCapacity::new(1, 2).unwrap(),
+        )
+        .unwrap();
+        let mut bob = node(0x20, false);
+        let mut carol = node(0x30, false);
+        let bob_advert = bob.advert_frame(1, b"bob");
+        let carol_advert = carol.advert_frame(2, b"carol");
+        assert!(matches!(
+            alice.on_frame(&bob_advert).0.as_slice(),
+            [Event::Advert { .. }]
+        ));
+        assert!(alice.contact(bob.my_hash()).is_some());
+        assert!(
+            alice.on_frame(&carol_advert).0.is_empty(),
+            "a full node refuses a new contact"
+        );
+        assert!(
+            alice.contact(bob.my_hash()).is_some(),
+            "existing contact remains"
+        );
+        assert!(alice.contact(carol.my_hash()).is_none());
+        let long_borrowed = "x".repeat(MAX_TEXT_BYTES + 1);
+        assert!(matches!(
+            alice.try_begin_text(bob.my_hash(), 3, &long_borrowed, TextRetryPolicy::default()),
+            Err(CapacityError::TextTooLong)
+        ));
+        assert!(matches!(
+            alice.try_begin_text(
+                bob.my_hash(),
+                3,
+                "bounded",
+                TextRetryPolicy {
+                    attempts: 5,
+                    flood_last: false
+                },
+            ),
+            Err(CapacityError::InvalidRetryPolicy)
+        ));
+        let pending = alice
+            .try_begin_text(bob.my_hash(), 3, "bounded", TextRetryPolicy::default())
+            .unwrap();
+        let mut outstanding = PendingTexts::new(1).unwrap();
+        outstanding.push(pending.clone()).unwrap();
+        assert_eq!(outstanding.push(pending), Err(CapacityError::PendingFull));
+        assert!(matches!(
+            alice.try_advert_frame(4, &[0; crate::advert::MAX_ADVERT_DATA + 1]),
+            Err(CapacityError::AdvertDataTooLong)
+        ));
     }
 
     #[test]

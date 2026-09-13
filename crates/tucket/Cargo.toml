@@ -15,13 +15,13 @@ default = []
 hardware = ["dep:serial2-tokio", "dep:tokio", "dep:tulle"]
 
 [dependencies]
-aes = "0.8"
-curve25519-dalek = "5"
-ed25519-dalek = "3"
-hmac = "0.12"
+aes = { version = "0.8", default-features = false }
+curve25519-dalek = { version = "5", default-features = false }
+ed25519-dalek = { version = "3", default-features = false }
+hmac = { version = "0.12", default-features = false }
 serial2-tokio = { version = "0.1.24", optional = true }
-sha2 = "0.10"
-subtle = "2"
+sha2 = { version = "0.10", default-features = false }
+subtle = { version = "2", default-features = false }
 tokio = { version = "1.53.1", features = ["io-util", "macros", "rt", "time"], optional = true }
 tulle = { version = "0.1.0", path = "../tulle", features = ["serial-async"], optional = true }
 

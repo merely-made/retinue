@@ -17,10 +17,15 @@
 //!
 //! Ported from upstream MeshCore (MIT, <https://github.com/ripplebiz/MeshCore>).
 
+use alloc::{string::String, vec::Vec};
+
 use sha2::{Digest, Sha256};
 
 use crate::cipher::{encrypt_then_mac, mac_then_decrypt};
-use crate::packet::PUB_KEY_SIZE;
+use crate::packet::{MAX_PAYLOAD, PUB_KEY_SIZE};
+
+/// Largest text body that can fit into the current one-frame encrypted payload.
+pub const MAX_TEXT_BYTES: usize = 171;
 
 /// Plain UTF-8 text.
 pub const TXT_TYPE_PLAIN: u8 = 0;
@@ -42,6 +47,16 @@ pub struct TextMessage {
 }
 
 impl TextMessage {
+    /// Build a bounded text message from borrowed application input.
+    pub fn try_plain(timestamp: u32, text: &str) -> Option<Self> {
+        (text.len() <= MAX_TEXT_BYTES).then(|| TextMessage {
+            timestamp,
+            attempt: 0,
+            txt_type: TXT_TYPE_PLAIN,
+            text: String::from(text),
+        })
+    }
+
     /// A fresh plain text message.
     pub fn plain(timestamp: u32, text: impl Into<String>) -> Self {
         TextMessage {
@@ -85,7 +100,22 @@ impl TextMessage {
 
     /// Encode a TXT_MSG packet payload: `dest_hash(1) || src_hash(1) || MAC(2) || ciphertext`,
     /// encrypted under the per-pair `secret`.
+    /// Bounded text encoding. Refuses before allocating when the text cannot
+    /// fit in one MeshCore payload.
+    pub fn try_encode(&self, secret: &[u8; 32], dest_hash: u8, src_hash: u8) -> Option<Vec<u8>> {
+        (self.text.len() <= MAX_TEXT_BYTES).then(|| self.encode(secret, dest_hash, src_hash))
+    }
+
+    /// Encode a validated one-frame text payload.
+    ///
+    /// Prefer [`Self::try_encode`] at a caller boundary. This compatibility
+    /// helper checks the bound before its first allocation and panics if the
+    /// caller supplied text that cannot have a wire representation.
     pub fn encode(&self, secret: &[u8; 32], dest_hash: u8, src_hash: u8) -> Vec<u8> {
+        assert!(
+            self.text.len() <= MAX_TEXT_BYTES,
+            "text exceeds MeshCore frame capacity"
+        );
         let blob = encrypt_then_mac(secret, &self.plaintext());
         let mut out = Vec::with_capacity(2 + blob.len());
         out.push(dest_hash);
@@ -97,7 +127,7 @@ impl TextMessage {
     /// Decode a TXT_MSG packet payload with the per-pair `secret`, returning the cleartext
     /// `(dest_hash, src_hash)` prefix and the message. `None` if too short or the MAC fails.
     pub fn decode(payload: &[u8], secret: &[u8; 32]) -> Option<(u8, u8, TextMessage)> {
-        if payload.len() < 2 {
+        if payload.len() < 2 || payload.len() > MAX_PAYLOAD {
             return None;
         }
         let dest_hash = payload[0];
@@ -148,6 +178,14 @@ pub struct GroupText {
 }
 
 impl GroupText {
+    /// Build bounded group text from borrowed application input.
+    pub fn try_new(timestamp: u32, body: &str) -> Option<Self> {
+        (body.len() <= MAX_TEXT_BYTES).then(|| Self {
+            timestamp,
+            body: String::from(body),
+        })
+    }
+
     pub fn new(timestamp: u32, body: impl Into<String>) -> Self {
         GroupText {
             timestamp,
@@ -165,7 +203,18 @@ impl GroupText {
 
     /// Encode a GRP_TXT payload: `channel_hash(1) || MAC(2) || ciphertext`, encrypted under the
     /// 32-byte channel PSK.
+    /// Bounded group-text encoding. Refuses before allocating when the body
+    /// cannot fit in a one-frame encrypted payload.
+    pub fn try_encode(&self, psk: &[u8; 32]) -> Option<Vec<u8>> {
+        (self.body.len() <= MAX_TEXT_BYTES).then(|| self.encode(psk))
+    }
+
+    /// Encode a validated one-frame group-text payload.
     pub fn encode(&self, psk: &[u8; 32]) -> Vec<u8> {
+        assert!(
+            self.body.len() <= MAX_TEXT_BYTES,
+            "group text exceeds MeshCore frame capacity"
+        );
         let blob = encrypt_then_mac(psk, &self.plaintext());
         let mut out = Vec::with_capacity(1 + blob.len());
         out.push(channel_hash(psk));
@@ -176,6 +225,9 @@ impl GroupText {
     /// Decode a GRP_TXT payload with the channel PSK. `None` if too short, the channel hash
     /// mismatches, the MAC fails, or the control byte is not plain text.
     pub fn decode(payload: &[u8], psk: &[u8; 32]) -> Option<GroupText> {
+        if payload.len() > MAX_PAYLOAD {
+            return None;
+        }
         let (&ch, rest) = payload.split_first()?;
         if ch != channel_hash(psk) {
             return None;
@@ -254,6 +306,26 @@ mod tests {
         assert_eq!(got.attempt, 2);
         assert_eq!(got.txt_type, TXT_TYPE_CLI_DATA);
         assert_eq!(got.text, "retry me");
+    }
+
+    #[test]
+    fn bounded_text_encode_refuses_before_ciphertext_allocation() {
+        let text = "x".repeat(MAX_TEXT_BYTES + 1);
+        let msg = TextMessage::plain(7, &text);
+        assert!(msg.try_encode(&[0; 32], 1, 2).is_none());
+    }
+
+    #[test]
+    fn bounded_group_encode_refuses_before_ciphertext_allocation() {
+        let body = "x".repeat(MAX_TEXT_BYTES + 1);
+        assert!(GroupText::new(7, &body).try_encode(&[0; 32]).is_none());
+    }
+
+    #[test]
+    fn standalone_decoders_refuse_oversize_payloads() {
+        let oversized = [0u8; MAX_PAYLOAD + 1];
+        assert!(TextMessage::decode(&oversized, &[0; 32]).is_none());
+        assert!(GroupText::decode(&oversized, &[0; 32]).is_none());
     }
 
     #[test]

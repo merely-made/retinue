@@ -14,6 +14,8 @@
 //!
 //! Ported from upstream MeshCore (MIT, <https://github.com/ripplebiz/MeshCore>).
 
+use alloc::vec::Vec;
+
 use sha2::{Digest, Sha256};
 
 /// Route type: flood via transport codes.
@@ -72,6 +74,116 @@ pub struct Packet {
     pub path_len: u8,
     pub path: Vec<u8>,
     pub payload: Vec<u8>,
+}
+
+/// A validated borrowed outer packet. Decode this first at an RX boundary to
+/// reject malformed frames without allocating; call [`PacketRef::to_owned`]
+/// only when protocol handling needs retained/mutated packet data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PacketRef<'a> {
+    pub header: u8,
+    pub transport_codes: [u16; 2],
+    pub path_len: u8,
+    pub path: &'a [u8],
+    pub payload: &'a [u8],
+}
+
+impl<'a> PacketRef<'a> {
+    /// Parse exactly one raw radio frame with no allocation.
+    pub fn decode(src: &'a [u8]) -> Option<Self> {
+        let mut i = 0;
+        let header = *src.get(i)?;
+        i += 1;
+        let route = header & ROUTE_MASK;
+        let mut transport_codes = [0u16; 2];
+        if matches!(route, ROUTE_TRANSPORT_FLOOD | ROUTE_TRANSPORT_DIRECT) {
+            let raw = src.get(i..i + 4)?;
+            transport_codes = [
+                u16::from_le_bytes([raw[0], raw[1]]),
+                u16::from_le_bytes([raw[2], raw[3]]),
+            ];
+            i += 4;
+        }
+        let path_len = *src.get(i)?;
+        i += 1;
+        if !Packet::is_valid_path_len(path_len) {
+            return None;
+        }
+        let path_len_bytes = Packet::path_byte_len(path_len);
+        let path = src.get(i..i + path_len_bytes)?;
+        i += path_len_bytes;
+        let payload = src.get(i..)?;
+        if payload.is_empty() || payload.len() > MAX_PAYLOAD {
+            return None;
+        }
+        Some(Self {
+            header,
+            transport_codes,
+            path_len,
+            path,
+            payload,
+        })
+    }
+
+    pub fn encoded_len(&self) -> usize {
+        2 + self.path.len() + self.payload.len() + if self.has_transport_codes() { 4 } else { 0 }
+    }
+
+    pub fn route_type(&self) -> u8 {
+        self.header & ROUTE_MASK
+    }
+    pub fn payload_type(&self) -> u8 {
+        (self.header >> TYPE_SHIFT) & TYPE_MASK
+    }
+    pub fn is_flood(&self) -> bool {
+        matches!(self.route_type(), ROUTE_FLOOD | ROUTE_TRANSPORT_FLOOD)
+    }
+    pub fn has_transport_codes(&self) -> bool {
+        matches!(
+            self.route_type(),
+            ROUTE_TRANSPORT_FLOOD | ROUTE_TRANSPORT_DIRECT
+        )
+    }
+
+    /// Generate the exact raw frame into caller storage. A short destination
+    /// refuses without a partial frame.
+    pub fn encode_into(&self, out: &mut [u8]) -> Option<usize> {
+        if !Packet::is_valid_path_len(self.path_len)
+            || self.path.len() != Packet::path_byte_len(self.path_len)
+            || self.payload.is_empty()
+            || self.payload.len() > MAX_PAYLOAD
+        {
+            return None;
+        }
+        let needed = self.encoded_len();
+        if out.len() < needed {
+            return None;
+        }
+        let mut i = 0;
+        out[i] = self.header;
+        i += 1;
+        if self.has_transport_codes() {
+            out[i..i + 2].copy_from_slice(&self.transport_codes[0].to_le_bytes());
+            out[i + 2..i + 4].copy_from_slice(&self.transport_codes[1].to_le_bytes());
+            i += 4;
+        }
+        out[i] = self.path_len;
+        i += 1;
+        out[i..i + self.path.len()].copy_from_slice(self.path);
+        i += self.path.len();
+        out[i..i + self.payload.len()].copy_from_slice(self.payload);
+        Some(needed)
+    }
+
+    pub fn to_owned(self) -> Packet {
+        Packet {
+            header: self.header,
+            transport_codes: self.transport_codes,
+            path_len: self.path_len,
+            path: self.path.to_vec(),
+            payload: self.payload.to_vec(),
+        }
+    }
 }
 
 impl Packet {
@@ -171,52 +283,36 @@ impl Packet {
         out
     }
 
+    /// Encode into caller-owned storage without allocating. Returns `None`
+    /// when the storage is too short or the packet's vector fields are invalid.
+    pub fn encode_into(&self, out: &mut [u8]) -> Option<usize> {
+        if self.path.len() != Self::path_byte_len(self.path_len)
+            || self.payload.is_empty()
+            || self.payload.len() > MAX_PAYLOAD
+        {
+            return None;
+        }
+        PacketRef {
+            header: self.header,
+            transport_codes: self.transport_codes,
+            path_len: self.path_len,
+            path: &self.path,
+            payload: &self.payload,
+        }
+        .encode_into(out)
+    }
+
     /// Decode one packet from a whole radio frame. The payload runs to the
     /// end of `src`, so the caller must pass exactly one frame.
     pub fn decode(src: &[u8]) -> Option<Packet> {
-        let mut i = 0;
-        let header = *src.get(i)?;
-        i += 1;
-
-        let route = header & ROUTE_MASK;
-        let mut transport_codes = [0u16; 2];
-        if matches!(route, ROUTE_TRANSPORT_FLOOD | ROUTE_TRANSPORT_DIRECT) {
-            let raw = src.get(i..i + 4)?;
-            transport_codes[0] = u16::from_le_bytes([raw[0], raw[1]]);
-            transport_codes[1] = u16::from_le_bytes([raw[2], raw[3]]);
-            i += 4;
-        }
-
-        let path_len = *src.get(i)?;
-        i += 1;
-        if !Self::is_valid_path_len(path_len) {
-            return None;
-        }
-        let bl = Self::path_byte_len(path_len);
-        let path = src.get(i..i + bl)?.to_vec();
-        i += bl;
-
-        if i >= src.len() {
-            return None; // upstream rejects empty payloads
-        }
-        let payload = src[i..].to_vec();
-        if payload.len() > MAX_PAYLOAD {
-            return None;
-        }
-
-        Some(Packet {
-            header,
-            transport_codes,
-            path_len,
-            path,
-            payload,
-        })
+        Some(PacketRef::decode(src)?.to_owned())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::vec;
 
     #[test]
     fn roundtrip_direct_no_transport() {
@@ -293,5 +389,22 @@ mod tests {
         let mut c = Packet::new(ROUTE_FLOOD, payload_type::GRP_TXT);
         c.payload = b"same".to_vec();
         assert_ne!(a.packet_hash(), c.packet_hash());
+    }
+
+    #[test]
+    fn borrowed_codec_refuses_bad_input_before_allocating_and_writes_exactly() {
+        let mut p = Packet::new(ROUTE_DIRECT, payload_type::ACK);
+        p.path_len = 1;
+        p.path = vec![0x42];
+        p.payload = vec![1, 2, 3, 4];
+        let wire = p.encode();
+        let borrowed = PacketRef::decode(&wire).unwrap();
+        assert_eq!(borrowed.path, &[0x42]);
+        assert_eq!(borrowed.payload, &[1, 2, 3, 4]);
+        let mut exact = [0u8; 7];
+        assert_eq!(borrowed.encode_into(&mut exact), Some(wire.len()));
+        assert_eq!(&exact[..wire.len()], wire.as_slice());
+        assert!(borrowed.encode_into(&mut exact[..wire.len() - 1]).is_none());
+        assert!(PacketRef::decode(&[ROUTE_DIRECT, 0b1100_0001, 0]).is_none());
     }
 }

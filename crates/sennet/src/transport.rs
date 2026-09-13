@@ -5,6 +5,7 @@
 //! [`crate::application`] interprets the application envelope separately.
 
 use aes::{Aes128, Aes256};
+use alloc::vec::Vec;
 use ctr::cipher::{KeyIvInit, StreamCipher};
 
 type Aes256Ctr = ctr::Ctr128BE<Aes256>;
@@ -174,8 +175,8 @@ pub enum TransportError {
     HopStart(u8),
 }
 
-impl std::fmt::Display for TransportError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for TransportError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::TruncatedHeader { actual } => {
                 write!(f, "radio header needs {HEADER_LEN} bytes, got {actual}")
@@ -189,11 +190,12 @@ impl std::fmt::Display for TransportError {
     }
 }
 
-impl std::error::Error for TransportError {}
+impl core::error::Error for TransportError {}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::vec;
 
     fn published_example_header() -> Header {
         Header {

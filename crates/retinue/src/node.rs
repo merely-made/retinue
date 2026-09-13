@@ -148,6 +148,46 @@ pub const LINK_MTU: u32 = 255;
 /// (about 1.7 MB) it plainly cannot.
 pub const MAX_RESOURCE_PARTS: usize = 32;
 
+/// Payload budgets for one Node. Table counts remain its const parameters.
+///
+/// The default preserves existing host callers. Embedded callers should choose
+/// finite values with [`Node::new_with_payload_limits`]. The caller must also
+/// bound raw input before decoding a [`Packet`] and bound retained action queues.
+/// Inbound uncompressed resources are bounded by `max_resource_parts` times
+/// `max_ingress_bytes`; this does not bound decompression with `compression` on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PayloadLimits {
+    pub max_ingress_bytes: usize,
+    pub max_app_data: usize,
+    pub max_link_payload: usize,
+    pub max_outbound_resource: usize,
+    pub max_resource_parts: usize,
+}
+
+impl Default for PayloadLimits {
+    fn default() -> Self {
+        Self {
+            max_ingress_bytes: usize::MAX,
+            max_app_data: usize::MAX,
+            max_link_payload: usize::MAX,
+            max_outbound_resource: usize::MAX,
+            max_resource_parts: MAX_RESOURCE_PARTS,
+        }
+    }
+}
+
+/// Caller-supplied application data exceeds this Node's configured budget.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AppDataTooLarge;
+
+impl core::fmt::Display for AppDataTooLarge {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("node application data exceeds configured limit")
+    }
+}
+
+impl core::error::Error for AppDataTooLarge {}
+
 /// Parts requested per turn. Small, because a half-duplex radio should not be asked for a
 /// burst it cannot answer before the next request arrives.
 pub const RESOURCE_REQUEST_WINDOW: usize = 4;
@@ -500,6 +540,8 @@ pub struct Node<
     book: AddressBook,
     /// Application data carried in our announces.
     app_data: Vec<u8>,
+    payload_limits: PayloadLimits,
+    refused_payloads: u64,
     /// The explicit policy for carrying traffic whose destination is not this node.
     transport: TransportConfig,
     /// Paths learned from verified announces. This is separate from the address book: the book
@@ -562,6 +604,8 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             name_hash,
             book: AddressBook::with_max_peers(PEERS),
             app_data: Vec::new(),
+            payload_limits: PayloadLimits::default(),
+            refused_payloads: 0,
             transport: TransportConfig::none(),
             routes: BoundedVec::new(),
             freshness_policy: FreshnessPolicy::for_peers(PEERS),
@@ -588,10 +632,43 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         }
     }
 
+    /// Construct an empty Node with caller-selected payload budgets.
+    pub fn new_with_payload_limits(
+        identity: PrivateIdentity,
+        name_hash: NameHash,
+        limits: PayloadLimits,
+    ) -> Self {
+        let mut node = Self::new(identity, name_hash);
+        node.payload_limits = limits;
+        node
+    }
+
+    pub fn payload_limits(&self) -> PayloadLimits {
+        self.payload_limits
+    }
+
+    /// Oversized inbound packets and outbound resource requests refused so far.
+    /// `send` is immutable and reports its refusal through `None`.
+    pub fn refused_payloads(&self) -> u64 {
+        self.refused_payloads
+    }
+
+    /// Replace announce data, refusing before allocation or mutation.
+    pub fn try_set_app_data(&mut self, app_data: &[u8]) -> Result<(), AppDataTooLarge> {
+        if app_data.len() > self.payload_limits.max_app_data {
+            return Err(AppDataTooLarge);
+        }
+        self.app_data = app_data.to_vec();
+        Ok(())
+    }
+
     /// Set the application data carried in our announces.
+    ///
+    /// Panics if it exceeds configured limits. Use [`Self::try_set_app_data`]
+    /// for fallible application input.
     pub fn with_app_data(mut self, app_data: &[u8]) -> Self {
-        self.app_data.clear();
-        self.app_data.extend_from_slice(app_data);
+        self.try_set_app_data(app_data)
+            .expect("node app data limit");
         self
     }
 
@@ -855,6 +932,10 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         iv: &[u8; crate::token::IV_LEN],
         now: u64,
     ) -> Option<Actions<ACTIONS>> {
+        if data.len() > self.payload_limits.max_outbound_resource {
+            self.refused_payloads = self.refused_payloads.saturating_add(1);
+            return None;
+        }
         if self.senders.iter().any(|(id, _, _)| *id == link_id) || self.senders.is_full() {
             return None;
         }
@@ -924,6 +1005,9 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         payload: &[u8],
         iv: &[u8; crate::token::IV_LEN],
     ) -> Option<Actions<ACTIONS>> {
+        if payload.len() > self.payload_limits.max_link_payload {
+            return None;
+        }
         let (link, _, _) = self.links.iter().find(|(l, _, _)| l.id() == link_id)?;
         let mut actions = Actions::new();
         actions.push(Action::Send {
@@ -1232,6 +1316,11 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
     ) -> Actions<ACTIONS> {
         let mut actions = Actions::new();
 
+        if packet.encoded_len() > self.payload_limits.max_ingress_bytes {
+            self.refused_payloads = self.refused_payloads.saturating_add(1);
+            return actions;
+        }
+
         self.expire_transport_state(now);
         if packet.packet_type != PacketType::Announce
             && (self.forward_bridged_packet(interface, packet, now, &mut actions)
@@ -1494,7 +1583,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                 let receiver = ResourceReceiver::with_limits(
                     link,
                     RESOURCE_REQUEST_WINDOW,
-                    MAX_RESOURCE_PARTS,
+                    self.payload_limits.max_resource_parts,
                 );
                 let _ = self.receivers.push((link_id, receiver, now));
                 self.receivers.len() - 1

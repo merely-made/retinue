@@ -6,6 +6,56 @@ shared [tulle](https://github.com/merely-made/retinue) radio layer.
 
 A tucket is a trumpet flourish announcing a single arrival.
 
+## Embedded core and capacities
+
+The default library is `#![no_std]` with `alloc`. The `hardware` feature is
+only for the headed serial/Tulle example and does not change the core protocol
+API. It is the board owner's job to provide an allocator and choose concrete
+capacities from its target memory budget.
+
+`Node::with_capacity` takes a `NodeCapacity { contacts, dedup }`. Both tables
+allocate once at construction and do not grow while a frame is handled. A new
+advert when the contact table is full is refused by `try_add_contact` with
+`CapacityError::ContactsFull`; it never evicts an unrelated contact. Dedup
+uses exactly `dedup * 8` bytes for packet hashes. Contact backing storage is
+at most `contacts * size_of::<(u8, Contact)>()`, plus at most 64 path bytes for
+each learned direct route and allocator bookkeeping. `Contact` is deliberately
+private, so firmware should measure the final target image rather than relying
+on a host ABI size.
+
+Pending texts remain caller-owned, because the caller also owns retry timing,
+TX completion, and departure assessment. `PendingTexts::new(n)` is a small
+bounded collection if one is useful: it limits only that caller's outstanding
+sends, never the number of installed Tucket instances. One `PendingText` has a
+text body of at most `MAX_TEXT_BYTES` (171 UTF-8 bytes) and stores at most four
+ACK values, matching the four attempts the current wire control field supports.
+`try_begin_text` accepts a borrowed `str`, validates it before copying, and
+returns `TextTooLong`, `InvalidRetryPolicy`, or `UnknownContact`; `PendingTexts::push`
+returns `PendingFull` rather than growing. The compatibility `begin_text`
+wrapper still returns `Option`. `TextMessage::try_encode`,
+`GroupText::try_encode`, and `try_encrypt_then_mac` provide the same
+pre-allocation refusal at their lower-level boundaries; compatibility `encode`
+helpers reject an oversize input before allocating.
+`TextMessage::try_plain`, `GroupText::try_new`, `AdvertData::try_chat`, and
+`Node::try_advert_frame` are the checked borrowed-input constructors for those
+same wire fields.
+
+At the radio boundary, `PacketRef::decode` validates a raw frame without an
+allocation and `PacketRef::encode_into` writes into caller storage without a
+partial result. `Node::on_frame` uses that borrowed parse before it materializes
+an owned packet. One accepted input can create at most one app event and two
+outbound frames. The conservative working-set formula for a single text is:
+
+```text
+resident = dedup * 8 + contact backing + learned-route bytes + pending collection
+text working bytes <= plaintext(5 + 171) + encrypted blob(2 + 176)
+frame bytes <= header/transport/path(70) + payload(184) = 254
+```
+
+The formula excludes allocator metadata, stack frames, crypto implementation
+scratch space, and board radio buffers. Measure those on the selected firmware
+target before advertising an installed Tucket capability.
+
 **Status:** authenticated adverts, flood text and acknowledgements, forwarding,
 and reciprocal direct-path learning are implemented. A successful flooded
 exchange teaches both endpoints a route; later text and acknowledgements select

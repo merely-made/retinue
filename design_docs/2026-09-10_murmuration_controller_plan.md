@@ -331,3 +331,158 @@ settings, firmware pin controls, authenticated coverage, power-cut/driver-fault
 injection and adversarial RX/host stress. The ordinary successful physical
 returns do not qualify those fault paths. See the extended
 [session receipt](2026-09-11_murmuration_session_receipt.md).
+
+### MC4: resident protocol runtime, design continuation 2026-09-11
+
+**Status, 2026-09-13: MC4a embedded cores, explicit capacity controls and
+build/host memory evidence implemented. Target runtime memory qualification and
+later steps remain open.**
+MC3e proves an autonomous PHY timer. MC4 must put actual protocol state and
+packet handling on the board. Its target includes Retinue, Sennet and Tucket;
+availability is declared per firmware build and protocol capability.
+
+#### Ownership
+
+| Component | Responsibility |
+| --- | --- |
+| Retinue | Reticulum identity, links, resources, routing, protocol timers, pause assessment and explicit interruption reports. |
+| Sennet | Channel keys, packet identity allocation, packet validation, duplicate history and supported messaging/forwarding behavior. Compose its currently separate components into retained runtime state. |
+| Tucket | Identity, contacts, routes, duplicate history, pending texts, ACK matching and retry policy. Its caller-owned pending sends must participate in suspension assessment. |
+| Tulle | Host radio access and the public coordination surface used by host applications. It does not own sibling protocol state. |
+| Selvage | Shared allocation-free PHY/wire/observation types and the single controller implementation, re-exported by Tulle. Keep protocol implementations and board drivers out. |
+| radio-hand and board owner | Embedded runtime integration, pending physical actions, exclusive radio access, airtime enforcement, completed RX/TX handling and confirmed restoration. |
+
+An installed personality is a configured protocol instance: implementation,
+identity/channel configuration, PHY profile and supported capabilities. A PHY
+profile alone does not identify one. Multiple instances of the same protocol
+must remain representable, with separate state where required. Retinue is a
+configurable home choice, not the supervisor of its siblings.
+
+#### Runtime contract
+
+Keep protocol objects alive while another instance uses the radio. Introduce a
+small common lifecycle vocabulary at the shared core boundary, using the existing
+controller outcomes. Each implementation supplies its own assessment and loss
+details; do not flatten every protocol into Retinue links. The embedded shell
+owns composition and execution, and supplies time, entropy, persistence and TX
+results. It must include caller-held pending work when assessing departure.
+
+Switching proceeds through explicit steps: assess protocol and queued work;
+drain or explicitly account for interruption; collect completed physical events;
+suspend the outgoing instance; apply the target profile and arm RX through the
+owner; then activate the target instance. Acknowledgement identifies the actual
+instance and completed transition. Frames and queued actions carry instance and
+activation identifiers so an old action cannot transmit under a new profile.
+Returning follows the same physical ownership boundary.
+
+Elapsed time continues during absence. Expire protocol obligations at their
+normal deadlines, report missed work, and revalidate retained state before
+resuming transmission. Local state retention does not guarantee remote retention.
+An away operation must fit the remaining dwell and restoration budget or be
+deferred/refused. Forced return cannot silently discard its pending work.
+
+#### Implementation order and done conditions
+
+1. **Embedded cores and capacity.** Make Sennet and Tucket protocol code usable
+   with `no_std + alloc`, retaining optional host I/O. Audit dependency features,
+   collection growth, packet/resource sizes and failure behavior. Retinue already
+   has an alloc core; the present V4 image has no allocator. Select explicit
+   board capacities and allocator/storage arrangements from target builds and
+   memory measurements. Done: all three cores compile for the target, existing
+   wire fixtures pass, and bounded resident state plus peak working memory has
+   a documented budget. Flash size alone is insufficient evidence.
+2. **Actual retained instances.** Compose Sennet channel, packet IDs and duplicate
+   state; include Tucket pending texts and retry deadlines alongside its Node;
+   reuse Retinue assessment/interruption. Keep identities and counters across
+   excursions. Persist or reserve Sennet IDs before use so reset cannot reuse a
+   key/source/packet-ID combination; retain Retinue's durable announce reservation.
+   Done: tests exercise each real implementation across absence, expiry, busy
+   deferral and permitted loss, including external action queues.
+3. **One embedded runtime.** Integrate these instances through radio-hand and
+   the V4 owner, replacing exclusive boot-channel loop ownership where needed.
+   Advertise installed capabilities; expose home, pin and explicit bounded
+   excursion settings. Reuse the existing controller, with board-owned return
+   deadlines. Done: target builds and runtime tests prove dispatch isolation,
+   stale-action refusal, confirmed activation/return and explicit recovery.
+4. **Physical protocol proof.** First qualify Retinue home with a Sennet visit,
+   then add Tucket through the same lifecycle. Exercise actual board-resident
+   packet handling while host scheduling is absent. Done: exact-build RF evidence
+   shows retained or explicitly ended protocol state, valid traffic before/after,
+   busy departure, cancellation, deadline return and failed-restoration behavior.
+   Record memory use, boot continuity and missed home receive opportunities.
+5. **Cooperative schedules.** Once local switching works, add configured recurring
+   schedules and optional authenticated peer coverage/rendezvous using the existing
+   keeper/observation machinery. Done: multi-board measurements distinguish promised
+   coverage from actual captures and misses. This is separate from a single-board
+   successful excursion.
+
+These steps do not require equal protocol feature breadth. Initial Sennet
+capabilities must name the supported messaging behavior, rather than imply a
+complete mesh participant. Preserve its current provenance boundary throughout.
+No automatic packet-triggered switching or implicit cross-mesh forwarding is
+introduced. The existing raw-PHY excursion remains a separately named capability.
+
+#### MC4a execution, 2026-09-12
+
+The user authorized orchestration of the embedded-core/capacity slice. Separate
+Terra lanes own Sennet and Tucket portability, configurable retained-state
+limits, input bounds and regression tests. Parent owns integration, Retinue
+capacity review, target compilation and memory evidence. Existing host tools
+must remain usable. Use the existing main checkout and preserve unrelated work.
+This slice does not install firmware or claim resident protocol switching.
+
+#### MC4a result, 2026-09-13
+
+Both Terra lanes delivered `no_std + alloc` protocol cores and capacity controls.
+Sennet now bounds directory fields/count, stream buffering with explicit retry
+on output backpressure, and packet/application encoding. Tucket bounds contacts,
+duplicate history and caller-held pending texts, and provides borrowed packet
+validation and checked text/path/advert entry points. Independent review caught
+allocation before size checks and public retry-policy values that could exceed
+the fixed ACK array; both were corrected. Sennet errors implement `core::error::Error`
+so existing host callers retain ordinary `?` error conversion.
+
+Parent added optional Retinue Node payload limits, preserving existing defaults:
+ingress size, local announce data, link payloads, outbound resource bytes and
+inbound part count. Refused inputs leave protocol state intact. Initial resource
+hashmaps cannot exceed their advertised count, and later HMUs cannot grow past
+that count. Raw input must still be bounded before Packet decoding. Compression
+is disabled for this target graph; it needs its own expansion limit before use.
+
+The [capacity fixture](../testing/protocol-capacity/README.md) compiles all three
+cores together for Xtensa and uses concrete, selectable capacities. It exercises
+real protocol objects, full directories, duplicate churn, pending Tucket texts,
+a Retinue link and a 1 KiB resource transfer. Exact source/artifact hashes and
+checks are in its [receipt](../testing/protocol-capacity/receipt.json).
+
+| Measurement | Result | Scope |
+| --- | --- | --- |
+| Combined resident inline layout | 3,128 bytes | Xtensa compiler layout; heap excluded |
+| Retained allocations | 11,183 bytes | 64-bit host requested bytes |
+| Peak allocations | 18,380 bytes | One host workload, including synthetic peer objects |
+| Allocations remaining after drop | 0 bytes | Same host workload |
+| Candidate fixed heap | 65,536 bytes | Linked V4 example reservation |
+| Radio/runtime plus queue/state reserve | 65,536 + 16,384 bytes | Linked BSS placeholders |
+| Capacity-image data + BSS | 151,912 bytes | Includes heap, placeholders and actual inline objects |
+| Linker stack region remaining | 184,132 bytes | Available region, not measured stack usage |
+
+The standalone V4 capacity image links the workload and fixed LLFF heap; it was
+not executed or installed. It does not run the radio loop. Its reservations
+show space for a candidate integration budget, not sufficient memory under all
+traffic or target allocator fragmentation. The ordinary V4 USB firmware also
+builds and remains a separate allocation-free modem image.
+
+Validation passed: Sennet 57 tests, Tucket 61 tests, Retinue 208 default-feature
+library tests (171 in alloc-only configuration) and 20 pause/capacity tests;
+strict scoped Clippy, all-feature Rustdoc, host application/example checks,
+combined Xtensa library compilation, both V4 release links, formatting and the
+registry (21 manifests, 83 assets, 15 suites). An extra alloc-only strict Retinue
+Rustdoc run exposed existing links to disabled Endpoint/TCP/connect items; the
+normal all-feature documentation check passes. The ordinary V4 image retains
+two pre-existing dead-code warnings. Concurrent `endpoint.rs` edits are outside
+this slice and preserved.
+
+Next: compose these real components into retained instances with protocol-owned
+pause/expiry/loss behavior and bounded caller action queues. Then integrate the
+board runtime and measure target heap/stack high-water, fragmentation and stress.
+The candidate memory budget above does not close those runtime/physical gates.
