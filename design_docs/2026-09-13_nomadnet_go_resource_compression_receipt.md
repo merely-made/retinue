@@ -159,3 +159,64 @@ The final diagnostic client SHA-256 was
 `daf5cc3b170ccc0889a04ef1563f0af505d125044492665ecdbf40688abd7e1a` on both hosts.
 Both builds used the existing lockfile offline. The original peer source and
 Retinue implementation were preserved; all test child processes were stopped.
+
+### Cross-implementation evidence and server API comparison
+
+The [FreeTAKTeam LXMF-rs v0.10.1 report](https://github.com/FreeTAKTeam/LXMF-rs/releases/download/v0.10.1/v0.10.1-independent.json)
+pins its external rns-rs peer to `6c6d79b83516feff271d15c97d39dd1de7798afe`
+(`rns-net 0.7.0`, `rns-core 0.1.16`), rather than NomadNet's `0.5.6` dependency
+set. Its compressed response case checks a full 1 MiB body and matching request
+identity. These remain upstream measurements; we did not rerun its full suite.
+
+The report's public-API control adapter explicitly registers
+`register_request_handler_response` and returns `RequestResponse::Resource`.
+NomadNet uses `register_request_handler` returning bytes. A compile probe confirmed
+that the explicit response method/type is absent from the old dependency API.
+Only the MIT NomadNet code and the EPL-2.0 test adapter's public-API setup were
+examined; rns-rs implementation code remained black-box. No upstream code was
+imported into Retinue.
+
+Minimal external servers compared these choices on native ThinkPad Fedora:
+
+| Server setup | Retinue small page | Retinue compressible 128 KiB | Retinue incompressible 128 KiB |
+| --- | --- | --- | --- |
+| Old dependencies, plain byte handler | Exact | Timeout | Timeout |
+| Pinned 0.7.0 dependencies, plain byte handler | Exact | Timeout | Timeout |
+| Pinned 0.7.0 dependencies, explicit Resource handler | Timeout | Timeout | Timeout |
+
+All handlers logged that they returned the expected byte count. Failed Resource
+cases emitted no RESOURCE_ADV in the loopback trace. Upgrading alone therefore
+does not resolve the original failure, and explicit Resource selection alone
+does not resolve the Retinue-facing case.
+
+Crucially, the same newer Resource server passed all three pages byte-for-byte
+with the earlier diagnostically corrected Rust client. This is a positive
+external-peer control, not a stock NomadNet client receipt. Two isolated Retinue
+request variations, current wall-clock timestamp and then an explicit 4 MiB
+response-size field, still timed out for all three pages. Neither experiment
+was promoted into production.
+
+The upstream report separately records failure to activate an LXMF-rs-initiated
+link on rns-rs, while Python RNS 1.5.2 activates the same link. That is a specific
+lead for the remaining discrepancy: link initiation/activation must be tested
+separately from which peer sends the application request. It is not yet proven
+to be the cause of Retinue's failure. The next narrow gate is a link-activation
+comparison against stock Python, with initiator direction recorded explicitly.
+
+Artifacts under `C:\t\nomadnet-rust-interop-20260913`:
+
+- `upstream-v0.10.1-independent.json` and `upstream-control-adapter.rs`: reference
+  report and external adapter inspected for the API comparison.
+- `version-old`, `version-probe`: minimal public-API servers and locked manifests.
+  Final Linux builds passed with `--locked --offline`; no rns-rs patch was made.
+- `diagnostic-20260913-132928`: nine-case server API/version comparison.
+- `diagnostic-20260913-133303`: three-case corrected Rust client positive control.
+- `diagnostic-20260913-133439` and `diagnostic-20260913-133551`: timestamp and
+  timestamp-plus-cap experiments, respectively. All four directories were copied
+  from the ThinkPad after execution.
+
+Executed server SHA-256 values: old
+`978659ee075fa8f49e717951293e6462121c67a978aa6a264e301ec1cff8827f`;
+new `e5d0dcdab69ef5fedc1e14f89020f998ffc4fc62c9228f576b24c83e234ce886`.
+All task-owned peer processes were stopped. No hardware or public-network claim
+is made by these loopback tests.
