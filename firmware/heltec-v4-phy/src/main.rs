@@ -1,6 +1,10 @@
 #![no_std]
 #![no_main]
 #![deny(unsafe_op_in_unsafe_fn)]
+#![cfg_attr(
+    all(target_arch = "xtensa", feature = "resident-protocols"),
+    feature(asm_experimental_arch)
+)]
 
 #[cfg(all(feature = "host-usb", feature = "host-uart-low-power"))]
 compile_error!("select exactly one V4 host transport: host-usb or host-uart-low-power");
@@ -83,16 +87,7 @@ mod wake_input;
 /// The optional retained protocol cores are constructed only after USB setup
 /// validates every caller-supplied bound. The direct-PHY default has no heap.
 #[cfg(feature = "resident-protocols")]
-const RESIDENT_HEAP_BYTES: usize = 64 * 1024;
-#[cfg(feature = "resident-protocols")]
-#[global_allocator]
-static RESIDENT_HEAP: embedded_alloc::LlffHeap = embedded_alloc::LlffHeap::empty();
-#[cfg(feature = "resident-protocols")]
-#[repr(C, align(16))]
-struct ResidentHeapStorage([u8; RESIDENT_HEAP_BYTES]);
-#[cfg(feature = "resident-protocols")]
-static mut RESIDENT_HEAP_STORAGE: ResidentHeapStorage =
-    ResidentHeapStorage([0; RESIDENT_HEAP_BYTES]);
+mod heap;
 mod wake_lease;
 
 esp_bootloader_esp_idf::esp_app_desc!();
@@ -181,10 +176,7 @@ async fn main(spawner: Spawner) {
     // Safety: startup initializes this exact static once, before any retained
     // protocol state or task is constructed.
     unsafe {
-        RESIDENT_HEAP.init(
-            core::ptr::addr_of_mut!(RESIDENT_HEAP_STORAGE) as usize,
-            RESIDENT_HEAP_BYTES,
-        );
+        heap::init();
     }
     let peripherals = esp_hal::init(Config::default());
     #[cfg(feature = "rf-sleep-proof")]

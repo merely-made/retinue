@@ -481,15 +481,38 @@ async fn report_to_host<L: HostLink>(
 
 async fn status_to_host<L: HostLink>(host: &mut L, state: &ResidentState, now: u64) {
     let mut line = heapless::String::<512>::new();
-    let _ = write!(
+    let (stack_sampled_bytes, stack_capacity, stack_sample_valid) =
+        crate::heap::sampled_stack_usage();
+    let formatted = writeln!(
         line,
-        "resident status now={} state={:?} active={:?} deadline={:?}\n",
+        "resident status now={} state={:?} active={:?} deadline={:?}",
         now,
         state.runtime.state(),
         state.runtime.active(),
-        state.runtime.next_deadline()
+        state.runtime.next_deadline(),
     );
-    diagnostic(host, &line, state.runtime.next_deadline()).await;
+    if formatted.is_ok() {
+        diagnostic(host, &line, state.runtime.next_deadline()).await;
+    }
+    line.clear();
+    let formatted = writeln!(
+        line,
+        "resident memory now={} heap_capacity={} heap_allocator_used={} heap_allocator_used_peak={} heap_requested={} heap_requested_peak={} heap_alloc_failures={} stack_measurement=sampled_sp_not_high_water stack_sp=0x{:x} stack_sampled_bytes={} stack_capacity={} stack_sample_valid={}",
+        now,
+        crate::heap::capacity(),
+        crate::heap::allocator_used(),
+        crate::heap::allocator_used_peak(),
+        crate::heap::requested(),
+        crate::heap::requested_peak(),
+        crate::heap::allocation_failures(),
+        crate::heap::sampled_stack_pointer(),
+        stack_sampled_bytes,
+        stack_capacity,
+        stack_sample_valid,
+    );
+    if formatted.is_ok() {
+        diagnostic(host, &line, state.runtime.next_deadline()).await;
+    }
 }
 
 async fn diagnostic<L: HostLink>(host: &mut L, line: &str, deadline: Option<u64>) {

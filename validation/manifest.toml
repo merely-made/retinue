@@ -174,3 +174,8 @@ expires = "2026-11-01"
 path = "testing/mc3_board_excursion_bench.py"
 reason = "Guarded physical MC3e V4 board-timer bench; exact-build receipt owns execution."
 expires = "2026-11-01"
+
+[[asset_exemption]]
+path = "testing/mc4_resident_bench.py"
+reason = "Guarded physical MC4c resident-protocol bench; exact-build V4/T114 receipt owns execution."
+expires = "2026-11-01"

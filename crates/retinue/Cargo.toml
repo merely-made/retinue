@@ -55,6 +55,11 @@ sennet = { path = "../sennet" }
 tokio = { version = "1", features = ["net", "io-util", "rt-multi-thread", "macros", "time"] }
 serde = "1.0.228"
 serde_json = "1.0.150"
+getrandom = "0.2"
+serial2-tokio = "0.1"
+radio-hand = { path = "../radio-hand" }
+selvage = { path = "../selvage" }
+tucket = { path = "../tucket" }
 
 # Examples and integration tests that drive the endpoint/TCP runtime need the tokio
 # feature. Declaring it here lets `--no-default-features` build (and CI check) the
@@ -170,6 +175,10 @@ required-features = ["tulle-radio"]
 
 [[example]]
 name = "murmuration_probe"
+required-features = ["tulle-radio"]
+
+[[example]]
+name = "resident_probe"
 required-features = ["tulle-radio"]
 
 # Everything but the command envelope corpus needs the heap-backed core.

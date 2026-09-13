@@ -3,8 +3,9 @@
 **Status, 2026-09-13: MC0–MC2, MC3a packet adapters, MC3b host-retained
 sessions, MC3c resource drain, MC3d explicit loss and MC3e board PHY deadlines
 complete at their stated scope; MC4a embedded capacity work is complete and
-MC4b retained-instance/V4 software integration is complete. Full physical acceptance
-remains open.** The user authorized
+MC4b retained-instance/V4 software integration is complete. MC4c ordinary resident
+traffic, explicit loss and reset continuity have physical receipts. Full memory,
+power-cut and driver-fault acceptance remains open.** The user authorized
 implementation planning, Luna/Terra work, then real-radio integration and guarded
 flashing. Software and [physical receipts](2026-09-10_murmuration_physical_receipt.md)
 cover the controller and host-driven adapters. Product authority is the
@@ -630,3 +631,116 @@ No firmware was installed or executed in this slice. Next done-condition:
 physical resident traffic and repeated bounded switches preserve identities and
 counters, account for loss and missed home RX, and keep measured heap/stack use
 inside the selected budgets, including reset and fault paths.
+
+#### MC4c execution, 2026-09-13
+
+The next physical slice uses the V4 with USB identity `44:1B:F6:6A:FA:64`
+and the existing T114 direct-PHY peer `TULLE-T114-01`. Root owns the ports,
+guarded installation and receipts; a Terra lane owns the resident traffic
+harness and a Luna lane owns feature-scoped memory instrumentation.
+
+Before installation, capture live profiles and fresh boot/application and full
+64 KiB reserved-state backups. Install only an artifact whose merged image ends
+below `0x3F0000`, then verify the complete reserved range unchanged. Resident
+setup may subsequently advance the announce and Sennet packet reservations;
+their previous ceilings must never be restored after transmission.
+
+Done for the ordinary physical path: actual peer-decoded traffic across repeated
+Retinue-home, Sennet and Tucket activations; stable identities and increasing
+Sennet packet IDs; automatic return with a silent host; explicit interruption
+reports; measured allocation use and accurately scoped stack observations.
+Reset continuity is checked separately against persisted reservations. Driver
+faults and physical power removal require their own receipts and remain open
+unless exercised. The third V4 stays outside this bench.
+
+#### MC4c findings and physical result, 2026-09-13
+
+The V4 now has actual resident-protocol evidence, recorded in the
+[physical receipt](2026-09-13_murmuration_resident_physical_receipt.json).
+The guarded [runner](../testing/mc4_resident_bench.py) drives the host
+[probe](../crates/retinue/examples/resident_probe.rs); the T114 carries peer
+frames while all three DUT protocol instances live in V4 firmware.
+
+Each qualified run completes three Sennet and three Tucket visits. Sennet
+outbound text is decrypted and checked for exact source and content, packet IDs
+increase, and replaying the first inbound packet after later switches is still
+reported as a duplicate. Tucket advert signatures decode through a peer Node,
+its public identity stays stable, and text/ACK traffic works both ways. With one
+ACK deliberately withheld, return reports `TucketLost(OperationId(2))`.
+
+The initial Retinue announce verifies against its destination and signature.
+After each ordinary visit a fresh link request receives a proof signed by that
+same identity, followed by an encrypted close and DUT `LinkDown`. A separate
+gap test leaves the peer on home while the V4 visits Sennet: a home request gets
+no proof, then cancellation restores a fresh verified link. This witnesses a
+missed home request and recovery; it makes no coverage claim. Status requests
+after silent host intervals establish automatic return, but do not measure the
+exact deadline overshoot.
+
+Reset repeats reuse the same isolated test identities. Sennet IDs skip the
+unused part of the previous 64-ID reservation, Retinue announces advance beyond
+the prior 65,536-ordinal ceiling, and Tucket keeps its public identity. Full
+64 KiB readbacks show changes only in the independent announce and packet-ID
+pairs. Settings, identity, control and other reserved sectors remain unchanged.
+The T114 is restored to its captured profile after each run. Exiting the DUT's
+one-shot resident mode requires an explicit reset, which restores its ordinary
+direct-PHY baseline without rolling back the new reservation ceilings.
+
+The [heap wrapper](../firmware/heltec-v4-phy/src/heap.rs) records requested and
+allocator-occupied peaks inside the allocation critical section. Default
+`GlobalAlloc::realloc` passes through the wrapper, so old/new buffer overlap is
+counted; real host allocator tests also exercise failed realloc and retained
+old allocations. Separate bounded status and memory records prevent verbose
+controller state from truncating the measurement fields.
+
+| Physical workload memory | Bytes |
+| --- | ---: |
+| Fixed heap | 65,536 |
+| Maximum allocator-occupied peak | 1,444 |
+| Maximum requested-byte peak | 1,439 |
+| Live allocation after ordinary traffic | 1,040 |
+| CPU0 stack use sampled at status | 61,328 |
+| CPU0 linker stack region | 129,824 |
+
+Allocation failures are zero in the qualified workloads. Stack samples use
+linker bounds and the current CPU0 stack pointer without painting or reading
+live stack memory. They are not high-water measurements; startup, interrupt
+and between-sample maxima, fragmentation and full-capacity stress remain open.
+
+One initial run failed to receive its first post-return Retinue proof. The
+receipt preserves that failed experiment separately; subsequent complete runs
+do not establish a cause for the miss. Cold USB attachment after flash/read/reset
+also sometimes timed out. Explicit DTR assertion followed by deassertion and
+status retries restored communication. That is a bench recovery procedure,
+not a general attachment fix. A temporary boot-diagnostic image was used during
+this investigation; qualification uses the normal resident image only.
+
+Installation used a fresh 1 MiB boot/application backup and a full 64 KiB
+reserved-state backup. Large esptool reads repeatedly stopped near `0x4D000`;
+espflash reads with 1,024-byte blocks and one in-flight packet completed. The
+704,640-byte merged resident image stays within the backed-up prefix and below
+`0x3F0000`; final installation preserved the complete reserved range exactly.
+Backup contents and setup secrets remain private. The third V4 was unused.
+
+Both USB firmware variants link, and a final resident rebuild is byte-identical
+to the installed ELF. Two real allocator tests, strict host-probe Clippy,
+formatting, unsafe audit and the validation registry pass. The default image
+retains five feature-specific warnings and the resident image two.
+
+Reproduce after guarded installation and a verified fresh DUT baseline:
+
+```text
+cargo build -p retinue --example resident_probe --features tulle-radio --locked --offline --target-dir C:/t/mc4c-host-target
+python testing/mc4_resident_bench.py --exe C:/t/mc4c-host-target/debug/examples/resident_probe.exe --output PRIVATE_NEW_RECEIPT.json --peer-baseline-receipt PRIVATE_VERIFIED_PEER_RECEIPT.json
+```
+
+For a reset repeat, copy both private child-side files, `*.resident-private.bin`
+and `*.peer-packet-state.bin`, to the new child receipt stem. Never restore an
+older counter file or flash reservation. The runner refuses missing peer counter
+state when reusing channel material and refuses overwriting an existing receipt.
+Host counter sync is ordinary-operation evidence, not host power-cut evidence.
+
+Next done-condition: measured stack high-water and fragmentation under the
+configured capacity workload, physical power removal during reservations,
+driver/restoration fault injection, and adversarial host/RX pressure. Recurring
+schedules and authenticated peer coverage remain later slices.

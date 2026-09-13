@@ -85,6 +85,12 @@ reason = "V4 startup mints the reset marker once after reset; the optional resid
 review_by = "2027-09-13"
 
 [[exception]]
+path = "firmware/heltec-v4-phy/src/heap.rs"
+expected_unsafe = 19
+reason = "The optional resident-protocols image owns one fixed LLFF heap and a narrowly scoped GlobalAlloc accounting wrapper; Xtensa sampled-SP diagnostics use linker-provided CPU0 bounds, while focused tests exercise the real local allocator and pointer operations."
+review_by = "2027-09-13"
+
+[[exception]]
 path = "firmware/heltec-v4-phy/examples/protocol_capacity.rs"
 expected_unsafe = 1
 reason = "The MC4a link-only capacity example initializes its aligned static 64 KiB LLFF heap once before constructing the measured workload. The image is not flashed by validation."
