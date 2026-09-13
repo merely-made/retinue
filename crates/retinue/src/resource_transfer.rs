@@ -42,6 +42,8 @@ use crate::resource::{
     Advertisement, FLAG_RESPONSE, Incoming, Outgoing, RANDOM_HASH_LEN, SDU, content, parse_hmu,
     parse_proof, parse_request,
 };
+#[cfg(feature = "compression")]
+use crate::resource::compress;
 use crate::token::IV_LEN;
 
 /// Publishes one resource over a link: advertises it, serves part requests and hashmap
@@ -86,11 +88,24 @@ impl ResourceSender {
         iv: &[u8; IV_LEN],
         request_id: Option<[u8; 16]>,
     ) -> Self {
-        let token = link.seal(&content(data, &random_hash), iv);
+        let plain = content(data, &random_hash);
+        #[cfg(feature = "compression")]
+        let (transfer, compressed) = {
+            let encoded = compress(data);
+            if encoded.len() < data.len() {
+                (content(&encoded, &random_hash), true)
+            } else {
+                (plain, false)
+            }
+        };
+        #[cfg(not(feature = "compression"))]
+        let (transfer, compressed) = (plain, false);
+        let token = link.seal(&transfer, iv);
         let part_size = (link.mtu() as usize)
             .saturating_sub(crate::packet::HEADER_MIN_LEN)
             .clamp(1, SDU);
-        let mut out = Outgoing::new_with_part_size(data, &token, random_hash, false, part_size);
+        let mut out =
+            Outgoing::new_with_part_size(data, &token, random_hash, compressed, part_size);
         if let Some(request_id) = request_id {
             out = out.with_request_id(request_id);
         }
@@ -472,6 +487,17 @@ mod tests {
             .collect()
     }
 
+    fn sha256_counter_payload(len: usize) -> Vec<u8> {
+        let mut data = Vec::with_capacity(len);
+        let mut counter = 0_u64;
+        while data.len() < len {
+            data.extend_from_slice(&crate::hash::full_hash(&counter.to_be_bytes()));
+            counter += 1;
+        }
+        data.truncate(len);
+        data
+    }
+
     /// A clean transfer with no loss: advertise, request, serve, prove — end to end.
     #[test]
     fn transfers_a_small_resource() {
@@ -498,6 +524,52 @@ mod tests {
         }
         assert!(sender.is_done(), "sender saw the proof");
         assert_eq!(receiver.data(), Some(data.as_slice()), "payload recovered");
+    }
+
+    #[cfg(feature = "compression")]
+    #[test]
+    fn sender_compresses_when_the_encoded_body_is_smaller() {
+        let (send_link, recv_link) = link_pair();
+        let data = vec![b'a'; 128 * 1024];
+        let mut ivg = iv_gen();
+        let mut sender =
+            ResourceSender::publish(send_link, &data, [0xAB, 0xCD, 0xEF, 0x01], &ivg());
+        let advertisement = sender.advertisement(&ivg());
+        let plain = recv_link.decrypt(&advertisement).unwrap();
+        let advertised = Advertisement::parse(&plain).unwrap();
+        assert_ne!(advertised.flags & crate::resource::FLAG_COMPRESSED, 0);
+        assert!(advertised.transfer_size < data.len() as u64);
+
+        let mut receiver = ResourceReceiver::new(recv_link);
+        let mut to_receiver = vec![advertisement];
+        let mut to_sender: Vec<Packet> = Vec::new();
+        for _ in 0..100 {
+            for packet in core::mem::take(&mut to_receiver) {
+                to_sender.extend(receiver.on_packet(&packet, &mut ivg));
+            }
+            for packet in core::mem::take(&mut to_sender) {
+                to_receiver.extend(sender.on_packet(&packet, &mut ivg));
+            }
+            if sender.is_done() && receiver.is_complete() {
+                break;
+            }
+        }
+        assert!(sender.is_done(), "sender saw the proof");
+        assert_eq!(receiver.data(), Some(data.as_slice()), "payload recovered");
+    }
+
+    #[cfg(feature = "compression")]
+    #[test]
+    fn sender_keeps_an_incompressible_body_plain() {
+        let (send_link, recv_link) = link_pair();
+        let data = sha256_counter_payload(128 * 1024);
+        let mut ivg = iv_gen();
+        let sender = ResourceSender::publish(send_link, &data, [0xA1, 0xB2, 0xC3, 0xD4], &ivg());
+        let advertisement = sender.advertisement(&ivg());
+        let plain = recv_link.decrypt(&advertisement).unwrap();
+        let advertised = Advertisement::parse(&plain).unwrap();
+        assert_eq!(advertised.flags & crate::resource::FLAG_COMPRESSED, 0);
+        assert!(advertised.transfer_size > data.len() as u64);
     }
 
     #[test]
