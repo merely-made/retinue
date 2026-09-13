@@ -22,6 +22,8 @@ use postilion::{Event, Peer, Sent};
 pub mod firmware;
 pub mod management;
 pub mod message;
+#[cfg(feature = "comms")]
+pub mod message_view;
 pub mod observation;
 pub mod survey;
 pub mod voice;

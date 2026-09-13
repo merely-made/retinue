@@ -460,10 +460,8 @@ fn messages_page(state: &DesktopState) -> Child {
                     facts.encoded_bytes
                 )
             });
-            let mut label = format!("{direction} {name}: {}. {}", content, record.status.label());
-            if let signalman::message::MessageStatus::Failed(reason) = &record.status {
-                label.push_str(&format!(": {reason}"));
-            }
+            let view = signalman::message_view::MessageView::new(record);
+            let label = format!("{direction} {name}: {}. {}", content, view.delivery_text());
             Box::new(
                 button(label, move |s: &mut DesktopState, _| s.select_message(id))
                     .attr(

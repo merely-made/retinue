@@ -3265,6 +3265,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "mere-comms"
+version = "0.0.1"
+source = "git+https://github.com/merely-made/mere.git?rev=ab067f1ea33e43cf97428616822d740de2561459#ab067f1ea33e43cf97428616822d740de2561459"
+dependencies = [
+ "async-trait",
+ "serde",
+]
+
+[[package]]
 name = "mere-eidetic"
 version = "0.0.2"
 source = "git+https://github.com/merely-made/mere.git?rev=d82afa17e2cca86da843f07a2d718d2e69eb9f10#d82afa17e2cca86da843f07a2d718d2e69eb9f10"
@@ -5719,6 +5728,7 @@ version = "0.1.0"
 dependencies = [
  "hex",
  "linkboy",
+ "mere-comms",
  "outrider",
  "pipit",
  "postilion",

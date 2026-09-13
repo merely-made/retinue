@@ -33,7 +33,7 @@ path = "src/main.rs"
 # The presentation vocabulary. NOT linkboy: package trust, plans, execution,
 # and recovery decisions stay behind Signalman, and this application renders
 # plan facts rather than reconstituting them.
-signalman = { version = "0.1.0", path = "../signalman" }
+signalman = { version = "0.1.0", path = "../signalman", features = ["comms"] }
 # Linkboy's own types appear in Signalman's projections (FlashEvent, FlashPlan,
 # OwnerStage, the receipt), so the face names them to match on them. It never
 # calls a policy, planning, or execution function directly — the worker invokes

@@ -787,3 +787,23 @@ better consumer one and it can be migrated before Signalman rather than after.
 
 This order gives Cambium two real application consumers without turning an
 installer into the proving ground for unmeasured general-purpose GUI design.
+
+## Shared delivery presentation, 2026-09-13
+
+Signalman's optional `comms` feature maps existing `MessageRecord` values into
+Mere's shared delivery vocabulary. `MessageView` borrows the authoritative
+record, retaining transport ID, mode, direction, authorship and content; it
+creates no new journal. The existing desktop Messages view uses this mapping
+and preserves failure detail and all queue reasons.
+
+The lightweight `mere-comms` dependency is pinned to Mere `ab067f1e`. It exchanges
+scalar presentation facts, so it does not move or duplicate the desktop's
+separately pinned graph/identity packages. Native Comms `Message` and adapter
+contracts remain unchanged. This slice does not add Sennet/Tucket inboxes,
+protocol routing, read receipts, privacy badges, attachment controls or calls.
+
+Validation: 32 Signalman library tests pass against the exact git pin, including
+outgoing journal replay and duplicate incoming replay through the mapping.
+Mere's 16 Comms tests plus its doctest pass. The full desktop library also passes
+`cargo check --manifest-path apps/signalman-desktop/Cargo.toml --lib -j 2` with
+the committed dependency locks. This is a compile receipt, not a new headed run.

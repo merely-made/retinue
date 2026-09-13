@@ -32,7 +32,15 @@ path = "src/bin/signalman-control-verified.rs"
 name = "signalman-control-configure"
 path = "src/bin/signalman-control-configure.rs"
 
+[features]
+# Read-only presentation over the existing message journal. No renderer or
+# network adapter is enabled by the shared vocabulary.
+comms = ["dep:comms"]
+
 [dependencies]
+# A scalar presentation vocabulary; does not exchange graph/identity types
+# with the desktop's separately pinned Mere host packages.
+comms = { package = "mere-comms", git = "https://github.com/merely-made/mere.git", rev = "ab067f1ea33e43cf97428616822d740de2561459", optional = true }
 hex = "0.4"
 linkboy = { version = "0.1.0", path = "../linkboy" }
 outrider = { version = "0.1.1", path = "../../crates/outrider", features = ["voice"] }
