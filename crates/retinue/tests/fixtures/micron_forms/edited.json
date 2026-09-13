@@ -1,0 +1,8 @@
+{
+  "field_mnprobe_text": "edited café 雪",
+  "field_mnprobe_empty": "",
+  "field_mnprobe_mask": "mask-seed",
+  "field_mnprobe_checks": "red,blue",
+  "field_mnprobe_radio": "red",
+  "field_mnprobe_multiline": "first line\nsecond 雪"
+}

@@ -13,13 +13,13 @@
 //! ([`Packet::hash`](crate::packet::Packet::hash)). Verified against RNS 1.3.8; see
 //! `oracle/capture_reqresp*.py`.
 //!
-//! retinue treats the request and response data as opaque byte strings. RNS can carry any
-//! msgpack value there; a consumer that needs structure layers its own encoding on top,
-//! which keeps retinue a transport rather than an application.
+//! [`Request`] preserves the existing binary-data API. [`StringMapRequest`] carries a
+//! bounded native MessagePack string map, as used by NomadNet forms. Serializing a map
+//! inside the binary API does not produce the same wire value.
 //!
-//! The msgpack handled here is only what these two shapes need: a fixarray, one float64,
-//! and byte strings (`bin8`/`bin16`/`bin32`, and `nil` decoded as empty). Anything else is
-//! a [`Error::BadRequest`].
+//! The binary API accepts byte strings (`bin8`/`bin16`/`bin32`, and `nil` decoded
+//! as empty). The string-map API retains the map type and rejects non-string
+//! entries. Other application value profiles remain unsupported.
 
 // Needed by the test build or the tokio shell; the bare no_std lib does not reach it.
 #[allow(unused_imports)]
@@ -32,6 +32,9 @@ use alloc::vec::Vec;
 
 use crate::hash::AddressHash;
 use crate::{Error, Result};
+
+mod string_map;
+pub use string_map::{StringMapLimits, StringMapRequest};
 
 /// A request: a path and its opaque data.
 #[derive(Clone, Debug, PartialEq)]
@@ -177,8 +180,9 @@ impl<'a> Reader<'a> {
     }
 
     fn take(&mut self, n: usize) -> Result<&'a [u8]> {
-        let s = self.b.get(self.i..self.i + n).ok_or(Error::BadRequest)?;
-        self.i += n;
+        let end = self.i.checked_add(n).ok_or(Error::BadRequest)?;
+        let s = self.b.get(self.i..end).ok_or(Error::BadRequest)?;
+        self.i = end;
         Ok(s)
     }
 

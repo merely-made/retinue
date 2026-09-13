@@ -1,0 +1,8 @@
+{
+  "field_mnprobe_text": "seed-text",
+  "field_mnprobe_empty": "",
+  "field_mnprobe_mask": "mask-seed",
+  "field_mnprobe_checks": "red,blue",
+  "field_mnprobe_radio": "red",
+  "field_mnprobe_multiline": ""
+}

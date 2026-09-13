@@ -1,9 +1,10 @@
-# NomadNet resource interoperability receipts
+# NomadNet interoperability receipts
 
 **Latest finding:** the Retinue-to-rns-net 0.7.0 Resource-response stall was
 resolved by float64 RTT activation encoding. See the final section. Earlier
 matrices preserve the pre-fix results; stock NomadNet client defects and the old
-server API limitations remain separate.
+server API limitations remain separate. A later typed-form transaction receipt
+below establishes the string-map request profile independently of UI integration.
 
 ## Unsent upstream issue drafts
 
@@ -350,3 +351,57 @@ test files, with copies of the existing fixtures. The root workspace's offline
 resolution required an uncached, unrelated Signalman/Mere dependency; no workspace
 dependency or lockfile was changed to work around that. Logs are in
 `main-validation.log`. All task-owned peer processes were stopped after testing.
+
+## Typed form request receipt
+
+The next 2026-09-13 slice captured stock NomadNet 1.4.2 submissions against a
+controlled [public RNS request handler](https://reticulum.network/manual/reference.html#RNS.Destination.register_request_handler)
+using RNS 1.5.3, then exercised the same values against Retinue in both directions.
+This is a typed transaction receipt, extending the earlier script-environment
+capture. The received value is a native MessagePack **string-to-string map**;
+`field_` and `var_` prefixes are already on the wire. Ordinary navigation sent
+`nil`. Editing Unicode and a nonempty multiline field preserved the literal text
+and newline. Selected fields excluded unlisted values; changed checkboxes/radio
+state and the fixed variable matched independently.
+
+| Transaction | Defaults | Edited Unicode / multiline | Selected fields / fixed variable |
+| --- | --- | --- | --- |
+| Stock NomadNet → public Python RNS handler | Exact typed map | Exact typed map | Exact typed map |
+| Retinue StringMapRequest → same Python handler | Exact typed map | Exact typed map | Exact typed map |
+| Stock NomadNet → controlled Retinue handler | Exact typed map | Exact typed map | Exact typed map |
+
+`request::StringMapRequest` now packs and unpacks this native value without a
+binary wrapper. `StringMapLimits` bounds entry count and complete encoded bytes
+before allocation. Duplicate keys, invalid UTF-8, non-string values, nonfinite
+timestamps, truncation and trailing bytes fail. The existing binary `Request`
+API remains available. This adapter does not interpret prefixes or authorize
+execution. `StaticNode` remains static and does not acquire a dynamic handler.
+
+`ResourceSession::request_raw` now rejects a request larger than the negotiated
+link packet capacity before sending it. Outgoing request Resources are still
+unimplemented; larger form payloads are explicitly unsupported. All captured
+submissions fit one packet (133–215 plaintext bytes). Successful Resource
+**responses** do not establish segmented request support.
+
+The checked-in [fixtures](../crates/retinue/tests/fixtures/micron_forms/README.md)
+are actual decrypted stock-client envelopes, captured before our decoder ran.
+Python `msgpack 1.1.2` independently decoded them and compared them with the first
+public-handler observations. Their manifest records byte counts and SHA-256.
+The test server and probe were owned code using public APIs; no reference
+implementation source was read or imported. Runtime: WSL Ubuntu, Rust 1.97.1,
+TCP loopback only, generated dummy content. All task-owned processes were stopped.
+
+Validation: 16 focused tests pass (six map-profile tests, seven endpoint-resource
+tests, three link-session tests). The oversized-request test verifies immediate
+refusal, no handler delivery, and reuse of the same link for a valid request.
+The map API also compiles with `default-features = false, features = ["alloc"]`.
+Tests used the existing isolated `main-validation` manifest against actual source
+and test files, with `--locked --offline`; this is not a full workspace receipt.
+Artifacts and independent comparison: `C:\t\micron-forms-20260913`, including
+`verification.log`, `tests.log`, `alloc-check.log`, public-API harnesses and screens.
+
+This completes the packet-sized wire prerequisite. It does not enable form
+editing/submission in Knot or Turnstone, add executable pages to Djinn, qualify
+request Resources, or complete Micron navigation/refresh behavior. The next
+consumer slice owns field state, explicit submit actions, destination policy,
+and cancellation through existing sessions, followed by headed receipts.

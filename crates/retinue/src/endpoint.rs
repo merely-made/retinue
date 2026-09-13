@@ -761,6 +761,14 @@ impl ResourceSession {
 
     /// Send one already-packed request and retain the raw matching response.
     pub async fn request_raw(&mut self, packed_request: &[u8]) -> io::Result<ReceivedRawResponse> {
+        // Outgoing request Resources are not implemented. Refuse a value that
+        // cannot fit this link instead of transmitting an oversized packet.
+        if packed_request.len() > write_chunk_for_mtu(self.link.mtu()) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "request exceeds link packet capacity",
+            ));
+        }
         let packet = self.link.request_packet(packed_request, &next_iv());
         let request_id = packet.hash();
         self.shared.send_on(self.iface, packet);

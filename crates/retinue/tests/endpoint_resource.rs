@@ -40,6 +40,47 @@ fn connect_dropping_first_resource_proof(a: &Endpoint, b: &Endpoint) -> Arc<Atom
 }
 
 #[tokio::test]
+async fn oversized_request_is_refused_before_send_and_link_remains_usable() {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        let server_id = PrivateIdentity::from_secret_bytes(&[0x75; 64]);
+        let server = Endpoint::new(server_id.clone());
+        let client = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x76; 64]));
+        let name = DestinationName::new("retinue", ["request-cap"]);
+        let destination = name.destination_hash(server_id.public());
+        server.register_resource(name, b"");
+        connect(&client, &server, LossModel::new(97), LossModel::new(98));
+        let responder = tokio::spawn(async move {
+            let mut accepted = server.accept_resource().await.unwrap();
+            let request = accepted.session.receive_request().await.unwrap();
+            // The oversized request must never precede this one at the handler.
+            assert_eq!(
+                request.request.path_hash,
+                retinue::hash::AddressHash::of(b"/small")
+            );
+            accepted.session.respond(request.request_id, b"ok".to_vec());
+        });
+        let mut session = client
+            .open_resource(destination, *server_id.public())
+            .await
+            .unwrap();
+        let oversized = Request::new(b"/oversized", vec![0; 4096], 0.0).pack();
+        assert_eq!(
+            session.request_raw(&oversized).await.unwrap_err().kind(),
+            std::io::ErrorKind::InvalidInput
+        );
+        let response = session
+            .request(&Request::new(b"/small", Vec::new(), 0.0))
+            .await
+            .unwrap();
+        assert_eq!(response.data, b"ok");
+        responder.await.unwrap();
+        client.close();
+    })
+    .await
+    .expect("oversized request is refused without waiting for a timeout");
+}
+
+#[tokio::test]
 async fn endpoint_publishes_and_fetches_a_resource() {
     let server_id = PrivateIdentity::from_secret_bytes(&[0x22; 64]);
     let client_id = PrivateIdentity::from_secret_bytes(&[0x11; 64]);
