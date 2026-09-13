@@ -92,3 +92,20 @@ The final matrix and per-case logs are retained at
 `C:\t\nomadnet-rust-interop-20260913\run-20260913-122704\receipt.json`.
 The parent directory contains the harness sources, Cargo locks and build logs.
 All test child processes were stopped after the run.
+
+### Native Fedora host comparison
+
+The same eleven cases were repeated on `thinkpad-l14-f` through its configured
+SSH agent on 2026-09-13. The host reported Linux `7.2.4-200.fc44.x86_64` and
+glibc 2.43. The four existing Linux executables were copied without rebuilding;
+their SHA-256 values were verified before execution. Only the runner's root and
+binary paths changed. Every case reproduced the WSL outcome above: two exact
+small-page matches and nine failures. The small self-control again received a
+16-byte RESPONSE callback without a PageReceived event. Thus the observed
+failures are not confined to WSL; this does not yet identify the multipart cause.
+
+The native-host receipt is
+`thinkpad-l14-f:/home/markik/nomadnet-peer-host-check-20260913/run-20260913-124901/receipt.json`,
+also copied with its logs to `C:\t\nomadnet-rust-interop-20260913\run-20260913-124901`.
+This is native Fedora execution of the same binaries, not a Fedora source-build
+or cross-host transport receipt. All peer connections remained loopback.
