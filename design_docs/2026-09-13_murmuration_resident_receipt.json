@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-13",
+  "scope": "MC4b software and build-only retained protocol runtime; no board execution or installation",
+  "base_revision": "68fb194611603bda0064616edd595abcd2a33930",
+  "source_identity": "Base revision plus the changed/new source file hashes below. This is a working-tree build receipt.",
+  "source_file_sha256": {
+    "Cargo.lock": "8fa5efba2342d05650c6dc74852c2f0d9d3c080308d1cbf970fed2d0693acb23",
+    "crates/radio-hand/Cargo.toml": "50342a106f6aa43b8a58f45f3a18a2d7fe8686901187f8fb1b11c6799d69520a",
+    "crates/radio-hand/src/instances.rs": "fde8e13e0493da483bc5529a0f60c3424e64cdb493113e0df09d32e9605e2337",
+    "crates/radio-hand/src/lib.rs": "3d5833482a0f3d7fc1096d3195648ea2ffa4ef263a60f477e21698cb9aeac692",
+    "crates/radio-hand/src/packet_reservation.rs": "a57d542d34d7881ed072fef8e976cf3e885fe3599543bcb0716cade089e7f627",
+    "crates/radio-hand/src/resident_command.rs": "9d1f06781dc0c52489ee154b5de1d5c0f8272f8e502ee0221f5740b991860d2e",
+    "crates/radio-hand/src/resident_wire.rs": "b05436a15c8b505e68b23e25cfe2eff6bb165cbabc4852aa69464785cbaae369",
+    "crates/radio-hand/src/work.rs": "8448ee9ab1aef8723b287584efc28d6b60d2bbb5adc691d126e6a4938f582be7",
+    "crates/radio-hand/tests/instances.rs": "2a0c1632ec7a21124177adf0f320fb8d320e9f5e4ee94fc9b00611033f858286",
+    "crates/retinue/src/instance.rs": "2b013b2a56d0e560dbc0f3721c8c6222f7225fd6d1cbc5bf5d6f6f4a8509d0e7",
+    "crates/retinue/src/lib.rs": "1b81fa030ce94071d8d17910f8f6f3bd7c0dea30ab2f1c4369eddf30d044a55d",
+    "crates/retinue/src/node.rs": "e3f6e536f275351bd0b65ccae45443835e2437d6bc1a24b5f77b3762887672fe",
+    "crates/retinue/src/resource_transfer.rs": "f3fcb268483a691725e5284f6da033e9947760ca243f391c1cc92e11801e4b25",
+    "crates/sennet/src/instance.rs": "87100db1e44aeff17bbd4909f1f3204ae22d94417367f4807d72629ff588cd97",
+    "crates/sennet/src/lib.rs": "7435b57efb4cdfc92993423b5415e90fcaf5abe8f6596502170385e522a5e844",
+    "crates/tucket/src/instance.rs": "70f59cc7dc15e3bb6bdb64e81319c6645bbbd07179beb5d99da2136b8f6a4351",
+    "crates/tucket/src/lib.rs": "db0a02f8e31942d9309970a80f1400e705a40de97a2343aab75f3f77518ee008",
+    "firmware/heltec-v4-phy/Cargo.toml": "e563ceb218d2ad2086737883ef6086edc16167db484a64925894bdb7665eba9b",
+    "firmware/heltec-v4-phy/src/main.rs": "4b64883f3ea2b0fcc79e4b82bab4bf5b23536c6d7e3dcdaee9815ec68a47d511",
+    "firmware/heltec-v4-phy/src/radio_owner.rs": "0fdd5a457451c3f031bffff786a0bc44b32a5b7eb27161141b89da316e3600a5",
+    "firmware/heltec-v4-phy/src/resident.rs": "d384a516d94aee08b92c9a3baa4926dddb13f947ea81848b7a99d4eeefaa90c5",
+    "firmware/heltec-v4-phy/src/store.rs": "dffdc0e2a5945d3055f3598784809d5f5539a15b37234131bbdf420a9925d532"
+  },
+  "artifacts": [
+    {
+      "kind": "resident USB V4",
+      "path": "C:/t/mc4b-artifacts/resident.elf",
+      "sha256": "1f5b31be2f2541cae14e7e293561779dc0b6ec78810691673303b80ba93bdd7b",
+      "data_bytes": 4788,
+      "bss_bytes": 197888,
+      "fixed_heap_bytes": 65536,
+      "linker_stack_region_bytes": 129840,
+      "build_log": "C:/t/mc4b-v4-resident-final.log"
+    },
+    {
+      "kind": "ordinary USB V4",
+      "path": "C:/t/mc4b-artifacts/default.elf",
+      "sha256": "346bed1c5a036d7aef3c0cddb940cdd1adc5f9db5e75a2fddc085673c495a67e",
+      "data_bytes": 4212,
+      "bss_bytes": 40760,
+      "linker_stack_region_bytes": 287552,
+      "build_log": "C:/t/mc4b-v4-default-final.log"
+    }
+  ],
+  "build_command": "cargo +esp build -p tulle-heltec-v4-phy --bin tulle-heltec-v4-phy [--features resident-protocols] --release --offline --target xtensa-esp32s3-none-elf '-Zbuild-std=core,alloc' --target-dir C:/t/mc4-xtensa-target",
+  "checks": {
+    "sennet_no_default_tests": 68,
+    "tucket_no_default_tests": 67,
+    "retinue_default_lib_tests": 214,
+    "retinue_alloc_lib_tests": 175,
+    "radio_hand_full_features": "261 tests with instances,replay,control-retinue; then all 9 focused instance tests passed after adding report-format regression",
+    "strict_scoped_clippy": "passed",
+    "radio_hand_strict_rustdoc": "passed",
+    "formatting": "passed for radio-hand, retinue, sennet, tucket",
+    "validation_registry": "21 manifests, 83 assets, 15 suites",
+    "unsafe_audit": "37 approved tokens in 13 files, 18 crate roots",
+    "flash_classification": "existing 3 settings fields and 2 adjacent records passed"
+  },
+  "limits": [
+    "No installed firmware, on-air protocol receipt, measured heap/stack high-water, fragmentation or fault-injection result.",
+    "Static section sizes include fixed allocator storage and async runtime storage; linker stack region is available space, not measured usage.",
+    "Sennet is a text leaf; Tucket uses bounded text/advert support; outbound Retinue application USB commands are not included.",
+    "Setup is volatile; Retinue identity and independent monotonic reservation ceilings are durable.",
+    "USB reports are bounded best-effort diagnostics and can be omitted or retired under deadline/backpressure; no durable event log.",
+    "Coverage-required excursions refuse without a coverage provider.",
+    "Resident build retains two existing dead-code warnings; default build additionally warns about unused resident reservation helpers."
+  ],
+  "prior_capacity_receipt": "testing/protocol-capacity/receipt.json remains unchanged and applies only to MC4a"
+}

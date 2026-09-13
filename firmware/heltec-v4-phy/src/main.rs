@@ -6,6 +6,12 @@
 compile_error!("select exactly one V4 host transport: host-usb or host-uart-low-power");
 #[cfg(not(any(feature = "host-usb", feature = "host-uart-low-power")))]
 compile_error!("select exactly one V4 host transport: host-usb or host-uart-low-power");
+#[cfg(all(feature = "resident-protocols", not(feature = "host-usb")))]
+compile_error!("resident-protocols requires the USB host transport");
+#[cfg(all(feature = "resident-protocols", feature = "host-uart-low-power"))]
+compile_error!("resident-protocols is unavailable in the low-power UART image");
+#[cfg(all(feature = "resident-protocols", feature = "rf-sleep-proof"))]
+compile_error!("resident-protocols is incompatible with the low-power RF sleep proof image");
 
 #[cfg(all(feature = "host-uart-low-power", feature = "rf-sleep-proof"))]
 use core::future::{Future, poll_fn};
@@ -66,11 +72,27 @@ mod murmuration;
 mod physical_presence;
 mod power;
 mod radio_owner;
+#[cfg(feature = "resident-protocols")]
+mod resident;
 #[cfg(feature = "rf-sleep-proof")]
 mod sleep_proof;
 mod store;
 mod ui;
 mod wake_input;
+
+/// The optional retained protocol cores are constructed only after USB setup
+/// validates every caller-supplied bound. The direct-PHY default has no heap.
+#[cfg(feature = "resident-protocols")]
+const RESIDENT_HEAP_BYTES: usize = 64 * 1024;
+#[cfg(feature = "resident-protocols")]
+#[global_allocator]
+static RESIDENT_HEAP: embedded_alloc::LlffHeap = embedded_alloc::LlffHeap::empty();
+#[cfg(feature = "resident-protocols")]
+#[repr(C, align(16))]
+struct ResidentHeapStorage([u8; RESIDENT_HEAP_BYTES]);
+#[cfg(feature = "resident-protocols")]
+static mut RESIDENT_HEAP_STORAGE: ResidentHeapStorage =
+    ResidentHeapStorage([0; RESIDENT_HEAP_BYTES]);
 mod wake_lease;
 
 esp_bootloader_esp_idf::esp_app_desc!();
@@ -155,6 +177,15 @@ async fn serve_status_only<R: embedded_io_async::Read, W: embedded_io_async::Wri
 #[esp_rtos::main]
 async fn main(spawner: Spawner) {
     control_fixture::verify();
+    #[cfg(feature = "resident-protocols")]
+    // Safety: startup initializes this exact static once, before any retained
+    // protocol state or task is constructed.
+    unsafe {
+        RESIDENT_HEAP.init(
+            core::ptr::addr_of_mut!(RESIDENT_HEAP_STORAGE) as usize,
+            RESIDENT_HEAP_BYTES,
+        );
+    }
     let peripherals = esp_hal::init(Config::default());
     #[cfg(feature = "rf-sleep-proof")]
     let proof_reset_reason = esp_hal::system::reset_reason()
@@ -481,6 +512,8 @@ async fn main(spawner: Spawner) {
     let _ = host.write_all(online).await;
     let _ = host.write_all(&identity_line[..identity_line_len]).await;
     let mut command_stream = CommandStream::new();
+    #[cfg(feature = "resident-protocols")]
+    let mut resident_stream = radio_hand::resident_wire::ResidentSetupStream::new();
     let mut excursion_stream = ExcursionStream::new();
     let mut usb_command = [0_u8; MAX_COMMAND_LEN];
     let mut control_stream = channels::ControlFrameStream::new();
@@ -792,6 +825,11 @@ async fn main(spawner: Spawner) {
                     }
                 }
                 let at_boundary = command_stream.is_boundary();
+                #[cfg(feature = "resident-protocols")]
+                let resident_pending = resident_stream.pending()
+                    || packet.contains(&radio_hand::resident_wire::CMD_RESIDENT_SETUP);
+                #[cfg(not(feature = "resident-protocols"))]
+                let resident_pending = false;
                 if murmuration.is_active() {
                     continue;
                 }
@@ -801,12 +839,97 @@ async fn main(spawner: Spawner) {
                 // direct-PHY parser immediately, so bytes before and after a
                 // KISS request in one USB read are never discarded and a FEND
                 // inside an ordinary command remains ordinary payload.
-                if excursion_stream.pending()
+                if resident_pending
+                    || excursion_stream.pending()
                     || packet.contains(&selvage::CMD_EXCURSION)
                     || control_stream.in_frame()
                     || packet.contains(&selvage::kiss::FEND)
                 {
-                    for &byte in packet {
+                    for (_resident_byte_index, &byte) in packet.iter().enumerate() {
+                        #[cfg(feature = "resident-protocols")]
+                        match resident_stream.push(
+                            command_stream.is_boundary()
+                                && !control_stream.in_frame()
+                                && !excursion_stream.pending(),
+                            byte,
+                        ) {
+                            radio_hand::resident_wire::ResidentSetupByte::Ordinary(byte) => {
+                                // Continue through the regular direct-PHY demux below.
+                                let _ = byte;
+                            }
+                            radio_hand::resident_wire::ResidentSetupByte::Pending => continue,
+                            radio_hand::resident_wire::ResidentSetupByte::Complete(setup) => {
+                                if setup.frame_ttl_ms <= setup.tx_budget_ms
+                                    || !setup
+                                        .profiles
+                                        .iter()
+                                        .all(|profile| owner.excursion_profile_admitted(profile))
+                                {
+                                    let _ = host.write_all(b"resident refused\r\n").await;
+                                    continue;
+                                }
+                                // Runtime construction asserts that the selected home has
+                                // already been applied and RX re-armed. This bounded owner
+                                // operation also resets rather than leaving a cancelled
+                                // profile switch uncertain.
+                                let home = setup.profiles[usize::from(setup.home)];
+                                if !matches!(
+                                    embassy_time::with_timeout(
+                                        Duration::from_millis(setup.transition_timeout_ms),
+                                        owner.apply_excursion_profile(&home)
+                                    )
+                                    .await,
+                                    Ok(Ok(()))
+                                ) {
+                                    esp_hal::system::software_reset();
+                                }
+                                let state = match owner
+                                    .build_resident(Instant::now().as_millis(), setup)
+                                    .await
+                                {
+                                    Ok(state) => state,
+                                    Err(error) => {
+                                        // Profile already changed; construction can have made
+                                        // durable reservations. Reset instead of pretending the
+                                        // prior direct-PHY profile still owns this radio.
+                                        if let resident::BuildError::Storage(cause) = error {
+                                            let mut line = heapless::String::<192>::new();
+                                            let _ = core::fmt::write(
+                                                &mut line,
+                                                format_args!(
+                                                    "resident storage refused: {cause:?}\r\n"
+                                                ),
+                                            );
+                                            let _ = embassy_time::with_timeout(
+                                                Duration::from_millis(20),
+                                                host.write_diagnostic(line.as_bytes()),
+                                            )
+                                            .await;
+                                        }
+                                        esp_hal::system::software_reset();
+                                    }
+                                };
+                                let _ = embassy_time::with_timeout(
+                                    Duration::from_millis(20),
+                                    host.write_diagnostic(b"resident ready\r\n"),
+                                )
+                                .await;
+                                // Resident setup permanently replaces this direct-PHY loop.
+                                // `serve` owns every later host byte, deadline, RX collection,
+                                // profile transition, and physical transmit through Runtime.
+                                resident::serve(
+                                    state,
+                                    &mut owner,
+                                    &mut host,
+                                    &packet[_resident_byte_index + 1..],
+                                )
+                                .await;
+                            }
+                            radio_hand::resident_wire::ResidentSetupByte::Rejected(_) => {
+                                let _ = host.write_all(b"resident refused\r\n").await;
+                                continue;
+                            }
+                        }
                         // An admitted excursion owns this read's remaining bytes too.
                         if murmuration.is_active() {
                             break;

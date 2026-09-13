@@ -89,6 +89,8 @@ pub mod identity;
 pub mod ifac;
 pub mod iface;
 #[cfg(feature = "alloc")]
+pub mod instance;
+#[cfg(feature = "alloc")]
 pub mod link;
 #[cfg(feature = "alloc")]
 pub mod lossy;

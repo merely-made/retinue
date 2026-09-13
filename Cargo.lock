@@ -2138,8 +2138,10 @@ dependencies = [
  "radio-face",
  "retinue",
  "selvage",
+ "sennet",
  "serde_json",
  "sha2 0.11.0",
+ "tucket",
 ]
 
 [[package]]
@@ -2967,9 +2969,12 @@ dependencies = [
  "protocol-capacity-probe",
  "radio-face",
  "radio-hand",
+ "retinue",
  "selvage",
+ "sennet",
  "sha2 0.11.0",
  "static_cell",
+ "tucket",
 ]
 
 [[package]]

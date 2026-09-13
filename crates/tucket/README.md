@@ -56,6 +56,21 @@ The formula excludes allocator metadata, stack frames, crypto implementation
 scratch space, and board radio buffers. Measure those on the selected firmware
 target before advertising an installed Tucket capability.
 
+## Retained instance
+
+`instance::Instance` retains one `Node` and a configured bounded operation
+list across a radio absence. `begin_send` gives each text an `OperationId` with
+retry, total-expiry, and caller-allowed-until deadlines; `next_retry` produces
+only a candidate frame. The radio owner separately owns queueing, cancellation,
+and TX results, so pausing or interrupting Tucket never claims an issued frame
+was revoked. `assess_pause(now, return_by)` reports `Ready`, the earliest
+`Busy` retry, or the exact operations that `RequiresLoss`. `resume` expires
+elapsed obligations and reports them without reconnect traffic. `interrupt`
+requires `LossPermission::Allow` and returns every discarded operation.
+`pause` and `resume` are strict transitions. The radio runtime calls
+`advance(now)` while active or paused to collect expiry reports; scheduling an
+operation at its expiry boundary returns `AdvanceRequired` until it does so.
+
 **Status:** authenticated adverts, flood text and acknowledgements, forwarding,
 and reciprocal direct-path learning are implemented. A successful flooded
 exchange teaches both endpoints a route; later text and acknowledgements select

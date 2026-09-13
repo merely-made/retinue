@@ -23,6 +23,7 @@ extern crate alloc;
 
 pub mod application;
 pub mod flood;
+pub mod instance;
 pub mod node;
 pub mod node_info;
 pub mod packet_id;

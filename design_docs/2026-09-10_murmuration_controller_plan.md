@@ -1,8 +1,10 @@
 # Murmuration controller implementation plan
 
-**Status, 2026-09-11: MC0–MC2, MC3a packet adapters, MC3b host-retained
+**Status, 2026-09-13: MC0–MC2, MC3a packet adapters, MC3b host-retained
 sessions, MC3c resource drain, MC3d explicit loss and MC3e board PHY deadlines
-complete at their stated scope; full MC3 remains open.** The user authorized
+complete at their stated scope; MC4a embedded capacity work is complete and
+MC4b retained-instance/V4 software integration is complete. Full physical acceptance
+remains open.** The user authorized
 implementation planning, Luna/Terra work, then real-radio integration and guarded
 flashing. Software and [physical receipts](2026-09-10_murmuration_physical_receipt.md)
 cover the controller and host-driven adapters. Product authority is the
@@ -486,3 +488,145 @@ Next: compose these real components into retained instances with protocol-owned
 pause/expiry/loss behavior and bounded caller action queues. Then integrate the
 board runtime and measure target heap/stack high-water, fragmentation and stress.
 The candidate memory budget above does not close those runtime/physical gates.
+
+#### MC4b execution, 2026-09-13
+
+**Status: software/build slice complete, user authorized continuation.** Sennet and Tucket lanes
+own retained instances, protocol obligations, pause/resume, expiry and explicit
+loss reports. Parent owns the Retinue bridge, bounded activation-tagged action
+queue, controller integration and V4 consumer. A separate review checks actual
+board identity/storage/ownership seams. Configured identities, exclusive packet-ID
+reservations and protocol timers must remain explicit; fixture identities are not
+installed defaults. Normal radio ownership and completed-event collection stay
+with the V4 owner. Software/build evidence and installed physical evidence are
+recorded separately. Existing MC4a receipt remains immutable.
+
+#### MC4b findings and implementation, 2026-09-13
+
+Protocol lifecycle stays with each protocol: `retinue::instance`,
+`sennet::instance` and `tucket::instance` retain the original objects across
+pause/resume. Their monotonic timers continue through absence. Retinue reports
+expired links and their resource state; Sennet retains its leased counter and
+dedup state; Tucket keeps all attempted ACK values until acknowledgement, expiry
+or explicit interruption. A final text attempt still waits for its delayed ACK.
+Sennet is a text leaf, not a full Meshtastic participant or relay.
+
+`radio_hand::instances::Runtime` composes these objects with the existing Selvage
+controller. `WorkQueue<8>` tags each physical action by instance, activation
+generation and work sequence. Queued actions require explicit loss permission
+to abandon; in-flight custody requires matching settlement regardless of policy.
+The bounded report contains protocol events, cancelled retries, losses and
+overflow counts. Retinue interruption reports include explicitly unsent close
+packets. Those packets do not prove that the peer closed its link.
+
+An alternate instance has no promised next visit after return home. Its pending
+obligations must therefore be drained or explicitly discarded before suspension.
+Retinue as an alternate requires loss permission because it can accept inbound
+sessions without a local send command. Coverage-required excursions remain
+refused until an authenticated coverage source is connected; this runtime never
+fabricates coverage. Caller clock observations remain monotonic even on a
+refused command, and accumulated losses remain available through `take_report`.
+
+The V4 packet-ID reservation occupies a separate A/B pair at `0x3F8000` and
+`0x3F9000`. It stores a global, exclusive Sennet ceiling independent of source
+and channel selection. Both complete sectors are read; nonblank corruption,
+ambiguous sequence, rollback or exhaustion refuse a lease. The new record must
+be authoritative after a complete pair reread before its interval can be used.
+Reset burns unused IDs. Retinue announce reservation and board identity retain
+their existing independent storage. This is software/build evidence; power-cut
+and on-air reservation continuity still need physical receipts.
+
+The optional `resident-protocols` USB image initializes a fixed 64 KiB LLFF heap.
+Its explicit setup is volatile until reset. Stored Retinue identity remains
+durable; Sennet source/channel/key, Tucket seed, Retinue name hash, all three PHY
+profiles, home/pin and timing budgets arrive from the local operator. The ordinary
+image continues to be the separate direct-PHY build. Initial capacities match
+the bounded candidate: Retinue 8 peers/4 actions/1 link/4 routes and 1 KiB outbound
+resources, Sennet 8 directory rows, Tucket 8 contacts/2 pending texts; raw RX is
+255 bytes. Compression is disabled in this target graph.
+
+#### Resident USB command contract
+
+`radio_hand::resident_wire::ResidentSetup::encode` produces the fixed 185-byte
+version-1 setup record (`07 01 ...`). The codec names each field and validates
+lengths, profiles, secrets, pin/home and budgets before construction. Setup
+requires successful owner profile admission, quiet flash reservation and RX
+restoration. Provisioning keys are not logged. Reset is required to replace a
+running setup. The current 65,536-second Retinue announce lease fails closed on
+exhaustion; replenishing it without restarting belongs to the later quiet
+maintenance slice.
+
+After setup the dedicated resident loop accepts only
+`radio_hand::resident_command`: `08 <u16-LE body length> <body>`, maximum 255 body
+bytes. `Command::encode` and the allocation-free stream parser are shared with
+host callers. Length-delimited bodies retain embedded marker bytes as payload.
+
+| Opcode | Body after opcode |
+| --- | --- |
+| 0 | Status; empty |
+| 1 | Target u8 (0 Retinue, 1 Sennet, 2 Tucket), duration u64, allow-loss u8 |
+| 2 | Cancel current excursion; empty |
+| 3 | Sennet destination u32, hops u8, want-ACK u8, UTF-8 text up to 232 bytes |
+| 4 | Tucket peer u8, protocol timestamp u32, lifetime ms u64, attempts u8 (1–4), flood-last u8, UTF-8 text up to 171 bytes |
+| 5 | Tucket advert timestamp u32, application bytes up to 32 bytes |
+
+All integers are little-endian; flags accept only 0 or 1. Tucket protocol
+timestamps are supplied independently of the board's monotonic scheduling
+clock. Retinue RX/link response and announces run through the retained Node;
+outbound Retinue application commands and full Sennet management are outside
+this first board consumer. Bounded USB event reporting must not own the return
+clock. Installed behavior, target heap/stack high-water, fragmentation, repeated
+switch stress, power-cut and actual receive-gap measurements remain open.
+
+#### MC4b result and validation, 2026-09-13
+
+The `resident-protocols` V4 binary now enters a dedicated event loop after setup.
+It uses 32-byte host batches and a 25 ms maintenance wake in addition to protocol
+and controller deadlines. It collects completed active RX before pause decisions;
+late frames in the transition blackout are collected and explicitly reported as
+dropped. Protocol decode refusal does not reset the radio. Confirmed profile/RX
+completion gates every new activation. Uncertain hardware transition or TX
+cancellation resets. Ordinary PHY and signed-control commands cannot bypass the
+resident loop after setup. Coalesced bytes after setup are handed to its parser.
+
+USB diagnostics have a 20 ms total write cap shortened by the next deadline,
+with a margin before that deadline. The 2 KiB report formatter preserves complete
+events and reserves a footer counting queue overflow and omitted events. This
+telemetry is best effort: USB retirement or a deadline can prevent delivery. It
+is not a durable event log. The shared runtime still returns precise local loss
+objects before formatting. Target CPU/IRQ stalls and deadline margins under
+adverse RF remain physical acceptance work.
+
+Validation passed: 68 Sennet tests, 67 Tucket tests, 214 Retinue default-feature
+library tests, 175 Retinue alloc-only library tests, and 261 radio-hand tests
+with `instances,replay,control-retinue`. A subsequent report-format regression
+brings the focused runtime suite to nine passing tests. The tests include real
+Sennet dedup/counter retention, delayed Tucket ACK cancellation, retained Retinue
+link/freshness state, forced resource-loss IDs, in-flight custody, deadline margin,
+corrupt reservation state and authoritative pair readback. A pre-existing test
+fixture compressed below its intended size after the recently merged Resource
+compression change; it now uses deterministic hash blocks so the oversized-part
+refusal is exercised with either feature selection.
+
+Strict scoped Clippy, radio-hand Rustdoc, formatting, validation registry and
+unsafe audit pass. The audit now records the exact startup allocator operations
+in both this resident image and the prior build-only capacity example. Both the
+ordinary USB V4 and resident USB V4 release images link for Xtensa. The resident
+build retains two existing dead-code warnings; the ordinary build additionally
+reports unused resident reservation helpers.
+
+| Actual resident-image linker measurement | Bytes |
+| --- | ---: |
+| Fixed LLFF heap (included in BSS) | 65,536 |
+| `.data` | 4,788 |
+| `.bss` | 197,888 |
+| `.data` plus `.bss` | 202,676 |
+| Linker stack region remaining | 129,840 |
+
+These actual image reservations replace MC4a's placeholder estimate for this
+consumer. They are not measured stack high-water, allocation peak or fragmentation.
+Artifact and source hashes are in the [MC4b build receipt](2026-09-13_murmuration_resident_receipt.json).
+No firmware was installed or executed in this slice. Next done-condition:
+physical resident traffic and repeated bounded switches preserve identities and
+counters, account for loss and missed home RX, and keep measured heap/stack use
+inside the selected budgets, including reset and fault paths.

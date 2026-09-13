@@ -25,6 +25,7 @@ replay = ["dep:retinue", "retinue/alloc"]
 # Deliberately without `retinue/alloc`: the verifier is Retinue's allocation-free floor, and
 # this is how the core-only V4 image links it without gaining a heap.
 control-retinue = ["dep:retinue"]
+instances = ["dep:retinue", "retinue/alloc", "dep:sennet", "dep:tucket"]
 
 [dependencies]
 ed25519-dalek = { version = "3", default-features = false }
@@ -37,6 +38,8 @@ embassy-time = { version = "0.5.1", optional = true }
 radio-face = { path = "../radio-face" }
 retinue = { path = "../retinue", default-features = false, optional = true }
 selvage = { path = "../selvage" }
+sennet = { path = "../sennet", default-features = false, optional = true }
+tucket = { path = "../tucket", default-features = false, optional = true }
 sha2 = { version = "0.11", default-features = false }
 
 [dev-dependencies]
@@ -53,3 +56,7 @@ required-features = ["replay"]
 [[test]]
 name = "retinue_command"
 required-features = ["control-retinue"]
+
+[[test]]
+name = "instances"
+required-features = ["instances"]

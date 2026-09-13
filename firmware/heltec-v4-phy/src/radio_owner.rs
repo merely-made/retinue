@@ -246,6 +246,38 @@ pub struct V4QuietGuard<'a, RK: RadioKind, DLY: DelayNs> {
 }
 
 impl<RK: RadioKind, DLY: DelayNs> V4RadioOwner<RK, DLY> {
+    /// Build the optional retained cores while this owner retains exclusive
+    /// flash and entropy custody. The setup is volatile and callers retain the
+    /// resulting state only until reset.
+    #[cfg(feature = "resident-protocols")]
+    pub(crate) async fn build_resident(
+        &mut self,
+        now: u64,
+        setup: radio_hand::resident_wire::ResidentSetup,
+    ) -> Result<crate::resident::ResidentState, crate::resident::BuildError> {
+        let mut guard = QuietWindow::enter(self)
+            .await
+            .map_err(|_| crate::resident::BuildError::Quiet)?;
+        let result = crate::resident::build(
+            now,
+            setup,
+            guard.owner.settings.map(|settings| settings.identity),
+            &mut guard.owner.store,
+        );
+        guard
+            .finish()
+            .await
+            .map_err(|_| crate::resident::BuildError::Quiet)?;
+        result
+    }
+
+    #[cfg(feature = "resident-protocols")]
+    pub(crate) fn resident_random(
+        &mut self,
+        out: &mut [u8],
+    ) -> Result<(), radio_hand::executive::StoreFault> {
+        self.store.fill_true_random(out)
+    }
     /// The profile confirmed at construction or by a completed owner operation.
     pub fn profile(&self) -> selvage::PhyProfile {
         self.radio.profile

@@ -14,6 +14,7 @@ extern crate alloc;
 pub mod advert;
 pub mod cipher;
 pub mod identity;
+pub mod instance;
 pub mod mesh;
 pub mod message;
 pub mod node;

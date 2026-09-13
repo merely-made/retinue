@@ -11,6 +11,8 @@ only approved unsafe surface is the board-runtime machinery listed in
 | `firmware/t114-phy/src/crash.rs` | 9 | fault handling / reset inspection | preserves the crash record in its reserved linker section |
 | `firmware/t114-phy/src/main.rs` | 1 | normal startup | invokes the checked allocator handoff |
 | `firmware/heltec-v4-phy/src/wake_input.rs` | 2 | low-power RX | accesses only the GPIO14 PAC bits owned by the wake adapter |
+| `firmware/heltec-v4-phy/src/main.rs` | 2 | startup | reset marker plus optional resident-protocols fixed-heap initialization, both once before service |
+| `firmware/heltec-v4-phy/examples/protocol_capacity.rs` | 1 | build-only MC4a example startup | fixed-heap initialization before the measured workload; validation does not flash it |
 
 All other first-party crate roots forbid unsafe code. The two firmware crates
 deny unsafe operations inside unsafe functions, and every exception has a

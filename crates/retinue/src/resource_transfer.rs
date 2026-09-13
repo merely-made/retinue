@@ -38,12 +38,12 @@ use crate::link::{
     CTX_RESOURCE_RCL, CTX_RESOURCE_REQ, Link,
 };
 use crate::packet::Packet;
+#[cfg(feature = "compression")]
+use crate::resource::compress;
 use crate::resource::{
     Advertisement, FLAG_RESPONSE, Incoming, Outgoing, RANDOM_HASH_LEN, SDU, content, parse_hmu,
     parse_proof, parse_request,
 };
-#[cfg(feature = "compression")]
-use crate::resource::compress;
 use crate::token::IV_LEN;
 
 /// Publishes one resource over a link: advertises it, serves part requests and hashmap

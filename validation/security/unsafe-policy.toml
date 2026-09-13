@@ -80,6 +80,12 @@ review_by = "2027-09-09"
 
 [[exception]]
 path = "firmware/heltec-v4-phy/src/main.rs"
+expected_unsafe = 2
+reason = "V4 startup mints the reset marker once after reset; the optional resident-protocols image also initializes its aligned static 64 KiB LLFF heap exactly once before any allocation or task construction."
+review_by = "2027-09-13"
+
+[[exception]]
+path = "firmware/heltec-v4-phy/examples/protocol_capacity.rs"
 expected_unsafe = 1
-reason = "V4 board startup mints the reset marker once after actual reset and before host, RNode, receive, sleep, or radio service."
-review_by = "2027-09-09"
+reason = "The MC4a link-only capacity example initializes its aligned static 64 KiB LLFF heap once before constructing the measured workload. The image is not flashed by validation."
+review_by = "2027-09-13"

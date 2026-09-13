@@ -67,6 +67,29 @@ When that quota fills, `StreamError::OutputFull { consumed, .. }` reports the
 retry offset while retaining the next complete frame. Drain the output and call
 `push` again with `bytes[consumed..]`; valid coalesced frames are not dropped.
 
+## Retained text-leaf instance
+
+`instance::SennetInstance` composes one channel, packet-ID allocator, managed
+flood duplicate history, and node directory into retained state. Its initial
+mode is text leaf: it recognizes duplicates but never creates relay work or
+claims acknowledgement behavior. A board owns activation tags, radio I/O, and
+the physical-output queue.
+
+The constructor accepts a caller-durable `PacketIdLease` with an exclusive
+`[start, end)` source interval and a restored `next` ID. It cannot reset or
+derive source IDs. `PacketIdReservation` extends only the contiguous end of
+that interval and requires `ReservationProof::durable_ack()` after a verified
+durable write, or the explicitly named `trusted_caller()` boundary. The proof
+does not perform persistence or authenticate a caller.
+
+There is one bounded pending outbound text. `take_outbound` transfers its frame
+and expiry deadline to the board queue with an operation ID; completion, expiry,
+and explicit loss retain that packet identity in the event. `discard_pending`
+requires an explicit `LossPermission` and cannot revoke an in-flight board
+operation: the board must settle or fence that physical work. `assess_pause(now, return_by)` returns
+`Ready`, `Busy { retry_at }`, or `RequiresLoss { pending }` without mutating
+state. Queue, output, receive, and directory ingestion refuse while paused.
+
 `direct_phy_pair` is the two-independent-radio headed receipt:
 
 ```text

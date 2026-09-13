@@ -19,6 +19,9 @@ default = ["host-usb"]
 # so only it links Retinue's allocation-free verifier through `radio-hand`. The image stays
 # core-only: `control-retinue` deliberately does not enable `retinue/alloc`.
 host-usb = ["radio-hand/control-retinue"]
+# The resident protocol image is a USB-only commissioning build. The default direct-PHY
+# image remains allocation-free and does not link any retained protocol cores.
+resident-protocols = ["host-usb", "radio-hand/instances", "dep:embedded-alloc", "dep:retinue", "dep:sennet", "dep:tucket"]
 host-uart-low-power = []
 ui-bench = []
 rf-sleep-proof = []
@@ -51,7 +54,10 @@ radio-hand = { path = "../../crates/radio-hand", features = ["radio"] }
 selvage = { path = "../../crates/selvage" }
 sha2 = { version = "0.11", default-features = false }
 static_cell = "2.1.1"
+embedded-alloc = { version = "0.7.0", features = ["llff"], optional = true }
+retinue = { path = "../../crates/retinue", default-features = false, features = ["alloc"], optional = true }
+sennet = { path = "../../crates/sennet", default-features = false, optional = true }
+tucket = { path = "../../crates/tucket", default-features = false, optional = true }
 
 [dev-dependencies]
 protocol-capacity-probe = { path = "../../testing/protocol-capacity" }
-embedded-alloc = { version = "0.7.0", features = ["llff"] }

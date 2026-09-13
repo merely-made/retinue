@@ -405,6 +405,15 @@ pub enum InterruptionPermission {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SessionLossNotPermitted;
 
+/// Session state removed by ordinary elapsed-time maintenance. No packets are
+/// transmitted by expiry, and identities/freshness counters remain intact.
+#[derive(Debug, Default)]
+pub struct SessionExpiryReport<const LINKS: usize> {
+    pub links: BoundedVec<AddressHash, LINKS>,
+    pub inbound_resources: BoundedVec<AddressHash, LINKS>,
+    pub outbound_resources: BoundedVec<AddressHash, LINKS>,
+}
+
 /// Complete local loss report, independent of the ordinary action queue capacity.
 ///
 /// Close packets are best effort. The caller chooses their interfaces and must
@@ -885,6 +894,37 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
     /// Transport activity and bounded-state pressure since boot.
     pub fn transport_counters(&self) -> TransportCounters {
         self.transport_counters
+    }
+
+    /// Reconcile session expiry after an absence without generating radio work.
+    /// Associated resource state is removed with its link, including orphaned
+    /// entries left by earlier maintenance. Pending handshakes have no Node-owned
+    /// timeout; a caller must account for them through explicit interruption.
+    pub fn expire_sessions(&mut self, now: u64) -> SessionExpiryReport<LINKS> {
+        let mut report = SessionExpiryReport::default();
+        self.links.retain(|(link, _, seen)| {
+            let expired = now.saturating_sub(*seen) >= LINK_IDLE_TIMEOUT;
+            if expired {
+                let _ = report.links.push(link.id());
+            }
+            !expired
+        });
+        self.expired_links = self.expired_links.saturating_add(report.links.len() as u16);
+        self.receivers.retain(|(id, _, _)| {
+            let keep = self.links.iter().any(|(link, _, _)| link.id() == *id);
+            if !keep {
+                let _ = report.inbound_resources.push(*id);
+            }
+            keep
+        });
+        self.senders.retain(|(id, _, _)| {
+            let keep = self.links.iter().any(|(link, _, _)| link.id() == *id);
+            if !keep {
+                let _ = report.outbound_resources.push(*id);
+            }
+            keep
+        });
+        report
     }
 
     /// Whether a link with this id is established.
@@ -1683,19 +1723,11 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
 
         self.expire_transport_state(now);
 
-        // Reclaim slots held by peers that stopped answering. Four slots and no expiry
-        // meant four vanished peers locked the node out of accepting anyone, permanently:
-        // a peer that lost power does not send a close, so nothing ever freed its slot.
-        // Dropped silently rather than announced, because there is no peer left to tell and
-        // the local side has already been told LinkUp; a LinkDown action would be the
-        // honest addition, and wants a look at every consumer of Action first.
-        while let Some(index) = self
-            .links
-            .iter()
-            .position(|(_, _, seen)| now.saturating_sub(*seen) >= LINK_IDLE_TIMEOUT)
-        {
-            self.links.swap_remove(index);
-            self.expired_links = self.expired_links.saturating_add(1);
+        // Ordinary expiry also releases resource buffers and tells the caller.
+        // A resident caller can call expire_sessions first to retain its full
+        // resource-loss report, then poll without emitting duplicate LinkDowns.
+        for link_id in self.expire_sessions(now).links {
+            actions.push(Action::LinkDown { link_id });
         }
 
         if self.announce_due(now)
@@ -2304,6 +2336,31 @@ mod tests {
         );
     }
 
+    #[test]
+    fn exact_idle_expiry_reclaims_a_real_link_and_its_resource_sender() {
+        let (mut a, _b, id) = linked();
+        assert!(
+            a.publish(
+                id,
+                IFACE,
+                b"retained resource",
+                [0xA5; crate::resource::RANDOM_HASH_LEN],
+                &[0x5A; crate::token::IV_LEN],
+                0,
+            )
+            .is_some()
+        );
+        assert!(a.transfer_active(id));
+
+        let report = a.expire_sessions(LINK_IDLE_TIMEOUT);
+        assert_eq!(report.links.as_slice(), [id]);
+        assert_eq!(report.inbound_resources.as_slice(), []);
+        assert_eq!(report.outbound_resources.as_slice(), [id]);
+        assert!(!a.has_link(id));
+        assert!(!a.transfer_active(id));
+        assert_eq!(a.expired_links(), 1);
+    }
+
     /// A retransmitted link request is answered with the SAME proof, not a second link.
     ///
     /// A lossy medium creates this constantly: the initiator does not hear the proof and
@@ -2526,8 +2583,11 @@ mod tests {
     fn an_oversized_resource_is_refused_without_holding_state() {
         let (mut a, mut b, id) = linked();
 
-        // Comfortably past MAX_RESOURCE_PARTS at the default part size.
-        let huge: Vec<u8> = (0..80_000u32).map(|i| i as u8).collect();
+        // Comfortably past MAX_RESOURCE_PARTS even when compression is enabled.
+        // The old repeating-byte fixture compressed below the advertised ceiling.
+        let huge: Vec<u8> = (0..2_500u32)
+            .flat_map(|i| crate::hash::full_hash(&i.to_le_bytes()))
+            .collect();
         let started = a
             .publish(id, IFACE, &huge, [0xCD; 4], &[6; crate::token::IV_LEN], 0)
             .expect("a will happily offer it");
