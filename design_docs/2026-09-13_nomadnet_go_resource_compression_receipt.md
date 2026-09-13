@@ -109,3 +109,53 @@ The native-host receipt is
 also copied with its logs to `C:\t\nomadnet-rust-interop-20260913\run-20260913-124901`.
 This is native Fedora execution of the same binaries, not a Fedora source-build
 or cross-host transport receipt. All peer connections remained loopback.
+
+### Client diagnosis and directional packet traces
+
+A separate copy of the MIT `nomadnet-rs` browser was instrumented on 2026-09-13.
+The unchanged baseline logged different pending and returned request IDs and
+delivered no page. An environment-gated diagnostic then matched the sole pending
+request regardless of ID. That produced a PageReceived event from both the raw
+Rust server and Retinue, but its content was 16 bytes rather than 14: the prefix
+`c4 0e` was a MessagePack binary wrapper. A second diagnostic decoded that value
+before browser delivery. Together these changes recovered exact page bytes.
+
+| Diagnostic client against | Page | WSL | Native ThinkPad Fedora |
+| --- | --- | --- | --- |
+| Unmodified Rust raw PageCache server | Small, 14 bytes | Exact | Exact |
+| Unmodified Retinue probe | Small, 14 bytes | Exact | Exact |
+| Unmodified Retinue probe | Compressible, 131,072 bytes | Exact | Exact |
+| Unmodified Retinue probe | Incompressible, 131,072 bytes | Exact | Exact |
+
+This confirms request-correlation and response-decoding defects in the tested
+browser integration. It also establishes a narrower positive result: Retinue
+multipart sending interoperates with this diagnostically corrected Rust client.
+It does not qualify the published client unchanged. The single-pending fallback
+is unsafe as a general repair: production correlation must handle concurrent
+requests, timeouts and stale responses using the actual wire request identity.
+The two diagnostics remain outside production code and runtime dependencies.
+
+A transparent loopback TCP relay recorded HDLC frame lengths, direction, packet
+type and context using Retinue's packet definitions, without decrypting content
+or reading the black-box RNS implementation. When Retinue requested either large
+page from the unmodified Rust raw server, the trace contained the request but
+neither a RESPONSE nor RESOURCE_ADV before timeout. The reverse failure thus
+occurs before resource delivery, not during multipart reassembly. Its internal
+cause remains unproven. In the successful Retinue-to-client direction, the
+incompressible trace contained RESOURCE_ADV, 22 RESOURCE_REQ frames, 283 resource
+data frames, three hashmap updates and a resource proof. The harness's rejection
+of generic unsolicited resources did not block these response resources.
+
+Artifacts under `C:\t\nomadnet-rust-interop-20260913`:
+
+- `diagnostic-20260913-130534`: baseline, ID-only experiment and reverse traces.
+- `diagnostic-20260913-130757`: complete four-case WSL decoded-client run.
+- `diagnostic-20260913-130840`: complete four-case native Fedora run and traces,
+  copied from the ThinkPad's `nomadnet-peer-host-check-20260913` directory.
+- `browser-diagnostic.patch`, `client-experiment`, `nomadnet-rs-experiment` and
+  `diagnose*.py`: isolated source changes and replay harnesses.
+
+The final diagnostic client SHA-256 was
+`daf5cc3b170ccc0889a04ef1563f0af505d125044492665ecdbf40688abd7e1a` on both hosts.
+Both builds used the existing lockfile offline. The original peer source and
+Retinue implementation were preserved; all test child processes were stopped.
