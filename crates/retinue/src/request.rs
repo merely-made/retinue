@@ -18,8 +18,9 @@
 //! inside the binary API does not produce the same wire value.
 //!
 //! The binary API accepts byte strings (`bin8`/`bin16`/`bin32`, and `nil` decoded
-//! as empty). The string-map API retains the map type and rejects non-string
-//! entries. Other application value profiles remain unsupported.
+//! as empty) and can emit `nil` for a data-less request via
+//! [`Request::pack_without_data`]. The string-map API retains the map type and
+//! rejects non-string entries. Other application value profiles remain unsupported.
 
 // Needed by the test build or the tokio shell; the bare no_std lib does not reach it.
 #[allow(unused_imports)]
@@ -64,6 +65,18 @@ impl Request {
         write_f64(&mut out, self.time);
         write_bin(&mut out, self.path_hash.as_slice());
         write_bin(&mut out, &self.data);
+        out
+    }
+
+    /// msgpack `[time, path_hash, nil]` for `path`: the wire form a stock RNS peer
+    /// sends when a request carries no data. `new(path, vec![], t).pack()` writes an
+    /// empty byte string instead, which stock nodes also accept.
+    pub fn pack_without_data(path: &[u8], time: f64) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.push(0x93); // fixarray, 3
+        write_f64(&mut out, time);
+        write_bin(&mut out, AddressHash::of(path).as_slice());
+        out.push(0xc0); // nil
         out
     }
 
@@ -270,6 +283,18 @@ mod tests {
             AddressHash::of(b"/echo").to_string(),
             "cb9c1f54d8102d68b7a40c2376e1f0e8",
         );
+    }
+
+    #[test]
+    fn a_data_less_request_packs_nil() {
+        let time = 1784048181.092014;
+        let packed = Request::pack_without_data(b"/page/index.mu", time);
+        // [fixarray3][float64][bin8 of 16] then one trailing data byte.
+        assert_eq!(packed.len(), 1 + 9 + 18 + 1);
+        assert_eq!(packed[packed.len() - 1], 0xc0);
+        let round = Request::unpack(&packed).unwrap();
+        assert!(round.data.is_empty());
+        assert_eq!(round, Request::new(b"/page/index.mu", Vec::new(), time));
     }
 
     #[test]
