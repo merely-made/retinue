@@ -18,7 +18,7 @@ use crate::endpoint::{
 };
 use crate::hash::AddressHash;
 use crate::identity::Identity;
-use crate::request::Request;
+use crate::request::{Request, Response};
 
 /// The public Nomad Network node destination name.
 pub const NODE_NAME: &str = "nomadnetwork";
@@ -245,10 +245,14 @@ pub async fn fetch_page_with_config(
     config: FetchPageConfig,
 ) -> io::Result<Vec<u8>> {
     validate_path(path).map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
-    let request = Request::new(path, Vec::new(), 0.0);
+    // A stock node sends msgpack nil, not an empty byte string, for no request data.
+    let packed = Request::pack_without_data(path, 0.0);
     let mut session = endpoint.open_resource(destination, peer).await?;
     session.set_config(config.transfer);
-    let data = session.request(&request).await?.data;
+    let raw = session.request_raw(&packed).await?;
+    let data = Response::unpack(&raw.packed)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid byte response payload"))?
+        .data;
     if data.len() > config.max_page_bytes {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -333,6 +337,54 @@ mod tests {
                 maximum: 3
             })
         );
+    }
+
+    #[tokio::test]
+    async fn a_page_fetch_puts_nil_in_the_request_data_slot() {
+        let mut node = StaticNode::new();
+        node.insert_page(INDEX_PATH, b"nil page\n".to_vec()).unwrap();
+
+        let server = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x68; 64]));
+        let destination = node.destination(server.identity());
+        let peer = *server.identity();
+        let addr = server
+            .listen_tcp("127.0.0.1:0".parse().unwrap())
+            .await
+            .unwrap();
+        node.register(&server);
+        // Read the decrypted request before the adapter decodes it, so the check is
+        // on actual wire bytes rather than on what the decoder recovered from them.
+        let server_task = tokio::spawn(async move {
+            let mut accepted = server.accept_resource().await.unwrap();
+            let raw = accepted.session.receive_raw_request().await.unwrap();
+            let received = ReceivedRequest {
+                request: Request::unpack(&raw.packed).unwrap(),
+                request_id: raw.request_id,
+                peer: raw.peer,
+            };
+            node.respond_to_request(&mut accepted.session, received)
+                .await
+                .unwrap();
+            // Endpoint and session stay alive in the join output; dropping either at
+            // the Resource proof can cut the peer's response.
+            (raw.packed, accepted.session, server)
+        });
+
+        let client = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x69; 64]));
+        client.attach_tcp_client(addr).await.unwrap();
+        let body = fetch_page(&client, destination, peer, INDEX_PATH)
+            .await
+            .unwrap();
+        assert_eq!(body, b"nil page\n");
+
+        let (packed, _session, _server) = server_task.await.unwrap();
+        // [fixarray3][float64][bin8 of 16] then the data slot: one nil byte.
+        assert_eq!(packed.len(), 1 + 9 + 18 + 1);
+        assert_eq!(packed.last(), Some(&0xc0));
+        let request = Request::unpack(&packed).unwrap();
+        assert!(request.data.is_empty());
+        assert_eq!(request.path_hash, page_path_hash(INDEX_PATH));
+        client.close();
     }
 
     #[tokio::test]
