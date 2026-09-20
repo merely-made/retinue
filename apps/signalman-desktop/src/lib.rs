@@ -19,6 +19,7 @@
 
 pub mod audio;
 pub mod availability;
+pub mod collector;
 pub mod device_mere;
 pub mod flow;
 pub mod messages;
@@ -113,6 +114,11 @@ pub fn focused_revision_field(
             node,
             get: Box::new(|s: &DesktopState| &s.observation_export_path),
             get_mut: Box::new(|s: &mut DesktopState| &mut s.observation_export_path),
+        }),
+        Some("observation-device-association") => Some(cambium_genet_winit_host::FocusedTextSlot {
+            node,
+            get: Box::new(|s: &DesktopState| &s.observation_device_association),
+            get_mut: Box::new(|s: &mut DesktopState| &mut s.observation_device_association),
         }),
         _ => None,
     }

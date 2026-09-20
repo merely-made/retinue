@@ -1,6 +1,6 @@
 # Radio observation and Signalman availability plan
 
-**Status (2026-09-11): O1/O2 complete in software; O3 refusal and zero-flash-write checks verified; O5 desktop software integrated.**
+**Status (2026-09-20): O1/O2 complete in software; O3 refusal and zero-flash-write checks verified; O5 desktop collector connection implemented, acceptance partial.**
 T114 owner emission, bounded read-only direct-PHY collection and a finite
 Signalman capture command now exist. T114 receive, TX, cursor loss, repeated
 reads, pressured-session reconnect, power-cut history reset, retune refusal and
@@ -10,8 +10,9 @@ checks and a declared-load physical run after an explicit application reboot;
 clean-start reliability, pressured-host retirement, quiet/sleep and full O4
 cost acceptance remain open. O5's
 bounded durable capture/export, desktop availability view, load/export actions
-and owner-facing settings have automated receipts. Headed acceptance and a
-production collector-to-desktop connection remain open.
+and owner-facing settings have automated receipts. The desktop now connects an
+owner-selected serial collector to the existing projection and storage path.
+Full headed acceptance and a physical desktop-collector receipt remain open.
 Existing counters and host events do not substitute for the physical receipts
 in O3-O6.
 
@@ -363,6 +364,53 @@ pass against the committed root lock; three collector unit tests pass.
 The native fixture injector exercises the wake path, but it is not a production
 collector connection. No new headed or physical receipt was obtained in this
 reconciliation. Those acceptance boundaries remain open, so O5 is partial.
+
+**Desktop collector connection, September 20:** the Radio page starts a finite
+read-only snapshot from the selected surveyed device, with an explicit local
+device association. The desktop worker uses the existing validated collector
+and delivers its terminal result through the native wake queue. The association
+does not authenticate the USB carrier. Collection excludes installer/survey
+operations and the configured station port; Stop cancels between bounded
+request/reply exchanges. Window close is deferred while collection is active.
+An incomplete snapshot at the page bound is refused rather than presented as
+a complete collection. Cancellation discards the partial session.
+
+The retained result uses current owner retention/durability settings. Disabled
+durability makes no capture-directory or capture-file writes; enabled durability
+defaults to a `captures` directory beside the availability settings, with the
+existing environment override retained. Directory preparation and storage
+errors remain visible while the live projection survives. This is an explicit
+finite collection action, not a continuous multi-device subscription. It does
+not establish synchronized coverage between independent board boot clocks.
+
+Automated receipt: the five shared collector tests, 15 observation-flow tests
+and five persistence tests pass. The new cancellation tests cover cancellation
+before discovery and between exchanges without requiring a connected board.
+Six desktop availability tests and the worker lifecycle test pass; the native
+desktop binary builds. Both workspace formatting checks and `git diff --check`
+pass. The desktop lock adds only its direct Tulle dependency edge; pinned host
+revisions are unchanged.
+
+The Windows headed fixture check used binary SHA-256
+`9ac523a90027cc8a2ebfd1a2eb524c864469c927221ab477c3097d3f7a02df35`.
+The UI rendered V4 boot 10 listening at 100–130 ms, boot 11's open interval,
+T114 boot 20 transmitting at 50–70 ms, one refusal and two missing records.
+With saving enabled, two envelopes were written. Turning saving off persisted
+the setting; after restart both fixtures rendered again and the separate
+disabled-capture directory was never created. The serial allowlist was empty
+and the station was disabled throughout. This is a fixture/UI receipt, not a
+physical collector receipt or synchronized complementary coverage.
+
+Full headed acceptance remains open: accessibility positions after scrolling
+appeared stale, and the attempted export-path text entry did not yield a
+verified export/reload. Those observations are retained rather than promoted
+to a passing acceptance result. Local artifacts are under
+`C:/t/retinue-headed-20260920`, including `disabled-timelines.png` and the
+accessibility snapshot. Fixtures were emitted by `availability_face`:
+`v4-wall.json` SHA-256
+`f62e3eb4682b823631eb7168f9804c942f8447c25b079f9f00b90226e36ec739`,
+and `t114-field.json` SHA-256
+`42122d2f10ee97647e722ee20da3831d902ff68505c8cc3716263b2ada654a2f`.
 
 ### O6. Murmuration acceptance
 

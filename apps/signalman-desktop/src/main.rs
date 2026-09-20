@@ -16,6 +16,7 @@ use signalman_desktop::availability::{
     AvailabilitySettings, accept_live_bundle, export_capture, load_capture, load_settings,
     save_settings,
 };
+use signalman_desktop::collector::{CollectorEvent, CollectorWorker};
 use signalman_desktop::network::{LayoutWake, NETWORK_LEAF_KEY, NetworkWorker, paint_network_leaf};
 use signalman_desktop::state::{AudioRequest, DesktopState, NetworkRequest, ObservationRequest};
 use signalman_desktop::station::{self, StationWorker};
@@ -27,6 +28,33 @@ use signalman_desktop::{
 };
 
 type Ctx<'a> = AppCtx<'a, DesktopState, Logic, Child>;
+
+fn observation_destination(
+    enabled: bool,
+    captured_unix_ms: u64,
+    ordinal: usize,
+) -> Result<DurableCapture, String> {
+    if !enabled {
+        return Ok(DurableCapture::Disabled);
+    }
+    let directory = std::env::var_os("SIGNALMAN_OBSERVATION_DURABLE_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            default_availability_settings_path()
+                .parent()
+                .unwrap_or_else(|| std::path::Path::new("."))
+                .join("captures")
+        });
+    std::fs::create_dir_all(&directory).map_err(|error| {
+        format!(
+            "Durable capture directory {} is unavailable: {error}",
+            directory.display()
+        )
+    })?;
+    Ok(DurableCapture::CreateNew(directory.join(format!(
+        "capture-{captured_unix_ms}-{ordinal}.json"
+    ))))
+}
 
 fn perform_network_request(
     slot: &mut Option<NetworkWorker>,
@@ -83,7 +111,12 @@ fn perform_audio_request(
     }
 }
 
-fn perform_observation_request(state: &mut DesktopState, request: ObservationRequest) {
+fn perform_observation_request(
+    state: &mut DesktopState,
+    request: ObservationRequest,
+    collector: &mut Option<CollectorWorker>,
+    wake: LayoutWake,
+) {
     match request {
         ObservationRequest::Load => {
             let path = std::path::PathBuf::from(state.observation_load_path.text());
@@ -116,6 +149,20 @@ fn perform_observation_request(state: &mut DesktopState, request: ObservationReq
                     Some(format!("Availability settings were not saved: {error}"));
             }
         }
+        ObservationRequest::StartCollector { port, association } => {
+            if collector.is_some() {
+                state.observation_collector_stopped(
+                    "An observation collector already owns a serial device.".into(),
+                );
+            } else {
+                *collector = Some(CollectorWorker::spawn(port, association, wake));
+            }
+        }
+        ObservationRequest::StopCollector => {
+            if let Some(worker) = collector.as_ref() {
+                worker.stop();
+            }
+        }
     }
 }
 
@@ -134,6 +181,9 @@ fn main() {
     let station = Rc::new(RefCell::new(None::<StationWorker>));
     let wake_station = station.clone();
     let init_station = station.clone();
+    let collector = Rc::new(RefCell::new(None::<CollectorWorker>));
+    let wake_collector = collector.clone();
+    let dispatch_collector = collector.clone();
     let last_leaf = Rc::new(RefCell::new(None));
     let frame_leaf = last_leaf.clone();
     let (fixture_tx, fixture_rx) = std::sync::mpsc::channel::<
@@ -183,11 +233,23 @@ fn main() {
                 .as_ref()
                 .map(StationWorker::drain)
                 .unwrap_or_default();
+            let collector_events = {
+                let mut slot = wake_collector.borrow_mut();
+                let events = slot
+                    .as_ref()
+                    .map(CollectorWorker::drain)
+                    .unwrap_or_default();
+                if !events.is_empty() {
+                    *slot = None;
+                }
+                events
+            };
             let fixture_events: Vec<_> = wake_fixtures.borrow().try_iter().collect();
             if messages.is_empty()
                 && layout.is_none()
                 && audio_events.is_empty()
                 && station_events.is_empty()
+                && collector_events.is_empty()
                 && fixture_events.is_empty()
             {
                 return;
@@ -206,6 +268,41 @@ fn main() {
                 for event in station_events {
                     state.apply_station_event(event);
                 }
+                for event in collector_events {
+                    match event {
+                        CollectorEvent::Finished { source, bundle, captured_unix_ms } => {
+                            let settings = AvailabilitySettings {
+                                durable: state.observation_durable,
+                                retention_entries: state.observation_retention_entries,
+                                retention_bytes: state.observation_retention_bytes,
+                                retention_age_ms: state.observation_retention_age_ms,
+                            };
+                            let mut destination_error = None;
+                            let destination = match observation_destination(
+                                settings.durable, captured_unix_ms, state.availability.len(),
+                            ) {
+                                Ok(destination) => destination,
+                                Err(error) => {
+                                    destination_error = Some(error);
+                                    DurableCapture::Disabled
+                                }
+                            };
+                            match accept_live_bundle(source, &bundle, captured_unix_ms, settings, &destination, 0) {
+                                Ok((capture, outcome)) => {
+                                    state.adopt_availability(capture);
+                                    state.observation_collector_stopped(destination_error.unwrap_or_else(|| match outcome {
+                                        Ok(StoreOutcome::Disabled) => "Collection finished and rendered without a host write.".into(),
+                                        Ok(StoreOutcome::Written { bytes, entries }) => format!("Collection finished; durable capture wrote {entries} entries in {bytes} bytes."),
+                                        Err(error) => format!("Collection rendered, but durable storage failed: {error}"),
+                                    }));
+                                }
+                                Err(error) => state.observation_collector_stopped(error),
+                            }
+                        }
+                        CollectorEvent::Stopped => state.observation_collector_stopped("Observation collection stopped; its partial serial session was discarded.".into()),
+                        CollectorEvent::Failed(error) => state.observation_collector_stopped(error),
+                    }
+                }
                 for event in fixture_events {
                     match event {
                         Ok(capture) => {
@@ -215,36 +312,17 @@ fn main() {
                                 retention_bytes: state.observation_retention_bytes,
                                 retention_age_ms: state.observation_retention_age_ms,
                             };
-                            let durable_directory =
-                                std::env::var_os("SIGNALMAN_OBSERVATION_DURABLE_DIR")
-                                    .map(std::path::PathBuf::from);
                             let mut destination_error = None;
-                            let destination = match (settings.durable, durable_directory) {
-                                (true, Some(directory)) => {
-                                    match std::fs::create_dir_all(&directory) {
-                                        Ok(()) => DurableCapture::CreateNew(directory.join(
-                                            format!(
-                                                "fixture-{}-{}.json",
-                                                capture.stored.captured_unix_ms,
-                                                state.availability.len()
-                                            ),
-                                        )),
-                                        Err(error) => {
-                                            destination_error = Some(format!(
-                                                "Durable capture directory is unavailable: {error}"
-                                            ));
-                                            DurableCapture::Disabled
-                                        }
-                                    }
-                                }
-                                (true, None) => {
-                                    destination_error = Some(
-                                        "Durable capture is on, but no capture directory is configured."
-                                            .into(),
-                                    );
+                            let destination = match observation_destination(
+                                settings.durable,
+                                capture.stored.captured_unix_ms,
+                                state.availability.len(),
+                            ) {
+                                Ok(destination) => destination,
+                                Err(error) => {
+                                    destination_error = Some(error);
                                     DurableCapture::Disabled
                                 }
-                                _ => DurableCapture::Disabled,
                             };
                             match accept_live_bundle(
                                 capture.source,
@@ -309,13 +387,15 @@ fn main() {
             }
             if let Some(request) = audio_request
                 && let Err(event) =
-                    perform_audio_request(&mut dispatch_audio.borrow_mut(), request, wake)
+                    perform_audio_request(&mut dispatch_audio.borrow_mut(), request, wake.clone())
             {
                 ctx.runner.update(|state| state.apply_audio_event(event));
             }
             if let Some(request) = observation_request {
-                ctx.runner
-                    .update(|state| perform_observation_request(state, request));
+                let mut collector = dispatch_collector.borrow_mut();
+                ctx.runner.update(|state| {
+                    perform_observation_request(state, request, &mut collector, wake)
+                });
             }
         }),
         // A running firmware transfer needs its process, device, and recovery

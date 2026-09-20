@@ -14,7 +14,7 @@ use signalman_desktop::availability::{
     AvailabilityCapture, AvailabilitySettings, accept_live_bundle, accept_live_capture,
     export_capture, load_capture, load_settings, save_settings,
 };
-use signalman_desktop::state::{DesktopSection, DesktopState, ObservationRequest};
+use signalman_desktop::state::{DesktopSection, DesktopState, ObservationRequest, Request};
 use signalman_desktop::views::Logic;
 use signalman_desktop::{SHEET, default_catalog_path, root};
 
@@ -207,6 +207,58 @@ fn normal_navigation_shows_two_board_timeline_and_uncertainty() {
         2,
         "live rendering survives the toggle"
     );
+}
+
+#[test]
+fn owner_starts_and_stops_collection_with_an_explicit_association() {
+    let mut state = DesktopState::new(&default_catalog_path());
+    state.adopt_survey(vec![signalman::DeviceCandidate {
+        port: "COM7".into(),
+        board: Some("T114".into()),
+        banner: "retinue:t114".into(),
+        region: None,
+        channel: None,
+        known: true,
+    }]);
+    state.select_device(0);
+    state.request_observation_start();
+    assert!(!state.observation_collecting);
+    assert!(state.take_observation_request().is_none());
+
+    state.observation_device_association = cambium::TextInput::new("wall-node-east");
+    state.request_observation_start();
+    assert!(state.observation_collecting);
+    assert_eq!(
+        state.take_observation_request(),
+        Some(ObservationRequest::StartCollector {
+            port: "COM7".into(),
+            association: "wall-node-east".into(),
+        })
+    );
+    state.request(Request::Rescan);
+    assert!(
+        state.take_request().is_none(),
+        "collector keeps survey/installer serial custody exclusive"
+    );
+    state.request_observation_stop();
+    assert_eq!(
+        state.take_observation_request(),
+        Some(ObservationRequest::StopCollector)
+    );
+    assert_eq!(
+        state.close_disposition(),
+        cambium_genet_winit_host::CloseDisposition::KeepVisible
+    );
+    state.observation_collector_stopped("stopped".into());
+    assert_eq!(
+        state.close_disposition(),
+        cambium_genet_winit_host::CloseDisposition::Exit
+    );
+
+    state.install_running = true;
+    state.request_observation_start();
+    assert!(state.take_observation_request().is_none());
+    assert!(!state.observation_collecting);
 }
 
 #[test]

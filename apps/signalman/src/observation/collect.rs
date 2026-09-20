@@ -51,8 +51,38 @@ pub async fn capture<T: AsyncRead + AsyncWrite + Unpin>(
     carrier_label: &str,
     admission: Admission,
     max_pages: usize,
-    mut received_unix_ms: impl FnMut() -> io::Result<u64>,
+    received_unix_ms: impl FnMut() -> io::Result<u64>,
 ) -> io::Result<Capture> {
+    capture_while(
+        client,
+        device,
+        carrier_label,
+        admission,
+        max_pages,
+        received_unix_ms,
+        || true,
+    )
+    .await
+}
+
+/// The cancellable form used by an interactive owner. Cancellation is checked
+/// between bounded request/reply exchanges; dropping the caller then retires
+/// the exclusive serial session.
+pub async fn capture_while<T: AsyncRead + AsyncWrite + Unpin>(
+    client: &mut ObservationClient<T>,
+    device: &[u8],
+    carrier_label: &str,
+    admission: Admission,
+    max_pages: usize,
+    mut received_unix_ms: impl FnMut() -> io::Result<u64>,
+    mut keep_running: impl FnMut() -> bool,
+) -> io::Result<Capture> {
+    if !keep_running() {
+        return Err(io::Error::new(
+            io::ErrorKind::Interrupted,
+            "observation capture stopped",
+        ));
+    }
     let initial = client.cursor(0, 0).await?;
     bounds(&initial, initial.boot_id)?;
     if initial.record_len != 0 || initial.next != 0 {
@@ -60,6 +90,12 @@ pub async fn capture<T: AsyncRead + AsyncWrite + Unpin>(
     }
     let mut profiles = Vec::new();
     for id in 1..=initial.profile_count {
+        if !keep_running() {
+            return Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "observation capture stopped",
+            ));
+        }
         let reply = client.profile(initial.boot_id, id).await?;
         accepted(reply.status)?;
         if reply.boot_id != initial.boot_id || reply.profile_id != id {
@@ -91,6 +127,12 @@ pub async fn capture<T: AsyncRead + AsyncWrite + Unpin>(
     let mut last = initial;
     let mut after = 0;
     for _ in 0..max_pages {
+        if !keep_running() {
+            return Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "observation capture stopped",
+            ));
+        }
         if after >= initial.newest {
             break;
         }
@@ -187,6 +229,70 @@ mod tests {
         assert_eq!(result.bundle.profiles().len(), 1);
         assert_eq!(result.bundle.entries().len(), 1);
         assert!(!result.reached_target);
+        drop(client);
+        task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn cancellation_before_discovery_sends_no_observation_command() {
+        let (host, mut board) = duplex(64);
+        let mut client =
+            tulle::observation_serial::ObservationClient::new(host, Duration::from_secs(1))
+                .unwrap();
+        let error = match capture_while(
+            &mut client,
+            b"node-a",
+            "test",
+            admission(),
+            4,
+            || Ok(1000),
+            || false,
+        )
+        .await
+        {
+            Ok(_) => panic!("cancelled capture completed"),
+            Err(error) => error,
+        };
+        assert_eq!(error.kind(), std::io::ErrorKind::Interrupted);
+        let mut byte = [0; 1];
+        assert!(
+            tokio::time::timeout(Duration::from_millis(20), board.read(&mut byte))
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn cancellation_after_discovery_stops_before_the_next_exchange() {
+        let profile = tulle::PhyProfile::meshtastic_long_fast(915_000_000);
+        let mut owner = OwnerObservations::new(9).unwrap();
+        owner.rx_damaged(10, profile);
+        let (host, board) = duplex(512);
+        let task = tokio::spawn(serve(board, owner));
+        let mut client =
+            tulle::observation_serial::ObservationClient::new(host, Duration::from_secs(1))
+                .unwrap();
+        let checks = std::cell::Cell::new(0usize);
+        let error = match capture_while(
+            &mut client,
+            b"node-a",
+            "test",
+            admission(),
+            4,
+            || Ok(1000),
+            || {
+                let current = checks.get();
+                checks.set(current + 1);
+                current == 0
+            },
+        )
+        .await
+        {
+            Ok(_) => panic!("cancelled capture completed"),
+            Err(error) => error,
+        };
+        assert_eq!(error.kind(), std::io::ErrorKind::Interrupted);
+        assert_eq!(checks.get(), 2);
         drop(client);
         task.await.unwrap();
     }

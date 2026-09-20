@@ -325,6 +325,50 @@ fn radio_availability_page(state: &DesktopState) -> Child {
     } else {
         "Turn durable capture on"
     };
+    let collector_action: Child = if state.observation_collecting {
+        Box::new(
+            button("Stop collection", |s: &mut DesktopState, _| {
+                s.request_observation_stop()
+            })
+            .attr("class", "secondary"),
+        )
+    } else {
+        Box::new(
+            button("Collect from selected device", |s: &mut DesktopState, _| {
+                s.request_observation_start()
+            })
+            .attr("class", "primary"),
+        )
+    };
+    let collector_controls = el(
+        "section",
+        (
+            el(
+                "label",
+                (
+                    el("div", text("Stable local device association")).attr("class", "field-label"),
+                    el(
+                        "div",
+                        cambium::lens(
+                            |input: &mut cambium::TextInput| cambium::text_field(input),
+                            |s: &mut DesktopState| &mut s.observation_device_association,
+                        ),
+                    )
+                    .attr("data-text-field", "observation-device-association"),
+                ),
+            )
+            .attr("class", "field"),
+            field(
+                "Collection device",
+                state
+                    .device()
+                    .map(|device| device.summary())
+                    .unwrap_or_else(|| "Select a device on the Devices page".into()),
+            ),
+            collector_action,
+        ),
+    )
+    .attr("class", "observation-collector");
     Box::new(
         el(
             "main",
@@ -333,6 +377,7 @@ fn radio_availability_page(state: &DesktopState) -> Child {
                     "Radio availability",
                     "Measured board evidence, replayed without filling unknown time.",
                 ),
+                collector_controls,
                 el(
                     "label",
                     (

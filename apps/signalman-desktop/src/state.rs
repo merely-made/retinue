@@ -49,11 +49,13 @@ pub enum DesktopSection {
     Browse,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ObservationRequest {
     Load,
     Export,
     SaveSettings,
+    StartCollector { port: String, association: String },
+    StopCollector,
 }
 
 /// The pinned Cambium canvas has one honest label-density seam: labels shown
@@ -215,6 +217,8 @@ pub struct DesktopState {
     pub selected_availability: Option<usize>,
     pub observation_load_path: cambium::TextInput,
     pub observation_export_path: cambium::TextInput,
+    pub observation_device_association: cambium::TextInput,
+    pub observation_collecting: bool,
     pub observation_durable: bool,
     pub observation_retention_entries: usize,
     pub observation_retention_bytes: usize,
@@ -311,6 +315,8 @@ impl DesktopState {
             selected_availability: None,
             observation_load_path: cambium::TextInput::default(),
             observation_export_path: cambium::TextInput::default(),
+            observation_device_association: cambium::TextInput::default(),
+            observation_collecting: false,
             observation_durable: false,
             observation_retention_entries: 4096,
             observation_retention_bytes: 512 * 1024,
@@ -367,6 +373,54 @@ impl DesktopState {
 
     pub fn request_observation_export(&mut self) {
         self.pending_observation = Some(ObservationRequest::Export);
+    }
+
+    pub fn request_observation_start(&mut self) {
+        if self.observation_collecting {
+            self.observation_notice = Some("Observation collection is already running.".into());
+            return;
+        }
+        if self.install_running {
+            self.observation_notice =
+                Some("Finish the active installation before borrowing its serial device.".into());
+            return;
+        }
+        let Some(device) = self.device() else {
+            self.observation_notice = Some("Select a surveyed serial device first.".into());
+            return;
+        };
+        let port = device.port.clone();
+        if std::env::var("SIGNALMAN_STATION_PORT")
+            .ok()
+            .is_some_and(|station| port.eq_ignore_ascii_case(station.trim()))
+        {
+            self.observation_notice = Some("The live station owns that serial port. Stop the station before collecting observations from it.".into());
+            return;
+        }
+        let association = self.observation_device_association.text().trim().to_owned();
+        if association.is_empty() {
+            self.observation_notice =
+                Some("Enter the stable local device association for this board.".into());
+            return;
+        }
+        self.pending_observation = Some(ObservationRequest::StartCollector {
+            port: port.clone(),
+            association,
+        });
+        self.observation_collecting = true;
+        self.observation_notice = Some(format!("Collecting read-only observations from {}…", port));
+    }
+
+    pub fn request_observation_stop(&mut self) {
+        if self.observation_collecting {
+            self.pending_observation = Some(ObservationRequest::StopCollector);
+            self.observation_notice = Some("Stopping observation collection…".into());
+        }
+    }
+
+    pub fn observation_collector_stopped(&mut self, notice: String) {
+        self.observation_collecting = false;
+        self.observation_notice = Some(notice);
     }
 
     pub fn take_observation_request(&mut self) -> Option<ObservationRequest> {
@@ -1126,6 +1180,13 @@ impl DesktopState {
     /// Ask the application loop for something. Views call this; nothing here
     /// performs it.
     pub fn request(&mut self, request: Request) {
+        if self.observation_collecting {
+            self.observation_notice = Some(
+                "Stop observation collection before surveying, planning, or installing on serial devices."
+                    .into(),
+            );
+            return;
+        }
         self.pending = Some(request);
     }
 
@@ -1342,7 +1403,11 @@ impl DesktopState {
     /// verifying must stay attached to its process and device observation until
     /// it reaches a receipt or structured recovery state.
     pub fn close_disposition(&mut self) -> cambium_genet_winit_host::CloseDisposition {
-        if self.install_running {
+        if self.observation_collecting {
+            self.observation_notice =
+                Some("Observation collection is active. Stop it before closing Signalman.".into());
+            cambium_genet_winit_host::CloseDisposition::KeepVisible
+        } else if self.install_running {
             self.refuse_with(vec![
                 "Installation is still active. Keep Signalman open until it completes or shows recovery instructions.".into(),
             ]);
