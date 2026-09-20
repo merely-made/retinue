@@ -747,9 +747,20 @@ schedules and authenticated peer coverage remain later slices.
 
 ### MC5: shared-radio cost and missed-traffic measurement
 
-**Status, 2026-09-13: planned; no hardware touched.** Scope follows the
+**Status, 2026-09-20: planned; fixture prerequisites unavailable.** Scope follows the
 [reception scope](2026-08-09_channel_murmuration.md#reception-scope-2026-09-13):
 this lane prices sharing one radio, it does not decide a reception default.
+
+Read-only readiness inventory on September 20 confirmed the third V4 on COM6
+as USB parent serial `44:1B:F6:6A:FB:28`, the qualified V4 on COM7 as
+`44:1B:F6:6A:FA:64`, and the T114 on COM10 as `TULLE-T114-01`. No PPK2 was
+enumerated, and no Power Profiler installation or PPK command-line tooling was
+found. No serial session, reset, flash, or power operation was performed.
+F0 therefore remains open: the meter identity, calibration, supply path and
+VBUS isolation have no receipt. The third V4 is the intended fixture; its
+wiring to a meter has not been verified. An offline trace validator should
+follow a real native export with recorded format/application version, rather
+than assume an export schema before the instrument is available.
 
 #### Question
 
@@ -772,8 +783,8 @@ Record before the first trace and keep with the receipt:
   range, both recorded, both repeated at session end.
 - Sample rate, averaging, and the trace export format.
 - DUT: decided 2026-09-13, the third V4 on COM6 that the
-  [MC4c bench](#mc4c-execution-2026-09-13) left unused. It is wired to the PPK2
-  once and stays wired, so the qualified COM7 board is never dismantled
+  [MC4c bench](#mc4c-execution-2026-09-13) left unused. The intended setup wires
+  it to the PPK2 once and leaves it wired, so the qualified COM7 board is never dismantled
   between sessions. It is a different board: every run records its own
   identity, firmware hash and PHY profiles, and no MC4c result transfers to
   it. The first session installs the same resident image hash as MC4c and
