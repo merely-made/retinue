@@ -84,6 +84,13 @@ fn payload_budgets_refuse_oversized_work_without_losing_the_link() {
 fn configured_resource_part_limit_refuses_offer() {
     let mut small = budget_node();
     let mut peer = pair().0;
+    // Resource publication uses bz2 only when it shrinks the body. Keep this
+    // capacity fixture incompressible so the advertised transfer actually
+    // exceeds the one-part receive ceiling.
+    let payload: Vec<u8> = (0..350u32)
+        .map(|n| (n.wrapping_mul(2_654_435_761) >> 8) as u8)
+        .collect();
+    assert!(retinue::resource::compress(&payload).len() >= payload.len());
     let blob = retinue::announce::AnnounceBlob::from_wire([2; RAND_HASH_LEN]);
     peer.ingest(IFACE, &small.announce(&blob, None), 0);
     let request = sent(
@@ -95,7 +102,7 @@ fn configured_resource_part_limit_refuses_offer() {
     let id = link_up(&peer.ingest(IFACE, &proof, 0));
     let offer = sent(
         &peer
-            .publish(id, IFACE, &[0; 350], [6; 4], &[7; 16], 0)
+            .publish(id, IFACE, &payload, [6; 4], &[7; 16], 0)
             .unwrap(),
     );
     assert!(small.ingest(IFACE, &offer, 0).is_empty());

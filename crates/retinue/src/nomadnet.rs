@@ -342,7 +342,8 @@ mod tests {
     #[tokio::test]
     async fn a_page_fetch_puts_nil_in_the_request_data_slot() {
         let mut node = StaticNode::new();
-        node.insert_page(INDEX_PATH, b"nil page\n".to_vec()).unwrap();
+        node.insert_page(INDEX_PATH, b"nil page\n".to_vec())
+            .unwrap();
 
         let server = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x68; 64]));
         let destination = node.destination(server.identity());
