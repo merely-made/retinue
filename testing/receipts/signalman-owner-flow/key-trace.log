@@ -1,0 +1,15 @@
+[cambium-winit] accessibility Installed, 47 nodes projected
+[cambium-host] key Named(Tab) text=Some("\t") mods=Modifiers { shift: false, ctrl: false, alt: false, meta: false } focus=Some(NodeId(281474976710701))
+[cambium-host]   Tab down: spatial focus armed
+[cambium-host]   dispatching Named(Tab)
+[cambium-host] key Named(Other) text=None mods=Modifiers { shift: true, ctrl: false, alt: false, meta: false } focus=Some(NodeId(281474976710702))
+[cambium-host]   dispatching Named(Other)
+[cambium-host] key Named(Tab) text=Some("\t") mods=Modifiers { shift: true, ctrl: false, alt: false, meta: false } focus=Some(NodeId(281474976710702))
+[cambium-host]   Tab down: spatial focus armed
+[cambium-host]   dispatching Named(Tab)
+[cambium-host] key Named(Other) text=None mods=Modifiers { shift: false, ctrl: true, alt: false, meta: false } focus=Some(NodeId(281474976710701))
+[cambium-host]   dispatching Named(Other)
+[cambium-host] key Character("v") text=Some("v") mods=Modifiers { shift: false, ctrl: true, alt: false, meta: false } focus=Some(NodeId(281474976710701))
+[cambium-host]   dispatching Character("v")
+[cambium-host] key Named(Other) text=None mods=Modifiers { shift: false, ctrl: false, alt: true, meta: false } focus=Some(NodeId(281474976710701))
+[cambium-host]   dispatching Named(Other)

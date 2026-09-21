@@ -1202,8 +1202,12 @@ impl DesktopState {
         // kind of "it worked".
         let selected_port = self.device().map(|d| d.port.clone());
         self.devices = devices;
-        self.selected_device =
-            selected_port.and_then(|port| self.devices.iter().position(|d| d.port == port));
+        self.selected_device = selected_port
+            .as_deref()
+            .and_then(|port| self.devices.iter().position(|d| d.port == port));
+        if self.selected_device.is_none() && selected_port.is_some() {
+            self.observation_device_association = cambium::TextInput::default();
+        }
         self.survey = SurveyState::Surveyed;
         self.refusal.clear();
     }
@@ -1211,6 +1215,9 @@ impl DesktopState {
     /// Select a device by index, clearing any refusal it might resolve.
     pub fn select_device(&mut self, index: usize) {
         if index < self.devices.len() {
+            if self.selected_device != Some(index) {
+                self.observation_device_association = cambium::TextInput::default();
+            }
             self.selected_device = Some(index);
             self.selected_board_family = None;
             self.v4_product_profile = None;
@@ -1510,5 +1517,61 @@ fn hex_nibble(byte: u8) -> Option<u8> {
         b'a'..=b'f' => Some(byte - b'a' + 10),
         b'A'..=b'F' => Some(byte - b'A' + 10),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn candidate(port: &str) -> DeviceCandidate {
+        DeviceCandidate {
+            port: port.into(),
+            board: None,
+            banner: String::new(),
+            region: None,
+            channel: None,
+            known: false,
+        }
+    }
+
+    #[test]
+    fn changing_selected_device_clears_its_observation_association() {
+        let mut state = DesktopState::new(std::path::Path::new("missing-catalog.toml"));
+        state.adopt_survey(vec![candidate("COM7"), candidate("COM10")]);
+        state.select_device(0);
+        state.observation_device_association = cambium::TextInput::new("v");
+
+        state.select_device(1);
+
+        assert!(state.observation_device_association.text().is_empty());
+    }
+
+    #[test]
+    fn reselecting_the_same_device_keeps_its_observation_association() {
+        let mut state = DesktopState::new(std::path::Path::new("missing-catalog.toml"));
+        state.adopt_survey(vec![candidate("COM7")]);
+        state.select_device(0);
+        state.observation_device_association = cambium::TextInput::new("v4-usb-identity");
+
+        state.select_device(0);
+
+        assert_eq!(
+            state.observation_device_association.text(),
+            "v4-usb-identity"
+        );
+    }
+
+    #[test]
+    fn survey_that_loses_selected_device_clears_its_observation_association() {
+        let mut state = DesktopState::new(std::path::Path::new("missing-catalog.toml"));
+        state.adopt_survey(vec![candidate("COM7")]);
+        state.select_device(0);
+        state.observation_device_association = cambium::TextInput::new("v4-usb-identity");
+
+        state.adopt_survey(vec![candidate("COM10")]);
+
+        assert_eq!(state.selected_device, None);
+        assert!(state.observation_device_association.text().is_empty());
     }
 }

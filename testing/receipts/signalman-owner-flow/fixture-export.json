@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "bundle_version": 1,
+  "captured_unix_ms": 20000,
+  "retention": {
+    "max_entries": 4096,
+    "max_payload_bytes": 524288,
+    "max_age_ms": 604800000
+  },
+  "omitted_prefix_entries": 1,
+  "device_hex": "743131342d6669656c64",
+  "carrier": {
+    "kind": "imported"
+  },
+  "carrier_label": "headed-fixture",
+  "profiles": [
+    {
+      "id": 1,
+      "version": 1,
+      "name": "US915",
+      "definition_hex": "73656c766167652d636f6e6669672d76313a66697874757265"
+    }
+  ],
+  "entries": [
+    {
+      "kind": "record",
+      "received_unix_ms": 10000,
+      "raw_hex": "4f01010021000000000000001400000000000000010000000000000002c6efc4bd"
+    },
+    {
+      "kind": "record",
+      "received_unix_ms": 10050,
+      "raw_hex": "4f010000290000000000000014000000000000000300000000000000320401000c0000000821a4b5d2"
+    },
+    {
+      "kind": "record",
+      "received_unix_ms": 10070,
+      "raw_hex": "4f010000270000000000000014000000000000000400000000000000460500000008001b4842c0"
+    },
+    {
+      "kind": "record",
+      "received_unix_ms": 10080,
+      "raw_hex": "4f01000028000000000000001400000000000000050000000000000050060002000000093aa74a62"
+    }
+  ]
+}

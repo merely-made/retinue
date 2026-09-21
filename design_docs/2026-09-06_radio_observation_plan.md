@@ -1,6 +1,6 @@
 # Radio observation and Signalman availability plan
 
-**Status (2026-09-20): O1/O2 complete in software; O3 refusal and zero-flash-write checks verified; O5 desktop collector connection implemented, acceptance partial.**
+**Status (2026-09-21): O1/O2 complete in software; O3 refusal and zero-flash-write checks verified; O5 has bounded headed export/reload and physical desktop collection receipts, acceptance partial.**
 T114 owner emission, bounded read-only direct-PHY collection and a finite
 Signalman capture command now exist. T114 receive, TX, cursor loss, repeated
 reads, pressured-session reconnect, power-cut history reset, retune refusal and
@@ -12,7 +12,9 @@ cost acceptance remain open. O5's
 bounded durable capture/export, desktop availability view, load/export actions
 and owner-facing settings have automated receipts. The desktop now connects an
 owner-selected serial collector to the existing projection and storage path.
-Full headed acceptance and a physical desktop-collector receipt remain open.
+Ordinary keyboard export/reload and finite V4/T114 desktop collection now have
+receipts. Clipboard paste, scrolled accessibility targeting, physical
+cancellation and synchronized two-board coverage remain open.
 Existing counters and host events do not substitute for the physical receipts
 in O3-O6.
 
@@ -411,6 +413,30 @@ accessibility snapshot. Fixtures were emitted by `availability_face`:
 `f62e3eb4682b823631eb7168f9804c942f8447c25b079f9f00b90226e36ec739`,
 and `t114-field.json` SHA-256
 `42122d2f10ee97647e722ee20da3831d902ff68505c8cc3716263b2ada654a2f`.
+
+**September 21 owner-flow receipt:** ordinary keyboard entry, explicit export,
+overwrite refusal and UI reload succeeded. The exported fixture envelope is
+byte-identical to the previous retained capture. Host key tracing explains the
+bulk-text failure: the automation tool sends Ctrl+V, while the pinned Cambium
+host has no clipboard handler. This is distinct from injected Unicode text,
+which has a passing focused host-hook regression. No host pins were changed.
+
+The current COM7 V4 and COM10 T114, with their USB parent identities rechecked,
+both completed finite desktop collection and rendered with automatic saving
+off. Explicit UI exports retain the raw observation envelopes. The configured
+automatic-capture directory was never created. Existing board history,
+unmatched intervals and per-boot uncertainty remain visible; this is neither
+a fresh RF workload nor a complementary-coverage measurement. The collector
+completed too quickly to exercise Stop, so physical cancellation remains open.
+The ordinary startup survey and observation sessions changed DTR and sent
+diagnostic requests; no flash, configuration or RF-transmit command was issued.
+
+The check exposed a selection hazard: the owner association survived a switch
+to another board. The accompanying fix clears it when the selected device
+changes or disappears, while preserving same-device reselection. Three focused
+state tests cover these cases. Detailed procedure, executable identity,
+artifacts, limitations and cleanup ownership are in the
+[owner-flow receipt](../testing/receipts/signalman-owner-flow/README.md).
 
 ### O6. Murmuration acceptance
 

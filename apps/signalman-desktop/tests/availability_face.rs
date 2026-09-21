@@ -1,4 +1,4 @@
-use cambium_genet_winit_host::{Harness, Init, inert_hooks};
+use cambium_genet_winit_host::{Harness, HostHooks, Init, inert_hooks};
 use genet_probe::Selector;
 use radio_hand::observation::{
     MAX_RECORD_BYTES, ObservationEvent, ObservationGap, ObservationKind, ObservationRecord,
@@ -15,8 +15,9 @@ use signalman_desktop::availability::{
     export_capture, load_capture, load_settings, save_settings,
 };
 use signalman_desktop::state::{DesktopSection, DesktopState, ObservationRequest, Request};
-use signalman_desktop::views::Logic;
+use signalman_desktop::views::{Child, Logic};
 use signalman_desktop::{SHEET, default_catalog_path, root};
+use winit::keyboard::NamedKey;
 
 fn admit(
     bundle: &mut ObservationBundle,
@@ -207,6 +208,54 @@ fn normal_navigation_shows_two_board_timeline_and_uncertainty() {
         2,
         "live rendering survives the toggle"
     );
+}
+
+#[test]
+fn focused_export_path_accepts_injected_text_before_export() {
+    let mut state = DesktopState::new(&default_catalog_path());
+    let supplied = capture("v4-wall", false);
+    let (projected, _) =
+        accept_live_capture(supplied.source, supplied.stored, &DurableCapture::Disabled).unwrap();
+    state.adopt_availability(projected);
+    let hooks: HostHooks<DesktopState, Logic, Child> = HostHooks {
+        focused_text: Box::new(signalman_desktop::focused_revision_field),
+        ..inert_hooks()
+    };
+    let mut harness = Harness::with_hooks(
+        Init {
+            state,
+            logic: root as Logic,
+            sheet: SHEET.to_owned(),
+        },
+        hooks,
+    );
+    harness.layout_at(1100.0, 800.0);
+    assert!(harness.click_on(&Selector::role("button").containing("Radio")));
+
+    let mut found = false;
+    for _ in 0..100 {
+        harness.tab(true);
+        found = signalman_desktop::focused_revision_field(harness.runner()).is_some_and(|slot| {
+            std::ptr::eq(
+                (slot.get)(harness.state()),
+                &harness.state().observation_export_path,
+            )
+        });
+        if found {
+            break;
+        }
+    }
+    assert!(found, "Tab must reach the export path input");
+    harness.key_injected("C:\\signalman-export.json");
+    assert_eq!(
+        harness.state().observation_export_path.text(),
+        "C:\\signalman-export.json"
+    );
+    harness.tab(true);
+    harness.key_named(NamedKey::Enter);
+    let mut request = None;
+    harness.update(|state| request = state.take_observation_request());
+    assert_eq!(request, Some(ObservationRequest::Export));
 }
 
 #[test]
