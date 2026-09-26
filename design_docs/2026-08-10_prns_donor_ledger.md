@@ -40,6 +40,66 @@ assessments, not renewed assurances of upstream rights. Peer receipts establish
 observed outcomes against named binaries, not independently verified authorship.
 This withdrawal does not lift the separate security disclosure embargo.
 
+## Retained-material audit (2026-09-26)
+
+**Baseline:** Retinue `a3b434d`, initially clean; read-only adjacent Mere
+`5f897592`. This audit examines Retinue's current files, capture drivers,
+fixtures, package manifests, consumers and recorded provenance. It does not
+establish Prns's original authorship, compare against a newly fetched upstream
+source tree, or issue a legal clearance. Historical overlap measurements are
+not rerun or treated as proof of independent origin. No implementation,
+fixture, binary or catalog entry was removed, and no board was accessed.
+
+### Dispositions
+
+| Material | Finding | Recommended disposition and completion condition |
+| --- | --- | --- |
+| `tests/signed_artifact.rs::PRNS_PUBLISHED_RSG` | Exactly 224 bytes; equals the retained `rsg_prns_identity` capture. One dedicated test compares the quotation. | **Remove/replace fixture inputs.** Delete the quotation and its dedicated comparison in a follow-up; retain general reproduction, validation and rejection tests. |
+| `oracle/capture_signed_artifact.py` and `tests/fixtures/rns_signed_artifact.json` | Six cases: detached, embedded with metadata and bare embedded for each of two identities. Three cases use Prns's test secret; metadata includes the string `Prns`, including in the Retinue-identity metadata case. The driver invokes `rnid` as a subprocess and reads emitted artifacts. Output producer and input origin are distinct. | **Replace donor-specific inputs.** Capture with project-chosen identities and metadata under a pinned RNS tool; retain old captures as historical evidence rather than silently rewriting their source labels. Preserve all three shape checks and negative checks. |
+| `src/artifact.rs` | Header records envelope-layout derivation. Retained captures independently exercise the resulting wire bytes; present tests pass. Search of Retinue crates/apps found direct public API consumers in the signed-artifact test, not a production caller. External consumers were not exhaustively audited. | **Retain with attribution and stronger reference evidence.** Requalify with fresh donor-free capture inputs. A wire-layout origin does not itself establish implementation copying; passing tests also do not establish provenance clearance. |
+| `src/msgpack.rs` | Its own provenance explicitly says the codec was written from the MessagePack specification without reading a codec implementation. The donor connection is the artifact format it serves. | **Retain.** Do not conflate this codec with a copied Prns MessagePack implementation. Keep the historical format attribution. |
+| `src/announce_admission.rs` | Explicit state-machine design derivation; default interface thresholds 3/10 Hz, burst hold/penalty and held release. `lib.rs` gates it on `tokio`. `Endpoint` constructs it by default, feeds interface/destination observations and drains held announces through it. | **Replace after behavioral specification.** This is live host traffic control, not removable dead code. Define independently justified capacity, fairness, burst/release and destination-rate requirements, retain integration protection, then implement a replacement. Do not merely rename states or erase attribution. No conclusion about embedded Node derivation follows from this host module. |
+| `validation/` and `fuzz/` | Explicit design attribution. Reviewed registry/schema, unsafe/flash policy machinery, fuzz launcher and Node-ingest harness show project-specific checks and types. No fresh upstream expression comparison was performed. | **Retain provisionally with notices.** No concrete copied implementation was established by this audit. Keep useful safeguards; if stronger separation is required, review individual functions against independent requirements instead of deleting the validation system. |
+| Hopspot package | Three tracked binaries total 1,727,440 bytes, plus four descriptor/signature files. Every binary matches its declared size and SHA-256. Both `index.toml` and `windows-v4-staging-index.toml` still offer it. `catalog.rs` and `tests/hopspot_release.rs` have coupled expectations. | **Retire from active offering/distribution.** Update both catalogs, package documentation and affected tests together. Preserve manifest hashes, attribution and historical receipts. The signature check establishes correspondence to a named key, not upstream authorship. Decide archival handling before deleting evidence-bearing files. |
+
+### Recovery and cross-repository consequences
+
+`heltec-v4-current-recovery.md` uses the ESP32-S3 ROM loader and the Retinue
+package, not Hopspot. The local Retinue payload exists and matches the current
+manifest's size/hash. This is an available documented recovery route, not a
+new physical recovery qualification. The manifest still describes a historical
+working-tree build; do not present the hash check as a reproducible clean build.
+Retiring Hopspot also withdraws the convenience of restoring that foreign
+firmware specifically, even though Retinue recovery remains available.
+
+Mere's `crates/dramatis/insigne/src/key.rs` has a test constant `RNS_IDENTITY`
+explicitly identified as Prns's public fixture identity. Its test checks identity
+text parsing/round-trip behavior. Replace it with a project-owned fixture in a
+separate Mere change; that file was not edited here. This spot check is not an
+exhaustive cross-workspace provenance audit.
+
+### Verification and recommended execution order
+
+`cargo test -p retinue --locked --offline --test signed_artifact -j 2` passed
+**4/4** on the audit baseline. This replays existing fixtures; it does not rerun
+RNS or prove original source authorship. A local script measured the quotation,
+listed all six fixture cases and checked package payload sizes/hashes. No
+upstream code, firmware execution or new reference capture was needed.
+
+1. Replace donor-specific test inputs using pinned RNS captures and cover the
+   Mere fixture separately; remove the now-redundant Prns quotation test.
+2. Retire Hopspot catalog selections with corresponding documentation/tests,
+   preserving evidence and the Retinue recovery instructions.
+3. Specify and replace host announce admission without losing bounded queues,
+   neighbor fairness or traffic-control behavior.
+4. Retain artifact/MessagePack and validation tooling with notices; revisit only
+   concrete unresolved derivations, not naming or generic organizational ideas.
+
+Build output reused `C:/t/cargo-targets/retinue`, retained for ordinary Retinue
+qualification. No isolated Cargo home or worktree was created. The audit closes
+the retained-material inventory, not the follow-up replacements or upstream
+provenance uncertainty.
+
 ## 1. The pin
 
 | | |
