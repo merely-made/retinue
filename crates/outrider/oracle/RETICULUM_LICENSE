@@ -1,23 +1,21 @@
 About this file
 ---------------
 
-This directory runs the stock LXMF Python package (with RNS beneath it, both
-pinned) as a black-box interoperability oracle: installed locally, driven
-through its public API, its wire output observed. Their source is never read,
-and no part of either is copied into or redistributed with this repository.
+This directory uses pinned reference packages as interoperability oracles.
+Historical receipts state whether a run used only public APIs and observed
+wire output. Those historical evidence boundaries remain unchanged.
 
-outrider is an independent implementation of interoperability with LXMF,
-built from the public specification prose and wire observation, and is
-licensed under MPL-2.0 (see the repository LICENSE). The Reticulum License
-below therefore does not attach to outrider's code. It is reproduced here
-verbatim in acknowledgment of the upstream projects, and its terms are
-honored for the one thing this directory does use the Software for: local
-interoperability testing. That use harms nobody and builds no training
-dataset.
+The owner now permits comparative source review and accepts the Reticulum
+License for future RNS adaptations. This permission itself imports no code
+and does not relicense independently authored MPL-2.0 code. Record actual
+adaptations and their applicable terms individually in the provenance notices.
+See THIRD_PARTY_NOTICES.md and the September 26 policy update in
+design_docs/2026-08-25_permissive_radio_protocol_compatibility_survey.md
+at the repository root.
 
-Both packages carry the same license text, differing only in the copyright
-line: LXMF states "Copyright (c) 2020-2025 Mark Qvist" and RNS states
-"Copyright (c) 2016-2026 Mark Qvist". The LXMF text follows, unmodified.
+The upstream license below is retained unmodified for this oracle's reference
+package. The root RETICULUM_LICENSE contains the RNS license; this copy retains
+its own package's copyright notice.
 
 ---------------------------------------------------------------------------
 

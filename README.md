@@ -55,6 +55,11 @@ embedded-graphics-core) keep their own MIT/Apache-2.0 terms.
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) aggregates derivations;
 per-crate NOTICE and PROVENANCE files record specifics.
 
+We acknowledge Mark Qvist and the Reticulum contributors. The full
+[Reticulum License](RETICULUM_LICENSE) is included for reference; its scope and
+our source-review policy are explained in the [notices](THIRD_PARTY_NOTICES.md#reticulum).
+Its inclusion does not change the license of independently authored code.
+
 ## History
 
 `tulle`, `sennet`, and `tucket` merged into this workspace on 2026-07-23 with

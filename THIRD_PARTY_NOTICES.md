@@ -74,5 +74,10 @@ accepts the Reticulum License for future RNS adaptations; this policy change
 itself incorporates no implementation code. Actual derivations must be recorded
 individually, with their applicable terms. See the source-review update in
 `design_docs/2026-08-25_permissive_radio_protocol_compatibility_survey.md`.
-This project is not affiliated with or endorsed by RNS. `crates/retinue/oracle/RETICULUM_LICENSE` records
-the reference implementation's terms.
+We acknowledge Mark Qvist and the Reticulum contributors for their protocol
+design, documentation and reference implementation. The full upstream RNS
+license is included at [`RETICULUM_LICENSE`](RETICULUM_LICENSE) in good faith
+and for reference. Including it does not apply it to all Retinue code or offer
+an alternative MPL grant for upstream code. Oracle-local copies retain the
+notices for their reference packages. This project is not affiliated with or
+endorsed by the upstream project.

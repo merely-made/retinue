@@ -1,24 +1,3 @@
-About this file
----------------
-
-This directory uses pinned reference packages as interoperability oracles.
-Historical receipts state whether a run used only public APIs and observed
-wire output. Those historical evidence boundaries remain unchanged.
-
-The owner now permits comparative source review and accepts the Reticulum
-License for future RNS adaptations. This permission itself imports no code
-and does not relicense independently authored MPL-2.0 code. Record actual
-adaptations and their applicable terms individually in the provenance notices.
-See THIRD_PARTY_NOTICES.md and the September 26 policy update in
-design_docs/2026-08-25_permissive_radio_protocol_compatibility_survey.md
-at the repository root.
-
-The upstream license below is retained unmodified for this oracle's reference
-package. The root RETICULUM_LICENSE contains the RNS license; this copy retains
-its own package's copyright notice.
-
----------------------------------------------------------------------------
-
 Reticulum License
 
 Copyright (c) 2016-2026 Mark Qvist
