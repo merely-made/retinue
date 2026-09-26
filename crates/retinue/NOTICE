@@ -5,9 +5,13 @@ LICENSE).
 
 ## Prns
 
+Reference withdrawn September 26 over unresolved provenance concerns. Existing
+attribution and license text remain for retained material; they do not verify
+upstream authorship. See the repository's Prns donor ledger.
+
 `src/artifact.rs` and `src/msgpack.rs` implement the RNS signed-artifact
 envelope (`.rsg` / `.rsm`). Its layout was read from Prns
-(<https://github.com/KenAKAFrosty/Prns>), a ground-up Rust Reticulum
+(<https://github.com/KenAKAFrosty/Prns>), a Rust Reticulum
 implementation, at commit `72b6b30d27cac910ce20d370e1dc711fe9b95955` (v0.3.4).
 Prns is dual-licensed MIT OR Apache-2.0; Retinue elects **MIT**.
 

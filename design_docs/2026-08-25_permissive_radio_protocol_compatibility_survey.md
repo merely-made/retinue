@@ -1,5 +1,12 @@
 # Permissive radio protocol compatibility survey
 
+**Reference withdrawn, 2026-09-26.** The owner has raised unresolved concerns
+about Prns's provenance. Prns is no longer an approved implementation donor,
+recommended dependency, or trusted independent reference for new qualification.
+This is a project trust decision, not a finding of infringement. Recommendations
+below to harvest, adopt or prefer Prns are historical and superseded. Existing
+attribution and measured observations remain; see the Prns donor ledger.
+
 **Date:** 2026-08-25. **Status:** revision-pinned research snapshot. The
 current MC4c physical result is recorded in the [resident receipt](2026-09-13_murmuration_resident_physical_receipt.json);
 this survey remains an architecture record, not a new delivery lane or gate receipt.

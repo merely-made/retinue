@@ -48,6 +48,16 @@ their gate. `UNKNOWN` means no document states a status — it does not mean ope
 
 ### Peer lane — mixed-runtime interop
 
+**Reference withdrawn, 2026-09-26.** The owner has raised unresolved concerns
+about Prns's provenance. Prns is no longer an approved implementation donor,
+recommended dependency, or trusted independent reference for new qualification.
+This is a project trust decision, not a finding of infringement. Recommendations
+below to harvest, adopt or prefer Prns are historical and superseded. Existing
+attribution and measured observations remain; see the Prns donor ledger.
+
+Historical H8 closure records observed runs, not approval for new Prns use.
+
+
 | Gate | Status | Where |
 | --- | --- | --- |
 | H8 | **Closed**, local-TCP scope only | [2026-08-11 receipt](2026-08-11_prns_peer_matrix_receipt.md), re-receipted at RNS 1.5.0 in [2026-08-23](2026-08-23_prns_peer_matrix_rns150_receipt.md), and at RNS 1.5.2 in the [current re-pin receipt](2026-08-29_rns_152_repin_receipt.md) |
@@ -216,8 +226,8 @@ own workspace, deliberately outside the root one.
 **External.** `hopspot` — Prns's Wi-Fi-hotspot firmware for Heltec V4; Linkboy
 can flash it but claims no Retinue capability. `cambium` — Genet-native GUI
 toolkit. `genet` — sibling engine repository providing Cambium's desktop host.
-`prns` — independent MIT/Apache Rust Reticulum implementation, used as a
-black-box peer and as an attributed harvest donor. `mere` — sibling repository
+`prns` — Rust Reticulum implementation previously used as a peer and donor;
+withdrawn as a reference September 26 pending provenance reassessment. `mere` — sibling repository
 supplying data-graph and identity crates.
 
 ## Document index
@@ -231,9 +241,9 @@ supplying data-graph and identity crates.
 | [Program sequencing](2026-08-12_program_sequencing_and_deadline_order.md) | Historical August ordering audit. September coordination and current gate owners govern active slices. |
 | [ARDC application lane](2026-07-31_ardc_application_lane.md) | Grant lane, G0–G4. Dormant by decision 2026-08-26: Sep 1 window passed, FIVCO-facilitated funding leads, next window Feb 1, 2027. |
 | [Project prospectus](2026-08-26_project_prospectus.md) | Grant-agnostic funding prospectus compressed from the corpus; serves FIVCO-facilitated applications and any future window. Draft pending Mark's review. |
-| [Prns harvest brief](2026-08-09_prns_harvest_brief.md) | Donor and external-peer programme; H-gate catalogue. |
-| [Prns donor ledger](2026-08-10_prns_donor_ledger.md) | Every donor debt itemised with elected inbound licence. |
-| [Prns mobile adoption brief](2026-08-11_prns_mobile_adoption_brief.md) | Mobile lane collaboration and dependency-first recommendation; WN5 now owns the wall-node board ordering. |
+| [Prns harvest brief](2026-08-09_prns_harvest_brief.md) | Historical H-gate catalogue; donor/reference role withdrawn September 26. |
+| [Prns donor ledger](2026-08-10_prns_donor_ledger.md) | Retained derivations and notices; provenance reassessment required. |
+| [Prns mobile adoption brief](2026-08-11_prns_mobile_adoption_brief.md) | Historical recommendation withdrawn September 26; WN5 owns wall-node ordering. |
 
 ### Protocol core and wire compatibility
 

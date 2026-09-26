@@ -1,5 +1,12 @@
 # Prns and the Retinue mobile lane
 
+**Reference withdrawn, 2026-09-26.** The owner has raised unresolved concerns
+about Prns's provenance. Prns is no longer an approved implementation donor,
+recommended dependency, or trusted independent reference for new qualification.
+This is a project trust decision, not a finding of infringement. Recommendations
+below to harvest, adopt or prefer Prns are historical and superseded. Existing
+attribution and measured observations remain; see the Prns donor ledger.
+
 **Date:** 2026-08-11
 **Status:** researched recommendation; no dependency decision or code import has
 yet been made

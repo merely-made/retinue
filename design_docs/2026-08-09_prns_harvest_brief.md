@@ -1,5 +1,13 @@
 # Prns Harvest Brief
 
+**Reference withdrawn, 2026-09-26.** The owner has raised unresolved concerns
+about Prns's provenance. Prns is no longer an approved implementation donor,
+recommended dependency, or trusted independent reference for new qualification.
+This is a project trust decision, not a finding of infringement. The material
+below is historical; its recommendations to harvest, adopt or prefer Prns are
+superseded. Existing derivations, attribution and recorded observations remain
+visible in the [donor ledger](2026-08-10_prns_donor_ledger.md).
+
 2026-08-09. Survey of [Prns](https://github.com/KenAKAFrosty/Prns), a ground-up
 Rust Reticulum implementation, at exact commit
 `72b6b30d27cac910ce20d370e1dc711fe9b95955` (v0.3.4). Prns is dual-licensed

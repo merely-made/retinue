@@ -1,5 +1,12 @@
 # Prns donor ledger
 
+**Reference withdrawn, 2026-09-26.** The owner has raised unresolved concerns
+about Prns's provenance. Prns is no longer an approved implementation donor,
+recommended dependency, or trusted independent reference for new qualification.
+This is a project trust decision, not a finding of infringement. Recommendations
+below to harvest, adopt or prefer Prns are historical and superseded. Existing
+attribution and measured observations remain; see the Prns donor ledger.
+
 **Date:** 2026-08-10. **Closes:** shared source lock items 1 through 3.
 **Scope:** every place in this repository that owes anything to Prns, itemized,
 with the inbound license elected for each.
@@ -18,6 +25,20 @@ two very different things and conflating them makes the ledger useless: a file
 that shares no text with the donor has different obligations from one that
 quotes it, and a vector taken from a donor is not the independent evidence a
 vector taken from RNS is.
+
+## Retained material and reassessment
+
+Current source headers and tests confirm announce-admission design, signed-artifact
+layout, validation/fuzzing design and a quoted 224-byte test vector. Hopspot
+restore binaries are also retained. No implementation, test or package is removed
+by this documentation change. Historical overlap figures have not been rerun and
+do not establish upstream provenance. Notices remain while affected material is
+assessed for direct protocol corroboration or independent replacement.
+
+Earlier assertions of ground-up authorship and license sufficiency are historical
+assessments, not renewed assurances of upstream rights. Peer receipts establish
+observed outcomes against named binaries, not independently verified authorship.
+This withdrawal does not lift the separate security disclosure embargo.
 
 ## 1. The pin
 

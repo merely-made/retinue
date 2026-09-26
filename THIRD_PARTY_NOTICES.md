@@ -9,7 +9,13 @@ An itemized account of what was taken, in what form, and what it means for
 evidence labelling lives in
 [`design_docs/2026-08-10_prns_donor_ledger.md`](design_docs/2026-08-10_prns_donor_ledger.md).
 
-## Prns (MIT OR Apache-2.0, MIT elected)
+## Prns (historically MIT elected; reference withdrawn)
+
+As of September 26, Prns is withdrawn as an implementation donor and trusted
+independent reference over unresolved provenance concerns raised by the owner.
+The following notices document retained material, not endorsement or a fresh
+assurance of upstream rights. The donor ledger records reassessment scope.
+No new Prns-derived work is authorized.
 
 <https://github.com/KenAKAFrosty/Prns> at commit
 `72b6b30d27cac910ce20d370e1dc711fe9b95955` (v0.3.4), Copyright (c) 2026 The
