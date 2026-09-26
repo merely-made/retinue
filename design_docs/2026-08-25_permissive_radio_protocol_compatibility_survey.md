@@ -27,11 +27,13 @@ unmeasured behavior. Prefer independently written behavioral tests for findings.
 Review permission is not permission to copy or translate GPL implementation into
 MPL-only shared code. Track any adaptation separately with its source and terms.
 
-The owner also accepts the Reticulum License for future RNS review/adaptation.
-This decision does not itself import code, relicense existing files, establish
-compatibility with GPL, or change historical black-box receipts. Any actual
-adaptation needs an explicit provenance and licensing record. Source-informed
-work must not be described as strict clean-room work.
+The owner clarified on September 26 that the first limited RNS source review
+has occurred, with no RNS implementation copying or translation. The included
+Reticulum License identifies and acknowledges that reference implementation.
+Current work is comparative review, not an adaptation effort or relicensing.
+Any proposed adaptation requires a separate decision and provenance record.
+Historical black-box receipts remain unchanged; later source-informed work
+must be described accurately rather than as strict clean-room work.
 
 ## Finding
 

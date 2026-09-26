@@ -2,7 +2,7 @@
 
 Retinue is licensed under the Mozilla Public License, Version 2.0 (see
 `LICENSE`), including the firmware. This file aggregates the third-party work
-this repository derives from, and points at the per-crate notices that carry
+this repository derives from or uses as a reference, and points at notices carrying
 the full license texts.
 
 An itemized account of what was taken, in what form, and what it means for
@@ -69,10 +69,12 @@ exactly this build:
 The Reticulum protocol specification and manual are public domain. The Python
 reference implementation was used as a black-box oracle for the recorded
 RNS 1.5.2 re-pin qualification. That receipt describes its precise evidence
-boundary. As of September 26, the owner permits comparative source review and
-accepts the Reticulum License for future RNS adaptations; this policy change
-itself incorporates no implementation code. Actual derivations must be recorded
-individually, with their applicable terms. See the source-review update in
+boundary. On September 26, the owner reported the first limited review of RNS
+implementation source and clarified that no RNS implementation code has been
+copied or translated into Retinue. The license is included to identify and
+acknowledge the reference implementation, not to declare an RNS-derived port.
+Comparative review is the current scope; adaptation is a separate decision.
+See the source-review update in
 `design_docs/2026-08-25_permissive_radio_protocol_compatibility_survey.md`.
 We acknowledge Mark Qvist and the Reticulum contributors for their protocol
 design, documentation and reference implementation. The full upstream RNS
