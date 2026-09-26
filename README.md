@@ -58,7 +58,9 @@ per-crate NOTICE and PROVENANCE files record specifics.
 We acknowledge Mark Qvist and the Reticulum contributors. The full
 [Reticulum License](RETICULUM_LICENSE) is included for reference; its scope and
 our source-review policy are explained in the [notices](THIRD_PARTY_NOTICES.md#reticulum).
-Its inclusion does not change the license of independently authored code.
+We respect those terms in our own use of the reference implementation. This is
+an acknowledgment, not an added restriction on users of independently authored
+Retinue code; its MPL-2.0 license remains unchanged.
 
 ## History
 

@@ -40,8 +40,6 @@ Copy-Item -LiteralPath $linkboyPath -Destination (Join-Path $stageRoot.FullName 
 Copy-Item -LiteralPath $espflashPath -Destination (Join-Path $helperRoot.FullName 'espflash.exe')
 Copy-Item -LiteralPath (Join-Path $repoRoot 'firmware\packages\windows-v4-staging-index.toml') -Destination (Join-Path $packagesRoot.FullName 'index.toml')
 Copy-Item -LiteralPath (Join-Path $repoRoot 'firmware\packages\heltec-v4-current.toml') -Destination $packagesRoot.FullName
-Copy-Item -LiteralPath (Join-Path $repoRoot 'firmware\packages\hopspot-v4-0.3.4.toml') -Destination $packagesRoot.FullName
-Copy-Item -LiteralPath (Join-Path $repoRoot 'firmware\packages\hopspot-v4-0.3.4') -Destination $packagesRoot.FullName -Recurse
 Copy-Item -LiteralPath (Join-Path $repoRoot 'firmware\heltec-v4-phy\tulle-heltec-v4-phy') -Destination $v4Root.FullName
 Copy-Item -LiteralPath (Join-Path $repoRoot 'apps\linkboy\NOTICES.md') -Destination (Join-Path $stageRoot.FullName 'NOTICES.md')
 Copy-Item -LiteralPath (Join-Path $repoRoot 'LICENSE') -Destination (Join-Path $stageRoot.FullName 'LICENSE')

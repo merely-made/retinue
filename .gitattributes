@@ -50,3 +50,6 @@
 # sha256 verification of these files.
 firmware/packages/** -text
 crates/tinyssb-core/fixtures/** -text
+
+# Retired release evidence retains exact signed bytes.
+testing/receipts/prns-retirement/** -text

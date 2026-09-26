@@ -2769,15 +2769,16 @@ impl Endpoint {
         interfaces
     }
 
-    /// Configure bounded announce ingress control for subsequently observed packets. Existing
-    /// histories remain, trimmed to the new capacities, so changing a setting cannot turn an
-    /// unbounded backlog into a hidden one.
+    /// Configure bounded announce ingress control for subsequently observed packets.
+    /// Rate debt resets; retained interface counters and in-flight cooldowns survive.
+    /// Rows are trimmed to capacity and release tasks are woken to reconsider deadlines.
     pub fn set_announce_ingress_policy(&self, policy: AnnounceIngressPolicy) {
         self.shared
             .announce_admission
             .lock()
             .unwrap()
             .set_policy(policy);
+        self.shared.held_release_wake.notify_waiters();
     }
 
     /// The active announce-ingress policy.
@@ -3914,6 +3915,13 @@ fn start_held_announce_release(shared: &Arc<Shared>, iface: InterfaceId, first_d
                 .unwrap()
                 .release_due(iface, now_ms)
             else {
+                // The bounded ledger evicted this interface (or policy cleared it).
+                // Retire its deferred work; otherwise task restart would spin forever.
+                owner
+                    .held_announces
+                    .lock()
+                    .unwrap()
+                    .retain(|held| held.interface != iface);
                 break;
             };
             if next_due_ms > now_ms {

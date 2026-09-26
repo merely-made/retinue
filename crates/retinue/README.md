@@ -21,8 +21,8 @@ fixture builds with compression disabled; compressed-resource expansion requires
 its own budget. See the repository's
 [`MC4 plan`](../../design_docs/2026-09-10_murmuration_controller_plan.md).
 
-Every layer below is implemented and checked against a black-box RNS oracle
-(never read). The committed byte fixtures under [`tests/fixtures/`](tests/fixtures/)
+The layers below have recorded black-box RNS checks. Limited source review
+began later; each historical receipt retains its own evidence boundary. The committed byte fixtures under [`tests/fixtures/`](tests/fixtures/)
 retain their observed RNS 1.3.8 provenance; the live mixed-runtime gates pass
 against the current RNS 1.5.2 pin:
 

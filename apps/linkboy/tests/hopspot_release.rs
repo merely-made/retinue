@@ -12,7 +12,7 @@ const PRNS_RELEASE_KEY: &str = "RWQagUCx2MT1G8GWiTmVGnBTDlIbJketjPupSYmBpT8fH9xZ
 
 fn release_path(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../firmware/packages/hopspot-v4-0.3.4")
+        .join("../../testing/receipts/prns-retirement/hopspot-v4-0.3.4")
         .join(name)
 }
 

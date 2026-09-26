@@ -242,7 +242,7 @@ supplying data-graph and identity crates.
 | [ARDC application lane](2026-07-31_ardc_application_lane.md) | Grant lane, G0–G4. Dormant by decision 2026-08-26: Sep 1 window passed, FIVCO-facilitated funding leads, next window Feb 1, 2027. |
 | [Project prospectus](2026-08-26_project_prospectus.md) | Grant-agnostic funding prospectus compressed from the corpus; serves FIVCO-facilitated applications and any future window. Draft pending Mark's review. |
 | [Prns harvest brief](2026-08-09_prns_harvest_brief.md) | Historical H-gate catalogue; donor/reference role withdrawn September 26. |
-| [Prns donor ledger](2026-08-10_prns_donor_ledger.md) | September 26 retained-material audit: fixture replacement, Hopspot retirement, host announce-admission replacement; codec/tooling retention with attribution. Follow-up changes remain open. |
+| [Prns donor ledger](2026-08-10_prns_donor_ledger.md) | September 26 disposition applied: fresh RNS fixtures, Hopspot excluded from catalogs/stages with archived evidence, host admission replaced; codec/tooling retained with attribution. Original provenance remains recorded. |
 | [Prns mobile adoption brief](2026-08-11_prns_mobile_adoption_brief.md) | Historical recommendation withdrawn September 26; WN5 owns wall-node ordering. |
 
 ### Protocol core and wire compatibility

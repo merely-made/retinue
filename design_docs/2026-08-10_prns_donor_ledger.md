@@ -100,6 +100,67 @@ qualification. No isolated Cargo home or worktree was created. The audit closes
 the retained-material inventory, not the follow-up replacements or upstream
 provenance uncertainty.
 
+## Applied disposition (2026-09-26)
+
+The audit recommendations are implemented in this follow-up. Historical sections
+below remain a record of inputs, not descriptions of the current implementation.
+
+- Captured six fresh signed-artifact cases with pinned `rnid 1.5.2`, project
+  identities and metadata; removed the copied constant/comparison test. Original
+  captures remain in `testing/receipts/prns-retirement/rns_signed_artifact_legacy.json`.
+- Removed Hopspot from both catalogs and both Windows/public stage assemblers.
+  Its three binaries, manifest and four descriptor/signature files were moved
+  byte-identically into the receipt archive. The repository still retains these
+  files; assembled distributions no longer include them. Signature evidence tests
+  follow the archive path. Retinue recovery remains independent of Hopspot.
+- Replaced host announce admission with virtual arrival budgets under the contract
+  below. A regression test caught that policy changes must preserve deferred work
+  and counters. Rate debt now resets while cooldowns/counters survive within new
+  capacities; evicted-interface deferred work retires without task-restart spin.
+  Configured grace/penalty semantics differ from the old state machine; no exact
+  RNS scheduler equivalence or new radio receipt is claimed.
+- Retained artifact/MessagePack and validation tools with historical attribution.
+  Replaced the adjacent Mere identity parser's donor test value with project-chosen
+  bytes, without changing its parsing behavior or unrelated Mere work.
+- Clarified acknowledgment: the maintainer respects the reference implementation's
+  terms in their own use. This imposes no extra use restrictions on independently
+  authored MPL-2.0 code and does not certify unresolved historical provenance.
+
+Validation: 219 Retinue library tests, 5 endpoint-ingress tests, 3 signed-artifact
+replay tests, 82 Linkboy library tests, the archived release-signature test and
+Mere's focused identity-parser test passed. Strict library Clippy for Retinue and
+Linkboy, registry verification, stage-script parsing and formatting also passed.
+All eight archived release files were
+compared byte-for-byte with the prior commit. No hardware was accessed. Reused
+`C:/t/cargo-targets/retinue` and `C:/t/cargo-targets/mere` remain ordinary reusable
+qualification targets; no isolated home or worktree was created.
+
+## Replacement contract (2026-09-26)
+
+The replacement host admission policy is a Retinue-owned scheduling choice,
+not an RNS or Prns parity implementation. Requirements come from Endpoint's
+bounded held queue and public policy surface: each interface has an isolated
+rate budget; unknown-route bursts wait while known routes remain processable;
+queue release waits for rate debt and cooldown, then is paced; repeated
+announces to one destination have a separate rate budget and penalty. Capacity
+zero retains no rows and fails closed for unknown routes / destination relay
+when their limiting is enabled. Row eviction is deterministic oldest-use-first.
+Changing policy resets rate debt while keeping retained interface counters and
+in-flight cooldowns; release tasks wake to reconsider deadlines. Eviction retires
+orphaned held work rather than restarting a task without its accounting row.
+
+Implement virtual arrival deadlines: consuming an event advances a deadline by
+one configured period; elapsed time pays down that debt. Interfaces allow two
+immediate arrivals and defer further excess, capping accumulated debt at the
+configured observation horizon. Destination grace allows that many extra
+immediate arrivals; blocked attempts do not extend a penalty indefinitely.
+Interface cooldown is the larger of hold and penalty, followed by release
+spacing. Tests must cover flooding, neighbor isolation, known routes, eventual
+release, destination grace/recovery, capacity zero, eviction and policy reset.
+Existing public numeric defaults are retained as compatibility settings, not
+claimed as newly invented constants. Historic Prns influence remains recorded;
+this replacement is not a retrospective clean-room certification.
+
 ## 1. The pin
 
 | | |

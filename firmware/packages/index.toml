@@ -46,22 +46,3 @@ instructions_url = "https://github.com/merely-made/retinue/blob/main/firmware/pa
 recovery_url = "https://github.com/merely-made/retinue/blob/main/firmware/packages/t114-v51-recovery.md"
 installer_receipts = []
 recovery_receipts = []
-
-[[packages]]
-package_id = "prns.hopspot.heltec-v4"
-release_sequence = 304
-manifest = "hopspot-v4-0.3.4.toml"
-firmware_publisher = "Prns"
-state = "proven-recipe"
-instructions_url = "https://github.com/merely-made/retinue/blob/main/firmware/packages/README.md"
-recovery_url = "https://github.com/merely-made/retinue/blob/main/firmware/packages/heltec-v4-current-recovery.md"
-installer_receipts = [
-  "https://github.com/merely-made/retinue/blob/main/design_docs/2026-08-14_com6_n39_hopspot_signalman_graphical_receipt.md",
-  "https://github.com/merely-made/retinue/blob/main/design_docs/2026-08-19_linkboy_f5_windows_v4_hopspot_receipt.json",
-  "https://github.com/merely-made/retinue/blob/main/design_docs/2026-08-19_linkboy_f5_macos_linux_v4_receipt.md",
-]
-recovery_receipts = [
-  "https://github.com/merely-made/retinue/blob/main/design_docs/2026-08-14_com6_n39_hopspot_retinue_signalman_restore_receipt.md",
-  "https://github.com/merely-made/retinue/blob/main/design_docs/2026-08-19_linkboy_f5_windows_v4_retinue_receipt.json",
-]
-receipt_hosts = ["windows-x86_64", "macos-x86_64", "macos-aarch64", "linux-x86_64"]

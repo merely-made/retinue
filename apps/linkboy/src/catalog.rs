@@ -622,9 +622,22 @@ y/rUw2y8/hOUYjZU71eHp/Wo1KZ40fGy2VJEDl34XMJM+TX48Ss/17u3IvIfbVR1FkZZSNCisQbuQY+b
                 .installer_receipts
                 .is_empty()
         );
-        assert_eq!(
-            package("prns.hopspot.heltec-v4").state,
-            CatalogState::ProvenRecipe
+        assert!(
+            !index
+                .packages
+                .iter()
+                .any(|p| p.package_id == "prns.hopspot.heltec-v4")
+        );
+        let staging: PackageIndex = toml::from_str(include_str!(
+            "../../../firmware/packages/windows-v4-staging-index.toml"
+        ))
+        .unwrap();
+        staging.validate().unwrap();
+        assert!(
+            !staging
+                .packages
+                .iter()
+                .any(|p| p.package_id == "prns.hopspot.heltec-v4")
         );
     }
 

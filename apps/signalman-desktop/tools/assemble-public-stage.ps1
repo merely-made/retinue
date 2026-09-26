@@ -97,8 +97,6 @@ Copy-Item -LiteralPath (Join-Path $repoRoot 'firmware\packages\heltec-v4-current
 Copy-Item -LiteralPath (Join-Path $repoRoot 'firmware\packages\t114-v51.toml') -Destination $packagesRoot.FullName
 Copy-Item -LiteralPath (Join-Path $repoRoot 'firmware\packages\t114-v51-recovery.md') -Destination $packagesRoot.FullName
 Copy-Item -LiteralPath (Join-Path $repoRoot 'firmware\packages\heltec-v4-current-recovery.md') -Destination $packagesRoot.FullName
-Copy-Item -LiteralPath (Join-Path $repoRoot 'firmware\packages\hopspot-v4-0.3.4.toml') -Destination $packagesRoot.FullName
-Copy-Item -LiteralPath (Join-Path $repoRoot 'firmware\packages\hopspot-v4-0.3.4') -Destination $packagesRoot.FullName -Recurse
 Copy-Item -LiteralPath (Join-Path $repoRoot 'firmware\packages\meshtastic-t114-2.7.26.54e0d8d.toml') -Destination $packagesRoot.FullName
 Copy-Item -LiteralPath (Join-Path $repoRoot 'firmware\packages\meshtastic-t114-2.7.26.54e0d8d') -Destination $packagesRoot.FullName -Recurse
 Copy-Item -LiteralPath (Join-Path $repoRoot 'firmware\heltec-v4-phy\tulle-heltec-v4-phy') -Destination $v4Root.FullName

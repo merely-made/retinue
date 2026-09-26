@@ -25,24 +25,24 @@ Prns Authors.
   the RNS signed-artifact envelope layout was read from
   `prns-core/src/identity/signed_artifact.rs` and reimplemented. Full notice
   and license text: [`crates/retinue/NOTICE`](crates/retinue/NOTICE).
-- **`crates/retinue/tests/signed_artifact.rs`** — quotes one 224-byte hex
-  constant from Prns's tests, as evidence about Prns rather than as an
-  implementation input. This is the only verbatim copy of Prns text in the
-  tree.
+- **Historical signed-artifact tests** quoted a 224-byte Prns constant.
+  That comparison and donor-specific active fixture inputs were retired on
+  September 26. Old captures remain in `testing/receipts/prns-retirement`;
+  current captures use project-selected inputs and pinned RNS 1.5.2.
 - **`validation/`, `fuzz/`** — the validation registry, evidence discipline,
   tier split, unsafe-policy audit shape, and whole-ingest fuzzing shape were
   reimplemented from Prns's validation hub. Measured line overlap with the
   corresponding Prns files is 3.5% to 8.1% and consists of import statements
   and generic control flow, so no Prns text was copied. Attribution is for the
   design.
-- **`crates/retinue/src/announce_admission.rs`** — the announce-ingress
-  admission state machines are adapted from Prns's interface and destination
-  announce-limit designs; see the donor ledger's H1 entry. No Prns text was
-  copied.
-- **`firmware/packages/hopspot-v4-0.3.4/`** — redistributes Prns's official
+- **Historical `crates/retinue/src/announce_admission.rs`** used Prns-influenced
+  state-machine design. September 26 replaces that implementation with virtual
+  arrival budgets under Retinue's own documented policy. Public settings and
+  their defaults remain compatible; historical attribution is retained.
+- **`testing/receipts/prns-retirement/hopspot-v4-0.3.4/`** — archives Prns's official
   Hopspot v0.3.4 release binaries unmodified (application, bootloader,
-  partition table, signed manifests) as the foreign-firmware restore package
-  the cross-firmware receipts flash against. Prns's terms (MIT elected) apply;
+  partition table, signed manifests) for historical receipts. They are excluded
+  from active catalogs and stage assembly; the repository still contains them. Prns's terms (MIT elected) apply;
   full license text: [`crates/retinue/NOTICE`](crates/retinue/NOTICE).
 
 ## MeshCore (MIT)
@@ -89,3 +89,15 @@ and for reference. Including it does not apply it to all Retinue code or offer
 an alternative MPL grant for upstream code. Oracle-local copies retain the
 notices for their reference packages. This project is not affiliated with or
 endorsed by the upstream project.
+
+### Scope of the included Reticulum License
+
+The root license copy identifies and acknowledges the reference implementation.
+We respect its terms in our own use of that implementation. This statement is
+not an additional condition on recipients of independently authored Retinue
+code: that code remains MPL-2.0, with no added harm or AI-use restrictions.
+The protocol's public-domain status and the implementation's separate terms are
+explained in [Brandolini's Reference](https://reticulum.network/manual/brandolinis.html).
+Copying or translating protected implementation material, including through an
+intermediary, would require its applicable terms; this notice is not a waiver
+or certification that every historical input has been independently cleared.

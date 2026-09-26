@@ -1,0 +1,115 @@
+{
+  "description": "RNS 1.4.2 signed artifacts captured by driving the shipped `rnid` executable. artifact = ed25519_signature(64) || msgpack envelope; the signature covers the envelope, and the envelope commits to sha256(message). retinue must reproduce every artifact_hex byte for byte.",
+  "source": "RNS 1.4.2 rnid, run as a subprocess; no RNS module is imported here",
+  "rnid_version": "rnid 1.4.2",
+  "envelope_layout": {
+    "hashtype": "the string sha256",
+    "hash": "sha256(message), 32 bytes",
+    "meta": "map opening with signer=identity_hash(16) and pubkey=public_identity(64)",
+    "message": "present only in an .rsm"
+  },
+  "metadata_types": {
+    "str": "msgpack string",
+    "uint": "msgpack unsigned integer",
+    "str_list": "msgpack array of strings, comma-separated in the literal",
+    "bool": "msgpack boolean"
+  },
+  "cases": [
+    {
+      "name": "rsg_retinue_identity",
+      "shape": "rsg",
+      "secret_hex": "f0ecbba49e783dee14ffc6c9f1e1251efa7d7629e0fa32413c5c59ec2e0f6d6cf0ecbba49e783dee14ffc6c9f1e1251efa7d7629e0fa32413c5c59ec2e0f6d6c",
+      "message_utf8": "artifact-oracle",
+      "embed": false,
+      "metadata": [],
+      "artifact_hex": "63d296ce3a015e14d2370a598b231af2d5e2061225f00cf79e5ae26547d2930dd1f7e9522b74576c45b882e5008e86fcb120eaf9170c3cea4c9b5b24e12f370d83a86861736874797065a6736861323536a468617368c4200e231b72dd5437d4095002c7d07b34ff13571911857c83b1281e576cee65fa4ea46d65746182a67369676e6572c41070de4e01d8064fae79daa0e198233f56a67075626b6579c440a8fd56cbca13577c24914cc4c13308b7d7f3e20bd39c55a4e636984655be343884f6da8c37b5f343568b185a20c63b5bf011a3d60ee805bb9e151371ea1d5555"
+    },
+    {
+      "name": "rsm_retinue_identity",
+      "shape": "rsm",
+      "secret_hex": "f0ecbba49e783dee14ffc6c9f1e1251efa7d7629e0fa32413c5c59ec2e0f6d6cf0ecbba49e783dee14ffc6c9f1e1251efa7d7629e0fa32413c5c59ec2e0f6d6c",
+      "message_utf8": "message-oracle",
+      "embed": true,
+      "metadata": [
+        {
+          "key": "name",
+          "type": "str",
+          "literal": "Prns"
+        },
+        {
+          "key": "version",
+          "type": "uint",
+          "literal": "3"
+        },
+        {
+          "key": "tags",
+          "type": "str_list",
+          "literal": "one, two"
+        },
+        {
+          "key": "stable",
+          "type": "bool",
+          "literal": "True"
+        }
+      ],
+      "artifact_hex": "61e01174e8e67ff6cafa78ec42378a64e8e00eec1e0bec51fcc2c899d428b12480f0bcf042cb77976a60a3eaab8a1110c0a6f08889165cc495afbefd813c240484a86861736874797065a6736861323536a468617368c42048a2c05ff78d6f7880eff7696a3e4a352131a2b3e3d9c2abc2d8b0aef09e8527a46d65746186a67369676e6572c41070de4e01d8064fae79daa0e198233f56a67075626b6579c440a8fd56cbca13577c24914cc4c13308b7d7f3e20bd39c55a4e636984655be343884f6da8c37b5f343568b185a20c63b5bf011a3d60ee805bb9e151371ea1d5555a46e616d65a450726e73a776657273696f6e03a47461677392a36f6e65a374776fa6737461626c65c3a76d657373616765c40e6d6573736167652d6f7261636c65"
+    },
+    {
+      "name": "rsm_retinue_identity_bare",
+      "shape": "rsm",
+      "secret_hex": "f0ecbba49e783dee14ffc6c9f1e1251efa7d7629e0fa32413c5c59ec2e0f6d6cf0ecbba49e783dee14ffc6c9f1e1251efa7d7629e0fa32413c5c59ec2e0f6d6c",
+      "message_utf8": "message-oracle",
+      "embed": true,
+      "metadata": [],
+      "artifact_hex": "c9ffbbf2980bf5e2241359b88134cabf134a9ce71939a1637dfee71bf872dd0d98b4fc685cfb73b94b8af05ae8f0b7d083a35a1e77c829f7583ce601288ebb0884a86861736874797065a6736861323536a468617368c42048a2c05ff78d6f7880eff7696a3e4a352131a2b3e3d9c2abc2d8b0aef09e8527a46d65746182a67369676e6572c41070de4e01d8064fae79daa0e198233f56a67075626b6579c440a8fd56cbca13577c24914cc4c13308b7d7f3e20bd39c55a4e636984655be343884f6da8c37b5f343568b185a20c63b5bf011a3d60ee805bb9e151371ea1d5555a76d657373616765c40e6d6573736167652d6f7261636c65"
+    },
+    {
+      "name": "rsg_prns_identity",
+      "shape": "rsg",
+      "secret_hex": "22222222222222222222222222222222222222222222222222222222222222221111111111111111111111111111111111111111111111111111111111111111",
+      "message_utf8": "artifact-oracle",
+      "embed": false,
+      "metadata": [],
+      "artifact_hex": "e44d954d391c2393bdd24ebcfb94ba12db4ea2fc6c0f37b34b4072d10657655a521037c83b09f96a894640e7d5d9796022be27f7e177201a2185a298b844e30283a86861736874797065a6736861323536a468617368c4200e231b72dd5437d4095002c7d07b34ff13571911857c83b1281e576cee65fa4ea46d65746182a67369676e6572c4104cd0cc45a7405dbd5cf9b5be1ef92f10a67075626b6579c4400faa684ed28867b97f4a6a2dee5df8ce974e76b7018e3f22a1c4cf2678570f20d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737"
+    },
+    {
+      "name": "rsm_prns_identity",
+      "shape": "rsm",
+      "secret_hex": "22222222222222222222222222222222222222222222222222222222222222221111111111111111111111111111111111111111111111111111111111111111",
+      "message_utf8": "message-oracle",
+      "embed": true,
+      "metadata": [
+        {
+          "key": "name",
+          "type": "str",
+          "literal": "Prns"
+        },
+        {
+          "key": "version",
+          "type": "uint",
+          "literal": "3"
+        },
+        {
+          "key": "tags",
+          "type": "str_list",
+          "literal": "one, two"
+        },
+        {
+          "key": "stable",
+          "type": "bool",
+          "literal": "True"
+        }
+      ],
+      "artifact_hex": "559d62a364ad9f2968dd9c659434de9094dadd01e810ebb1dcbedcfdc184985e7cd125ed350242da97e9e446a2f59322b938d436c1cd48e6579923cd95f1ff0184a86861736874797065a6736861323536a468617368c42048a2c05ff78d6f7880eff7696a3e4a352131a2b3e3d9c2abc2d8b0aef09e8527a46d65746186a67369676e6572c4104cd0cc45a7405dbd5cf9b5be1ef92f10a67075626b6579c4400faa684ed28867b97f4a6a2dee5df8ce974e76b7018e3f22a1c4cf2678570f20d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737a46e616d65a450726e73a776657273696f6e03a47461677392a36f6e65a374776fa6737461626c65c3a76d657373616765c40e6d6573736167652d6f7261636c65"
+    },
+    {
+      "name": "rsm_prns_identity_bare",
+      "shape": "rsm",
+      "secret_hex": "22222222222222222222222222222222222222222222222222222222222222221111111111111111111111111111111111111111111111111111111111111111",
+      "message_utf8": "message-oracle",
+      "embed": true,
+      "metadata": [],
+      "artifact_hex": "11b9917284b9927df8dd1c91942ae67dd698f95fd519051dfdfdf21ffab22b2b5d043992c3b94e6d7d63b3efff9aba2ef796007ca6542854c710bdbfcbd7f70784a86861736874797065a6736861323536a468617368c42048a2c05ff78d6f7880eff7696a3e4a352131a2b3e3d9c2abc2d8b0aef09e8527a46d65746182a67369676e6572c4104cd0cc45a7405dbd5cf9b5be1ef92f10a67075626b6579c4400faa684ed28867b97f4a6a2dee5df8ce974e76b7018e3f22a1c4cf2678570f20d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737a76d657373616765c40e6d6573736167652d6f7261636c65"
+    }
+  ]
+}

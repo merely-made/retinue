@@ -3,7 +3,7 @@
 This directory contains Linkboy package manifests, one-file payloads or ordered sparse parts,
 recovery instructions, and the public package index. Every part has its own digest; sparse ESP
 parts also name their write offset. The index is the publishable installer evidence artifact:
-`retinue.heltec-v4`, `retinue.t114`, and `prns.hopspot.heltec-v4` are
+`retinue.heltec-v4` and `retinue.t114` are
 `proven-recipe` entries with installer, recovery, and host receipts. The retained Meshtastic
 T114 package remains `partial` until its own interface check is recorded.
 
@@ -23,10 +23,10 @@ own platform directory and keep that verified executable for the write:
   disappear while Linkboy flushes a complete file: that expected Windows device-removal
   acknowledgement is recorded, but the package still requires an upstream interface check.
 
-The retained Prns Hopspot V4 package is an external firmware choice, not a Retinue capability
-claim. Its signed channel descriptor and flash manifest are retained with its immutable sparse
-parts. Linkboy verifies every part and preserves the HSPCFG1 provisioning slot, then requires the
-owner to exercise Hopspot's own interface before calling the route proven.
+Hopspot was retired from both catalogs and stage assembly on September 26.
+Its immutable artifacts and manifest remain in `testing/receipts/prns-retirement`
+as historical evidence, outside the active firmware offering. Retinue's V4
+recovery instructions continue to use its own package and the ROM loader.
 
 The V4 routes have Windows, Intel-macOS, Apple-silicon-macOS, and Linux physical receipts.
 The public T114 UF2 route has a Windows physical receipt. The index records those exact host
@@ -65,7 +65,6 @@ Inspect the catalog and a package before connecting a board:
 linkboy catalog firmware/packages/index.toml
 linkboy inspect firmware/packages/heltec-v4-current.toml
 linkboy inspect firmware/packages/t114-v51.toml
-linkboy inspect firmware/packages/hopspot-v4-0.3.4.toml
 linkboy inspect firmware/packages/meshtastic-t114-2.7.26.54e0d8d.toml
 ```
 

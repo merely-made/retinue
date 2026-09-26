@@ -1,9 +1,9 @@
-//! Bounded, attributed announce-ingress pressure state.
+//! Bounded host admission using per-key virtual arrival deadlines.
 //!
-//! This is deliberately separate from packet routing. It records rate facts and returns a
-//! verdict; the endpoint owns verified packets, deferred storage, and relay. The shape is
-//! adapted from Prns's interface and destination announce-limit state machines, but this is
-//! Retinue code with Retinue's bounded host tables and public diagnostics.
+//! Endpoint owns packets and queues. This module owns only rate budgets and counters.
+//! The former Prns-influenced implementation is retained in Git history and the donor
+//! ledger. The replacement follows the Retinue-owned contract in that ledger; public
+//! policy fields/defaults remain compatible. This is not reference scheduler parity.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -27,9 +27,9 @@ pub struct AnnounceIngressPolicy {
     pub new_interface_hz: u64,
     /// Burst threshold once an interface has aged past [`Self::new_interface_age`].
     pub established_interface_hz: u64,
-    /// Duration of the rate observation window.
+    /// Maximum accumulated interface rate-debt horizon.
     pub frequency_window: Duration,
-    /// Minimum time a burst remains latched.
+    /// Minimum interface cooldown after excess traffic.
     pub burst_hold: Duration,
     /// Initial delay before a held announce may be released.
     pub burst_penalty: Duration,
@@ -37,7 +37,7 @@ pub struct AnnounceIngressPolicy {
     pub held_release_interval: Duration,
     /// Minimum normal interval between announcements for one destination.
     pub destination_target: Duration,
-    /// Number of fast destination announcements allowed before a block latches.
+    /// Number of extra immediate destination announcements allowed.
     pub destination_grace: u16,
     /// Extra block time after a destination exceeds its grace.
     pub destination_penalty: Duration,
@@ -57,9 +57,8 @@ impl Default for AnnounceIngressPolicy {
             burst_hold: Duration::from_secs(15),
             burst_penalty: Duration::from_secs(15),
             held_release_interval: Duration::from_secs(5),
-            // Preserve Retinue's former one-second destination floor. The state now retains
-            // an explicit violation count and unblock deadline rather than a timestamp-only
-            // budget; callers may choose a non-zero grace or penalty for a stricter mesh.
+            // Preserve the public one-second destination floor. Grace allows extra
+            // immediate events; penalty delays recovery after the budget is exceeded.
             destination_target: Duration::from_secs(1),
             destination_grace: 0,
             destination_penalty: Duration::ZERO,
@@ -92,36 +91,35 @@ pub(crate) enum DestinationVerdict {
     BlockRelay,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Burst {
-    Calm,
-    Latched { since_ms: u64 },
-}
-
-#[derive(Clone, Copy, Debug)]
-struct InterfaceState {
-    attached_at_ms: u64,
-    window_started_at_ms: u64,
-    window_count: u16,
-    burst: Burst,
-    next_held_release_at_ms: u64,
+#[derive(Debug)]
+struct InterfaceBudget {
+    attached: u64,
+    last_used: u64,
+    arrival: u64,
+    resume: u64,
     counters: AnnounceIngressCounters,
 }
 
-#[derive(Clone, Copy, Debug)]
-struct DestinationState {
-    last_allowed_at_ms: u64,
-    blocked_until_ms: u64,
-    rate_violations: u16,
+#[derive(Debug)]
+struct DestinationBudget {
+    last_used: u64,
+    arrival: u64,
+    resume: u64,
 }
 
-/// A bounded, deterministic admission ledger. Times are monotonic milliseconds relative to
-/// the endpoint's creation so tests can exercise burst and release behavior without sleeping.
 #[derive(Debug)]
 pub(crate) struct AnnounceAdmission {
     policy: AnnounceIngressPolicy,
-    interfaces: HashMap<u32, InterfaceState>,
-    destinations: HashMap<AddressHash, DestinationState>,
+    interfaces: HashMap<u32, InterfaceBudget>,
+    destinations: HashMap<AddressHash, DestinationBudget>,
+}
+
+fn millis(d: Duration) -> u64 {
+    d.as_millis().min(u128::from(u64::MAX)) as u64
+}
+
+fn period(hz: u64) -> u64 {
+    if hz == 0 { 0 } else { 1_000u64.div_ceil(hz) }
 }
 
 impl AnnounceAdmission {
@@ -133,341 +131,290 @@ impl AnnounceAdmission {
         }
     }
 
-    pub(crate) fn set_policy(&mut self, policy: AnnounceIngressPolicy) {
-        self.policy = policy;
-        self.trim_interfaces();
-        self.trim_destinations();
-    }
-
     pub(crate) fn policy(&self) -> AnnounceIngressPolicy {
         self.policy
     }
 
-    pub(crate) fn attach_interface(&mut self, interface: u32, now_ms: u64) {
-        self.interface_mut(interface, now_ms);
-    }
-
-    pub(crate) fn forget_interface(&mut self, interface: u32) {
-        self.interfaces.remove(&interface);
-    }
-
-    /// Count a verified announce and decide whether an as-yet-unknown route should wait.
-    pub(crate) fn observe_interface(
-        &mut self,
-        interface: u32,
-        route_is_known: bool,
-        now_ms: u64,
-    ) -> InterfaceVerdict {
-        let policy = self.policy;
-        let row = self.interface_mut(interface, now_ms);
-        row.counters.observed = row.counters.observed.saturating_add(1);
-        if row.window_count == 0
-            || now_ms.saturating_sub(row.window_started_at_ms)
-                >= duration_ms(policy.frequency_window)
-        {
-            row.window_started_at_ms = now_ms;
-            row.window_count = 1;
-        } else {
-            row.window_count = row.window_count.saturating_add(1);
+    pub(crate) fn set_policy(&mut self, policy: AnnounceIngressPolicy) {
+        self.policy = policy;
+        // Keep accounting and in-flight cooldowns; reset only rate debt.
+        for row in self.interfaces.values_mut() {
+            row.arrival = row.last_used;
         }
-
-        if !policy.enabled || route_is_known {
-            return InterfaceVerdict::Process;
-        }
-
-        let rate = rate_reading(row, now_ms, policy);
-        match row.burst {
-            Burst::Calm if rate == RateReading::Over => {
-                row.burst = Burst::Latched { since_ms: now_ms };
-                row.next_held_release_at_ms =
-                    now_ms.saturating_add(duration_ms(policy.burst_penalty));
-                InterfaceVerdict::Hold {
-                    release_at_ms: row.next_held_release_at_ms,
-                }
-            }
-            Burst::Latched { since_ms }
-                if rate == RateReading::Under
-                    && now_ms >= since_ms.saturating_add(duration_ms(policy.burst_hold))
-                    && row.window_count >= 2 =>
-            {
-                row.burst = Burst::Calm;
-                InterfaceVerdict::Hold {
-                    release_at_ms: row.next_held_release_at_ms,
-                }
-            }
-            Burst::Latched { .. } => InterfaceVerdict::Hold {
-                release_at_ms: row.next_held_release_at_ms,
-            },
-            Burst::Calm => InterfaceVerdict::Process,
-        }
-    }
-
-    /// Return the next release deadline only when an interface has calmed below its threshold.
-    pub(crate) fn release_due(&mut self, interface: u32, now_ms: u64) -> Option<u64> {
-        let policy = self.policy;
-        let row = self.interfaces.get_mut(&interface)?;
-        if now_ms < row.next_held_release_at_ms {
-            return Some(row.next_held_release_at_ms);
-        }
-        if rate_reading(row, now_ms, policy) != RateReading::Under {
-            return Some(now_ms.saturating_add(duration_ms(policy.held_release_interval)));
-        }
-        if let Burst::Latched { since_ms } = row.burst
-            && now_ms >= since_ms.saturating_add(duration_ms(policy.burst_hold))
-            && row.window_count >= 2
-        {
-            row.burst = Burst::Calm;
-        }
-        row.next_held_release_at_ms =
-            now_ms.saturating_add(duration_ms(policy.held_release_interval));
-        Some(now_ms)
-    }
-
-    pub(crate) fn note_held(&mut self, interface: u32) {
-        if let Some(row) = self.interfaces.get_mut(&interface) {
-            row.counters.held = row.counters.held.saturating_add(1);
-        }
-    }
-
-    pub(crate) fn note_held_dropped(&mut self, interface: u32) {
-        if let Some(row) = self.interfaces.get_mut(&interface) {
-            row.counters.held_dropped = row.counters.held_dropped.saturating_add(1);
-        }
-    }
-
-    pub(crate) fn note_released(&mut self, interface: u32) {
-        if let Some(row) = self.interfaces.get_mut(&interface) {
-            row.counters.released = row.counters.released.saturating_add(1);
-        }
-    }
-
-    pub(crate) fn counters(&self, interface: u32) -> AnnounceIngressCounters {
-        self.interfaces
-            .get(&interface)
-            .map_or(AnnounceIngressCounters::default(), |row| row.counters)
-    }
-
-    /// Apply per-destination rate accounting at the point that would relay an announce.
-    pub(crate) fn observe_destination(
-        &mut self,
-        destination: AddressHash,
-        now_ms: u64,
-    ) -> DestinationVerdict {
-        let policy = self.policy;
-        let target_ms = duration_ms(policy.destination_target);
-        if target_ms == 0 {
-            return DestinationVerdict::Relay;
-        }
-        if let Some(row) = self.destinations.get_mut(&destination) {
-            if now_ms < row.blocked_until_ms {
-                return DestinationVerdict::BlockRelay;
-            }
-            if now_ms.saturating_sub(row.last_allowed_at_ms) < target_ms {
-                row.rate_violations = row.rate_violations.saturating_add(1);
-            } else {
-                row.rate_violations = row.rate_violations.saturating_sub(1);
-            }
-            if row.rate_violations > policy.destination_grace {
-                row.blocked_until_ms = row
-                    .last_allowed_at_ms
-                    .saturating_add(target_ms)
-                    .saturating_add(duration_ms(policy.destination_penalty));
-                DestinationVerdict::BlockRelay
-            } else {
-                row.last_allowed_at_ms = now_ms;
-                DestinationVerdict::Relay
-            }
-        } else {
-            self.insert_destination(
-                destination,
-                DestinationState {
-                    last_allowed_at_ms: now_ms,
-                    blocked_until_ms: 0,
-                    rate_violations: 0,
-                },
-            );
-            DestinationVerdict::Relay
-        }
-    }
-
-    fn interface_mut(&mut self, interface: u32, now_ms: u64) -> &mut InterfaceState {
-        if !self.interfaces.contains_key(&interface) {
-            if self.policy.interface_capacity == 0 {
-                // Capacity zero still needs a short-lived row to produce a verdict. It is
-                // immediately eligible for eviction on the next distinct interface.
-                self.interfaces.clear();
-            } else if self.interfaces.len() >= self.policy.interface_capacity {
-                let evict = self
-                    .interfaces
-                    .iter()
-                    .min_by_key(|(_, row)| row.window_started_at_ms)
-                    .map(|(id, _)| *id);
-                if let Some(id) = evict {
-                    self.interfaces.remove(&id);
-                }
-            }
-            self.interfaces.insert(
-                interface,
-                InterfaceState {
-                    attached_at_ms: now_ms,
-                    window_started_at_ms: now_ms,
-                    window_count: 0,
-                    burst: Burst::Calm,
-                    next_held_release_at_ms: now_ms,
-                    counters: AnnounceIngressCounters::default(),
-                },
-            );
-        }
-        self.interfaces.get_mut(&interface).expect("inserted above")
-    }
-
-    fn insert_destination(&mut self, destination: AddressHash, row: DestinationState) {
-        if self.policy.destination_capacity == 0 {
-            return;
-        }
-        if self.destinations.len() >= self.policy.destination_capacity {
-            let evict = self
-                .destinations
-                .iter()
-                .min_by_key(|(_, row)| row.last_allowed_at_ms)
-                .map(|(destination, _)| *destination);
-            if let Some(destination) = evict {
-                self.destinations.remove(&destination);
-            }
-        }
-        self.destinations.insert(destination, row);
-    }
-
-    fn trim_interfaces(&mut self) {
-        while self.interfaces.len() > self.policy.interface_capacity {
-            let evict = self
+        while self.interfaces.len() > policy.interface_capacity {
+            let oldest = self
                 .interfaces
                 .iter()
-                .min_by_key(|(_, row)| row.window_started_at_ms)
-                .map(|(id, _)| *id);
-            if let Some(id) = evict {
-                self.interfaces.remove(&id);
-            } else {
-                break;
+                .min_by_key(|(key, row)| (row.last_used, **key))
+                .map(|(key, _)| *key);
+            if let Some(key) = oldest {
+                self.interfaces.remove(&key);
             }
         }
+        self.destinations.clear();
     }
 
-    fn trim_destinations(&mut self) {
-        while self.destinations.len() > self.policy.destination_capacity {
-            let evict = self
-                .destinations
+    pub(crate) fn attach_interface(&mut self, id: u32, now: u64) {
+        if self.policy.interface_capacity == 0 || self.interfaces.contains_key(&id) {
+            return;
+        }
+        if self.interfaces.len() >= self.policy.interface_capacity {
+            let oldest = self
+                .interfaces
                 .iter()
-                .min_by_key(|(_, row)| row.last_allowed_at_ms)
-                .map(|(destination, _)| *destination);
-            if let Some(destination) = evict {
-                self.destinations.remove(&destination);
-            } else {
-                break;
+                .min_by_key(|(key, row)| (row.last_used, **key))
+                .map(|(key, _)| *key);
+            if let Some(key) = oldest {
+                self.interfaces.remove(&key);
             }
         }
+        self.interfaces.insert(
+            id,
+            InterfaceBudget {
+                attached: now,
+                last_used: now,
+                arrival: now,
+                resume: now,
+                counters: AnnounceIngressCounters::default(),
+            },
+        );
     }
-}
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum RateReading {
-    Under,
-    At,
-    Over,
-}
+    pub(crate) fn forget_interface(&mut self, id: u32) {
+        self.interfaces.remove(&id);
+    }
 
-fn rate_reading(row: &InterfaceState, now_ms: u64, policy: AnnounceIngressPolicy) -> RateReading {
-    let limit_hz =
-        if now_ms.saturating_sub(row.attached_at_ms) < duration_ms(policy.new_interface_age) {
+    pub(crate) fn observe_interface(&mut self, id: u32, known: bool, now: u64) -> InterfaceVerdict {
+        self.attach_interface(id, now);
+        let policy = self.policy;
+        let Some(row) = self.interfaces.get_mut(&id) else {
+            return if known || !policy.enabled {
+                InterfaceVerdict::Process
+            } else {
+                InterfaceVerdict::Hold {
+                    release_at_ms: now.saturating_add(millis(policy.held_release_interval).max(1)),
+                }
+            };
+        };
+        row.last_used = now;
+        row.counters.observed = row.counters.observed.saturating_add(1);
+        if known || !policy.enabled {
+            return InterfaceVerdict::Process;
+        }
+        let hz = if now.saturating_sub(row.attached) < millis(policy.new_interface_age) {
             policy.new_interface_hz
         } else {
             policy.established_interface_hz
         };
-    let elapsed_ms = now_ms.saturating_sub(row.window_started_at_ms);
-    if row.window_count < 3 || elapsed_ms == 0 || limit_hz == 0 {
-        return RateReading::Under;
+        let step = period(hz);
+        if step == 0 {
+            return InterfaceVerdict::Process;
+        }
+        let excess = row.arrival > now.saturating_add(step);
+        row.arrival =
+            row.arrival.max(now).saturating_add(step).min(
+                now.saturating_add(millis(policy.frequency_window).max(step.saturating_mul(2))),
+            );
+        if excess {
+            row.resume = row.resume.max(
+                now.saturating_add(millis(policy.burst_hold).max(millis(policy.burst_penalty))),
+            );
+        }
+        if excess || now < row.resume {
+            InterfaceVerdict::Hold {
+                release_at_ms: row.resume.max(row.arrival),
+            }
+        } else {
+            InterfaceVerdict::Process
+        }
     }
-    let count = u128::from(row.window_count) * 1_000;
-    let limit = u128::from(limit_hz) * u128::from(elapsed_ms);
-    if count < limit {
-        RateReading::Under
-    } else if count == limit {
-        RateReading::At
-    } else {
-        RateReading::Over
-    }
-}
 
-fn duration_ms(duration: Duration) -> u64 {
-    duration.as_millis().min(u128::from(u64::MAX)) as u64
+    pub(crate) fn release_due(&mut self, id: u32, now: u64) -> Option<u64> {
+        let row = self.interfaces.get_mut(&id)?;
+        let due = if self.policy.enabled {
+            row.resume.max(row.arrival)
+        } else {
+            now
+        };
+        if now < due {
+            return Some(due);
+        }
+        row.resume = now.saturating_add(millis(self.policy.held_release_interval).max(1));
+        Some(now)
+    }
+
+    pub(crate) fn counters(&self, id: u32) -> AnnounceIngressCounters {
+        self.interfaces
+            .get(&id)
+            .map(|r| r.counters)
+            .unwrap_or_default()
+    }
+    pub(crate) fn note_held(&mut self, id: u32) {
+        if let Some(r) = self.interfaces.get_mut(&id) {
+            r.counters.held = r.counters.held.saturating_add(1);
+        }
+    }
+    pub(crate) fn note_held_dropped(&mut self, id: u32) {
+        if let Some(r) = self.interfaces.get_mut(&id) {
+            r.counters.held_dropped = r.counters.held_dropped.saturating_add(1);
+        }
+    }
+    pub(crate) fn note_released(&mut self, id: u32) {
+        if let Some(r) = self.interfaces.get_mut(&id) {
+            r.counters.released = r.counters.released.saturating_add(1);
+        }
+    }
+
+    pub(crate) fn observe_destination(&mut self, key: AddressHash, now: u64) -> DestinationVerdict {
+        let step = millis(self.policy.destination_target);
+        if step == 0 {
+            return DestinationVerdict::Relay;
+        }
+        if self.policy.destination_capacity == 0 {
+            return DestinationVerdict::BlockRelay;
+        }
+        if !self.destinations.contains_key(&key)
+            && self.destinations.len() >= self.policy.destination_capacity
+        {
+            let oldest = self
+                .destinations
+                .iter()
+                .min_by_key(|(key, row)| (row.last_used, key.as_bytes()))
+                .map(|(key, _)| *key);
+            if let Some(oldest) = oldest {
+                self.destinations.remove(&oldest);
+            }
+        }
+        let row = self.destinations.entry(key).or_insert(DestinationBudget {
+            last_used: now,
+            arrival: now,
+            resume: now,
+        });
+        row.last_used = now;
+        if now < row.resume {
+            return DestinationVerdict::BlockRelay;
+        }
+        let tolerance = step.saturating_mul(u64::from(self.policy.destination_grace));
+        if row.arrival > now.saturating_add(tolerance) {
+            row.resume = row
+                .arrival
+                .saturating_add(millis(self.policy.destination_penalty));
+            return DestinationVerdict::BlockRelay;
+        }
+        row.arrival = row.arrival.max(now).saturating_add(step);
+        DestinationVerdict::Relay
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn destination(byte: u8) -> AddressHash {
-        AddressHash::from_bytes([byte; 16])
+    fn key(n: u8) -> AddressHash {
+        AddressHash::from_bytes([n; 16])
     }
 
     #[test]
-    fn noisy_interface_is_held_without_silencing_a_quiet_neighbor() {
-        let mut admission = AnnounceAdmission::new(AnnounceIngressPolicy::default());
-        for n in 0..2 {
-            assert_eq!(
-                admission.observe_interface(1, false, n * 100),
-                InterfaceVerdict::Process
-            );
-        }
+    fn burst_is_isolated_and_known_routes_still_progress() {
+        let mut a = AnnounceAdmission::new(AnnounceIngressPolicy::default());
+        assert_eq!(a.observe_interface(1, false, 0), InterfaceVerdict::Process);
+        assert_eq!(a.observe_interface(1, false, 1), InterfaceVerdict::Process);
         assert!(matches!(
-            admission.observe_interface(1, false, 200),
+            a.observe_interface(1, false, 2),
             InterfaceVerdict::Hold { .. }
         ));
-        assert_eq!(
-            admission.observe_interface(2, false, 300),
-            InterfaceVerdict::Process
-        );
+        assert_eq!(a.observe_interface(2, false, 2), InterfaceVerdict::Process);
+        assert_eq!(a.observe_interface(1, true, 3), InterfaceVerdict::Process);
     }
 
     #[test]
-    fn held_releases_after_the_penalty_when_the_interface_has_calmed() {
-        let mut admission = AnnounceAdmission::new(AnnounceIngressPolicy::default());
-        for n in 0..4 {
-            let _ = admission.observe_interface(1, false, n * 100);
+    fn release_waits_for_debt_and_cooldown_then_is_paced() {
+        let mut a = AnnounceAdmission::new(AnnounceIngressPolicy::default());
+        for t in 0..10 {
+            a.observe_interface(1, false, t);
         }
-        assert_eq!(admission.release_due(1, 14_999), Some(15_200));
-        assert_eq!(admission.release_due(1, 15_200), Some(15_200));
-        assert_eq!(admission.release_due(1, 15_201), Some(20_200));
+        let due = a.release_due(1, 10).unwrap();
+        assert!(due >= 15_009);
+        assert_eq!(a.release_due(1, due), Some(due));
+        assert_eq!(a.release_due(1, due + 1), Some(due + 5_000));
     }
 
     #[test]
-    fn destination_violations_escalate_to_a_block_and_recover() {
-        let policy = AnnounceIngressPolicy {
+    fn destination_grace_is_finite_and_repeated_refusal_does_not_extend_penalty() {
+        let mut a = AnnounceAdmission::new(AnnounceIngressPolicy {
             destination_target: Duration::from_secs(10),
             destination_grace: 2,
             destination_penalty: Duration::from_secs(60),
-            ..AnnounceIngressPolicy::default()
-        };
-        let mut admission = AnnounceAdmission::new(policy);
+            ..Default::default()
+        });
+        for t in [0, 1_000, 2_000] {
+            assert_eq!(a.observe_destination(key(1), t), DestinationVerdict::Relay);
+        }
         assert_eq!(
-            admission.observe_destination(destination(1), 0),
-            DestinationVerdict::Relay
-        );
-        assert_eq!(
-            admission.observe_destination(destination(1), 1_000),
-            DestinationVerdict::Relay
-        );
-        assert_eq!(
-            admission.observe_destination(destination(1), 2_000),
-            DestinationVerdict::Relay
-        );
-        assert_eq!(
-            admission.observe_destination(destination(1), 3_000),
+            a.observe_destination(key(1), 3_000),
             DestinationVerdict::BlockRelay
         );
         assert_eq!(
-            admission.observe_destination(destination(1), 72_000),
+            a.observe_destination(key(1), 89_999),
+            DestinationVerdict::BlockRelay
+        );
+        assert_eq!(
+            a.observe_destination(key(1), 90_000),
             DestinationVerdict::Relay
         );
+        assert_eq!(
+            a.observe_destination(key(2), 3_000),
+            DestinationVerdict::Relay
+        );
+    }
+
+    #[test]
+    fn zero_capacity_retains_nothing_and_fails_closed() {
+        let mut a = AnnounceAdmission::new(AnnounceIngressPolicy {
+            interface_capacity: 0,
+            destination_capacity: 0,
+            ..Default::default()
+        });
+        assert!(matches!(
+            a.observe_interface(1, false, 0),
+            InterfaceVerdict::Hold { .. }
+        ));
+        assert_eq!(
+            a.observe_destination(key(1), 0),
+            DestinationVerdict::BlockRelay
+        );
+        assert!(a.interfaces.is_empty() && a.destinations.is_empty());
+        assert_eq!(a.observe_interface(1, true, 0), InterfaceVerdict::Process);
+    }
+
+    #[test]
+    fn eviction_and_policy_reset_bound_retention() {
+        let p = AnnounceIngressPolicy {
+            interface_capacity: 1,
+            destination_capacity: 1,
+            ..Default::default()
+        };
+        let mut a = AnnounceAdmission::new(p);
+        for i in 1..4 {
+            a.observe_interface(i, false, u64::from(i));
+            a.observe_destination(key(i as u8), u64::from(i));
+        }
+        assert_eq!(a.interfaces.len(), 1);
+        assert_eq!(a.destinations.len(), 1);
+        assert!(a.interfaces.contains_key(&3));
+        assert!(a.destinations.contains_key(&key(3)));
+        a.set_policy(p);
+        assert_eq!(a.interfaces.len(), 1);
+        assert!(a.destinations.is_empty());
+        assert_eq!(a.interfaces[&3].arrival, a.interfaces[&3].last_used);
+    }
+
+    #[test]
+    fn sustained_regular_traffic_is_admitted_and_clock_limits_do_not_panic() {
+        let mut a = AnnounceAdmission::new(AnnounceIngressPolicy::default());
+        for t in (0..10_000).step_by(1_000) {
+            assert_eq!(a.observe_interface(1, false, t), InterfaceVerdict::Process);
+        }
+        a.observe_interface(1, false, u64::MAX);
+        a.observe_destination(key(1), u64::MAX);
     }
 }

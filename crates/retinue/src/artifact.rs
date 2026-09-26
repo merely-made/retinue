@@ -32,7 +32,7 @@
 //! The envelope layout was read from
 //! [Prns](https://github.com/KenAKAFrosty/Prns) (`prns-core/src/identity/signed_artifact.rs`,
 //! Copyright (c) 2026 The Prns Authors, MIT OR Apache-2.0). The *vectors* this module is
-//! tested against are not: they were produced by running RNS 1.4.2's own `rnid` executable
+//! tested against are not: they were produced by running RNS 1.5.2's own `rnid` executable
 //! as a black box, which keeps them independent oracle evidence rather than
 //! donor-conformance evidence. See `crates/retinue/oracle/capture_signed_artifact.py` and
 //! `tests/fixtures/rns_signed_artifact.json`.

@@ -1,16 +1,11 @@
-"""Capture RNS 1.4.2's signed artifacts (.rsg / .rsm) as byte-exact vectors.
+"""Capture RNS 1.5.2's signed artifacts (.rsg / .rsm) as byte-exact vectors.
 
 Black-box, and deliberately at arm's length: this drives the `rnid` executable RNS ships,
 as an operator would, and reads the files it writes. Nothing here imports RNS, so the
 vectors are evidence about the shipped tool rather than about a library call we chose.
 
-Two identities are captured for each shape:
-
-  * retinue's own fixture identity (the one in tests/fixtures/manifest.json), which makes
-    these vectors independent oracle evidence like every other fixture in that directory; and
-  * the identity Prns uses in its own signed-artifact tests, which makes the same run an
-    independent check of Prns's published constants. Agreement there is worth recording
-    precisely because a donor's self-tests cannot confirm themselves.
+Two project-selected identities exercise each shape. These are test-only secrets,
+not credentials. Metadata describes Retinue rather than an external implementation.
 
 Ed25519 is deterministic, so a correct implementation reproduces these bytes exactly. That
 is the point: `hash` alone would only prove we can call SHA-256.
@@ -36,13 +31,13 @@ if not RNID.exists():  # POSIX layout
 
 # The identity every other fixture in this directory is derived from.
 RETINUE_SECRET = "f0ecbba49e783dee14ffc6c9f1e1251efa7d7629e0fa32413c5c59ec2e0f6d6c" * 2
-# The identity Prns's signed-artifact tests use: 32 bytes of 0x22 then 32 of 0x11.
-PRNS_SECRET = "22" * 32 + "11" * 32
+# A second project-selected deterministic test identity.
+SECOND_SECRET = bytes(range(64)).hex()
 
 # Ordered metadata, as (key, configobj-spec type, literal, json type tag). The spec is what
 # gives RNS's configobj reader a type to coerce to; without it every value is a string.
 METADATA = [
-    ("name", "string", "Prns", "str"),
+    ("name", "string", "Retinue fixture", "str"),
     ("version", "integer", "3", "uint"),
     ("tags", "string_list", "one, two", "str_list"),
     ("stable", "boolean", "True", "bool"),
@@ -103,10 +98,12 @@ def main() -> None:
     if not RNID.exists():
         raise SystemExit(f"rnid not found at {RNID}; create the oracle venv first")
 
+    if rnid_version() != "rnid 1.5.2":
+        raise SystemExit("capture requires pinned rnid 1.5.2")
     cases = []
     with tempfile.TemporaryDirectory() as raw:
         work = Path(raw)
-        for label, secret in (("retinue", RETINUE_SECRET), ("prns", PRNS_SECRET)):
+        for label, secret in (("retinue", RETINUE_SECRET), ("second", SECOND_SECRET)):
             identity = identity_file(work, label, secret)
             cases.append(
                 {
@@ -147,12 +144,12 @@ def main() -> None:
 
     fixture = {
         "description": (
-            "RNS 1.4.2 signed artifacts captured by driving the shipped `rnid` executable. "
+            "RNS 1.5.2 signed artifacts captured by driving the shipped `rnid` executable. "
             "artifact = ed25519_signature(64) || msgpack envelope; the signature covers the "
             "envelope, and the envelope commits to sha256(message). retinue must reproduce "
             "every artifact_hex byte for byte."
         ),
-        "source": "RNS 1.4.2 rnid, run as a subprocess; no RNS module is imported here",
+        "source": "RNS 1.5.2 rnid, run as a subprocess; no RNS module is imported here",
         "rnid_version": rnid_version(),
         "envelope_layout": {
             "hashtype": "the string sha256",

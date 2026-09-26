@@ -23,11 +23,10 @@ a description of an RNS wire format, and the vectors proving Retinue reproduces
 it were captured independently by running RNS 1.4.2's own `rnid` executable
 (`oracle/capture_signed_artifact.py`).
 
-One verbatim copy exists: `tests/signed_artifact.rs` quotes the 224-byte
-`RNS_RSG` hex constant from Prns's own tests as `PRNS_PUBLISHED_RSG`, so that
-our independently captured vector can be compared against the one Prns
-publishes. It is quoted as evidence about Prns, and it is the only place in
-this crate where Prns's text is reproduced.
+The historical test quoted Prns's 224-byte published constant. That comparison
+was retired on September 26; current captures use project-selected inputs with
+RNS 1.5.2. The original captures remain in the receipt archive and Git history.
+The attribution below remains for historical and retained material.
 
 The MIT license requires that the original copyright and permission notice be
 retained. It is reproduced in full below and applies to the derived portions
