@@ -16,6 +16,23 @@ pins linked below. This is broad enough to choose boundaries and next proofs;
 it is not a claim that every unindexed fork or future repository has been read.
 Every later candidate must repeat the licence and provenance gate.
 
+## Source-review policy update (2026-09-26)
+
+The owner permits comparative review of GPLv3 and other licensed implementations,
+subject to their particular terms. The historical readable-set and blocked-source
+categories below describe this survey's method; they no longer prohibit future
+comparative review. Record upstream revision, file references and behavioral
+findings; distinguish bugs, intentional differences, unsupported features and
+unmeasured behavior. Prefer independently written behavioral tests for findings.
+Review permission is not permission to copy or translate GPL implementation into
+MPL-only shared code. Track any adaptation separately with its source and terms.
+
+The owner also accepts the Reticulum License for future RNS review/adaptation.
+This decision does not itself import code, relicense existing files, establish
+compatibility with GPL, or change historical black-box receipts. Any actual
+adaptation needs an explicit provenance and licensing record. Source-informed
+work must not be described as strict clean-room work.
+
 ## Finding
 
 Retinue should not grow a universal mesh router. It already has the right lower

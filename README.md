@@ -5,30 +5,27 @@ radio interface layer, operator apps, and firmware that runs on my limited
 subset of hardware. Each crate has its own README with more detail, 
 but here's a generated overview.
 
-## Status (2026-08-12)
+## Status (2026-09-26)
 
-- Host crates: `retinue` (independent Reticulum protocol implementation:
-  identity, announces, links, resources, routing), `tulle` (radio interface
-  layer), `selvage` (shared PHY profiles), `sennet` (Meshtastic-compatible
-  mesh), `tucket` (MeshCore interop), `outrider` (LXMF messages, byte-exact
-  against LXMF 1.1.1), `postilion` (shared host library), and the
-  `radio-face` / `radio-hand` firmware-support crates. Published crates are
-  at 0.0.x on crates.io; MSRV 1.88, held by CI.
-- Apps: `linkboy` (inspects, plans, and flashes firmware packages over
-  serial DFU; restored a T114 from stock Meshtastic firmware 2026-08-12) and
-  `signalman` (runs a household radio from a serial port). A desktop GUI,
-  `apps/signalman-desktop`, roots its own workspace and is deliberately
-  excluded from this one.
-- Firmware images for Heltec V4 and Heltec T114 boards live in `firmware/`.
-  The T114 image gained a bounded transport profile for the channel-node
-  role on 2026-08-12 (~275 KB flash); its on-metal RF receipt is still open.
-- On-air Reticulum-over-LoRa milestones landed July 2026; interop is
-  receipt-driven against reference Reticulum (RNS 1.5.2) and Prns.
-- Validation inventory: `python validation/run.py verify` (14 suites).
+- The shared Rust protocol crates serve both host applications and firmware.
+  Retinue's recorded RNS 1.5.2 qualification covers links, requests, streams,
+  Resources and routing within the measured local-TCP scopes. Outrider's seven
+  LXMF 1.1.1 gates also passed. These are pinned receipts, not full upstream parity.
+- T114 bounded transport has an on-air receipt from August 13. September's V4
+  resident-protocol receipt covers retained state and ordinary protocol traffic;
+  full fault, memory and unattended-operation acceptance remain open.
+- Signalman desktop collected observations from identified V4 and T114 boards
+  with automatic saving disabled, and keyboard export/reload was verified on
+  September 21. Device-switch association clearing is implemented. Clipboard,
+  scrolled accessibility, physical cancellation and synchronized coverage remain open.
+- MC5 shared-radio power measurement is pending. The owner has a PPK2, currently
+  disconnected; wiring, supply isolation and measurement qualification remain open.
 
-Current plans live in `design_docs/`: close the on-metal receipts for the new
-T114 image, then build out the resident listener-executive boundary in which
-protocol modes are bounded radio leases.
+The [canonical index](design_docs/DOC_README.md) links exact receipts and open
+criteria. Historical plan queues and older README summaries are not current
+execution orders. The next comparison work is to classify behavioral differences
+against existing implementations and connect them to reproducible tests; it does
+not imply a new source adaptation or licensing change.
 
 ## Use
 

@@ -747,7 +747,11 @@ schedules and authenticated peer coverage remain later slices.
 
 ### MC5: shared-radio cost and missed-traffic measurement
 
-**Status, 2026-09-20: planned; fixture prerequisites unavailable.** Scope follows the
+**Status, 2026-09-26: planned; owner has a PPK2, currently disconnected.**
+The owner confirmed possession on September 26 and deferred connection and
+hardware work until the following day. No hardware session is scheduled by this
+note. Instrument identity, wiring, supply isolation and a measurement receipt
+remain unverified; purchasing a meter is not a prerequisite. Scope follows the
 [reception scope](2026-08-09_channel_murmuration.md#reception-scope-2026-09-13):
 this lane prices sharing one radio, it does not decide a reception default.
 

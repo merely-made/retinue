@@ -8,7 +8,17 @@ adversarial critiques (solo-dev realism, hidden blockers, value ordering).
 Roughly twenty-five asserted dependencies did not survive contact with the
 code; the important ones are listed below.
 
-## The verdict
+## Current interpretation (2026-09-26)
+
+This document preserves the August sequencing audit, not today's work queue.
+The expired funding deadline, day-zero cleanup and concurrency prescription
+must not be reapplied as current prerequisites. Use the canonical index and
+September coordination agreement for active owners and acceptance criteria.
+The August zero-production-consumer list below is historical: later signed V4
+control and resident-protocol work invalidate treating that list as a current
+blanket diagnosis. Recheck each remaining consumer claim before opening work.
+
+## The verdict (historical August audit)
 
 **Current slice annotation, 2026-09-06:** the owner requested three Sol planning
 passes and subsequent implementation by file ownership for the wall node,

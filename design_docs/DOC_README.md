@@ -18,7 +18,7 @@
    Air, Assurance, Distribution) and the shared source lock. **Its lane split
    stands; its ordering does not.**
 4. [Program sequencing and deadline order](2026-08-12_program_sequencing_and_deadline_order.md)
-   — ordering authority since 2026-08-12, built from a code-reading audit that
+   — historical August ordering audit, built from a code-reading audit that
    found roughly twenty-five of the work-lane document's asserted dependencies
    unsupported. The work-lane document's own Plan audit table has no row for
    this one; read it anyway.
@@ -74,7 +74,7 @@ their gate. `UNKNOWN` means no document states a status — it does not mean ope
 | PN0–PN8 (magnetic pocket node) | Active preparation; iOS probe builds and simulator receipt checked; NFC profile created, phone install awaits M4 signing-key access; every PN gate remains open | [Magnetic pocket-node plan](2026-09-07_magnetic_pocket_node_plan.md) |
 | HW0–HW8 (hardware family) | Planned; logical platform boundary and product priority are ruled, while every code and physical gate remains open | [Hardware-family plan](2026-09-07_radio_hand_hardware_family_plan.md) |
 | CM1 | Absorbed into LE2 | [Channel murmuration](2026-08-09_channel_murmuration.md) |
-| [Murmuration controller plan](2026-09-10_murmuration_controller_plan.md) | MC0–MC3e receipts, MC4a capacity and MC4b retained runtime; MC4c physical resident traffic, explicit loss and reset continuity. Full stack/fragmentation and fault acceptance remain open. September 20 MC5 inventory confirms the third V4, but the PPK2/calibrated power fixture is unavailable; no power measurement receipt. |
+| [Murmuration controller plan](2026-09-10_murmuration_controller_plan.md) | MC0–MC3e receipts, MC4a capacity and MC4b retained runtime; MC4c physical resident traffic, explicit loss and reset continuity. Full stack/fragmentation and fault acceptance remain open. September 26: owner confirms a PPK2, currently disconnected. September 20's non-detection was not evidence of non-ownership. Wiring, supply isolation and power qualification remain open; no power measurement receipt. |
 | [Murmuration resident build receipt](2026-09-13_murmuration_resident_receipt.json) | MC4b source/artifact hashes, host tests and actual V4 static layout; build-only, no installed or runtime memory claim. |
 | [Murmuration resident physical receipt](2026-09-13_murmuration_resident_physical_receipt.json) | MC4c exact V4 image, retained protocol traffic, home gaps, explicit loss, reset counter continuity and measured heap/stack samples; includes failed experiments and remaining physical gates. |
 | [Murmuration session receipt](2026-09-11_murmuration_session_receipt.md) | Retention, resource drain, explicit loss/fresh handshake, Sennet state and V4 return during host silence; exact-build evidence and preserved settings. |
@@ -155,8 +155,10 @@ their gate. `UNKNOWN` means no document states a status — it does not mean ope
 
 ## Known divergences
 
-Live as of 2026-08-24. Each is a place where a document, or a shipped artefact,
-disagrees with the tree.
+Historical audit as of 2026-08-24, with bounded corrections on September 26.
+The catalog and G2 entries below have not been revalidated in this refresh;
+verify their current owners and artifacts before treating them as active work.
+The root README's T114 status and the flake tool path were corrected September 26.
 
 - **The published firmware catalog is out of sync with this repository.**
   Mer3ly pins its projection to `index.toml` at `05b3795`, whose SHA-256 it
@@ -186,11 +188,6 @@ disagrees with the tree.
   `tests/accessibility.rs, 4 cases, passing`. There are five cases, and as of
   `bd71ee1` all five pass. Its supersession note covers the pin revision only,
   not this count.
-- **The root [`README.md`](../README.md)** still says the T114 image's on-metal
-  RF receipt is open; AIR3's on-air receipt landed 2026-08-13.
-- **The [flake lane](2026-08-23_live_gate_flake_lane.md)** cites
-  `scratchpad/flake_census.py`; the tool was committed to
-  `crates/retinue/oracle/flake_census.py`.
 
 ## Terminology
 
@@ -231,7 +228,7 @@ supplying data-graph and identity crates.
 | --- | --- |
 | [`DOC_POLICY.md`](DOC_POLICY.md) | Documentation governance; canonical core plus Retinue addendum. |
 | [Work lanes](2026-08-09_retinue_work_lanes.md) | Four-lane split and shared source lock. Lane split authoritative; ordering superseded. |
-| [Program sequencing](2026-08-12_program_sequencing_and_deadline_order.md) | Ordering authority since 2026-08-12. Deadline order, not dependency depth. |
+| [Program sequencing](2026-08-12_program_sequencing_and_deadline_order.md) | Historical August ordering audit. September coordination and current gate owners govern active slices. |
 | [ARDC application lane](2026-07-31_ardc_application_lane.md) | Grant lane, G0–G4. Dormant by decision 2026-08-26: Sep 1 window passed, FIVCO-facilitated funding leads, next window Feb 1, 2027. |
 | [Project prospectus](2026-08-26_project_prospectus.md) | Grant-agnostic funding prospectus compressed from the corpus; serves FIVCO-facilitated applications and any future window. Draft pending Mark's review. |
 | [Prns harvest brief](2026-08-09_prns_harvest_brief.md) | Donor and external-peer programme; H-gate catalogue. |
@@ -263,7 +260,7 @@ supplying data-graph and identity crates.
 
 | Document | What it is |
 | --- | --- |
-| [Outrider / LXMF founding](2026-07-25_outrider_lxmf_founding.md) | Gates 1–8. **Closed against pins that no longer exist** — see Known divergences. |
+| [Outrider / LXMF founding](2026-07-25_outrider_lxmf_founding.md) | Gates 1–8. Historical founding closure; seven Outrider gates were requalified against RNS 1.5.2 / LXMF 1.1.1 in the August 29 re-pin receipt. Older receipts retain their original pins. |
 | [LXMF field registry capture](2026-08-13_lxmf_field_registry_capture.md) | Field numbers confirmed by wire capture. |
 | [Direct-PHY delivery](2026-07-28_outrider_direct_phy_delivery.md) · [opportunistic direct-PHY](2026-07-28_outrider_direct_phy_opportunistic.md) · [opportunistic delivery](2026-07-28_outrider_opportunistic_delivery.md) · [large propagation response](2026-07-28_outrider_large_propagation_response.md) · [propagation persistence](2026-07-28_outrider_propagation_persistence.md) | Outrider acceptance receipts, all against LXMF 0.9.6 / RNS 1.4.2. |
 | [Outrider publish blocker](2026-08-13_outrider_publish_blocker.md) | Resolved; both crates are on crates.io. |

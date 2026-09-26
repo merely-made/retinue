@@ -59,7 +59,7 @@ sampling problem this document states so well. Rate comparison is the expensive
 instrument: separating 13% from 7% needs about 390 runs an arm. Classifying
 failures by signature is the cheap one, and it is strictly more informative --
 **seven classified failures located three distinct bugs that no number of
-counted runs would have found.** `scratchpad/flake_census.py` runs a gate n
+counted runs would have found.** `crates/retinue/oracle/flake_census.py` runs a gate n
 times, fingerprints every failure across fourteen signals, groups them into
 modes and keeps one exemplar log per mode. FLK1 and FLK2 should adopt it: a gate
 bounded under 1% by 300 clean runs is worth more when you also know the shapes

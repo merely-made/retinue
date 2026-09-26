@@ -12,6 +12,12 @@ the 2026-09-01 ARDC intake, which this one walls off as external. **Source-lock
 locations verified and corrected 2026-08-23** against the actual tree; three of
 this document's four placement claims no longer held.
 
+**Current reading, 2026-09-26:** the September coordination below and canonical
+index identify current work. The August deadline sequence and Plan audit table
+are historical inventories, not an additional queue. Comparative source review
+is now permitted under the policy update in the compatibility survey; past
+black-box receipts retain their original evidence boundaries.
+
 This document splits Retinue's remaining work without replacing the plans that
 own each gate. It exists because the Prns harvest brief exposed work in four
 different ownership domains and its ten-item order made them look needlessly

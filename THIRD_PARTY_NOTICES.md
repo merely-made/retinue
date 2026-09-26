@@ -67,7 +67,12 @@ exactly this build:
 ## Reticulum
 
 The Reticulum protocol specification and manual are public domain. The Python
-reference implementation is used strictly as a black-box interoperability
-oracle, run and observed; its source has never been read. RNS is not
-affiliated with this project. `crates/retinue/oracle/RETICULUM_LICENSE` records
+reference implementation was used as a black-box oracle for the recorded
+RNS 1.5.2 re-pin qualification. That receipt describes its precise evidence
+boundary. As of September 26, the owner permits comparative source review and
+accepts the Reticulum License for future RNS adaptations; this policy change
+itself incorporates no implementation code. Actual derivations must be recorded
+individually, with their applicable terms. See the source-review update in
+`design_docs/2026-08-25_permissive_radio_protocol_compatibility_survey.md`.
+This project is not affiliated with or endorsed by RNS. `crates/retinue/oracle/RETICULUM_LICENSE` records
 the reference implementation's terms.
