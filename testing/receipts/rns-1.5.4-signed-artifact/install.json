@@ -1,0 +1,28 @@
+{
+  "source": "pip install --no-deps --report install.json rns==1.5.4",
+  "pip_version": "26.1.2",
+  "download_info": {
+    "url": "https://files.pythonhosted.org/packages/0f/30/ed9aa31b3f03a2dd5ff376c3fcb734f8a15c59956825bf373ab73d9fc8c2/rns-1.5.4-py3-none-any.whl",
+    "archive_info": {
+      "hashes": {
+        "sha256": "862615b12d449750c0b3c451dfc2cb189fd6da1c573c477a29f36f97d2a66a19"
+      },
+      "hash": "sha256=862615b12d449750c0b3c451dfc2cb189fd6da1c573c477a29f36f97d2a66a19"
+    }
+  },
+  "name": "rns",
+  "version": "1.5.4",
+  "environment": {
+    "implementation_name": "cpython",
+    "implementation_version": "3.14.2",
+    "os_name": "nt",
+    "platform_machine": "AMD64",
+    "platform_release": "11",
+    "platform_system": "Windows",
+    "platform_version": "10.0.26220",
+    "python_full_version": "3.14.2",
+    "platform_python_implementation": "CPython",
+    "python_version": "3.14",
+    "sys_platform": "win32"
+  }
+}

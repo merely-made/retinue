@@ -1,0 +1,52 @@
+{
+  "captured_at_utc": "2026-09-27T02:28:24.6031281Z",
+  "baseline_commit": "96c562d92d94ee580c7a8bb6d213d08cf45bf790",
+  "old_fixture": "crates/retinue/tests/fixtures/rns_signed_artifact.json",
+  "old_sha256": "a8396e707316850989283077a997c6de5e8fcf839139fa139270a0457e616c69",
+  "old_rnid_version": "rnid 1.5.2",
+  "new_fixture": "crates/retinue/tests/fixtures/rns_signed_artifact_1_5_4.json",
+  "new_sha256": "1c562795c02f85322df7fa563c309ecd6c2ce3f13514c3f88360aa5140d948ab",
+  "new_rnid_version": "rnid 1.5.4",
+  "capture_driver_sha256": "10a12107e8a9313985824f2929b0b1a40310a7af8e27d84fced63c6ab54f4b9e",
+  "cases": [
+    {
+      "name": "rsg_retinue_identity",
+      "inputs_equal": true,
+      "artifact_bytes": 224,
+      "artifact_bytes_equal": true
+    },
+    {
+      "name": "rsm_retinue_identity",
+      "inputs_equal": true,
+      "artifact_bytes": 300,
+      "artifact_bytes_equal": true
+    },
+    {
+      "name": "rsm_retinue_identity_bare",
+      "inputs_equal": true,
+      "artifact_bytes": 248,
+      "artifact_bytes_equal": true
+    },
+    {
+      "name": "rsg_second_identity",
+      "inputs_equal": true,
+      "artifact_bytes": 224,
+      "artifact_bytes_equal": true
+    },
+    {
+      "name": "rsm_second_identity",
+      "inputs_equal": true,
+      "artifact_bytes": 300,
+      "artifact_bytes_equal": true
+    },
+    {
+      "name": "rsm_second_identity_bare",
+      "inputs_equal": true,
+      "artifact_bytes": 248,
+      "artifact_bytes_equal": true
+    }
+  ],
+  "old_git_blob_sha256": "5b1f3cbe3f44b0fbbde250ca5af623f6f1587ff5b60a9ff3348d15422e45a482",
+  "hash_method": "Raw file bytes at capture time; old fixture checkout uses CRLF, committed blob uses LF. New fixture and receipt disable Git newline conversion.",
+  "capture_driver_lf_sha256": "456c0c7f1d4d831d7046bb2cb25a80714c852da21285e82b9e9a1e5906b81a55"
+}

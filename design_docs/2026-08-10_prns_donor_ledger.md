@@ -135,6 +135,12 @@ compared byte-for-byte with the prior commit. No hardware was accessed. Reused
 `C:/t/cargo-targets/retinue` and `C:/t/cargo-targets/mere` remain ordinary reusable
 qualification targets; no isolated home or worktree was created.
 
+The subsequent [RNS 1.5.4 signed-artifact receipt](../testing/receipts/rns-1.5.4-signed-artifact/README.md)
+adds six fresh `rnid 1.5.4` captures using the same project inputs. All artifact
+bytes match 1.5.2; the original fixture remains byte-identical and both versions
+run through Rust reproduction/validation/rejection checks. This corroborates the
+tested format cases, not source provenance or broader 1.5.4 interoperability.
+
 ## Replacement contract (2026-09-26)
 
 The replacement host admission policy is a Retinue-owned scheduling choice,

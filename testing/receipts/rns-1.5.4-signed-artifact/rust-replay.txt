@@ -1,0 +1,11 @@
+   Compiling retinue v0.1.1 (C:\Users\mark_\Code\repos\retinue\crates\retinue)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.78s
+     Running tests\signed_artifact.rs (C:\t\cargo-targets\retinue\debug\deps\signed_artifact-e7b259c9f88ff359.exe)
+
+running 3 tests
+test every_captured_artifact_is_reproduced_byte_for_byte ... ok
+test a_captured_artifact_refuses_the_wrong_message_and_the_wrong_signer ... ok
+test every_captured_artifact_validates_and_says_what_rns_put_in_it ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+

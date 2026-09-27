@@ -1,28 +1,22 @@
 # The oracle
 
 The Python reference implementation of Reticulum, used as a **black-box interoperability
-oracle**: we run it, drive it through its public API, and record the bytes it produces. We
-never read its source.
+oracle**: we run it, drive it through its public API or shipped executables, and record
+the bytes it produces. Each receipt identifies its version and observation method.
 
-That discipline is not squeamishness. Two reasons:
+Earlier wording said RNS source had never been read and prohibited reading it. On
+September 26 the owner reported the first limited comparative source review, with no
+RNS implementation code copied or translated. Comparative review is now the authorized
+scope; adaptation remains a separate decision. Historical black-box receipts retain
+their original evidence boundary. The signed-artifact driver invokes `rnid` and reads
+its output files; it does not import RNS or translate its implementation.
 
-1. **Licensing.** RNS is under the Reticulum License, reproduced verbatim in
-   [`RETICULUM_LICENSE`](RETICULUM_LICENSE) beside this file — a modified MIT whose added
-   clauses (no harmful systems, no AI training datasets) must not attach to retinue's own
-   code, because retinue is MPL-2.0 and published as such, and a use restriction cannot ride
-   on MPL-2.0 code. The clean-room boundary is what keeps that true: retinue is derived from
-   the public-domain protocol specification, from the MIT-licensed Beechat `reticulum`
-   crate, and from bytes observed on the wire. Nothing else. The license's terms are
-   honored for what this directory *does* use RNS for — local black-box interoperability
-   testing, never redistributed from here.
-2. **It keeps us honest.** Reading an implementation invites copying its bugs and its
-   accidents. Observing its output forces every question to be answered by what actually
-   goes on the wire. This paid for itself immediately: Beechat, the readable Rust
-   implementation, turns out to be wrong in two places that only wire observation could
-   have caught (see below).
-
-Reading RNS source is therefore forbidden. Running it, calling its documented API,
-inspecting its public constants at runtime, and reading its output are all fine.
+RNS's license is reproduced in [`RETICULUM_LICENSE`](RETICULUM_LICENSE) as acknowledgment
+of the reference implementation. Its inclusion does not add use restrictions to
+independently authored MPL-2.0 code. Historical Prns influence and unresolved provenance
+are recorded in the [donor ledger](../../../design_docs/2026-08-10_prns_donor_ledger.md);
+observed byte compatibility does not establish authorship or license clearance. See
+the [third-party notices](../../../THIRD_PARTY_NOTICES.md) for the current scope.
 
 The same implementation boundary applies to `source-derived-peer` projects named by the
 permissive compatibility survey: their released behavior may motivate and serve a
@@ -41,6 +35,12 @@ py -m venv .venv
 `requirements.txt` pins `rns==1.5.2`, Retinue's current compatibility target, and
 `lxmf==1.1.1`, which the Outrider oracle drives. Re-pin deliberately, not on every upstream
 release.
+
+The separate [September 26 signed-artifact receipt](../../../testing/receipts/rns-1.5.4-signed-artifact/README.md)
+qualifies six project-input cases against `rnid 1.5.4`. All match the retained 1.5.2
+captures byte for byte; Rust replay covers both fixture files. This does not re-pin
+the broader live suite or establish 1.5.4 transport/radio compatibility. The capture
+environment was restored to 1.5.2 after that run.
 
 Re-pinned 2026-08-29 from RNS 1.5.0 to 1.5.2 while holding LXMF at 1.1.1. One complete
 stock-RNS live suite passed 12/12; four Resource-sensitive gates passed 12/12 across three

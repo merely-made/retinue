@@ -28,7 +28,9 @@ Prns Authors.
 - **Historical signed-artifact tests** quoted a 224-byte Prns constant.
   That comparison and donor-specific active fixture inputs were retired on
   September 26. Old captures remain in `testing/receipts/prns-retirement`;
-  current captures use project-selected inputs and pinned RNS 1.5.2.
+  current captures use project-selected inputs and separately identified RNS 1.5.2
+  and 1.5.4 runs. The [1.5.4 receipt](testing/receipts/rns-1.5.4-signed-artifact/README.md)
+  preserves the version comparison without changing the historical provenance.
 - **`validation/`, `fuzz/`** — the validation registry, evidence discipline,
   tier split, unsafe-policy audit shape, and whole-ingest fuzzing shape were
   reimplemented from Prns's validation hub. Measured line overlap with the

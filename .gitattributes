@@ -53,3 +53,8 @@ crates/tinyssb-core/fixtures/** -text
 
 # Retired release evidence retains exact signed bytes.
 testing/receipts/prns-retirement/** -text
+
+# Preserve the new capture and its receipt bytes across checkout platforms.
+crates/retinue/tests/fixtures/rns_signed_artifact_1_5_4.json -text whitespace=cr-at-eol
+testing/receipts/rns-1.5.4-signed-artifact/** -text whitespace=cr-at-eol,-blank-at-eof
+crates/retinue/oracle/capture_signed_artifact.py text eol=lf

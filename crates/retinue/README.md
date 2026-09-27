@@ -23,8 +23,10 @@ its own budget. See the repository's
 
 The layers below have recorded black-box RNS checks. Limited source review
 began later; each historical receipt retains its own evidence boundary. The committed byte fixtures under [`tests/fixtures/`](tests/fixtures/)
-retain their observed RNS 1.3.8 provenance; the live mixed-runtime gates pass
-against the current RNS 1.5.2 pin:
+retain their recorded producer versions, including the historical RNS 1.3.8 corpus.
+Signed-artifact fixtures separately cover 1.5.2 and 1.5.4; see the
+[six-case comparison receipt](../../testing/receipts/rns-1.5.4-signed-artifact/README.md).
+The live mixed-runtime gates remain qualified against the RNS 1.5.2 pin:
 
 - **Wire vocabulary** — identities, hashes, destination naming, the packet
   codec, announces, identity and ratchet tokens, and caller-persisted receive

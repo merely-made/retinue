@@ -1,4 +1,4 @@
-//! Replay of RNS 1.5.2's signed artifacts, captured from the shipped `rnid` executable.
+//! Replay of RNS 1.5.2 and 1.5.4 signed artifacts from the shipped `rnid` executable.
 //!
 //! This is the evidence behind ASSURE3. The claim being tested is narrow and worth stating
 //! exactly: given the same identity, message, and metadata, retinue emits the *same bytes*
@@ -6,8 +6,9 @@
 //! reachable and anything less would be a weaker claim dressed up as a passing test.
 //!
 //! Regenerate with
-//! `oracle/.venv/Scripts/python.exe -u oracle/capture_signed_artifact.py`. The fixture is
-//! committed, so this suite needs no Python.
+//! `oracle/.venv/Scripts/python.exe -u oracle/capture_signed_artifact.py`, adding
+//! `--rns-version 1.5.4` for that version's separate fixture. The matching tool must be
+//! installed. Both fixtures are committed, so this suite needs no Python.
 
 use retinue::artifact::{self, Error};
 use retinue::hash::AddressHash;
@@ -24,14 +25,25 @@ struct Case {
 }
 
 fn cases() -> Vec<Case> {
-    let path = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/tests/fixtures/rns_signed_artifact.json"
-    );
+    [
+        ("1.5.2", "rns_signed_artifact.json"),
+        ("1.5.4", "rns_signed_artifact_1_5_4.json"),
+    ]
+    .into_iter()
+    .flat_map(|(version, filename)| fixture_cases(version, filename))
+    .collect()
+}
+
+fn fixture_cases(version: &str, filename: &str) -> Vec<Case> {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(filename);
     let raw = std::fs::read_to_string(path).unwrap_or_else(|e| {
         panic!("missing signed-artifact fixture: {e}. Run oracle/capture_signed_artifact.py.")
     });
     let fixture: serde_json::Value = serde_json::from_str(&raw).expect("fixture is json");
+    assert_eq!(fixture["rnid_version"], format!("rnid {version}"));
+    assert_eq!(fixture["cases"].as_array().expect("cases array").len(), 6);
 
     fixture["cases"]
         .as_array()
@@ -42,7 +54,7 @@ fn cases() -> Vec<Case> {
             hex::decode_to_slice(case["secret_hex"].as_str().expect("secret"), &mut secret)
                 .expect("valid hex secret");
             Case {
-                name: case["name"].as_str().expect("name").to_string(),
+                name: format!("RNS {version}: {}", case["name"].as_str().expect("name")),
                 secret,
                 message: case["message_utf8"]
                     .as_str()

@@ -1,4 +1,4 @@
-"""Capture RNS 1.5.2's signed artifacts (.rsg / .rsm) as byte-exact vectors.
+"""Capture pinned RNS signed artifacts (.rsg / .rsm) as byte-exact vectors.
 
 Black-box, and deliberately at arm's length: this drives the `rnid` executable RNS ships,
 as an operator would, and reads the files it writes. Nothing here imports RNS, so the
@@ -10,13 +10,15 @@ not credentials. Metadata describes Retinue rather than an external implementati
 Ed25519 is deterministic, so a correct implementation reproduces these bytes exactly. That
 is the point: `hash` alone would only prove we can call SHA-256.
 
-Writes ../tests/fixtures/rns_signed_artifact.json.
+Preserves separate fixture files for 1.5.2 and 1.5.4.
 
     ./.venv/Scripts/python.exe -u capture_signed_artifact.py
+    ./.venv/Scripts/python.exe -u capture_signed_artifact.py --rns-version 1.5.4
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import subprocess
 import sys
@@ -95,11 +97,15 @@ def capture_rsm(work: Path, identity: Path, message: bytes, with_metadata: bool)
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--rns-version", choices=("1.5.2", "1.5.4"), default="1.5.2")
+    version = parser.parse_args().rns_version
     if not RNID.exists():
         raise SystemExit(f"rnid not found at {RNID}; create the oracle venv first")
 
-    if rnid_version() != "rnid 1.5.2":
-        raise SystemExit("capture requires pinned rnid 1.5.2")
+    observed_version = rnid_version()
+    if observed_version != f"rnid {version}":
+        raise SystemExit(f"capture requires pinned rnid {version}; found {observed_version}")
     cases = []
     with tempfile.TemporaryDirectory() as raw:
         work = Path(raw)
@@ -144,13 +150,13 @@ def main() -> None:
 
     fixture = {
         "description": (
-            "RNS 1.5.2 signed artifacts captured by driving the shipped `rnid` executable. "
+            f"RNS {version} signed artifacts captured by driving the shipped `rnid` executable. "
             "artifact = ed25519_signature(64) || msgpack envelope; the signature covers the "
             "envelope, and the envelope commits to sha256(message). retinue must reproduce "
             "every artifact_hex byte for byte."
         ),
-        "source": "RNS 1.5.2 rnid, run as a subprocess; no RNS module is imported here",
-        "rnid_version": rnid_version(),
+        "source": f"RNS {version} rnid, run as a subprocess; no RNS module is imported here",
+        "rnid_version": observed_version,
         "envelope_layout": {
             "hashtype": "the string sha256",
             "hash": "sha256(message), 32 bytes",
@@ -166,7 +172,8 @@ def main() -> None:
         "cases": cases,
     }
 
-    out = FIXTURES / "rns_signed_artifact.json"
+    filename = "rns_signed_artifact.json" if version == "1.5.2" else "rns_signed_artifact_1_5_4.json"
+    out = FIXTURES / filename
     out.write_text(json.dumps(fixture, indent=2) + "\n")
     print(f"wrote {out} with {len(cases)} cases", file=sys.stderr)
     for case in cases:

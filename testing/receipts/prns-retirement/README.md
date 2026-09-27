@@ -7,7 +7,8 @@ retirement from catalogs is not a claim of complete binary removal.
 
 `rns_signed_artifact_legacy.json` preserves the six prior rnid 1.4.2 captures,
 including donor-selected inputs. Active fixtures now use project-selected
-identities and metadata, captured through rnid 1.5.2. The copied Prns comparison
+identities and metadata, captured through rnid 1.5.2 and separately requalified
+against [1.5.4](../rns-1.5.4-signed-artifact/README.md). The copied Prns comparison
 constant is retained only in Git history.
 
 The Hopspot manifest's relative payload paths still resolve here. Its publisher
