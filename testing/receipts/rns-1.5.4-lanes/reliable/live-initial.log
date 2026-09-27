@@ -1,0 +1,9 @@
+RNS 1.5.4
+Traceback (most recent call last):
+  File "C:\Users\mark_\Code\repos\retinue\crates\retinue\oracle\interop_reliable_stream.py", line 237, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "C:\Users\mark_\Code\repos\retinue\crates\retinue\oracle\interop_reliable_stream.py", line 82, in main
+    raise RuntimeError(f"Retinue exited before listening: {proc.returncode}")
+RuntimeError: Retinue exited before listening: 1
+INCOMPLETE: cargo run remained before listener while unrelated workspace Cargo held the global package-cache lock. Agent terminated only its own cargo process tree (PIDs 44016, 52028) and changed runner to execute a prebuilt binary. No protocol verdict.

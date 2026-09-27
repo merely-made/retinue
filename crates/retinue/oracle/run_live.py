@@ -21,6 +21,7 @@ GATES = (
     "interop_link_responder.py",
     "interop_reqresp.py",
     "interop_endpoint_stream.py",
+    "interop_reliable_stream.py",
     "interop_resource_recv.py",
     "interop_resource_send.py",
     "interop_send_large.py",

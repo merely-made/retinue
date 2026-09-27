@@ -541,6 +541,29 @@ impl StreamFrame {
 /// one link data packet after the envelope and stream headers.
 pub const DEFAULT_CHUNK: usize = MAX_DATA_LEN;
 
+/// Default maximum decoded bytes in one compressed stream frame. This is separate
+/// from `READ_BYTES`, which only bounds the ready-to-read queue.
+pub const DEFAULT_DECODED_FRAME_LIMIT: usize = 65_536;
+
+/// A terminal stream receive failure. Once set, the buffer delivers only bytes
+/// decoded before the bad frame and never reports a clean receive EOF.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StreamDecodeError {
+    /// This build has no bz2 decoder.
+    UnsupportedCompression,
+    /// The bz2 data is malformed.
+    InvalidCompression,
+    /// Decoded bytes exceeded the configured per-frame output ceiling.
+    DecodedFrameLimitExceeded { limit: usize },
+}
+
+/// Invalid decoded-frame configuration.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StreamDecodeLimitError {
+    /// The limit must be positive and leave room for one sentinel byte.
+    InvalidLimit,
+}
+
 /// A byte stream over a reliable [`Channel`], RNS `Buffer`-wire-compatible. Each write
 /// chunk is a [`StreamFrame`] (stream id + eof + data) carried in a [`Channel`] envelope
 /// under [`STREAM_MSGTYPE`]; [`read`](Self::read) concatenates delivered frames' data in
@@ -556,8 +579,8 @@ pub const DEFAULT_CHUNK: usize = MAX_DATA_LEN;
 /// peer's eof.
 ///
 /// Retinue does not compress sent frames. With the `compression` feature, received
-/// compressed frames are decoded before delivery; without it, or when decoding fails,
-/// [`had_unsupported_frame`](Self::had_unsupported_frame) reports the dropped frame.
+/// compressed frames are decoded before delivery. Decode failure is terminal and
+/// reported by [`receive_error`](Self::receive_error); it is never a healthy EOF.
 pub struct Buffer<
     const WINDOW: usize = 64,
     const QUEUE: usize = 256,
@@ -580,7 +603,8 @@ pub struct Buffer<
     /// decoded frame; `READ_BYTES` bounds the ready-to-read queue, not that allocation.
     pending_frame: Option<(Vec<u8>, usize)>,
     recv_eof: bool,
-    saw_unsupported: bool,
+    decoded_frame_limit: usize,
+    receive_error: Option<StreamDecodeError>,
 }
 
 impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize, const READ_BYTES: usize> Default
@@ -646,8 +670,26 @@ impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize, const READ_B
             read_buf: VecDeque::new(),
             pending_frame: None,
             recv_eof: false,
-            saw_unsupported: false,
+            decoded_frame_limit: DEFAULT_DECODED_FRAME_LIMIT,
+            receive_error: None,
         }
+    }
+
+    /// Set the decoded output ceiling for each compressed frame. Uncompressed
+    /// frames are already bounded by the link packet and retain their prior behavior.
+    /// `limit + 1` bytes are reserved for output and oversize detection; bz2's
+    /// decoder workspace is additional. Configure before receiving packets.
+    pub fn set_decoded_frame_limit(&mut self, limit: usize) -> Result<(), StreamDecodeLimitError> {
+        if limit == 0 || limit >= isize::MAX as usize {
+            return Err(StreamDecodeLimitError::InvalidLimit);
+        }
+        self.decoded_frame_limit = limit;
+        Ok(())
+    }
+
+    /// The active per-frame decoded output ceiling.
+    pub fn decoded_frame_limit(&self) -> usize {
+        self.decoded_frame_limit
     }
 
     /// Queue bytes for reliable, in-order delivery, chunked into [`StreamFrame`]s.
@@ -703,24 +745,37 @@ impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize, const READ_B
         self.read_buf.drain(..).collect()
     }
 
-    /// Recover a compressed stream frame, or `None` if it cannot be recovered here.
+    /// Recover a compressed stream frame within the configured output ceiling.
     ///
     /// Without the `compression` feature there is no bz2 decoder linked, so the honest
     /// answer is that these bytes are unreadable by this build. RNS compresses only when it
     /// shrinks the payload, so a peer that never compresses never reaches this at all.
-    fn decompressed(data: &[u8]) -> Option<Vec<u8>> {
+    fn decompressed(&self, data: &[u8]) -> Result<Vec<u8>, StreamDecodeError> {
         #[cfg(feature = "compression")]
         {
-            crate::resource::decompress(data).ok()
+            crate::resource::decompress_bounded(data, self.decoded_frame_limit).map_err(|e| match e
+            {
+                crate::resource::BoundedDecompressError::InvalidData => {
+                    StreamDecodeError::InvalidCompression
+                }
+                crate::resource::BoundedDecompressError::LimitExceeded => {
+                    StreamDecodeError::DecodedFrameLimitExceeded {
+                        limit: self.decoded_frame_limit,
+                    }
+                }
+            })
         }
         #[cfg(not(feature = "compression"))]
         {
             let _ = data;
-            None
+            Err(StreamDecodeError::UnsupportedCompression)
         }
     }
 
     fn fill(&mut self) {
+        if self.receive_error.is_some() {
+            return;
+        }
         // Stop draining once the reader is this far behind. At most one decoded frame
         // waits outside read_buf; later frames stay in the channel's bounded inbox.
         while self.read_buf.len() < READ_BYTES {
@@ -751,13 +806,11 @@ impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize, const READ_B
                 // the flag that recorded it. The crate has always been able to decompress
                 // (`resource::decompress`, the same bz2 pass a compressed resource takes);
                 // this path simply never called it.
-                match Self::decompressed(&frame.data) {
-                    Some(data) => Some(data),
-                    // Kept as a flag rather than a panic, but it now means what it says:
-                    // bytes that could not be recovered, not bytes we declined to try.
-                    None => {
-                        self.saw_unsupported = true;
-                        None
+                match self.decompressed(&frame.data) {
+                    Ok(data) => Some(data),
+                    Err(error) => {
+                        self.receive_error = Some(error);
+                        break;
                     }
                 }
             } else {
@@ -775,14 +828,24 @@ impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize, const READ_B
     /// Whether the peer's eof frame has arrived and all earlier bytes have been read.
     pub fn recv_finished(&mut self) -> bool {
         self.fill();
-        self.recv_eof && self.read_buf.is_empty() && self.pending_frame.is_none()
+        self.receive_error.is_none()
+            && self.recv_eof
+            && self.read_buf.is_empty()
+            && self.pending_frame.is_none()
     }
 
-    /// Whether a frame arrived that this buffer could not decode (a compressed frame
-    /// without the `compression` feature, or invalid bz2). Its bytes were dropped
-    /// rather than corrupting the stream.
+    /// The sticky terminal receive error, if any. Calling this decodes ready frames
+    /// up to the read buffer bound. A packet may have been proved at Channel admission
+    /// before an earlier queued frame reaches this decoder; callers must treat this
+    /// error as a failed link and must not present a healthy EOF.
+    pub fn receive_error(&mut self) -> Option<StreamDecodeError> {
+        self.fill();
+        self.receive_error
+    }
+
+    /// Compatibility flag for callers using the previous diagnostic API.
     pub fn had_unsupported_frame(&self) -> bool {
-        self.saw_unsupported
+        self.receive_error.is_some()
     }
 
     /// Envelopes to put on the wire now — see [`Channel::poll_transmit`].
@@ -794,6 +857,9 @@ impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize, const READ_B
     /// should prove the packet (`false` when the reorder buffer is full).
     #[must_use]
     pub fn handle(&mut self, envelope: Envelope) -> bool {
+        if self.receive_error.is_some() {
+            return false;
+        }
         self.channel.handle(envelope)
     }
 
@@ -1305,7 +1371,7 @@ mod tests {
     }
 
     #[test]
-    fn an_undecodable_compressed_frame_is_flagged_not_spliced() {
+    fn an_undecodable_compressed_frame_is_terminal_after_the_prefix() {
         // Bytes flagged compressed that are not valid bz2 cannot be recovered. They must be
         // surfaced, never spliced into the stream as if they were data.
         let mut r: Buffer = Buffer::with_streams(Channel::new(STREAM_MSGTYPE), 8, 0, 0);
@@ -1348,13 +1414,21 @@ mod tests {
         );
         assert_eq!(
             r.read_available(),
-            vec![1, 2, 3],
-            "unrecoverable bytes dropped, not appended"
+            vec![1, 2],
+            "only the prefix before the bad frame is delivered"
         );
-        assert!(
-            r.had_unsupported_frame(),
-            "the unrecoverable frame was surfaced"
+        #[cfg(feature = "compression")]
+        assert_eq!(
+            r.receive_error(),
+            Some(super::StreamDecodeError::InvalidCompression)
         );
+        #[cfg(not(feature = "compression"))]
+        assert_eq!(
+            r.receive_error(),
+            Some(super::StreamDecodeError::UnsupportedCompression)
+        );
+        assert!(!r.recv_finished(), "failure is not healthy EOF");
+        assert!(r.read_available().is_empty(), "later bytes stay blocked");
     }
 
     #[test]
@@ -1508,6 +1582,76 @@ mod tests {
         );
         assert!(r.recv_finished());
         assert!(!r.had_unsupported_frame());
+    }
+
+    #[cfg(feature = "compression")]
+    #[test]
+    fn oversized_compressed_frame_stops_before_eof_and_bounds_output_allocation() {
+        type SmallBuffer = Buffer<64, 256, 256, 8>;
+        let mut r = SmallBuffer::new();
+        assert_eq!(
+            r.set_decoded_frame_limit(0),
+            Err(super::StreamDecodeLimitError::InvalidLimit)
+        );
+        assert_eq!(
+            r.set_decoded_frame_limit(usize::MAX),
+            Err(super::StreamDecodeLimitError::InvalidLimit)
+        );
+        r.set_decoded_frame_limit(32).unwrap();
+        let expanded = vec![b'x'; 100_000];
+        let compressed = crate::resource::compress(&expanded);
+        assert!(
+            compressed.len() < 200,
+            "small wire frame expands far past the ceiling"
+        );
+        let err = crate::resource::decompress_bounded(&compressed, 32).unwrap_err();
+        assert_eq!(err, crate::resource::BoundedDecompressError::LimitExceeded);
+        let exact =
+            crate::resource::decompress_bounded(&crate::resource::compress(&expanded[..32]), 32)
+                .unwrap();
+        assert_eq!(exact.len(), 32);
+        assert_eq!(
+            exact.capacity(),
+            33,
+            "owned output allocation includes one sentinel byte"
+        );
+
+        for (sequence, frame) in [
+            StreamFrame {
+                stream_id: 0,
+                eof: false,
+                compressed: false,
+                data: vec![1, 2],
+            },
+            StreamFrame {
+                stream_id: 0,
+                eof: true,
+                compressed: true,
+                data: compressed,
+            },
+            StreamFrame {
+                stream_id: 0,
+                eof: true,
+                compressed: false,
+                data: vec![3],
+            },
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            assert!(r.handle(Envelope {
+                msgtype: STREAM_MSGTYPE,
+                sequence: sequence as u16,
+                payload: frame.encode()
+            }));
+        }
+        assert_eq!(r.read_available(), vec![1, 2]);
+        assert_eq!(
+            r.receive_error(),
+            Some(super::StreamDecodeError::DecodedFrameLimitExceeded { limit: 32 })
+        );
+        assert!(!r.recv_finished());
+        assert!(r.read_available().is_empty());
     }
 
     #[cfg(feature = "compression")]

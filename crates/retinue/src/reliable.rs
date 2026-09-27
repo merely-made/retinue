@@ -232,15 +232,24 @@ impl<
     /// Feed an inbound channel data packet: decrypt and order its envelope, and return the
     /// PROOF to send back — the ack. A duplicate is still proved (the peer retransmitted
     /// because our earlier proof did not arrive); [`Buffer`] drops the duplicate payload.
-    /// Returns `None` only if the packet does not decrypt or carries no valid envelope.
+    /// Returns `None` for invalid packets, backpressure, or a terminal receive
+    /// decode error. A prior queued packet may already have been proved before
+    /// its decode failure becomes visible; callers must inspect [`Self::receive_error`].
     pub fn on_data_packet(&mut self, packet: &Packet) -> Option<Packet> {
         let plaintext = self.link.decrypt(packet).ok()?;
         let envelope = Envelope::decode(&plaintext)?;
         // Prove only what we could accept. When the reorder buffer is full, `handle` returns
         // false: we withhold the proof so the sender retransmits later, rather than proving a
         // frame we dropped (which would lose it) — this is what bounds the reorder buffer.
+        if !self.buffer.handle(envelope) {
+            return None;
+        }
+        // Admission can precede decoding when earlier bytes fill the read queue.
+        // Suppress the proof whenever the terminal failure is already discoverable
+        // here; any previously admitted packet may already have been proved.
         self.buffer
-            .handle(envelope)
+            .receive_error()
+            .is_none()
             .then(|| self.link.data_proof(packet, &self.prover))
     }
 
@@ -277,6 +286,20 @@ impl<
     /// Repeat until empty to drain an expanded compressed frame.
     pub fn read(&mut self) -> Vec<u8> {
         self.buffer.read_available()
+    }
+
+    /// Sticky terminal receive error, including an oversized compressed frame.
+    /// Previously decoded bytes remain readable; receive EOF stays false.
+    pub fn receive_error(&mut self) -> Option<crate::channel::StreamDecodeError> {
+        self.buffer.receive_error()
+    }
+
+    /// Configure the per-frame decoded output ceiling before receiving data.
+    pub fn set_decoded_frame_limit(
+        &mut self,
+        limit: usize,
+    ) -> Result<(), crate::channel::StreamDecodeLimitError> {
+        self.buffer.set_decoded_frame_limit(limit)
     }
 
     /// Whether the peer signalled end-of-stream and all received bytes were read.
@@ -369,6 +392,79 @@ mod tests {
     /// type, so the small profile is named once, in `capacity`.
     fn small_pair() -> (SmallReliableChannel, SmallReliableChannel) {
         pair_bounded(None)
+    }
+
+    #[cfg(feature = "compression")]
+    #[test]
+    fn queued_oversize_can_be_proved_before_decode_but_never_looks_healthy() {
+        use crate::channel::{Envelope, STREAM_MSGTYPE, StreamDecodeError, StreamFrame};
+
+        let (client, mut server) = pair_bounded::<64, 64, 256, 256, 8>(None);
+        server.set_decoded_frame_limit(32).unwrap();
+        let packet = |sequence: u16, frame: StreamFrame| {
+            client.link.sealed_packet(
+                CTX_CHANNEL,
+                &Envelope {
+                    msgtype: STREAM_MSGTYPE,
+                    sequence,
+                    payload: frame.encode(),
+                }
+                .encode(),
+                &[sequence as u8 + 1; IV_LEN],
+            )
+        };
+
+        let prefix = packet(
+            0,
+            StreamFrame {
+                stream_id: 0,
+                eof: false,
+                compressed: false,
+                data: b"12345678".to_vec(),
+            },
+        );
+        assert!(server.on_data_packet(&prefix).is_some());
+        let oversized = packet(
+            1,
+            StreamFrame {
+                stream_id: 0,
+                eof: true,
+                compressed: true,
+                data: crate::resource::compress(&alloc::vec![b'x'; 100_000]),
+            },
+        );
+        assert!(
+            server.on_data_packet(&oversized).is_some(),
+            "the earlier full read queue defers decoding, so admission proves this frame"
+        );
+        assert_eq!(server.receive_error(), None);
+        assert_eq!(server.read(), b"12345678");
+        assert_eq!(
+            server.receive_error(),
+            Some(StreamDecodeError::DecodedFrameLimitExceeded { limit: 32 })
+        );
+        assert!(
+            !server.recv_finished(),
+            "the bad EOF cannot become a healthy EOF"
+        );
+
+        let later = packet(
+            2,
+            StreamFrame {
+                stream_id: 0,
+                eof: true,
+                compressed: false,
+                data: b"lost".to_vec(),
+            },
+        );
+        assert!(
+            server.on_data_packet(&later).is_none(),
+            "terminal failure stops later proofs"
+        );
+        assert!(
+            server.read().is_empty(),
+            "later bytes do not reach the caller"
+        );
     }
 
     fn counting_iv(counter: &mut u64) -> impl FnMut() -> [u8; IV_LEN] + '_ {

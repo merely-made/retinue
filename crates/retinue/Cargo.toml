@@ -78,6 +78,10 @@ name = "endpoint_stream"
 required-features = ["tokio"]
 
 [[example]]
+name = "reliable_stream_oracle"
+required-features = ["tokio"]
+
+[[example]]
 name = "gemini_over_reticulum"
 required-features = ["tokio"]
 

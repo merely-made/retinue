@@ -250,6 +250,9 @@ supplying data-graph and identity crates.
 Current execution: [wire compatibility plan](2026-09-27_wire_compatibility_plan.md)
 qualifies RNS 1.5.4 and audits host/core/firmware ownership. Current promotion
 status and residual gates are recorded there; historical receipts keep their pins.
+Phase 3 has software receipts for topology, bounded decoding and the stock
+reliable peer. Firmware IFAC additionally requires both carrier shells and
+explicit MTU reservation; total decoder peak allocation remains unmeasured.
 
 | Document | What it is |
 | --- | --- |
@@ -258,6 +261,7 @@ status and residual gates are recorded there; historical receipts keep their pin
 | [RNS wire format reference](2026-07-13_rns_wire_format_reference.md) | Wire reference. Historical byte-fixture corpus is pinned at RNS 1.3.8; current announce and route probes use RNS 1.5.4. |
 | [Announce timebase plan](2026-08-25_announce_timebase_plan.md) | Active phased plan for the 5+5 announce blob, persistent stock-RNS decision probes, bounded receive freshness, and crash-monotonic firmware reservations. |
 | [RNS 1.5.4 repin receipt](../testing/receipts/rns-1.5.4-repin/README.md) | Current live oracle: Retinue, LXMF 1.1.1, repeated Resources, timebase and route decisions. Separate host/core boundary repair tests; physical scope remains historical. |
+| [RNS 1.5.4 compatibility lanes](../testing/receipts/rns-1.5.4-lanes/README.md) | Software receipts for topology-specific announce relay, decoded-output limits and stock Channel/Buffer traffic with compressed EOF. Firmware IFAC, total decoder memory and physical acceptance remain open. |
 | [Re-pin receipt, RNS 1.5.2 / LXMF 1.1.1](2026-08-29_rns_152_repin_receipt.md) | Historical pin. Preserves upstream delta, fixture boundary, Resource stress, Outrider, route-freshness and the withdrawn Prns peer matrix. |
 | [RNS 1.5.4 signed-artifact receipt](../testing/receipts/rns-1.5.4-signed-artifact/README.md) | Historical first 1.5.4 slice: six CLI captures match retained 1.5.2 bytes. Rust replay covers both versions. Broader qualification followed in the repin receipt; provenance uncertainty remains. |
 | [Historical re-pin receipt, RNS 1.5.0 / LXMF 1.1.1](2026-08-23_rns_150_lxmf_111_repin_receipt.md) | Superseded pin receipt. Records the earlier flake finding and one Outrider defect fixed. |

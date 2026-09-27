@@ -147,9 +147,14 @@ is a silent, total wire incompatibility.
 ./.venv/Scripts/python.exe -u run_live.py
 ```
 
-This runs all twelve live gates in isolated processes: open and IFAC-authenticated
+Prebuild the examples with `cargo build -p retinue --examples --locked --offline -j 2`
+and set `CARGO_TARGET_DIR` to that build's target directory. The reliable-stream
+driver launches the prebuilt example directly, keeping compiler/cache waits out
+of its network timeout.
+
+This runs all thirteen live gates in isolated processes: open and IFAC-authenticated
 announce, path resolution, links in
-both roles, request/response, endpoint streaming, Resources in both directions (including
+both roles, request/response, raw and reliable Endpoint streaming, Resources in both directions (including
 the 2.5 MB segmented cases), and transport routing. `interop_r1.py` is the first gate. It
 starts retinue (`examples/interop_tcp.rs`), points a real RNS `TCPClientInterface` at it,
 and checks **both** directions:
@@ -163,6 +168,19 @@ same socket.
 `interop_ifac.py` repeats that receipt over a named, passphrase-protected
 interface. RNS accepts Retinue's authenticated announce and Retinue unmasks,
 verifies, and validates RNS's announce on the same connection.
+
+`interop_reliable_stream.py` uses two links: ordinary RNS Buffer reads/writes,
+then a public RNS Channel message carrying compressed data and EOF together.
+Each direction must deliver the exact bytes and EOF, and the Retinue process
+must exit successfully. The [phase 3 receipt](../../../testing/receipts/rns-1.5.4-lanes/README.md)
+records these observations, including initial harness teardown errors.
+
+Reliable streams default to a 65,536-byte decoded compressed-frame ceiling.
+Call `Endpoint::set_reliable_decoded_frame_limit` before peers establish new
+links, or configure `ReliableChannel`/`Buffer` directly. Invalid, unsupported
+or oversized compressed input is terminal: the host returns `InvalidData` after
+the valid prefix. The output vector reserves the limit plus one sentinel byte;
+decoder workspace and the separately bounded read queue are additional memory.
 
 Either direction failing means we are not wire-compatible, whatever the unit tests say.
 This is a **local gate**, not CI: CI replays the committed fixtures instead.

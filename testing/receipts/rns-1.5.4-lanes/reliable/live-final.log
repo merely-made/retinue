@@ -1,0 +1,29 @@
+RNS 1.5.4
+Retinue binary: C:\t\cargo-targets\retinue\debug\examples\reliable_stream_oracle.exe
+  [retinue] LISTENING 53447
+waiting for reliable link and Buffer exchange...
+  RNS sent stream frame {'mode': 'buffer', 'eof': False, 'compressed': True, 'data_bytes': 66}
+  RNS sent stream frame {'mode': 'buffer', 'eof': True, 'compressed': False, 'data_bytes': 0}
+  RNS Buffer writer closed
+  [retinue] WAITING_LINK 0
+  [retinue] LINK 0 c400fb5358a97854a568f5f1115de66e
+  [retinue] READ_EOF 0 339
+  [retinue] RECV_OK 0
+  [retinue] SENT_EOF 0 663
+  [retinue] WAITING_LINK 1
+  RNS buffer read 663 reply bytes, EOF=True
+  [retinue] LINK 1 8fb4af9cf3d95aeb8a8d8dea94cdc1c1
+  RNS sent stream frame {'mode': 'combined', 'eof': True, 'compressed': True, 'data_bytes': 73}
+  RNS public Channel sent compressed EOF frame
+  [retinue] READ_EOF 1 8209
+  [retinue] RECV_OK 1
+  [retinue] SENT_EOF 1 22
+  RNS combined read 22 reply bytes, EOF=True
+  [retinue] DONE
+[2026-09-27 09:14:44] [Warning]  The socket for TCPInterface[retinue/127.0.0.1:53447] was closed, attempting to reconnect...
+RNS Buffer writer sent a stream frame: PASS
+RNS compressed data carrying EOF: PASS
+RNS -> Retinue exact bytes and EOF: PASS
+Retinue -> RNS exact bytes and EOF: PASS
+Retinue process exited zero: PASS (0)
+RELIABLE STREAM INTEROP: PASS

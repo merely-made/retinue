@@ -92,6 +92,50 @@ pub fn decompress(compressed: &[u8]) -> Result<Vec<u8>> {
     Ok(out)
 }
 
+/// Failure of the bounded stream-frame decoder. Resource recovery deliberately uses
+/// [`decompress`] and retains its advertisement/hash semantics.
+#[cfg(feature = "compression")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BoundedDecompressError {
+    InvalidData,
+    LimitExceeded,
+}
+
+/// Decode one stream frame with a hard bound on the owned output `Vec` allocation.
+/// The output allocation is exactly `limit + 1` bytes, including the sentinel byte
+/// used to distinguish an exact fit from an oversized frame. The bz2 decoder's own
+/// workspace is separate and is not covered by this output bound.
+#[cfg(feature = "compression")]
+pub(crate) fn decompress_bounded(
+    compressed: &[u8],
+    limit: usize,
+) -> core::result::Result<Vec<u8>, BoundedDecompressError> {
+    use std::io::Read;
+
+    // Callers validate the limit before storing it; never allow an overflowing or
+    // unrepresentable allocation even if this helper is called directly.
+    let capacity = limit
+        .checked_add(1)
+        .filter(|&n| n <= isize::MAX as usize)
+        .ok_or(BoundedDecompressError::LimitExceeded)?;
+    let mut output = vec![0u8; capacity];
+    let mut decoder = bzip2::read::BzDecoder::new(compressed);
+    let mut used = 0;
+    loop {
+        if used == capacity {
+            return Err(BoundedDecompressError::LimitExceeded);
+        }
+        let n = decoder
+            .read(&mut output[used..])
+            .map_err(|_| BoundedDecompressError::InvalidData)?;
+        if n == 0 {
+            output.truncate(used);
+            return Ok(output);
+        }
+        used += n;
+    }
+}
+
 /// The content that is compressed, sealed, and split for transfer: `random_hash || data`.
 ///
 /// RNS prepends the random hash to the payload before compression and encryption, so the

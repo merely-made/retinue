@@ -1,0 +1,56 @@
+RNS 1.5.4
+Retinue binary: C:\t\cargo-targets\retinue\debug\examples\reliable_stream_oracle.exe
+  [retinue] LISTENING 54662
+waiting for reliable link and Buffer exchange...
+  RNS sent stream frame {'mode': 'buffer', 'eof': False, 'compressed': True, 'data_bytes': 66}
+  RNS sent stream frame {'mode': 'buffer', 'eof': True, 'compressed': False, 'data_bytes': 0}
+  RNS Buffer writer closed
+  [retinue] WAITING_LINK 0
+  [retinue] LINK 0 93a5b09fa3de6023721631e870301c25
+  [retinue] READ_EOF 0 339
+  [retinue] RECV_OK 0
+  [retinue] SENT_EOF 0 663
+  [retinue] WAITING_LINK 1
+  RNS buffer read 663 reply bytes, EOF=True
+  RNS sent stream frame {'mode': 'buffer', 'eof': True, 'compressed': False, 'data_bytes': 0}
+Exception ignored while finalizing file <_io.BufferedWriter>:
+Traceback (most recent call last):
+  File "C:\Users\mark_\scoop\apps\python\current\Lib\threading.py", line 1024, in run
+  [retinue] LINK 1 df1295542d8a6c6cf73a367bd508a053
+  RNS sent stream frame {'mode': 'combined', 'eof': True, 'compressed': True, 'data_bytes': 73}
+  RNS public Channel sent compressed EOF frame
+    self._target(*self._args, **self._kwargs)
+ValueError: flush of closed file
+  RNS sent stream frame {'mode': 'buffer', 'eof': True, 'compressed': False, 'data_bytes': 0}
+  [retinue] READ_EOF 1 8209
+  [retinue] RECV_OK 1
+  [retinue] SENT_EOF 1 22
+  RNS combined read 22 reply bytes, EOF=True
+  [retinue] DONE
+[2026-09-27 09:13:51] [Warning]  The socket for TCPInterface[retinue/127.0.0.1:54662] was closed, attempting to reconnect...
+RNS Buffer writer sent a stream frame: PASS
+RNS compressed data carrying EOF: PASS
+RNS -> Retinue exact bytes and EOF: PASS
+Retinue -> RNS exact bytes and EOF: PASS
+Retinue process exited zero: PASS (0)
+RELIABLE STREAM INTEROP: PASS
+[2026-09-27 09:13:51] [Error]    Could not save path table to storage, the contained exception was: [Errno 2] No such file or directory: 'C:\\Users\\mark_\\AppData\\Local\\Temp\\retinue-reliable-oracle-2cl18lu8/storage/destination_table'
+[2026-09-27 09:13:51] [Error]    An unhandled <class 'FileNotFoundError'> exception occurred: [Errno 2] No such file or directory: 'C:\\Users\\mark_\\AppData\\Local\\Temp\\retinue-reliable-oracle-2cl18lu8/storage/destination_table'
+[2026-09-27 09:13:51] [Error]    Traceback (most recent call last):
+  File "C:\Users\mark_\Code\repos\retinue\crates\retinue\oracle\.venv\Lib\site-packages\RNS\Transport.py", line 3861, in save_path_table
+    file = open(path_table_path, "wb")
+FileNotFoundError: [Errno 2] No such file or directory: 'C:\\Users\\mark_\\AppData\\Local\\Temp\\retinue-reliable-oracle-2cl18lu8/storage/destination_table'
+
+[2026-09-27 09:13:51] [Error]    Could not save tunnel table to storage, the contained exception was: [Errno 2] No such file or directory: 'C:\\Users\\mark_\\AppData\\Local\\Temp\\retinue-reliable-oracle-2cl18lu8/storage/tunnels'
+[2026-09-27 09:13:51] [Error]    Error while serializing and writing known destinations: [Errno 2] No such file or directory: 'C:\\Users\\mark_\\AppData\\Local\\Temp\\retinue-reliable-oracle-2cl18lu8/storage/known_destinations.tmp.1790514831.615758'
+[2026-09-27 09:13:51] [Warning]  Could not clean up temporary file C:\Users\mark_\AppData\Local\Temp\retinue-reliable-oracle-2cl18lu8/storage/known_destinations.tmp.1790514831.615758: [WinError 3] The system cannot find the path specified: 'C:\\Users\\mark_\\AppData\\Local\\Temp\\retinue-reliable-oracle-2cl18lu8/storage/known_destinations.tmp.1790514831.615758'
+[2026-09-27 09:13:51] [Error]    Error while saving known destinations to disk, the contained exception was: [Errno 2] No such file or directory: 'C:\\Users\\mark_\\AppData\\Local\\Temp\\retinue-reliable-oracle-2cl18lu8/storage/known_destinations.tmp.1790514831.615758'
+[2026-09-27 09:13:51] [Error]    An unhandled <class 'FileNotFoundError'> exception occurred: [Errno 2] No such file or directory: 'C:\\Users\\mark_\\AppData\\Local\\Temp\\retinue-reliable-oracle-2cl18lu8/storage/known_destinations.tmp.1790514831.615758'
+[2026-09-27 09:13:51] [Error]    Traceback (most recent call last):
+  File "C:\Users\mark_\Code\repos\retinue\crates\retinue\oracle\.venv\Lib\site-packages\RNS\Identity.py", line 205, in save_known_destinations
+    raise e
+  File "C:\Users\mark_\Code\repos\retinue\crates\retinue\oracle\.venv\Lib\site-packages\RNS\Identity.py", line 198, in save_known_destinations
+    with open(temp_file,"wb") as file: umsgpack.dump(Identity.known_destinations.copy(), file)
+         ~~~~^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: 'C:\\Users\\mark_\\AppData\\Local\\Temp\\retinue-reliable-oracle-2cl18lu8/storage/known_destinations.tmp.1790514831.615758'
+

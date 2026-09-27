@@ -1,0 +1,22 @@
+RNS Buffer public API dry observation, 2026-09-27
+Command: crates/retinue/oracle/.venv/Scripts/python.exe -u - (stdin script below)
+No link, socket, or Cargo process in this probe. A fake Channel records only successful public send(message) calls.
+Script:
+import RNS
+class C:
+    mdu = 431
+    def __init__(self): self.frames = []
+    def is_ready_to_send(self): return True
+    def send(self, message):
+        packed = message.pack()
+        self.frames.append((bool(packed[0] & 128), bool(packed[0] & 64), len(packed)-2))
+        return None
+channel = C()
+writer = RNS.Buffer.create_writer(0, channel)
+print(RNS.__version__, writer.write(b'rns-compressed-eof:' + b'Z'*320))
+writer.close()
+print(channel.frames)
+Observed stdout:
+1.5.4 339
+[(False, True, 66), (True, False, 0)]
+Interpretation: stock Buffer writer emits compressed data and a separate empty EOF. The live gate therefore adds a second stock Channel.send(StreamDataMessage) link with both flags on one frame.

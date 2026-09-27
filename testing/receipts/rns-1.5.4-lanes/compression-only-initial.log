@@ -1,0 +1,120 @@
+    Checking typenum v1.20.1
+    Checking cmov v0.5.4
+    Checking ctutils v0.4.2
+    Checking cpufeatures v0.3.0
+    Checking cfg-if v1.0.4
+    Checking zeroize v1.9.0
+    Checking hybrid-array v0.4.13
+    Checking subtle v2.6.1
+    Checking byteorder v1.5.0
+    Checking signature v3.0.0
+    Checking crypto-common v0.2.2
+    Checking block-buffer v0.12.1
+    Checking block-padding v0.4.2
+    Checking inout v0.2.2
+    Checking ed25519 v3.0.0
+    Checking digest v0.11.3
+    Checking cipher v0.5.2
+    Checking curve25519-dalek v5.0.0
+    Checking hmac v0.13.0
+    Checking sha2 v0.11.0
+    Checking hash32 v0.3.1
+    Checking rand_core v0.10.1
+    Checking stable_deref_trait v1.2.1
+    Checking libbz2-rs-sys v0.2.5
+    Checking cpubits v0.1.1
+    Checking aes v0.9.1
+    Checking bzip2 v0.6.1
+    Checking x25519-dalek v3.0.0
+    Checking heapless v0.9.3
+    Checking ed25519-dalek v3.0.0
+    Checking hkdf v0.13.0
+    Checking cbc v0.2.1
+    Checking retinue v0.1.1 (C:\Users\mark_\Code\repos\retinue\crates\retinue)
+error[E0433]: cannot find module or crate `std` in this scope
+  --> crates\retinue\src\resource.rs:77:9
+   |
+77 |     use std::io::Write;
+   |         ^^^ use of unresolved module or unlinked crate `std`
+   |
+   = help: if you wanted to use a crate named `std`, use `cargo add std` to add it to your `Cargo.toml`
+
+error[E0433]: cannot find module or crate `std` in this scope
+  --> crates\retinue\src\resource.rs:88:9
+   |
+88 |     use std::io::Read;
+   |         ^^^ use of unresolved module or unlinked crate `std`
+   |
+   = help: if you wanted to use a crate named `std`, use `cargo add std` to add it to your `Cargo.toml`
+
+error[E0433]: cannot find module or crate `std` in this scope
+   --> crates\retinue\src\resource.rs:113:9
+    |
+113 |     use std::io::Read;
+    |         ^^^ use of unresolved module or unlinked crate `std`
+    |
+    = help: if you wanted to use a crate named `std`, use `cargo add std` to add it to your `Cargo.toml`
+
+error[E0599]: no method named `write_all` found for struct `bzip2::write::BzEncoder<W>` in the current scope
+    --> crates\retinue\src\resource.rs:79:9
+     |
+  79 |     enc.write_all(content)
+     |         ^^^^^^^^^
+     |
+    ::: C:\Users\mark_\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib/rustlib/src/rust\library\std\src\io\mod.rs:1858:8
+     |
+1858 |     fn write_all(&mut self, mut buf: &[u8]) -> Result<()> {
+     |        --------- the method is available for `bzip2::write::BzEncoder<Vec<u8>>` here
+     |
+     = help: items from traits can only be used if the trait is in scope
+help: trait `Write` which provides `write_all` is implemented but not in scope; perhaps you want to import it
+     |
+  25 + use std::io::Write;
+     |
+help: there is a method `write` with a similar name
+     |
+  79 -     enc.write_all(content)
+  79 +     enc.write(content)
+     |
+
+error[E0599]: no method named `read_to_end` found for struct `bzip2::read::BzDecoder<R>` in the current scope
+   --> crates\retinue\src\resource.rs:91:9
+    |
+ 91 |     dec.read_to_end(&mut out).map_err(|_| Error::BadPadding)?;
+    |         ^^^^^^^^^^^ method not found in `bzip2::read::BzDecoder<&[u8]>`
+    |
+   ::: C:\Users\mark_\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib/rustlib/src/rust\library\std\src\io\mod.rs:918:8
+    |
+918 |     fn read_to_end(&mut self, buf: &mut Vec<u8>) -> Result<usize> {
+    |        ----------- the method is available for `bzip2::read::BzDecoder<&[u8]>` here
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: trait `Read` which provides `read_to_end` is implemented but not in scope; perhaps you want to import it
+    |
+ 25 + use std::io::Read;
+    |
+
+error[E0599]: no method named `read` found for struct `bzip2::read::BzDecoder<R>` in the current scope
+   --> crates\retinue\src\resource.rs:129:14
+    |
+128 |           let n = decoder
+    |  _________________-
+129 | |             .read(&mut output[used..])
+    | |             -^^^^ method not found in `bzip2::read::BzDecoder<&[u8]>`
+    | |_____________|
+    |
+    |
+   ::: C:\Users\mark_\.rustup\toolchains\stable-x86_64-pc-windows-msvc\lib/rustlib/src/rust\library\std\src\io\mod.rs:796:8
+    |
+796 |       fn read(&mut self, buf: &mut [u8]) -> Result<usize>;
+    |          ---- the method is available for `bzip2::read::BzDecoder<&[u8]>` here
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: trait `Read` which provides `read` is implemented but not in scope; perhaps you want to import it
+    |
+ 25 + use std::io::Read;
+    |
+
+Some errors have detailed explanations: E0433, E0599.
+For more information about an error, try `rustc --explain E0433`.
+error: could not compile `retinue` (lib) due to 6 previous errors

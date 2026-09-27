@@ -1,0 +1,168 @@
+{
+  "checks": [
+    {
+      "log": "tests.log",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "retinue",
+        "-p",
+        "outrider",
+        "--locked",
+        "--offline",
+        "-j",
+        "2"
+      ],
+      "exit_code": 0,
+      "passed_tests": 403
+    },
+    {
+      "log": "final-libraries.log",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "retinue",
+        "-p",
+        "outrider",
+        "--lib",
+        "--locked",
+        "--offline",
+        "-j",
+        "2"
+      ],
+      "exit_code": 0,
+      "passed_tests": 266
+    },
+    {
+      "log": "alloc-tests.log",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "retinue",
+        "--no-default-features",
+        "--features",
+        "alloc",
+        "--lib",
+        "--locked",
+        "--offline",
+        "-j",
+        "2"
+      ],
+      "exit_code": 0,
+      "passed_tests": 178
+    },
+    {
+      "log": "core-only.log",
+      "command": [
+        "cargo",
+        "check",
+        "-p",
+        "retinue",
+        "--no-default-features",
+        "--lib",
+        "--locked",
+        "--offline",
+        "-j",
+        "2"
+      ],
+      "exit_code": 0,
+      "passed_tests": null
+    },
+    {
+      "log": "compression-only.log",
+      "command": [
+        "cargo",
+        "check",
+        "-p",
+        "retinue",
+        "--no-default-features",
+        "--features",
+        "compression",
+        "--lib",
+        "--locked",
+        "--offline",
+        "-j",
+        "2"
+      ],
+      "exit_code": 0,
+      "passed_tests": null
+    },
+    {
+      "log": "clippy.log",
+      "command": [
+        "cargo",
+        "clippy",
+        "-p",
+        "retinue",
+        "-p",
+        "outrider",
+        "--lib",
+        "--locked",
+        "--offline",
+        "-j",
+        "2",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "passed_tests": null
+    },
+    {
+      "log": "build-examples.log",
+      "command": [
+        "cargo",
+        "build",
+        "-p",
+        "retinue",
+        "--examples",
+        "--locked",
+        "--offline",
+        "-j",
+        "2"
+      ],
+      "exit_code": 0,
+      "passed_tests": null
+    },
+    {
+      "log": "format-final.log",
+      "command": [
+        "cargo",
+        "fmt",
+        "-p",
+        "retinue",
+        "--check"
+      ],
+      "exit_code": 0,
+      "passed_tests": null
+    },
+    {
+      "log": "registry-final.log",
+      "command": [
+        "oracle-python",
+        "validation/run.py",
+        "verify"
+      ],
+      "exit_code": 0,
+      "manifests": 21,
+      "assets": 86,
+      "suites": 15
+    },
+    {
+      "log": "tests-initial.log",
+      "exit_code": 101,
+      "result": "Missing vec macro in new test; corrected before full suite"
+    },
+    {
+      "log": "compression-only-initial.log",
+      "exit_code": 101,
+      "result": "std import absent for compression without Tokio; feature guard corrected"
+    }
+  ],
+  "live_gates": 13,
+  "live_all_passed": true,
+  "note": "Working-tree receipts. Full 403-test pass preceded the compression std feature-guard correction; final library tests, feature checks, Clippy and live runs followed it."
+}

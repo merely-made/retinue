@@ -1,0 +1,49 @@
+   Compiling const-oid v0.10.2
+   Compiling num-traits v0.2.19
+   Compiling digest v0.11.3
+   Compiling windows-sys v0.61.2
+   Compiling zeroize v1.9.0
+   Compiling curve25519-dalek v5.0.0
+   Compiling sha2 v0.11.0
+   Compiling ed25519-dalek v3.0.0
+   Compiling mio v1.2.2
+   Compiling socket2 v0.6.5
+   Compiling serial2 v0.2.37
+   Compiling tokio v1.53.1
+   Compiling hmac v0.13.0
+   Compiling x25519-dalek v3.0.0
+   Compiling hkdf v0.13.0
+   Compiling float-cmp v0.9.0
+   Compiling embedded-graphics v0.8.2 (C:\Users\mark_\Code\repos\retinue\vendor\embedded-graphics)
+   Compiling radio-face v0.0.1 (C:\Users\mark_\Code\repos\retinue\crates\radio-face)
+   Compiling serde v1.0.228
+   Compiling serde_derive v1.0.228
+   Compiling serial2-tokio v0.1.24
+   Compiling tulle v0.1.0 (C:\Users\mark_\Code\repos\retinue\crates\tulle)
+   Compiling tucket v0.0.2 (C:\Users\mark_\Code\repos\retinue\crates\tucket)
+   Compiling retinue v0.1.1 (C:\Users\mark_\Code\repos\retinue\crates\retinue)
+   Compiling syn v3.0.3
+   Compiling radio-hand v0.0.1 (C:\Users\mark_\Code\repos\retinue\crates\radio-hand)
+   Compiling thiserror v2.0.19
+   Compiling thiserror-impl v2.0.19
+   Compiling rmp v0.8.15
+   Compiling getrandom v0.3.4
+   Compiling rmpv v1.3.1
+   Compiling outrider v0.1.1 (C:\Users\mark_\Code\repos\retinue\crates\outrider)
+   Compiling postilion v0.1.0 (C:\Users\mark_\Code\repos\retinue\crates\postilion)
+error: cannot find macro `vec` in this scope
+   --> crates\retinue\src\reliable.rs:433:50
+    |
+433 |                 data: crate::resource::compress(&vec![b'x'; 100_000]),
+    |                                                  ^^^
+    |
+    = note: macro `crate::token::tests::vec` exists but is inaccessible
+help: consider importing one of these macros
+    |
+328 +     use std::vec;
+    |
+328 +     use alloc::vec;
+    |
+
+error: could not compile `retinue` (lib test) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...

@@ -1,0 +1,18 @@
+RNS 1.5.4
+
+  [hub] TRANSPORT_NODE_UP 36172e50b3a4a104b8ca1e75cd4aba47 on 46030
+RNS leaf waiting to learn the responder through the retinue node...
+
+  [resp] RESPONDER_DEST 8fba2aeb56f70dcf135193b4bde80cb6
+  RNS: learned responder 8fba2aeb56f70dcf135193b4bde80cb6 via the retinue node; linking
+  RNS: link ESTABLISHED through the retinue transport node
+  [resp] RESPONDER_ACCEPTED
+  RNS: received b'echo:ping-rns'
+
+====================================================================
+RNS learned the responder via the retinue node: True
+RNS link + echo through the retinue node:       True
+====================================================================
+R7 RNS-ROUTES-THROUGH-RETINUE: PASS
+[2026-09-27 09:25:39] [Warning]  An interface error occurred for TCPInterface[hub/127.0.0.1:46030], the contained exception was: [WinError 10054] An existing connection was forcibly closed by the remote host
+[2026-09-27 09:25:39] [Warning]  Attempting to reconnect...

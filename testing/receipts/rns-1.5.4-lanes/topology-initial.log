@@ -1,0 +1,11 @@
+Topology lane initial focused gate
+
+Command (PowerShell):
+$env:CARGO_TARGET_DIR='C:\t\cargo-targets\retinue\lockedofflinej2'; cargo test -p retinue --test announce_topology --locked --offline -j 2
+
+Observed output:
+    Blocking waiting for file lock on package cache
+
+The command was canceled while still blocked on that lock. The process returned exit code 1 after Ctrl-C. No Retinue compilation output was observed, and a process check found no remaining Retinue Cargo or rustc process.
+
+This is not a test result. The target path was the initial attempted path; subsequent gates should reuse the repository's C:\t\cargo-targets\retinue target.

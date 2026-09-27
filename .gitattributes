@@ -61,3 +61,4 @@ crates/retinue/oracle/capture_signed_artifact.py text eol=lf
 
 # Versioned repin logs and raw capture archive are immutable receipt bytes.
 testing/receipts/rns-1.5.4-repin/** -text whitespace=cr-at-eol,-blank-at-eof
+testing/receipts/rns-1.5.4-lanes/** -text whitespace=cr-at-eol,-blank-at-eof

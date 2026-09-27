@@ -63,11 +63,11 @@
 // The sans-io core is `no_std + alloc`: payloads are heap-allocated, but nothing here needs
 // an operating system. The floor below it (`command`, `identity`, `hash`, `capacity`) does
 // not allocate at all, and a core-only image links just that, so `alloc` is a feature rather
-// than a fact. `std` comes back only for the tokio shell and the test harness, which are the
-// parts that genuinely have one.
+// than a fact. The optional bz2 I/O adapter uses `std` independently of the tokio shell;
+// the allocation-only core needs neither. The test harness also imports `std`.
 #[cfg(feature = "alloc")]
 extern crate alloc;
-#[cfg(any(feature = "tokio", test))]
+#[cfg(any(feature = "tokio", feature = "compression", test))]
 extern crate std;
 
 #[cfg(feature = "alloc")]
