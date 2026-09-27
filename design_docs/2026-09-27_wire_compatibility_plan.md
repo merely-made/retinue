@@ -154,6 +154,47 @@ Credential persistence, device provisioning and physical acceptance remain open.
 They require identified firmware and matching peers plus negative cases.
 Target compilation and local TCP capture do not close those gates.
 
+### Credential provisioning preflight (September 27)
+
+Two Sol audits traced the next lane through the actual board and host owners.
+The opt-in carrier API is ready, but provisioning is a separate contract:
+
+- `settings.rs` writes an identity-first 68-byte body. Both board stores read
+  only the current body plus 32 bytes of extension space. Appending a 64-byte
+  IFAC key exceeds older readers' capacity; after both A/B slots are rewritten,
+  downgrade can reject both records and regenerate identity. Keep credential
+  storage separate from this identity record. A persistent design also needs
+  protected-mode downgrade behavior and an allocated, overlap-checked vault.
+- `resident_wire.rs` version 1 is exactly 185 bytes. Its stream consumes those
+  bytes before checking the version. Merely appending credentials to a version 2
+  message lets older firmware interpret the suffix as ordinary commands. Reuse
+  the existing bounded KISS demultiplexer for any extended exchange, with exact
+  capability agreement before sending a secret. Do not arbitrarily narrow the
+  owner's timing or lease ranges just to squeeze credentials into 185 bytes.
+- The V4 resident setup is a local commissioning/probe path containing raw
+  Sennet/Tucket material; it is not the authenticated management provisioner.
+  The wall-node plan requires an encrypted carrier or a separately sealed
+  payload bound to node, controller, transaction and operation. A signature
+  alone does not satisfy that contract. `sealed_credentials` is opaque storage,
+  not a sealing implementation; the current V4 applier refuses nonempty values.
+  T114 credential custody remains host-owned in that plan.
+
+The concrete prerequisite repaired here is accidental disclosure through Debug:
+`SennetKey`, `ResidentSetup` and nested setup events now redact keys and identity
+seeds while retaining diagnostic metadata. Wire bytes, setup admission and
+identity storage are unchanged. The [preflight receipt](../testing/receipts/ifac-provisioning-preflight/README.md)
+records the focused regression and audited owner boundaries.
+
+The implementation choice remains explicit: volatile session provisioning first,
+or a durable vault plus recovery. Volatile provisioning avoids a flash migration
+but still requires the confidential, versioned exchange above. Neither choice
+authorizes plaintext management secrets or live credential replacement. Software
+acceptance must cover unsupported peers, every fragmentation boundary, wrong
+recipient/context, tampering, redacted diagnostics and protected startup before
+sessions. Durable acceptance additionally needs torn-write, rollback, downgrade
+and identity-preservation receipts. No new credential command or board write is
+claimed by this preflight.
+
 ### Existing owner seams
 
 | Boundary | Current ownership and finding |
@@ -210,3 +251,8 @@ until the paired behavioral tests identify a useful common policy seam.
   byte-identically; local Type2 growth is separately labelled. See the
   [firmware receipt](../testing/receipts/firmware-ifac/README.md). Board provisioning,
   physical IFAC and identified-image acceptance remain open.
+- September 27: provisioning preflight audited board settings, resident framing
+  and signed management custody. Found identity-loss risk from oversized settings
+  extensions and command-suffix risk from extending the fixed resident message.
+  Repaired secret-bearing resident Debug output and retained the provisioning
+  lifetime/confidentiality decision explicitly above.

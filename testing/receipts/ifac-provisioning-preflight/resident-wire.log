@@ -1,0 +1,12 @@
+   Compiling radio-hand v0.0.1 (C:\Users\mark_\Code\repos\retinue\crates\radio-hand)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.17s
+     Running unittests src\lib.rs (C:\t\cargo-targets\retinue\debug\deps\radio_hand-4df1cd3117a1f2a6.exe)
+
+running 4 tests
+test resident_wire::tests::fragmented_stream_never_eats_an_ordinary_marker_in_payload ... ok
+test resident_wire::tests::round_trip_is_fixed_and_lossless ... ok
+test resident_wire::tests::malformed_profile_and_zero_lease_are_refused ... ok
+test resident_wire::tests::debug_redacts_keys_and_seed_in_setup_and_nested_event ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 187 filtered out; finished in 0.00s
+

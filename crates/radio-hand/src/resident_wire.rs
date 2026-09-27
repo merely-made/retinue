@@ -34,14 +34,24 @@ const OFFSET_FRAME_TTL: usize = 173;
 const OFFSET_PACKET_LEASE: usize = 181;
 
 /// A validated Sennet key supplied by the locally attached USB host.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub enum SennetKey {
     Aes128([u8; 16]),
     Aes256([u8; 32]),
 }
 
+impl core::fmt::Debug for SennetKey {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let variant = match self {
+            Self::Aes128(_) => "Aes128",
+            Self::Aes256(_) => "Aes256",
+        };
+        f.debug_tuple(variant).field(&"[redacted]").finish()
+    }
+}
+
 /// The complete bounded resident setup requested by a host.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub struct ResidentSetup {
     pub sennet_source: u32,
     pub sennet_channel: u8,
@@ -62,6 +72,29 @@ pub struct ResidentSetup {
     pub frame_ttl_ms: u64,
     /// Number of packet IDs which storage must durably reserve before construction.
     pub packet_lease_count: u32,
+}
+
+impl core::fmt::Debug for ResidentSetup {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("ResidentSetup")
+            .field("sennet_source", &self.sennet_source)
+            .field("sennet_channel", &self.sennet_channel)
+            .field("sennet_key", &self.sennet_key)
+            .field("tucket_identity_seed", &"[redacted]")
+            .field("retinue_name_hash", &self.retinue_name_hash)
+            .field("profiles", &self.profiles)
+            .field("home", &self.home)
+            .field("pin", &self.pin)
+            .field("require_coverage", &self.require_coverage)
+            .field("max_excursion_ms", &self.max_excursion_ms)
+            .field("return_budget_ms", &self.return_budget_ms)
+            .field("max_defer_ms", &self.max_defer_ms)
+            .field("transition_timeout_ms", &self.transition_timeout_ms)
+            .field("tx_budget_ms", &self.tx_budget_ms)
+            .field("frame_ttl_ms", &self.frame_ttl_ms)
+            .field("packet_lease_count", &self.packet_lease_count)
+            .finish()
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -333,6 +366,33 @@ fn encode_profile(profile: PhyProfile, out: &mut [u8]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::fmt::Write;
+
+    #[test]
+    fn debug_redacts_keys_and_seed_in_setup_and_nested_event() {
+        for key in [SennetKey::Aes128([231; 16]), SennetKey::Aes256([232; 32])] {
+            let mut value = setup();
+            value.sennet_key = key;
+            value.tucket_identity_seed = [233; 32];
+            let mut rendered = heapless::String::<4096>::new();
+            write!(
+                &mut rendered,
+                "{key:?} {value:?} {:?}",
+                ResidentSetupByte::Complete(value)
+            )
+            .unwrap();
+            for sentinel in ["231", "232", "233"] {
+                assert!(!rendered.contains(sentinel), "secret sentinel leaked");
+            }
+            assert!(rendered.contains("[redacted]"));
+            assert!(rendered.contains("tucket_identity_seed: \"[redacted]\""));
+            assert!(rendered.contains("profiles:"));
+            assert!(rendered.contains("frame_ttl_ms: 5000"));
+            assert!(rendered.contains("packet_lease_count: 128"));
+            assert!(rendered.contains("Complete(ResidentSetup"));
+        }
+    }
+
     fn setup() -> ResidentSetup {
         ResidentSetup {
             sennet_source: 0x1020_3040,
