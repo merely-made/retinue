@@ -9,14 +9,12 @@ resources. An outrider rides ahead of the party to scout and carry word.
 Not affiliated with or endorsed by the Reticulum or LXMF projects.
 
 **Status: codec, opportunistic/direct delivery, and captured propagation lane implemented.**
-Pinned LXMF 1.1.1 / RNS 1.5.2 black-box oracles prove byte-exact message
-objects, ratcheted opportunistic delivery in both directions, cost-8 stamped
-direct delivery in both directions, small data and 4 KiB Resource delivery,
-the same direct lane over V4-to-T114 direct-PHY RF, compact cost-8
-opportunistic messages as one ratcheted RF packet in both directions,
-Resource-backed propagation submit/store/fetch over the same IFAC-protected
-direct-PHY pair, submit/fetch against stock propagation nodes, and a stock
-client submitting to and fetching from Outrider's bounded server. The
+The [LXMF 1.1.1 / RNS 1.5.4 receipt](../../testing/receipts/rns-1.5.4-repin/README.md)
+qualifies seven local direct, opportunistic and propagation gates, including stock
+clients and Outrider's bounded server. Committed byte fixtures retain their original
+producer versions. Older physical receipts cover direct and opportunistic delivery
+over V4-to-T114 direct-PHY RF and Resource-backed propagation over that protected
+pair; they were not rerun as part of the 1.5.4 qualification. The
 founding scope, provenance discipline, and ordered gates are recorded in
 [`design_docs/2026-07-25_outrider_lxmf_founding.md`](../../design_docs/2026-07-25_outrider_lxmf_founding.md).
 

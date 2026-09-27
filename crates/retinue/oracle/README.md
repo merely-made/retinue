@@ -32,9 +32,12 @@ py -m venv .venv
 ./.venv/Scripts/python.exe -m pip install -r requirements.txt
 ```
 
-`requirements.txt` pins `rns==1.5.2`, Retinue's current compatibility target, and
+`requirements.txt` pins `rns==1.5.4`, Retinue's current compatibility target, and
 `lxmf==1.1.1`, which the Outrider oracle drives. Re-pin deliberately, not on every upstream
-release.
+release. The [September 27 repin receipt](../../../testing/receipts/rns-1.5.4-repin/README.md)
+records the local live, Outrider, Resource and route/timebase qualification. Open
+firmware, IFAC and buffering boundaries are tracked in the
+[wire compatibility plan](../../../design_docs/2026-09-27_wire_compatibility_plan.md).
 
 The separate [September 26 signed-artifact receipt](../../../testing/receipts/rns-1.5.4-signed-artifact/README.md)
 qualifies six project-input cases against `rnid 1.5.4`. All match the retained 1.5.2
@@ -42,7 +45,7 @@ captures byte for byte; Rust replay covers both fixture files. This does not re-
 the broader live suite or establish 1.5.4 transport/radio compatibility. The capture
 environment was restored to 1.5.2 after that run.
 
-Re-pinned 2026-08-29 from RNS 1.5.0 to 1.5.2 while holding LXMF at 1.1.1. One complete
+Historically re-pinned 2026-08-29 from RNS 1.5.0 to 1.5.2 while holding LXMF at 1.1.1. One complete
 stock-RNS live suite passed 12/12; four Resource-sensitive gates passed 12/12 across three
 interleaved rounds; seven Outrider gates passed; the announce-timebase probe reproduced
 P1/P2/P3; the corrected route probe passed 72/72 full cells and 6/6 packet-loop-isolated
@@ -52,7 +55,7 @@ captures, and eight JSON records differed only in recorded version metadata afte
 normalisation. Other captures carry fresh entropy or require attached RNodes, so this is
 deliberately narrower than the old 18/18 byte-identity claim. Queue saturation, I2P,
 interface-discovery metadata, and physical RNode capture remain outside the measured scope.
-See the [current re-pin receipt](../../../design_docs/2026-08-29_rns_152_repin_receipt.md).
+See the [historical 1.5.2 receipt](../../../design_docs/2026-08-29_rns_152_repin_receipt.md).
 
 The historical 2026-08-23 re-pin moved from `rns==1.4.2` / `lxmf==0.9.6` to RNS 1.5.0 /
 LXMF 1.1.1. Eighteen deterministic fixtures re-captured byte-identically and one live suite
@@ -166,6 +169,11 @@ This is a **local gate**, not CI: CI replays the committed fixtures instead.
 
 ## Peer matrix (H8)
 
+**Historical procedure, withdrawn from current qualification on September 26.**
+Prns is no longer a trusted independent reference or approved donor. Retain these
+old measured outcomes and reproduction notes as provenance history. Current 1.5.4
+qualification uses the stock-RNS gates above and does not run or build Prns.
+
 `peer_matrix.py` adds the three-corner peer receipt from the work-lane map. It
 launches a **clean detached** Prns worktree as an external `prnsd` process;
 Retinue has no Prns dependency and the driver reads no Prns library API. Each
@@ -217,7 +225,7 @@ ports, raw captures, and exact clean-commit state.
 
 | file | what |
 | --- | --- |
-| `requirements.txt` | the current live-oracle pin: `rns==1.5.2`, `lxmf==1.1.1` |
+| `requirements.txt` | the current live-oracle pin: `rns==1.5.4`, `lxmf==1.1.1` |
 | `run_live.py` | the complete twelve-gate mixed-runtime matrix |
 | `flake_census.py` | census one gate by failure **mode**, not rate; see below |
 | `capture.py` | R0 fixtures: identity vector, announces, negatives, a token |
@@ -279,7 +287,7 @@ Exemplar logs land in `census/`, which is not committed.
 
 ## Announce timebase probe
 
-`probe_announce_timebase.py` is a clean-room, black-box probe at the current RNS 1.5.2 pin for
+`probe_announce_timebase.py` is a black-box probe at the current RNS 1.5.4 pin for
 the P1/P2/P3 matrix. It creates each signed packet in a sender child, injects
 it into a fresh receiver child, and reuses the receiver's persistent config
 between cases. The post-shutdown `storage/destination_table` is authoritative;
@@ -323,7 +331,7 @@ from this directory:
 .\.venv\Scripts\python.exe -u probe_route_freshness.py --profile same-blob-diagnostic
 ```
 
-The current ignored RNS 1.5.2 full receipt is
+The historical ignored RNS 1.5.2 full receipt is
 `validation/results/route-freshness-full-20260830T030952Z/result.json`, SHA-256
 `14601b688fe72e1763e8d022915c468d1f9b164715bc47aee726050b905aaf39`. All 72 rows have a
 publicly signature-validated forwarded Type-2 frame and calibrated hop relation. No
@@ -348,7 +356,7 @@ The separate receipt moves the observed `packet_hashlist.raw` aside while preser
 destination table, then reloads stock RNS and repeats live/expired by better/equal/worse.
 The original list contained all six incumbent route packet hashes. The pre-candidate list
 contained one reload-generated hash and none of those six. All six measurements remained
-no-admission. The current RNS 1.5.2 result is
+no-admission. The historical RNS 1.5.2 result is
 `validation/results/route-freshness-same-blob-diagnostic-20260830T030802Z/result.json`,
 SHA-256 `d660ea18f6ce38d0029672d85829a257d25f53dd30ae2df9cec63fe2f6972550`.
 The historical RNS 1.5.0 result is

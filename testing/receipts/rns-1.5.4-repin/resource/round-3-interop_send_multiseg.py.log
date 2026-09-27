@@ -1,0 +1,21 @@
+RNS 1.5.4
+
+  [retinue] LISTENING 58748
+waiting...
+
+  [retinue] SENDING 2500000 bytes in 3 segments
+  [retinue] SEGMENT 1/3 proof_ok=true
+  [retinue] SEGMENT 2/3 proof_ok=true
+  [retinue] SEGMENT 3/3 proof_ok=true
+  [retinue] ALL_SEGMENTS_SENT ok=true
+  [retinue] DONE
+[2026-09-27 08:13:20] [Warning]  The socket for TCPInterface[retinue/127.0.0.1:58748] was closed, attempting to reconnect...
+  RNS: concluded status=6 len=2500000
+
+====================================================================
+RNS received retinue's 2500000-byte resource intact: PASS
+segments proved (3):                    PASS
+RNS concluded COMPLETE:                    PASS
+retinue verified all segment proofs:       PASS
+====================================================================
+R4 MULTI-SEGMENT SEND INTEROP (2.5 MB): PASS

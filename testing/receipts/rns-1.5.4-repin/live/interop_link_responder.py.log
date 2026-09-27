@@ -1,0 +1,31 @@
+RNS 1.5.4
+
+  [retinue] LISTENING 52999
+waiting for retinue's announce...
+
+  [retinue] ACCEPTED
+  [retinue] SENT_ANNOUNCE c12f2880b000e629686499bde489071c
+  RNS: saw retinue announce c12f2880b000e629686499bde489071c, linking...
+  [retinue] LINK_ACCEPTED id=c631eeffc10ae8bd75c437bcce4f4553 mode=Aes256Cbc mtu=500
+  [retinue] SENT_PROOF
+  [retinue] RECV_RTT
+  RNS: link to retinue ESTABLISHED
+  [retinue] RECV_DATA hello-responder
+  [retinue] SENT_ECHO
+  RNS: received b'echo:hello-responder' on the link
+  RNS: sending keepalive...
+  [retinue] RECV_KEEPALIVE_REQUEST
+  [retinue] SENT_KEEPALIVE_RESPONSE
+  RNS: closing link...
+  [retinue] RECV_CLOSE aaa500154024b5606c63c974fcd6c5548eb1313b0b633dc69dc9cb6ba1cc88acad3eafed0643fed45ddf17d51e89b7c987d97c613b1c657766d2e17fd89e5b9e5ccd33a933e738d6e396f3bd2d0f6989
+  [retinue] DONE[2026-09-27 08:09:22] [Warning]  The socket for TCPInterface[retinue/127.0.0.1:52999] was closed, attempting to reconnect...
+
+
+====================================================================
+retinue proved the link:        PASS
+RNS established (link active):  PASS
+retinue decrypted RNS data:     PASS
+RNS decrypted retinue's echo:   PASS
+keepalive round-trip:           PASS
+====================================================================
+R3 RESPONDER INTEROP: PASS

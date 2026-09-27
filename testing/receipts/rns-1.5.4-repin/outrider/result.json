@@ -1,0 +1,87 @@
+{
+  "baseline_commit": "acb82f6dd8c8f6ed46a15f5d0910c4b55e8e6ffa",
+  "rns": "1.5.4",
+  "lxmf": "1.1.1",
+  "lane": "outrider",
+  "started_utc": "2026-09-27T12:10:29.993194+00:00",
+  "gates": [
+    {
+      "name": "interop_direct_receive.py",
+      "command": [
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\.venv\\Scripts\\python.exe",
+        "-u",
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\outrider\\oracle\\interop_direct_receive.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 5.021
+    },
+    {
+      "name": "interop_direct_send.py",
+      "command": [
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\.venv\\Scripts\\python.exe",
+        "-u",
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\outrider\\oracle\\interop_direct_send.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 6.88
+    },
+    {
+      "name": "interop_opportunistic_receive.py",
+      "command": [
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\.venv\\Scripts\\python.exe",
+        "-u",
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\outrider\\oracle\\interop_opportunistic_receive.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 1.519
+    },
+    {
+      "name": "interop_opportunistic_send.py",
+      "command": [
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\.venv\\Scripts\\python.exe",
+        "-u",
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\outrider\\oracle\\interop_opportunistic_send.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 2.444
+    },
+    {
+      "name": "interop_propagation_receive.py",
+      "command": [
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\.venv\\Scripts\\python.exe",
+        "-u",
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\outrider\\oracle\\interop_propagation_receive.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 22.344
+    },
+    {
+      "name": "interop_propagation_server.py",
+      "command": [
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\.venv\\Scripts\\python.exe",
+        "-u",
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\outrider\\oracle\\interop_propagation_server.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 6.529
+    },
+    {
+      "name": "interop_propagation_stock.py",
+      "command": [
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\.venv\\Scripts\\python.exe",
+        "-u",
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\outrider\\oracle\\interop_propagation_stock.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 29.423
+    }
+  ],
+  "all_passed": true
+}

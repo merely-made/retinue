@@ -13,7 +13,7 @@ is the point: `hash` alone would only prove we can call SHA-256.
 Preserves separate fixture files for 1.5.2 and 1.5.4.
 
     ./.venv/Scripts/python.exe -u capture_signed_artifact.py
-    ./.venv/Scripts/python.exe -u capture_signed_artifact.py --rns-version 1.5.4
+    ./.venv/Scripts/python.exe -u capture_signed_artifact.py --rns-version 1.5.2
 """
 
 from __future__ import annotations
@@ -98,7 +98,7 @@ def capture_rsm(work: Path, identity: Path, message: bytes, with_metadata: bool)
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--rns-version", choices=("1.5.2", "1.5.4"), default="1.5.2")
+    parser.add_argument("--rns-version", choices=("1.5.2", "1.5.4"), default="1.5.4")
     version = parser.parse_args().rns_version
     if not RNID.exists():
         raise SystemExit(f"rnid not found at {RNID}; create the oracle venv first")

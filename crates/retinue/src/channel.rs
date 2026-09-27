@@ -492,8 +492,8 @@ impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize>
 /// RNS 1.3.8's `StreamDataMessage.pack()` layout exactly (captured in `buffer_wire.json`).
 ///
 /// `compressed` marks a bz2 transform applied to `data` *before* framing, not a layout
-/// change — `pack()` stores `data` verbatim either way. retinue never sets it on send;
-/// decoding a compressed frame from RNS needs a bz2 pass that is not yet wired.
+/// change — `pack()` stores `data` verbatim either way. Retinue never sets it on send;
+/// [`Buffer`] decodes it on receive when the `compression` feature is enabled.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StreamFrame {
     /// Stream id (14-bit): which multiplexed stream this chunk belongs to.
@@ -555,10 +555,9 @@ pub const DEFAULT_CHUNK: usize = MAX_DATA_LEN;
 /// send stream done with an eof frame; [`recv_finished`](Self::recv_finished) reports the
 /// peer's eof.
 ///
-/// Compression is not wired: retinue never sets the compressed flag on send, and a
-/// compressed frame received from RNS is left undecoded rather than appended as garbage —
-/// [`had_unsupported_frame`](Self::had_unsupported_frame) surfaces that it happened. Full
-/// interop-receive of RNS-compressed streams needs a bz2 pass, deferred.
+/// Retinue does not compress sent frames. With the `compression` feature, received
+/// compressed frames are decoded before delivery; without it, or when decoding fails,
+/// [`had_unsupported_frame`](Self::had_unsupported_frame) reports the dropped frame.
 pub struct Buffer<
     const WINDOW: usize = 64,
     const QUEUE: usize = 256,
@@ -574,8 +573,12 @@ pub struct Buffer<
     /// Heap-backed and bounded at runtime against `READ_BYTES`, rather than a `Deque<u8,
     /// READ_BYTES>`, which would commit that many bytes of static storage per link even
     /// while idle. [`fill`](Self::fill) stops draining the channel once this is at its
-    /// bound, so the pressure lands on the bounded inbox and then on withheld proofs.
+    /// bound. A decoded frame that does not fit waits in `pending_frame`; only one such
+    /// frame is retained before pressure reaches the bounded inbox and withheld proofs.
     read_buf: VecDeque<u8>,
+    /// Remaining bytes from one delivered frame. Decompression still allocates the full
+    /// decoded frame; `READ_BYTES` bounds the ready-to-read queue, not that allocation.
+    pending_frame: Option<(Vec<u8>, usize)>,
     recv_eof: bool,
     saw_unsupported: bool,
 }
@@ -641,6 +644,7 @@ impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize, const READ_B
             send_stream_id: send_stream_id & STREAM_ID_MAX,
             recv_stream_id: recv_stream_id & STREAM_ID_MAX,
             read_buf: VecDeque::new(),
+            pending_frame: None,
             recv_eof: false,
             saw_unsupported: false,
         }
@@ -693,7 +697,7 @@ impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize, const READ_B
         n
     }
 
-    /// Take all currently-available delivered bytes.
+    /// Take up to `READ_BYTES` currently-available delivered bytes.
     pub fn read_available(&mut self) -> Vec<u8> {
         self.fill();
         self.read_buf.drain(..).collect()
@@ -717,10 +721,19 @@ impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize, const READ_B
     }
 
     fn fill(&mut self) {
-        // Stop draining once the reader is this far behind. The undelivered payloads stay in
-        // the channel's bounded inbox, which then withholds proofs, which stops the peer.
-        // Backpressure reaches the wire instead of piling up here.
+        // Stop draining once the reader is this far behind. At most one decoded frame
+        // waits outside read_buf; later frames stay in the channel's bounded inbox.
         while self.read_buf.len() < READ_BYTES {
+            if let Some((data, cursor)) = &mut self.pending_frame {
+                let count = (READ_BYTES - self.read_buf.len()).min(data.len() - *cursor);
+                self.read_buf
+                    .extend(data[*cursor..*cursor + count].iter().copied());
+                *cursor += count;
+                if *cursor == data.len() {
+                    self.pending_frame = None;
+                }
+                continue;
+            }
             let Some(msg) = self.channel.recv() else {
                 break;
             };
@@ -730,7 +743,7 @@ impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize, const READ_B
             if frame.stream_id != self.recv_stream_id {
                 continue; // a different multiplexed stream on the same channel
             }
-            if frame.compressed {
+            let data = if frame.compressed {
                 // A compressed frame used to be counted as unsupported and thrown away. That
                 // was silent data loss with a receipt on it: the reliable layer has already
                 // proven this packet to the peer by the time the bytes get here, so the
@@ -739,13 +752,19 @@ impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize, const READ_B
                 // (`resource::decompress`, the same bz2 pass a compressed resource takes);
                 // this path simply never called it.
                 match Self::decompressed(&frame.data) {
-                    Some(data) => self.read_buf.extend(data),
+                    Some(data) => Some(data),
                     // Kept as a flag rather than a panic, but it now means what it says:
                     // bytes that could not be recovered, not bytes we declined to try.
-                    None => self.saw_unsupported = true,
+                    None => {
+                        self.saw_unsupported = true;
+                        None
+                    }
                 }
             } else {
-                self.read_buf.extend(frame.data);
+                Some(frame.data)
+            };
+            if let Some(data) = data.filter(|data| !data.is_empty()) {
+                self.pending_frame = Some((data, 0));
             }
             if frame.eof {
                 self.recv_eof = true;
@@ -753,14 +772,15 @@ impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize, const READ_B
         }
     }
 
-    /// Whether the peer has signalled end-of-stream (an eof frame on `recv_stream_id`).
+    /// Whether the peer's eof frame has arrived and all earlier bytes have been read.
     pub fn recv_finished(&mut self) -> bool {
         self.fill();
-        self.recv_eof
+        self.recv_eof && self.read_buf.is_empty() && self.pending_frame.is_none()
     }
 
-    /// Whether a frame arrived that this buffer could not decode (today: a compressed
-    /// frame from RNS). Its bytes were dropped rather than corrupting the stream.
+    /// Whether a frame arrived that this buffer could not decode (a compressed frame
+    /// without the `compression` feature, or invalid bz2). Its bytes were dropped
+    /// rather than corrupting the stream.
     pub fn had_unsupported_frame(&self) -> bool {
         self.saw_unsupported
     }
@@ -1337,6 +1357,35 @@ mod tests {
         );
     }
 
+    #[test]
+    fn plain_frame_larger_than_read_bound_is_delivered_in_order() {
+        type SmallBuffer = Buffer<64, 256, 256, 8>;
+        let mut r = SmallBuffer::new();
+        let data: Vec<u8> = (0..20).collect();
+        assert!(
+            r.handle(Envelope {
+                msgtype: STREAM_MSGTYPE,
+                sequence: 0,
+                payload: StreamFrame {
+                    stream_id: 0,
+                    eof: true,
+                    compressed: false,
+                    data: data.clone(),
+                }
+                .encode(),
+            })
+        );
+
+        let mut got = Vec::new();
+        for _ in 0..3 {
+            let chunk = r.read_available();
+            assert!(chunk.len() <= 8);
+            got.extend(chunk);
+        }
+        assert_eq!(got, data);
+        assert!(r.recv_finished());
+    }
+
     /// A compressed frame carries data, and the reliable layer has already proven it to the
     /// peer by the time it reaches the buffer. Dropping it is silent loss with an
     /// acknowledgement on it: the sender retires bytes the application never sees. This is
@@ -1395,6 +1444,104 @@ mod tests {
             !r.had_unsupported_frame(),
             "a frame this build can decode is not unsupported",
         );
+    }
+
+    /// One bz2 frame can expand beyond the read queue's capacity. Keep later frames
+    /// behind it and deliver every byte across repeated bounded reads.
+    #[cfg(feature = "compression")]
+    #[test]
+    fn expanded_frame_respects_read_bound_without_losing_following_data() {
+        type SmallBuffer = Buffer<64, 256, 256, 8>;
+        let mut r = SmallBuffer::new();
+        let middle = vec![b'z'; 40];
+        for (sequence, frame) in [
+            StreamFrame {
+                stream_id: 0,
+                eof: false,
+                compressed: true,
+                data: crate::resource::compress(&middle),
+            },
+            StreamFrame {
+                stream_id: 0,
+                eof: true,
+                compressed: false,
+                data: vec![1, 2, 3],
+            },
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            assert!(r.handle(Envelope {
+                msgtype: STREAM_MSGTYPE,
+                sequence: sequence as u16,
+                payload: frame.encode(),
+            }));
+        }
+
+        let mut got = Vec::new();
+        let mut first = [0u8; 3];
+        assert_eq!(r.read(&mut first), first.len());
+        got.extend_from_slice(&first);
+        assert!(r.read_buf.len() <= 8);
+        assert!(
+            !r.recv_finished(),
+            "eof follows the pending compressed data"
+        );
+
+        for _ in 0..10 {
+            let chunk = r.read_available();
+            assert!(chunk.len() <= 8, "one read exceeded READ_BYTES");
+            assert!(
+                r.read_buf.len() <= 8,
+                "the queued bytes exceeded READ_BYTES"
+            );
+            got.extend(chunk);
+            if got.len() == middle.len() + 3 {
+                break;
+            }
+        }
+        let mut expected = middle;
+        expected.extend_from_slice(&[1, 2, 3]);
+        assert_eq!(
+            got, expected,
+            "the expanded frame and EOF frame stay in order"
+        );
+        assert!(r.recv_finished());
+        assert!(!r.had_unsupported_frame());
+    }
+
+    #[cfg(feature = "compression")]
+    #[test]
+    fn eof_on_expanded_frame_waits_for_all_bytes_to_be_read() {
+        type SmallBuffer = Buffer<64, 256, 256, 8>;
+        let mut r = SmallBuffer::new();
+        let data = vec![b'x'; 20];
+        assert!(
+            r.handle(Envelope {
+                msgtype: STREAM_MSGTYPE,
+                sequence: 0,
+                payload: StreamFrame {
+                    stream_id: 0,
+                    eof: true,
+                    compressed: true,
+                    data: crate::resource::compress(&data),
+                }
+                .encode(),
+            })
+        );
+
+        assert!(!r.recv_finished(), "eof must wait behind buffered data");
+        let mut got = Vec::new();
+        for _ in 0..3 {
+            let chunk = r.read_available();
+            assert!(chunk.len() <= 8);
+            got.extend(chunk);
+            if got.len() < data.len() {
+                assert!(!r.recv_finished(), "pending bytes must precede eof");
+            }
+        }
+        assert_eq!(got, data);
+        assert!(r.recv_finished(), "eof follows the last read byte");
     }
 
     #[test]

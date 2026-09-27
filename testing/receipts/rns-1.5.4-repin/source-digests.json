@@ -1,0 +1,66 @@
+{
+  "baseline_commit": "acb82f6dd8c8f6ed46a15f5d0910c4b55e8e6ffa",
+  "method": "SHA-256 of UTF-8 file bytes with CRLF normalized to LF. Modified implementation/driver files plus dependency selectors; remaining files derive from baseline.",
+  "files": [
+    {
+      "path": "Cargo.lock",
+      "sha256_lf": "58077f379fe26ce69a35b4c03527f01ee606f68ea17a23e607c9f4804e121891"
+    },
+    {
+      "path": "Cargo.toml",
+      "sha256_lf": "f6621e338cb8a0547f624930ace25f3cd504161981d188dd2ac1d9a05de60df4"
+    },
+    {
+      "path": "crates/outrider/Cargo.toml",
+      "sha256_lf": "186554617b80e4a41327f67e31904848598f0f1c054d71eb366fe6e3a367306c"
+    },
+    {
+      "path": "crates/retinue/Cargo.toml",
+      "sha256_lf": "be6bf7957a34040fff2905dd0546892f34f5d48a00124c5ec60c77b23a910204"
+    },
+    {
+      "path": "crates/retinue/oracle/capture_signed_artifact.py",
+      "sha256_lf": "38c23e2c57e2261008e108ad45f815fb3256557d2e3a41a091ff0056d7763292"
+    },
+    {
+      "path": "crates/retinue/oracle/interop_endpoint_stream.py",
+      "sha256_lf": "1dab52104a9a060f9a5932a3910b8c9e3f88c1639c3a3bedf55903b25cced422"
+    },
+    {
+      "path": "crates/retinue/oracle/requirements.txt",
+      "sha256_lf": "295c83c390ad78b77f86cf4391b5acfeebfae10aac3889766874620b0db794df"
+    },
+    {
+      "path": "crates/retinue/src/channel.rs",
+      "sha256_lf": "0b23c6a9fdbf316c4f6c817ecbae1a92e2d09acccd5e1985d5a7b1d091370891"
+    },
+    {
+      "path": "crates/retinue/src/endpoint.rs",
+      "sha256_lf": "15b2091d22b03fcff1586ff5bc2cc4eb458a4a77f23f78cea334d1e22c3abbdd"
+    },
+    {
+      "path": "crates/retinue/src/lib.rs",
+      "sha256_lf": "12728d235828e4e1032ea58907407326f704041e761fb7f1e801c86fc9d864ca"
+    },
+    {
+      "path": "crates/retinue/src/node.rs",
+      "sha256_lf": "670445cce084828543cb3fe9749e4fb594bbd680c06d78aeaa6b5171cac11426"
+    },
+    {
+      "path": "crates/retinue/src/reliable.rs",
+      "sha256_lf": "a523ac9d63900c164170e8d03d9d3302c01d362146b0c367864f39288fd9c58d"
+    },
+    {
+      "path": "crates/retinue/src/resource_transfer.rs",
+      "sha256_lf": "41c434c1f382519c094c17b0333cbb3a6dc50fded092c86e02bce92b278f8d72"
+    },
+    {
+      "path": "crates/retinue/tests/signed_artifact.rs",
+      "sha256_lf": "c37cfe872c995209e2418aadbe86bb21c42fec93224bb9de33d4bdda977c2233"
+    },
+    {
+      "path": "testing/receipts/rns-1.5.4-repin/run.py",
+      "sha256_lf": "31152050049447f71dafa6de8dffad85ba817e652931276943379dd7f617e444"
+    }
+  ]
+}

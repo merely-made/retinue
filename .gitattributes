@@ -58,3 +58,6 @@ testing/receipts/prns-retirement/** -text
 crates/retinue/tests/fixtures/rns_signed_artifact_1_5_4.json -text whitespace=cr-at-eol
 testing/receipts/rns-1.5.4-signed-artifact/** -text whitespace=cr-at-eol,-blank-at-eof
 crates/retinue/oracle/capture_signed_artifact.py text eol=lf
+
+# Versioned repin logs and raw capture archive are immutable receipt bytes.
+testing/receipts/rns-1.5.4-repin/** -text whitespace=cr-at-eol,-blank-at-eof

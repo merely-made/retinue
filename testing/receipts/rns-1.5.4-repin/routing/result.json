@@ -1,0 +1,53 @@
+{
+  "baseline_commit": "acb82f6dd8c8f6ed46a15f5d0910c4b55e8e6ffa",
+  "rns": "1.5.4",
+  "lxmf": "1.1.1",
+  "lane": "routing",
+  "started_utc": "2026-09-27T12:07:37.918868+00:00",
+  "gates": [
+    {
+      "name": "timebase",
+      "command": [
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\.venv\\Scripts\\python.exe",
+        "-u",
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\probe_announce_timebase.py",
+        "--output",
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\validation\\results\\rns-1.5.4-repin\\timebase\\result.json"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 38.818
+    },
+    {
+      "name": "route-full",
+      "command": [
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\.venv\\Scripts\\python.exe",
+        "-u",
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\probe_route_freshness.py",
+        "--profile",
+        "full",
+        "--output",
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\validation\\results\\rns-1.5.4-repin\\route-full"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 277.366
+    },
+    {
+      "name": "same-blob",
+      "command": [
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\.venv\\Scripts\\python.exe",
+        "-u",
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\probe_route_freshness.py",
+        "--profile",
+        "same-blob-diagnostic",
+        "--output",
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\validation\\results\\rns-1.5.4-repin\\same-blob"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 86.846
+    }
+  ],
+  "all_passed": true
+}

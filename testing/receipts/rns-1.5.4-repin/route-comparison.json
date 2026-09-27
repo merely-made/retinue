@@ -1,0 +1,2322 @@
+{
+  "old_result": "validation\\results\\route-freshness-full-20260830T030952Z\\result.json",
+  "old_sha256": "14601b688fe72e1763e8d022915c468d1f9b164715bc47aee726050b905aaf39",
+  "new_result": "validation\\results\\rns-1.5.4-repin\\route-full\\result.json",
+  "new_sha256": "8fb4d4f0ae52abbcfcfe0bf2be1f46e4f9e77ff7b90771fe1b5f43ba54f1e88c",
+  "fields_compared": [
+    "blob_relation",
+    "new_blob_admitted",
+    "observable_admission",
+    "same_blob_route_transition",
+    "observed_hop_relation",
+    "outcome",
+    "valid_measurement"
+  ],
+  "all_equal": true,
+  "cells": [
+    {
+      "cell": {
+        "aspect": "route-freshness-00",
+        "cell_id": "live-ordinary-older-same-better",
+        "context": "ordinary",
+        "hop_relation": "better",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "live",
+        "time_relation": "older"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-01",
+        "cell_id": "live-ordinary-older-same-equal",
+        "context": "ordinary",
+        "hop_relation": "equal",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "live",
+        "time_relation": "older"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-02",
+        "cell_id": "live-ordinary-older-same-worse",
+        "context": "ordinary",
+        "hop_relation": "worse",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "live",
+        "time_relation": "older"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-03",
+        "cell_id": "live-ordinary-older-new-better",
+        "context": "ordinary",
+        "hop_relation": "better",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "new",
+        "route_state": "live",
+        "time_relation": "older"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-04",
+        "cell_id": "live-ordinary-older-new-equal",
+        "context": "ordinary",
+        "hop_relation": "equal",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "new",
+        "route_state": "live",
+        "time_relation": "older"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-05",
+        "cell_id": "live-ordinary-older-new-worse",
+        "context": "ordinary",
+        "hop_relation": "worse",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "new",
+        "route_state": "live",
+        "time_relation": "older"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-06",
+        "cell_id": "live-ordinary-equal-same-better",
+        "context": "ordinary",
+        "hop_relation": "better",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "live",
+        "time_relation": "equal"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "same",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "same",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-07",
+        "cell_id": "live-ordinary-equal-same-equal",
+        "context": "ordinary",
+        "hop_relation": "equal",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "live",
+        "time_relation": "equal"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "same",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "same",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-08",
+        "cell_id": "live-ordinary-equal-same-worse",
+        "context": "ordinary",
+        "hop_relation": "worse",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "live",
+        "time_relation": "equal"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "same",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "same",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-09",
+        "cell_id": "live-ordinary-equal-new-better",
+        "context": "ordinary",
+        "hop_relation": "better",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "new",
+        "route_state": "live",
+        "time_relation": "equal"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-10",
+        "cell_id": "live-ordinary-equal-new-equal",
+        "context": "ordinary",
+        "hop_relation": "equal",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "new",
+        "route_state": "live",
+        "time_relation": "equal"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-11",
+        "cell_id": "live-ordinary-equal-new-worse",
+        "context": "ordinary",
+        "hop_relation": "worse",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "new",
+        "route_state": "live",
+        "time_relation": "equal"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-12",
+        "cell_id": "live-ordinary-newer-same-better",
+        "context": "ordinary",
+        "hop_relation": "better",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "live",
+        "time_relation": "newer"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-13",
+        "cell_id": "live-ordinary-newer-same-equal",
+        "context": "ordinary",
+        "hop_relation": "equal",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "live",
+        "time_relation": "newer"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-14",
+        "cell_id": "live-ordinary-newer-same-worse",
+        "context": "ordinary",
+        "hop_relation": "worse",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "live",
+        "time_relation": "newer"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-15",
+        "cell_id": "live-ordinary-newer-new-better",
+        "context": "ordinary",
+        "hop_relation": "better",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "new",
+        "route_state": "live",
+        "time_relation": "newer"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-16",
+        "cell_id": "live-ordinary-newer-new-equal",
+        "context": "ordinary",
+        "hop_relation": "equal",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "new",
+        "route_state": "live",
+        "time_relation": "newer"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-17",
+        "cell_id": "live-ordinary-newer-new-worse",
+        "context": "ordinary",
+        "hop_relation": "worse",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "new",
+        "route_state": "live",
+        "time_relation": "newer"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-18",
+        "cell_id": "live-path-response-older-same-better",
+        "context": "path-response",
+        "hop_relation": "better",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "live",
+        "time_relation": "older"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-19",
+        "cell_id": "live-path-response-older-same-equal",
+        "context": "path-response",
+        "hop_relation": "equal",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "live",
+        "time_relation": "older"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-20",
+        "cell_id": "live-path-response-older-same-worse",
+        "context": "path-response",
+        "hop_relation": "worse",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "live",
+        "time_relation": "older"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-21",
+        "cell_id": "live-path-response-older-new-better",
+        "context": "path-response",
+        "hop_relation": "better",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "new",
+        "route_state": "live",
+        "time_relation": "older"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-22",
+        "cell_id": "live-path-response-older-new-equal",
+        "context": "path-response",
+        "hop_relation": "equal",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "new",
+        "route_state": "live",
+        "time_relation": "older"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-23",
+        "cell_id": "live-path-response-older-new-worse",
+        "context": "path-response",
+        "hop_relation": "worse",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "new",
+        "route_state": "live",
+        "time_relation": "older"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-24",
+        "cell_id": "live-path-response-equal-same-better",
+        "context": "path-response",
+        "hop_relation": "better",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "live",
+        "time_relation": "equal"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "same",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "same",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-25",
+        "cell_id": "live-path-response-equal-same-equal",
+        "context": "path-response",
+        "hop_relation": "equal",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "live",
+        "time_relation": "equal"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "same",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "same",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-26",
+        "cell_id": "live-path-response-equal-same-worse",
+        "context": "path-response",
+        "hop_relation": "worse",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "live",
+        "time_relation": "equal"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "same",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "same",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-27",
+        "cell_id": "live-path-response-equal-new-better",
+        "context": "path-response",
+        "hop_relation": "better",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "new",
+        "route_state": "live",
+        "time_relation": "equal"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-28",
+        "cell_id": "live-path-response-equal-new-equal",
+        "context": "path-response",
+        "hop_relation": "equal",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "new",
+        "route_state": "live",
+        "time_relation": "equal"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-29",
+        "cell_id": "live-path-response-equal-new-worse",
+        "context": "path-response",
+        "hop_relation": "worse",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "new",
+        "route_state": "live",
+        "time_relation": "equal"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-30",
+        "cell_id": "live-path-response-newer-same-better",
+        "context": "path-response",
+        "hop_relation": "better",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "live",
+        "time_relation": "newer"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-31",
+        "cell_id": "live-path-response-newer-same-equal",
+        "context": "path-response",
+        "hop_relation": "equal",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "live",
+        "time_relation": "newer"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-32",
+        "cell_id": "live-path-response-newer-same-worse",
+        "context": "path-response",
+        "hop_relation": "worse",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "live",
+        "time_relation": "newer"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-33",
+        "cell_id": "live-path-response-newer-new-better",
+        "context": "path-response",
+        "hop_relation": "better",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "new",
+        "route_state": "live",
+        "time_relation": "newer"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-34",
+        "cell_id": "live-path-response-newer-new-equal",
+        "context": "path-response",
+        "hop_relation": "equal",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "new",
+        "route_state": "live",
+        "time_relation": "newer"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-35",
+        "cell_id": "live-path-response-newer-new-worse",
+        "context": "path-response",
+        "hop_relation": "worse",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "new",
+        "route_state": "live",
+        "time_relation": "newer"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-36",
+        "cell_id": "loaded-expired-state-ordinary-older-same-better",
+        "context": "ordinary",
+        "hop_relation": "better",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "loaded-expired-state",
+        "time_relation": "older"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-37",
+        "cell_id": "loaded-expired-state-ordinary-older-same-equal",
+        "context": "ordinary",
+        "hop_relation": "equal",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "loaded-expired-state",
+        "time_relation": "older"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-38",
+        "cell_id": "loaded-expired-state-ordinary-older-same-worse",
+        "context": "ordinary",
+        "hop_relation": "worse",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "loaded-expired-state",
+        "time_relation": "older"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-39",
+        "cell_id": "loaded-expired-state-ordinary-older-new-better",
+        "context": "ordinary",
+        "hop_relation": "better",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "new",
+        "route_state": "loaded-expired-state",
+        "time_relation": "older"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-40",
+        "cell_id": "loaded-expired-state-ordinary-older-new-equal",
+        "context": "ordinary",
+        "hop_relation": "equal",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "new",
+        "route_state": "loaded-expired-state",
+        "time_relation": "older"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-41",
+        "cell_id": "loaded-expired-state-ordinary-older-new-worse",
+        "context": "ordinary",
+        "hop_relation": "worse",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "new",
+        "route_state": "loaded-expired-state",
+        "time_relation": "older"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-42",
+        "cell_id": "loaded-expired-state-ordinary-equal-same-better",
+        "context": "ordinary",
+        "hop_relation": "better",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "loaded-expired-state",
+        "time_relation": "equal"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "same",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "same",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-43",
+        "cell_id": "loaded-expired-state-ordinary-equal-same-equal",
+        "context": "ordinary",
+        "hop_relation": "equal",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "loaded-expired-state",
+        "time_relation": "equal"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "same",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "same",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-44",
+        "cell_id": "loaded-expired-state-ordinary-equal-same-worse",
+        "context": "ordinary",
+        "hop_relation": "worse",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "loaded-expired-state",
+        "time_relation": "equal"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "same",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "same",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-45",
+        "cell_id": "loaded-expired-state-ordinary-equal-new-better",
+        "context": "ordinary",
+        "hop_relation": "better",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "new",
+        "route_state": "loaded-expired-state",
+        "time_relation": "equal"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-46",
+        "cell_id": "loaded-expired-state-ordinary-equal-new-equal",
+        "context": "ordinary",
+        "hop_relation": "equal",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "new",
+        "route_state": "loaded-expired-state",
+        "time_relation": "equal"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-47",
+        "cell_id": "loaded-expired-state-ordinary-equal-new-worse",
+        "context": "ordinary",
+        "hop_relation": "worse",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "new",
+        "route_state": "loaded-expired-state",
+        "time_relation": "equal"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-48",
+        "cell_id": "loaded-expired-state-ordinary-newer-same-better",
+        "context": "ordinary",
+        "hop_relation": "better",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "loaded-expired-state",
+        "time_relation": "newer"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-49",
+        "cell_id": "loaded-expired-state-ordinary-newer-same-equal",
+        "context": "ordinary",
+        "hop_relation": "equal",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "loaded-expired-state",
+        "time_relation": "newer"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-50",
+        "cell_id": "loaded-expired-state-ordinary-newer-same-worse",
+        "context": "ordinary",
+        "hop_relation": "worse",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "loaded-expired-state",
+        "time_relation": "newer"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-51",
+        "cell_id": "loaded-expired-state-ordinary-newer-new-better",
+        "context": "ordinary",
+        "hop_relation": "better",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "new",
+        "route_state": "loaded-expired-state",
+        "time_relation": "newer"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-52",
+        "cell_id": "loaded-expired-state-ordinary-newer-new-equal",
+        "context": "ordinary",
+        "hop_relation": "equal",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "new",
+        "route_state": "loaded-expired-state",
+        "time_relation": "newer"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-53",
+        "cell_id": "loaded-expired-state-ordinary-newer-new-worse",
+        "context": "ordinary",
+        "hop_relation": "worse",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "new",
+        "route_state": "loaded-expired-state",
+        "time_relation": "newer"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-54",
+        "cell_id": "loaded-expired-state-path-response-older-same-better",
+        "context": "path-response",
+        "hop_relation": "better",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "loaded-expired-state",
+        "time_relation": "older"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-55",
+        "cell_id": "loaded-expired-state-path-response-older-same-equal",
+        "context": "path-response",
+        "hop_relation": "equal",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "loaded-expired-state",
+        "time_relation": "older"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-56",
+        "cell_id": "loaded-expired-state-path-response-older-same-worse",
+        "context": "path-response",
+        "hop_relation": "worse",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "loaded-expired-state",
+        "time_relation": "older"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-57",
+        "cell_id": "loaded-expired-state-path-response-older-new-better",
+        "context": "path-response",
+        "hop_relation": "better",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "new",
+        "route_state": "loaded-expired-state",
+        "time_relation": "older"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-58",
+        "cell_id": "loaded-expired-state-path-response-older-new-equal",
+        "context": "path-response",
+        "hop_relation": "equal",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "new",
+        "route_state": "loaded-expired-state",
+        "time_relation": "older"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-59",
+        "cell_id": "loaded-expired-state-path-response-older-new-worse",
+        "context": "path-response",
+        "hop_relation": "worse",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "new",
+        "route_state": "loaded-expired-state",
+        "time_relation": "older"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-60",
+        "cell_id": "loaded-expired-state-path-response-equal-same-better",
+        "context": "path-response",
+        "hop_relation": "better",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "loaded-expired-state",
+        "time_relation": "equal"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "same",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "same",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-61",
+        "cell_id": "loaded-expired-state-path-response-equal-same-equal",
+        "context": "path-response",
+        "hop_relation": "equal",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "loaded-expired-state",
+        "time_relation": "equal"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "same",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "same",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-62",
+        "cell_id": "loaded-expired-state-path-response-equal-same-worse",
+        "context": "path-response",
+        "hop_relation": "worse",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "loaded-expired-state",
+        "time_relation": "equal"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "same",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "same",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-63",
+        "cell_id": "loaded-expired-state-path-response-equal-new-better",
+        "context": "path-response",
+        "hop_relation": "better",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "new",
+        "route_state": "loaded-expired-state",
+        "time_relation": "equal"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-64",
+        "cell_id": "loaded-expired-state-path-response-equal-new-equal",
+        "context": "path-response",
+        "hop_relation": "equal",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "new",
+        "route_state": "loaded-expired-state",
+        "time_relation": "equal"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": false,
+        "observable_admission": false,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "no-observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-65",
+        "cell_id": "loaded-expired-state-path-response-equal-new-worse",
+        "context": "path-response",
+        "hop_relation": "worse",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "new",
+        "route_state": "loaded-expired-state",
+        "time_relation": "equal"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-66",
+        "cell_id": "loaded-expired-state-path-response-newer-same-better",
+        "context": "path-response",
+        "hop_relation": "better",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "loaded-expired-state",
+        "time_relation": "newer"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-67",
+        "cell_id": "loaded-expired-state-path-response-newer-same-equal",
+        "context": "path-response",
+        "hop_relation": "equal",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "loaded-expired-state",
+        "time_relation": "newer"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-68",
+        "cell_id": "loaded-expired-state-path-response-newer-same-worse",
+        "context": "path-response",
+        "hop_relation": "worse",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "loaded-expired-state",
+        "time_relation": "newer"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-69",
+        "cell_id": "loaded-expired-state-path-response-newer-new-better",
+        "context": "path-response",
+        "hop_relation": "better",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "new",
+        "route_state": "loaded-expired-state",
+        "time_relation": "newer"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "better",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-70",
+        "cell_id": "loaded-expired-state-path-response-newer-new-equal",
+        "context": "path-response",
+        "hop_relation": "equal",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "new",
+        "route_state": "loaded-expired-state",
+        "time_relation": "newer"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "equal",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      }
+    },
+    {
+      "cell": {
+        "aspect": "route-freshness-71",
+        "cell_id": "loaded-expired-state-path-response-newer-new-worse",
+        "context": "path-response",
+        "hop_relation": "worse",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "new",
+        "route_state": "loaded-expired-state",
+        "time_relation": "newer"
+      },
+      "decisions_equal": true,
+      "previous": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      },
+      "current": {
+        "blob_relation": "new",
+        "new_blob_admitted": true,
+        "observable_admission": true,
+        "same_blob_route_transition": false,
+        "observed_hop_relation": "worse",
+        "outcome": "observable-admission",
+        "valid_measurement": true
+      }
+    }
+  ]
+}

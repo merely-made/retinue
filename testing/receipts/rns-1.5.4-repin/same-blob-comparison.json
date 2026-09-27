@@ -1,0 +1,11 @@
+{
+  "previous_rns": "1.5.2",
+  "current_rns": "1.5.4",
+  "previous_result": "validation\\results\\route-freshness-same-blob-diagnostic-20260830T030802Z\\result.json",
+  "previous_sha256": "d660ea18f6ce38d0029672d85829a257d25f53dd30ae2df9cec63fe2f6972550",
+  "current_result": "testing\\receipts\\rns-1.5.4-repin\\same-blob-result.json",
+  "current_sha256": "128a8c93d0fd391c1f2999faa4d92e54cdf6d9e7bae3ff7a99955abf35b1b46a",
+  "cells": 6,
+  "all_decisions_equal": true,
+  "method": "Paired identical cell descriptors; compared blob_relation, new_blob_admitted, observable_admission, same_blob_route_transition, observed_hop_relation, outcome, valid_measurement."
+}

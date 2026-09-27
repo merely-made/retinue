@@ -1221,6 +1221,16 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         else {
             return false;
         };
+        let bridge = &self.bridges[index];
+        let out = if interface == bridge.from {
+            bridge.out
+        } else if interface == bridge.out {
+            bridge.from
+        } else {
+            // A third interface cannot extend this bridge's lifetime or poison the
+            // relay de-duplication cache for a later packet from a real endpoint.
+            return true;
+        };
         if packet.hops >= self.transport.max_hops {
             self.transport_counters.hop_limit_dropped =
                 self.transport_counters.hop_limit_dropped.saturating_add(1);
@@ -1229,15 +1239,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         if !self.transit_is_new(packet.hash(), now) {
             return true;
         }
-        let bridge = &mut self.bridges[index];
-        bridge.seen = now;
-        let out = if interface == bridge.from {
-            bridge.out
-        } else if interface == bridge.out {
-            bridge.from
-        } else {
-            return false;
-        };
+        self.bridges[index].seen = now;
         let mut forwarded = packet.clone();
         forwarded.hops = forwarded.hops.saturating_add(1);
         forwarded.header_type = HeaderType::Type1;
@@ -3028,6 +3030,46 @@ mod tests {
         assert_eq!(relay.pause_assessment().transit_bridges, 0);
         assert!(relay.ingest(IFACE, &late, 6).is_empty());
         assert!(relay.peers().knows(destination.destination()));
+    }
+
+    #[test]
+    fn foreign_interface_cannot_refresh_or_poison_a_link_bridge() {
+        let mut relay = Node::<8, 8, 4, 4>::new(
+            PrivateIdentity::from_secret_bytes(&[0x45; 64]),
+            DestinationName::new("retinue", ["relay"]).name_hash(),
+        )
+        .with_transport_config(TransportConfig::transit());
+        let link_id = AddressHash::from_bytes([0xA3; 16]);
+        relay.remember_bridge(link_id, 1, 2, 10);
+        let mut packet = Packet {
+            packet_type: PacketType::Data,
+            header_type: HeaderType::Type1,
+            transport: None,
+            destination: link_id,
+            payload: b"bridged data".to_vec(),
+            ..fixture("announce_appdata.bin")
+        };
+
+        assert!(relay.ingest(3, &packet, 20).is_empty());
+        assert_eq!(relay.bridges[0].seen, 10);
+        assert!(relay.seen_transit.is_empty());
+
+        let to_two = relay.ingest(1, &packet, 21);
+        assert!(
+            to_two
+                .iter()
+                .any(|action| matches!(action, Action::Send { interface: 2, .. }))
+        );
+        assert_eq!(relay.bridges[0].seen, 21);
+
+        packet.payload = b"return data".to_vec();
+        let to_one = relay.ingest(2, &packet, 22);
+        assert!(
+            to_one
+                .iter()
+                .any(|action| matches!(action, Action::Send { interface: 1, .. }))
+        );
+        assert_eq!(relay.transport_counters().forwarded_packets, 2);
     }
 
     /// This is the desk half of the T114 flood: enough distinct signed announces to turn the

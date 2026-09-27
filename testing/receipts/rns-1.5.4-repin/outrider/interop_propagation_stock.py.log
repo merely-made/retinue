@@ -1,0 +1,25 @@
+LXMF 1.1.1 / RNS 1.5.4
+  [retinue] TRANSPORT_NODE_UP 36172e50b3a4a104b8ca1e75cd4aba47 on 57360
+[2026-09-27 08:11:15] [Verbose]  Bringing up system interfaces...
+[2026-09-27 08:11:15] [Verbose]  System interfaces are ready
+[2026-09-27 08:11:15] [Verbose]  Configuration loaded from C:\Users\mark_\AppData\Local\Temp\outrider-propagation-stock-w446oe_m\client-rns/config
+[2026-09-27 08:11:15] [Verbose]  Destinations file does not exist, no known destinations loaded
+[2026-09-27 08:11:15] [Verbose]  No valid Transport Identity in storage, creating...
+[2026-09-27 08:11:15] [Verbose]  Identity keys created for <21ce93d1682e243ca19a91db2ada0474>
+[2026-09-27 08:11:15] [Verbose]  Identity keys created for <4282b6bb50ed7ffeefa97dcfe611b742>
+[2026-09-27 08:11:15] [Verbose]  Initialized ephemeral transport identity <4282b6bb50ed7ffeefa97dcfe611b742>
+  stock: learned propagation node a58f36b55a2356766fb948de960621bf
+  stock: states SENT=4 DELIVERED=8 FAILED=255
+  stock: queued propagated 43582edd8546333f8e44702c5821feeabfe3470ab7917bc4e1628834f339f3d7
+[2026-09-27 08:11:39] [Warning]  Running stamp generation on win32, work limited to single CPU core. This will be slower than ideal.
+  stock: submit state 4
+  stock: fetch requested None
+  stock: fetched 43582edd8546333f8e44702c5821feeabfe3470ab7917bc4e1628834f339f3d7
+stock learned propagation node: PASS
+stock submitted message: PASS
+stock fetched message: PASS
+stock decoded title/body: PASS
+stock agreed on message id: PASS
+STOCK_PROPAGATION_ROUND_TRIP: PASS
+[2026-09-27 08:11:43] [Warning]  An interface error occurred for TCPInterface[retinue/127.0.0.1:57360], the contained exception was: [WinError 10054] An existing connection was forcibly closed by the remote host
+[2026-09-27 08:11:43] [Warning]  Attempting to reconnect...

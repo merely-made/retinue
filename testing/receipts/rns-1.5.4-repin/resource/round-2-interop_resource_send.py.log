@@ -1,0 +1,54 @@
+RNS 1.5.4
+
+  [retinue] LISTENING 60483
+[2026-09-27 08:12:16] [Debug]    Reticulum running in interpreted mode
+[2026-09-27 08:12:16] [Verbose]  Bringing up system interfaces...
+[2026-09-27 08:12:16] [Debug]    Establishing TCP connection for TCPInterface[retinue/127.0.0.1:60483]...
+[2026-09-27 08:12:16] [Debug]    TCP connection for TCPInterface[retinue/127.0.0.1:60483] established
+[2026-09-27 08:12:16] [Verbose]  System interfaces are ready
+[2026-09-27 08:12:16] [Debug]    Utilising cryptography backend "openssl, PyCA 49.0.0"
+[2026-09-27 08:12:16] [Verbose]  Configuration loaded from C:\Users\mark_\AppData\Local\Temp\retinue-rsend-3bw0s1p8/config
+[2026-09-27 08:12:16] [Verbose]  Destinations file does not exist, no known destinations loaded
+[2026-09-27 08:12:16] [Debug]    Cleaning ratchets...
+[2026-09-27 08:12:16] [Debug]    Processed 0 ratchets in 0s, not in use 0, removed 0
+[2026-09-27 08:12:16] [Verbose]  No valid Transport Identity in storage, creating...
+[2026-09-27 08:12:16] [Verbose]  Identity keys created for <b7b83f14aef0da5cbc21b9ab6866466b>
+[2026-09-27 08:12:16] [Verbose]  Identity keys created for <0208d8ac9616b95f039a8fb10a4fcca8>
+[2026-09-27 08:12:16] [Verbose]  Initialized ephemeral transport identity <0208d8ac9616b95f039a8fb10a4fcca8>
+RNS receiver 101a05f231e6ebdaca7160497ac971c9
+
+[2026-09-27 08:12:17] [Debug]    Incoming link request with mode AES_256_CBC
+[2026-09-27 08:12:17] [Debug]    Validating link request <aa7f3037037bba3b2e7dcedf70ecedb8>
+[2026-09-27 08:12:17] [Debug]    Incoming link request <aa7f3037037bba3b2e7dcedf70ecedb8> accepted on TCPInterface[retinue/127.0.0.1:60483]
+  [retinue] LINK aa7f3037037bba3b2e7dcedf70ecedb8
+  [retinue] ADV t=368 d=300 n=1 parts=1
+  [retinue] EXPECTED_PROOF 81ca40522a32502af6b211cf452ed1a992782e2716a9af86ddc60ee9b64b63a2
+  RNS: resource advertised -> accepting (ACCEPT_APP = in-RAM)  [retinue] SENT_ADV
+
+[2026-09-27 08:12:17] [Debug]    Accepting resource advertisement for <f995cac5b6102f726d80df52058a0a3b141c2cc50d703a7e7d01ea69f081c53c>. Transfer size is 368 B in 1 parts.
+  [retinue] RX ctx=0x03 decrypted[37] 00f995cac5b6102f726d80df52058a0a3b141c2cc50d703a7e7d01ea69f081c53cb03f5707
+  [retinue] REQ for 1 parts, sent 1
+  [retinue] RX ctx=0x05 raw[64] f995cac5b6102f726d80df52058a0a3b141c2cc50d703a7e7d01ea69f081c53c81ca40522a32502af6b211cf452ed1a992782e2716a9af86ddc60ee9b64b63a2
+  [retinue] PROOF_VERIFIED
+  RNS: RESOURCE concluded status=6 (COMPLETE=6, FAILED=7)
+  RNS: resource data 300 bytes, first16=030a11181f262d343b424950575e656c
+
+====================================================================
+RNS received retinue's resource intact: PASS
+RNS concluded COMPLETE:                 PASS
+retinue verified RNS's returned proof:  PASS
+====================================================================
+R4 RESOURCE SEND INTEROP: PASS
+  [retinue] RX ctx=0xfc decrypted[16] aa7f3037037bba3b2e7dcedf70ecedb8
+[2026-09-27 08:12:26] [Warning]  An interface error occurred for TCPInterface[retinue/127.0.0.1:60483], the contained exception was: [WinError 10054] An existing connection was forcibly closed by the remote host
+[2026-09-27 08:12:26] [Warning]  Attempting to reconnect...
+[2026-09-27 08:12:26] [Debug]    Detaching interfaces
+[2026-09-27 08:12:26] [Debug]    Detaching local clients
+[2026-09-27 08:12:26] [Debug]    Detaching shared instance
+[2026-09-27 08:12:26] [Debug]    All interfaces detached
+[2026-09-27 08:12:26] [Debug]    Saving path table to storage...
+[2026-09-27 08:12:26] [Debug]    Saved 0 path table entries in 0.72ms
+[2026-09-27 08:12:26] [Debug]    Saving tunnel table to storage...
+[2026-09-27 08:12:26] [Debug]    Saved 0 tunnel table entries in 1.1ms
+[2026-09-27 08:12:26] [Debug]    Saving 0 known destinations to storage...
+[2026-09-27 08:12:26] [Debug]    Saved known destinations to storage in 1ms and 514.67µs

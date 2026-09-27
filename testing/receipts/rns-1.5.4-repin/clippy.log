@@ -1,0 +1,19 @@
+    Checking const-oid v0.10.2
+    Checking windows-sys v0.61.2
+    Checking digest v0.11.3
+    Checking curve25519-dalek v5.0.0
+    Checking num-traits v0.2.19
+    Checking mio v1.2.2
+    Checking socket2 v0.6.5
+    Checking sha2 v0.11.0
+    Checking hmac v0.13.0
+   Compiling thiserror v2.0.19
+    Checking tokio v1.53.1
+    Checking x25519-dalek v3.0.0
+    Checking ed25519-dalek v3.0.0
+    Checking hkdf v0.13.0
+    Checking rmp v0.8.15
+    Checking rmpv v1.3.1
+    Checking retinue v0.1.1 (C:\Users\mark_\Code\repos\retinue\crates\retinue)
+    Checking outrider v0.1.1 (C:\Users\mark_\Code\repos\retinue\crates\outrider)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.74s

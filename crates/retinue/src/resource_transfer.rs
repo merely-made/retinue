@@ -2,8 +2,9 @@
 //! the resource codec ([`crate::resource`]) over link packets.
 //!
 //! A *resource* is RNS's segmented transfer of a payload too large for one packet. The codec
-//! and its two state machines ([`Outgoing`], [`Incoming`]) are pinned to RNS 1.3.8's wire in
-//! `resource.rs`; this module is the driver that moves their packets across a link, the way
+//! and its two state machines ([`Outgoing`], [`Incoming`]) have historical RNS 1.3.8 wire
+//! fixtures in `resource.rs`; current local transfer gates use the live-oracle pin in
+//! `oracle/requirements.txt`. This module moves their packets across a link, the way
 //! [`crate::reliable`] drives the `Channel`/`Buffer` codec.
 //!
 //! # Wire, by link context byte

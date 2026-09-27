@@ -247,14 +247,19 @@ supplying data-graph and identity crates.
 
 ### Protocol core and wire compatibility
 
+Current execution: [wire compatibility plan](2026-09-27_wire_compatibility_plan.md)
+qualifies RNS 1.5.4 and audits host/core/firmware ownership. Current promotion
+status and residual gates are recorded there; historical receipts keep their pins.
+
 | Document | What it is |
 | --- | --- |
 | [NomadNet resource interoperability receipts](2026-09-13_nomadnet_go_resource_compression_receipt.md) | Go/Python compression receipts and Rust nomadnet-rs qualification, including failed client self-control and multipart limits. |
 | [Retinue v0 plan](2026-07-06_retinue_v0_plan.md) | Historical protocol ledger. R0–R10 all closed. Its "next actions" block is not a queue. |
-| [RNS wire format reference](2026-07-13_rns_wire_format_reference.md) | Wire reference. Historical byte-fixture corpus is pinned at RNS 1.3.8; current announce and route probes use RNS 1.5.2. |
+| [RNS wire format reference](2026-07-13_rns_wire_format_reference.md) | Wire reference. Historical byte-fixture corpus is pinned at RNS 1.3.8; current announce and route probes use RNS 1.5.4. |
 | [Announce timebase plan](2026-08-25_announce_timebase_plan.md) | Active phased plan for the 5+5 announce blob, persistent stock-RNS decision probes, bounded receive freshness, and crash-monotonic firmware reservations. |
-| [Re-pin receipt, RNS 1.5.2 / LXMF 1.1.1](2026-08-29_rns_152_repin_receipt.md) | Current oracle pin. Records the upstream maintenance delta, narrower fixture boundary, Resource stress, Outrider gates, route-freshness probes, and H8 peer matrix. |
-| [RNS 1.5.4 signed-artifact receipt](../testing/receipts/rns-1.5.4-signed-artifact/README.md) | Six fresh CLI captures match retained 1.5.2 bytes. Rust replay covers both versions; broader live-suite pin remains 1.5.2. Preserves provenance uncertainty. |
+| [RNS 1.5.4 repin receipt](../testing/receipts/rns-1.5.4-repin/README.md) | Current live oracle: Retinue, LXMF 1.1.1, repeated Resources, timebase and route decisions. Separate host/core boundary repair tests; physical scope remains historical. |
+| [Re-pin receipt, RNS 1.5.2 / LXMF 1.1.1](2026-08-29_rns_152_repin_receipt.md) | Historical pin. Preserves upstream delta, fixture boundary, Resource stress, Outrider, route-freshness and the withdrawn Prns peer matrix. |
+| [RNS 1.5.4 signed-artifact receipt](../testing/receipts/rns-1.5.4-signed-artifact/README.md) | Historical first 1.5.4 slice: six CLI captures match retained 1.5.2 bytes. Rust replay covers both versions. Broader qualification followed in the repin receipt; provenance uncertainty remains. |
 | [Historical re-pin receipt, RNS 1.5.0 / LXMF 1.1.1](2026-08-23_rns_150_lxmf_111_repin_receipt.md) | Superseded pin receipt. Records the earlier flake finding and one Outrider defect fixed. |
 | [Permissive radio protocol compatibility survey](2026-08-25_permissive_radio_protocol_compatibility_survey.md) | Revision-pinned Reticulum, MeshChat, MeshCore and adjacent LoRa survey; separates donors, executable peers, radio adapters, bearers and semantic bridges. Opens no gates. |
 | [Compact signed feed and local control plan](2026-08-25_compact_signed_feed_and_local_control_plan.md) | Active cross-repository plan: exact allocation-free tinySSB core first; Mere foreign-source probe, ULCP extraction, Noise attach and radio personality behind explicit gates. |
@@ -271,7 +276,7 @@ supplying data-graph and identity crates.
 
 | Document | What it is |
 | --- | --- |
-| [Outrider / LXMF founding](2026-07-25_outrider_lxmf_founding.md) | Gates 1–8. Historical founding closure; seven Outrider gates were requalified against RNS 1.5.2 / LXMF 1.1.1 in the August 29 re-pin receipt. Older receipts retain their original pins. |
+| [Outrider / LXMF founding](2026-07-25_outrider_lxmf_founding.md) | Gates 1–8. Historical founding closure; seven local gates requalified at RNS 1.5.4 / LXMF 1.1.1 in the September 27 receipt. Older physical receipts retain their original pins. |
 | [LXMF field registry capture](2026-08-13_lxmf_field_registry_capture.md) | Field numbers confirmed by wire capture. |
 | [Direct-PHY delivery](2026-07-28_outrider_direct_phy_delivery.md) · [opportunistic direct-PHY](2026-07-28_outrider_direct_phy_opportunistic.md) · [opportunistic delivery](2026-07-28_outrider_opportunistic_delivery.md) · [large propagation response](2026-07-28_outrider_large_propagation_response.md) · [propagation persistence](2026-07-28_outrider_propagation_persistence.md) | Outrider acceptance receipts, all against LXMF 0.9.6 / RNS 1.4.2. |
 | [Outrider publish blocker](2026-08-13_outrider_publish_blocker.md) | Resolved; both crates are on crates.io. |
@@ -574,7 +579,7 @@ is the single source for the shared rules and active file ownership.
   `critical-section` feature-unification clash between firmware and host crates.
   *Reported, not verified here.*
 - The oracle's live gates need its virtualenv at `crates/retinue/oracle/.venv`,
-  pinned by `requirements.txt` (`rns==1.5.2`, `lxmf==1.1.1`).
+  pinned by `requirements.txt` (`rns==1.5.4`, `lxmf==1.1.1`).
 - **The Prns peer daemon must be built from inside its own worktree.** Cargo
   resolves `.cargo/config.toml` from the working directory, and Prns pins a
   256 MiB Windows stack there. Built from anywhere else the daemon overflows a

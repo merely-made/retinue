@@ -1,9 +1,9 @@
 """Endpoint stream gate: retinue's Endpoint exposes a link as an AsyncRead/AsyncWrite
-stream, and RNS exchanges bytes over it via a link Channel/Buffer.
+stream, and RNS exchanges raw link data over it.
 
 This is the shape mere's Transport trait needs. RNS links to retinue's announced /stream
-destination, sends bytes over a RawChannel buffer, and reads retinue's echo. Both sides
-seeing the right bytes proves retinue's endpoint runtime backs a bilateral byte stream.
+destination, sends raw link packets, and reads retinue's echo. This qualifies the
+best-effort bilateral stream, not the reliable Channel/Buffer path.
 
 Run from the oracle/ directory:  ./.venv/Scripts/python.exe -u interop_endpoint_stream.py
 """

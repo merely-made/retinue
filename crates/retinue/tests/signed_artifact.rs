@@ -7,7 +7,7 @@
 //!
 //! Regenerate with
 //! `oracle/.venv/Scripts/python.exe -u oracle/capture_signed_artifact.py`, adding
-//! `--rns-version 1.5.4` for that version's separate fixture. The matching tool must be
+//! `--rns-version 1.5.2` for the historical version's fixture. The matching tool must be
 //! installed. Both fixtures are committed, so this suite needs no Python.
 
 use retinue::artifact::{self, Error};

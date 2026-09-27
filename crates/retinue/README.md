@@ -3,7 +3,7 @@
 An endpoint-scoped Rust implementation of the
 [Reticulum](https://reticulum.network/) protocol: identity, announces, links,
 resources, request/response, and a reliable byte stream, built for embedding as
-a library. Live-interoperable with RNS 1.5.2.
+a library. Qualified against RNS 1.5.4 within the recorded local interoperability scope.
 
 **Status: working, wire-verified, pre-1.0.** Not the reference implementation,
 and not yet hardened for adversarial deployment (see *Maturity* below). The plan
@@ -26,7 +26,8 @@ began later; each historical receipt retains its own evidence boundary. The comm
 retain their recorded producer versions, including the historical RNS 1.3.8 corpus.
 Signed-artifact fixtures separately cover 1.5.2 and 1.5.4; see the
 [six-case comparison receipt](../../testing/receipts/rns-1.5.4-signed-artifact/README.md).
-The live mixed-runtime gates remain qualified against the RNS 1.5.2 pin:
+The [live mixed-runtime receipt](../../testing/receipts/rns-1.5.4-repin/README.md)
+qualifies the RNS 1.5.4 pin:
 
 - **Wire vocabulary** — identities, hashes, destination naming, the packet
   codec, announces, identity and ratchet tokens, and caller-persisted receive
@@ -53,7 +54,7 @@ The live mixed-runtime gates remain qualified against the RNS 1.5.2 pin:
 - **Interface access codes** — network-name/passphrase identity derivation,
   1–64-byte codes, outbound masking, and inbound verification at the carrier
   boundary. TCP, raw interfaces, routed egress, and Tulle share the same
-  sans-I/O codec. A pinned RNS 1.5.2 gate passes in both directions.
+  sans-I/O codec. A pinned RNS 1.5.4 gate passes in both directions.
 - **Transport-node routing** — opt-in (`enable_routing`). The default posture is
   endpoint-scoped — a retinue accompanies a peer — but a node can forward
   announces and link traffic between its interfaces when asked to.
@@ -61,7 +62,7 @@ The live mixed-runtime gates remain qualified against the RNS 1.5.2 pin:
   ratchet from a validated announce; registered destinations receive against
   retained epochs, with explicit rotation and versioned caller-owned snapshots.
   Current and retained epochs pass endpoint tests, a transport hop, and stock
-  RNS 1.5.2 in both crypto directions.
+  RNS 1.5.4 in both crypto directions.
 
 ## Maturity
 
@@ -108,15 +109,18 @@ been audited. Treat it as pre-1.0.
 
 Implemented from the public-domain Reticulum protocol specification and manual,
 and the MIT-licensed Beechat `reticulum` crate. The Python reference
-implementation was never read — it is used strictly as a black-box oracle, run
-and observed. Wire notes: `design_docs/2026-07-13_rns_wire_format_reference.md`.
+implementation supplied the recorded black-box oracle results. Limited comparative
+source review began September 26; the owner reported no RNS implementation code
+copied or translated. Wire notes: `design_docs/2026-07-13_rns_wire_format_reference.md`.
 Not affiliated with the Reticulum project.
 
 One seam has a third input. `src/artifact.rs` and `src/msgpack.rs` implement the
 RNS signed-artifact envelope, whose layout was read from
 [Prns](https://github.com/KenAKAFrosty/Prns) (MIT OR Apache-2.0, MIT elected).
-The vectors proving the implementation are independent of it: they were captured
-by running RNS 1.4.2's own `rnid`. See [NOTICE](NOTICE) and
+Prns is now withdrawn as a donor and trusted independent reference. Old captures
+used donor-selected inputs; the current fixtures use project-selected inputs and
+separate `rnid` 1.5.2/1.5.4 captures. Observed compatibility does not resolve
+historical provenance. See [NOTICE](NOTICE) and
 `design_docs/2026-08-10_prns_donor_ledger.md`.
 
 ## License

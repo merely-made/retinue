@@ -7,7 +7,9 @@
 //! serial, where packets drop, reorder, and delay (mode-gated, mirroring RNS, whose Channel
 //! is likewise opt-in over raw link data).
 //!
-//! Everything here is sans-io and composes the pieces already pinned to RNS 1.3.8's wire:
+//! Everything here is sans-io and composes pieces whose original wire fixtures were
+//! captured with RNS 1.3.8. Those fixtures retain their provenance independently of
+//! the current live-oracle pin:
 //!
 //! - [`Buffer`] chunks bytes into `Channel` envelopes with a windowed 16-bit sequence and a
 //!   receiver-side reorder buffer (`channel.rs`, gold-tested against `channel_wire.json` /
@@ -271,12 +273,13 @@ impl<
         self.unrecorded
     }
 
-    /// Take all delivered, in-order application bytes.
+    /// Take up to the buffer's read bound of delivered, in-order application bytes.
+    /// Repeat until empty to drain an expanded compressed frame.
     pub fn read(&mut self) -> Vec<u8> {
         self.buffer.read_available()
     }
 
-    /// Whether the peer signalled end-of-stream.
+    /// Whether the peer signalled end-of-stream and all received bytes were read.
     pub fn recv_finished(&mut self) -> bool {
         self.buffer.recv_finished()
     }

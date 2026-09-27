@@ -1,0 +1,25 @@
+LXMF 1.1.1 / RNS 1.5.4
+  [outrider] LISTENING 57311
+  [outrider] DESTINATION 3e45eacae90c7f3c18b2ae4643097606
+[2026-09-27 08:10:44] [Verbose]  Bringing up system interfaces...
+[2026-09-27 08:10:44] [Verbose]  System interfaces are ready
+[2026-09-27 08:10:44] [Verbose]  Configuration loaded from C:\Users\mark_\AppData\Local\Temp\outrider-opportunistic-send-73cx5r0d/config
+[2026-09-27 08:10:44] [Verbose]  Destinations file does not exist, no known destinations loaded
+[2026-09-27 08:10:44] [Verbose]  No valid Transport Identity in storage, creating...
+[2026-09-27 08:10:44] [Verbose]  Identity keys created for <ca7a33dc7c85a0c9e82a08bfb46d3422>
+[2026-09-27 08:10:44] [Verbose]  Identity keys created for <61c10de8be1bf0ff1e092a24eef7fe86>
+[2026-09-27 08:10:44] [Verbose]  Initialized ephemeral transport identity <61c10de8be1bf0ff1e092a24eef7fe86>
+  [outrider] ANNOUNCE ca8c12aee6acd35c83f048927490e188 1cf579aba45a10ba1d1ef06d91fca2aa9ed0a1150515653155405d0b18cb9a67c853ad0f0cd2b619aea92ceec4fd56a24d6499d584ce79257e45cfd8139b60a7 93c41a53746f636b204f70706f7274756e69737469632053656e646572c09100
+  stock: queued 9326ee9e1e2cf547d9d9429079f16601bb99a2c1972a5639bddfb881ac077226 opportunistically
+  [outrider] PACKED 3e45eacae90c7f3c18b2ae4643097606ca8c12aee6acd35c83f048927490e1881baa385dd317eb6df363e6e537a117407d312b0b71023f6a115a11949c5e90cb31b340a2f744d4ea4952693fde37457575e561ff55ac87223238e2938135900094cb41da217722600000c41953544f434b204f50504f5254554e4953544943205449544c45c41853544f434b204f50504f5254554e495354494320424f445980
+  [outrider] MESSAGE_ID 9326ee9e1e2cf547d9d9429079f16601bb99a2c1972a5639bddfb881ac077226
+  [outrider] TITLE 53544f434b204f50504f5254554e4953544943205449544c45
+  [outrider] CONTENT 53544f434b204f50504f5254554e495354494320424f4459
+  [outrider] USED_RATCHET bd0cb780ba3f1dccb358
+  [outrider] SIGNATURE_VERIFIED true
+  [outrider] STAMP_POLICY none[2026-09-27 08:10:45] [Warning]  The socket for TCPInterface[outrider/127.0.0.1:57311] was closed, attempting to reconnect...
+
+stock queued opportunistically: PASS
+Outrider decoded title/body: PASS
+Outrider verified signature: PASS
+STOCK_TO_OUTRIDER_OPPORTUNISTIC: PASS

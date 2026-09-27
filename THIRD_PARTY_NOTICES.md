@@ -77,7 +77,9 @@ exactly this build:
 The Reticulum protocol specification and manual are public domain. The Python
 reference implementation was used as a black-box oracle for the recorded
 RNS 1.5.2 re-pin qualification. That receipt describes its precise evidence
-boundary. On September 26, the owner reported the first limited review of RNS
+boundary. The [September 27 qualification](testing/receipts/rns-1.5.4-repin/README.md)
+adds separate RNS 1.5.4 observations and preserves the earlier results.
+On September 26, the owner reported the first limited review of RNS
 implementation source and clarified that no RNS implementation code has been
 copied or translated into Retinue. The license is included to identify and
 acknowledge the reference implementation, not to declare an RNS-derived port.

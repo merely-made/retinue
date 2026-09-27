@@ -5,12 +5,14 @@ radio interface layer, operator apps, and firmware that runs on my limited
 subset of hardware. Each crate has its own README with more detail, 
 but here's a generated overview.
 
-## Status (2026-09-26)
+## Status (2026-09-27)
 
 - The shared Rust protocol crates serve both host applications and firmware.
-  Retinue's recorded RNS 1.5.2 qualification covers links, requests, streams,
+  Retinue's recorded RNS 1.5.4 qualification covers links, requests, streams,
   Resources and routing within the measured local-TCP scopes. Outrider's seven
-  LXMF 1.1.1 gates also passed. These are pinned receipts, not full upstream parity.
+  LXMF 1.1.1 gates also passed. The [repin receipt](testing/receipts/rns-1.5.4-repin/README.md)
+  records measured scope; the [wire plan](design_docs/2026-09-27_wire_compatibility_plan.md)
+  records boundary repairs and remaining gates. These are not full upstream parity.
 - T114 bounded transport has an on-air receipt from August 13. September's V4
   resident-protocol receipt covers retained state and ordinary protocol traffic;
   full fault, memory and unattended-operation acceptance remain open.

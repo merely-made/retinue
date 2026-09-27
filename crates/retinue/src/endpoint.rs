@@ -4124,13 +4124,20 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
         // A packet whose destination is a link we bridge goes to the opposite side, whatever
         // its header type: the two endpoints may address it differently (one type-2 through
         // us, one type-1 direct, e.g. a responder that never learned it is behind us).
-        // Traffic on a bridge is proof it is still wanted, so a busy link keeps its entry
-        // and only a silent one ages out.
+        // Traffic from either end of a bridge is proof it is still wanted. A packet
+        // arriving on a third interface cannot use or refresh that bridge.
         let bridged = {
             let mut bridges = shared.link_transport.lock().unwrap();
             let now = Instant::now();
             match bridges.get_mut(&pkt.destination) {
                 Some((from, out, seen)) if now.duration_since(*seen) < LINK_TRANSPORT_TTL => {
+                    if iface != *from && iface != *out {
+                        shared
+                            .routing_stats
+                            .policy_rejected
+                            .fetch_add(1, Ordering::Relaxed);
+                        return;
+                    }
                     *seen = now;
                     Some((*from, *out))
                 }
@@ -4683,7 +4690,7 @@ fn register_reliable_stream(
         let mut interval = tokio::time::interval(Duration::from_millis(RELIABLE_TICK_MS));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
-        loop {
+        'driver: loop {
             tokio::select! {
                 // Raw inbound packets from the router: channel data (prove + deliver), an
                 // ack (release its sequence), or the peer's link close.
@@ -4695,11 +4702,19 @@ fn register_reliable_stream(
                         if let Some(proof) = rc.on_data_packet(&pkt) {
                             drv.send_on(iface, proof);
                         }
-                        let bytes = rc.read();
-                        if !bytes.is_empty() && write_half.write_all(&bytes).await.is_err() {
-                            break;
+                        // One channel frame can expand beyond the Buffer read bound.
+                        // Drain every available chunk before considering the peer's eof;
+                        // another packet need not arrive to wake this task again.
+                        loop {
+                            let bytes = rc.read();
+                            if bytes.is_empty() {
+                                break;
+                            }
+                            if write_half.write_all(&bytes).await.is_err() {
+                                break 'driver;
+                            }
                         }
-                        if rc.recv_finished() {
+                        if !peer_done && rc.recv_finished() {
                             // The peer's stream ended: close our read side so the app's
                             // reader sees EOF. We keep running to finish our own sending.
                             let _ = write_half.shutdown().await;
@@ -4906,6 +4921,69 @@ fn next_iv() -> [u8; IV_LEN] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_link_bridge_accepts_only_its_two_interfaces() {
+        let endpoint = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x93; 64]));
+        let a = endpoint.attach_interface();
+        let b = endpoint.attach_interface();
+        let c = endpoint.attach_interface();
+        endpoint.enable_routing();
+
+        let link_id = AddressHash::from_bytes([0xA3; 16]);
+        endpoint
+            .shared
+            .link_transport
+            .lock()
+            .unwrap()
+            .insert(link_id, (a.id(), b.id(), Instant::now()));
+        let packet = Packet {
+            ifac: false,
+            header_type: crate::packet::HeaderType::Type1,
+            context_flag: false,
+            propagation: crate::packet::Propagation::Transport,
+            destination_type: DestinationType::Link,
+            packet_type: PacketType::Data,
+            hops: 0,
+            transport: None,
+            destination: link_id,
+            context: 0,
+            payload: b"bridged data".to_vec(),
+        };
+
+        route(&endpoint.shared, a.id(), packet.clone());
+        let to_b = b
+            .outbound
+            .queues
+            .pop()
+            .expect("first bridge end forwards to second");
+        assert_eq!(to_b.destination, link_id);
+        assert_eq!(to_b.hops, 1);
+        b.outbound.queues.delivery_complete();
+
+        route(&endpoint.shared, b.id(), packet.clone());
+        let to_a = a
+            .outbound
+            .queues
+            .pop()
+            .expect("second bridge end forwards to first");
+        assert_eq!(to_a.destination, link_id);
+        assert_eq!(to_a.hops, 1);
+        a.outbound.queues.delivery_complete();
+
+        let seen_before_foreign = endpoint.shared.link_transport.lock().unwrap()[&link_id].2;
+        route(&endpoint.shared, c.id(), packet);
+        assert!(a.outbound.queues.pop().is_none());
+        assert!(b.outbound.queues.pop().is_none());
+        assert!(c.outbound.queues.pop().is_none());
+        assert_eq!(
+            endpoint.shared.link_transport.lock().unwrap()[&link_id].2,
+            seen_before_foreign
+        );
+        let counters = endpoint.routing_counters();
+        assert_eq!(counters.forwarded_packets, 2);
+        assert_eq!(counters.policy_rejected, 1);
+    }
 
     fn freshness_announce(
         peer: &PrivateIdentity,

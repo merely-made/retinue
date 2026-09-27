@@ -1,0 +1,7 @@
+wrote C:\Users\mark_\Code\repos\retinue\crates\retinue\tests\fixtures\rns_signed_artifact_1_5_4.json with 6 cases
+  rsg_retinue_identity: 224 bytes
+  rsm_retinue_identity: 300 bytes
+  rsm_retinue_identity_bare: 248 bytes
+  rsg_second_identity: 224 bytes
+  rsm_second_identity: 300 bytes
+  rsm_second_identity_bare: 248 bytes

@@ -1,0 +1,134 @@
+RNS 1.5.4
+
+  [retinue] LISTENING 57119
+[2026-09-27 08:09:46] [Debug]    Reticulum running in interpreted mode
+[2026-09-27 08:09:46] [Verbose]  Bringing up system interfaces...
+[2026-09-27 08:09:46] [Debug]    Establishing TCP connection for TCPInterface[retinue/127.0.0.1:57119]...
+[2026-09-27 08:09:46] [Debug]    TCP connection for TCPInterface[retinue/127.0.0.1:57119] established
+[2026-09-27 08:09:46] [Verbose]  System interfaces are ready
+[2026-09-27 08:09:46] [Debug]    Utilising cryptography backend "openssl, PyCA 49.0.0"
+[2026-09-27 08:09:46] [Verbose]  Configuration loaded from C:\Users\mark_\AppData\Local\Temp\retinue-rrecv-igcxskc8/config
+[2026-09-27 08:09:46] [Verbose]  Destinations file does not exist, no known destinations loaded
+[2026-09-27 08:09:46] [Debug]    Cleaning ratchets...
+[2026-09-27 08:09:46] [Debug]    Processed 0 ratchets in 0s, not in use 0, removed 0
+[2026-09-27 08:09:46] [Verbose]  No valid Transport Identity in storage, creating...
+[2026-09-27 08:09:46] [Verbose]  Identity keys created for <ce4f8be90750f324d066335c5d3266ba>
+[2026-09-27 08:09:46] [Verbose]  Identity keys created for <19cf122230a5c3c97834f53d1a79df91>
+[2026-09-27 08:09:46] [Verbose]  Initialized ephemeral transport identity <19cf122230a5c3c97834f53d1a79df91>
+waiting...
+
+[2026-09-27 08:09:46] [Pathing]  Destination <0bd4f8954dd590109ff554ed0f55e06e> is now 1 hops away via <0bd4f8954dd590109ff554ed0f55e06e> on TCPInterface[retinue/127.0.0.1:57119]
+[2026-09-27 08:09:46] [Debug]    Signalling link MTU of 16.38 KB for link
+[2026-09-27 08:09:46] [Debug]    Establishing link with mode AES_256_CBC
+[2026-09-27 08:09:46] [Debug]    Link request <ea45654ff7bfda8a974ea53d06f2e1b5> sent to <retinue.resource.ef330a1940c70349459fc4401d273cb9:0bd4f8954dd590109ff554ed0f55e06e>
+  [retinue] LINK_UP ea45654ff7bfda8a974ea53d06f2e1b5
+[2026-09-27 08:09:46] [Debug]    Validating link request proof with mode AES_256_CBC
+[2026-09-27 08:09:46] [Debug]    Destination confirmed link MTU of 500 B
+[2026-09-27 08:09:46] [Debug]    Link <ea45654ff7bfda8a974ea53d06f2e1b5> established with <retinue.resource.ef330a1940c70349459fc4401d273cb9:0bd4f8954dd590109ff554ed0f55e06e>, RTT is 4ms and 781.48µs
+  RNS: link up, sending a 120KB UNCOMPRESSED resource (259 parts)
+[2026-09-27 08:09:46] [Debug]    Preparing segment 2 of 3 for resource <deb7b53664ca8bc6ef362e389cc5517c6371704ecca254643124cfcd3c1e555a/ea45654ff7bfda8a974ea53d06f2e1b5>  [retinue] ADV segment 1/3 d=2500000 n=2260 hashmap=74 compressed=false
+
+  [retinue] REQUESTED 74 known parts (of 2260) [segment 1/3]
+  [retinue] HMU +74 hashes (148 of 2260)
+  [retinue] HMU +74 hashes (222 of 2260)
+  [retinue] HMU +74 hashes (296 of 2260)
+  [retinue] HMU +74 hashes (370 of 2260)
+  [retinue] HMU +74 hashes (444 of 2260)
+  [retinue] HMU +74 hashes (518 of 2260)
+  [retinue] HMU +74 hashes (592 of 2260)
+  [retinue] HMU +74 hashes (666 of 2260)
+  [retinue] HMU +74 hashes (740 of 2260)
+  [retinue] HMU +74 hashes (814 of 2260)
+  [retinue] HMU +74 hashes (888 of 2260)
+  [retinue] HMU +74 hashes (962 of 2260)
+  [retinue] HMU +74 hashes (1036 of 2260)
+  [retinue] HMU +74 hashes (1110 of 2260)
+  [retinue] HMU +74 hashes (1184 of 2260)
+  [retinue] HMU +74 hashes (1258 of 2260)
+  [retinue] HMU +74 hashes (1332 of 2260)
+  [retinue] HMU +74 hashes (1406 of 2260)
+  [retinue] HMU +74 hashes (1480 of 2260)
+  [retinue] HMU +74 hashes (1554 of 2260)
+  [retinue] HMU +74 hashes (1628 of 2260)
+  [retinue] HMU +74 hashes (1702 of 2260)
+  [retinue] HMU +74 hashes (1776 of 2260)
+  [retinue] HMU +74 hashes (1850 of 2260)
+  [retinue] HMU +74 hashes (1924 of 2260)
+  [retinue] HMU +74 hashes (1998 of 2260)
+  [retinue] HMU +74 hashes (2072 of 2260)
+  [retinue] HMU +74 hashes (2146 of 2260)
+  [retinue] HMU +74 hashes (2220 of 2260)
+  [retinue] HMU +40 hashes (2260 of 2260)
+  [retinue] SEGMENT_ASSEMBLED token=1048640 data=1048575 compressed=false
+[2026-09-27 08:09:48] [Debug]    Preparing segment 3 of 3 for resource <fe5451352ad79c3bac54aea4710b7cfb689e1f7cb30f169e8ae3086e295dbc79/ea45654ff7bfda8a974ea53d06f2e1b5>  [retinue] ADV segment 2/3 d=2500000 n=2260 hashmap=74 compressed=false
+
+  [retinue] REQUESTED 74 known parts (of 2260) [segment 2/3]
+  [retinue] HMU +74 hashes (148 of 2260)
+  [retinue] HMU +74 hashes (222 of 2260)
+  [retinue] HMU +74 hashes (296 of 2260)
+  [retinue] HMU +74 hashes (370 of 2260)
+  [retinue] HMU +74 hashes (444 of 2260)
+  [retinue] HMU +74 hashes (518 of 2260)
+  [retinue] HMU +74 hashes (592 of 2260)
+  [retinue] HMU +74 hashes (666 of 2260)
+  [retinue] HMU +74 hashes (740 of 2260)
+  [retinue] HMU +74 hashes (814 of 2260)
+  [retinue] HMU +74 hashes (888 of 2260)
+  [retinue] HMU +74 hashes (962 of 2260)
+  [retinue] HMU +74 hashes (1036 of 2260)
+  [retinue] HMU +74 hashes (1110 of 2260)
+  [retinue] HMU +74 hashes (1184 of 2260)
+  [retinue] HMU +74 hashes (1258 of 2260)
+  [retinue] HMU +74 hashes (1332 of 2260)
+  [retinue] HMU +74 hashes (1406 of 2260)
+  [retinue] HMU +74 hashes (1480 of 2260)
+  [retinue] HMU +74 hashes (1554 of 2260)
+  [retinue] HMU +74 hashes (1628 of 2260)
+  [retinue] HMU +74 hashes (1702 of 2260)
+  [retinue] HMU +74 hashes (1776 of 2260)
+  [retinue] HMU +74 hashes (1850 of 2260)
+  [retinue] HMU +74 hashes (1924 of 2260)
+  [retinue] HMU +74 hashes (1998 of 2260)
+  [retinue] HMU +74 hashes (2072 of 2260)
+  [retinue] HMU +74 hashes (2146 of 2260)
+  [retinue] HMU +74 hashes (2220 of 2260)
+  [retinue] HMU +40 hashes (2260 of 2260)
+  [retinue] SEGMENT_ASSEMBLED token=1048640 data=1048575 compressed=false
+  [retinue] ADV segment 3/3 d=2500000 n=869 hashmap=74 compressed=false
+  [retinue] REQUESTED 74 known parts (of 869) [segment 3/3]
+  [retinue] HMU +74 hashes (148 of 869)
+  [retinue] HMU +74 hashes (222 of 869)
+  [retinue] HMU +74 hashes (296 of 869)
+  [retinue] HMU +74 hashes (370 of 869)
+  [retinue] HMU +74 hashes (444 of 869)
+  [retinue] HMU +74 hashes (518 of 869)
+  [retinue] HMU +74 hashes (592 of 869)
+  [retinue] HMU +74 hashes (666 of 869)
+  [retinue] HMU +74 hashes (740 of 869)
+  [retinue] HMU +74 hashes (814 of 869)
+  [retinue] HMU +55 hashes (869 of 869)
+  [retinue] SEGMENT_ASSEMBLED token=402912 data=402850 compressed=false
+  RNS: resource concluded status=6 (COMPLETE=6, FAILED=7)
+  [retinue] ALL_SEGMENTS_DONE 2500000 bytes
+  [retinue] DATA_HASH 3bd0ee7e6df2e424249de475d8cd8c31c1b534661d0cc5a5ab8a496720a27e8b
+  [retinue] DATA_LEN 2500000
+  [retinue] DONE
+[2026-09-27 08:09:50] [Warning]  The socket for TCPInterface[retinue/127.0.0.1:57119] was closed, attempting to reconnect...
+
+====================================================================
+retinue reassembled the 2500000-byte payload intact: PASS
+windowed HMU path exercised:            PASS
+RNS accepted retinue's proof (COMPLETE): PASS
+====================================================================
+R4 WINDOWED RESOURCE RECEIVE INTEROP: PASS
+[2026-09-27 08:09:51] [Debug]    No interfaces could process the outbound 0 hop, type 0 packet for <ea45654ff7bfda8a974ea53d06f2e1b5>
+[2026-09-27 08:09:51] [Debug]    Detaching interfaces
+[2026-09-27 08:09:51] [Debug]    Detaching local clients
+[2026-09-27 08:09:51] [Debug]    Detaching shared instance
+[2026-09-27 08:09:51] [Debug]    All interfaces detached
+[2026-09-27 08:09:51] [Debug]    Saving path table to storage...
+[2026-09-27 08:09:51] [Debug]    Saved 1 path table entries in 0.89ms
+[2026-09-27 08:09:51] [Debug]    Saving tunnel table to storage...
+[2026-09-27 08:09:51] [Debug]    Saved 0 tunnel table entries in 0.7ms
+[2026-09-27 08:09:52] [Debug]    Saving 1 known destinations to storage...
+[2026-09-27 08:09:52] [Debug]    Saved known destinations to storage in 1ms and 891.14µs

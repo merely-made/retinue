@@ -1,5 +1,9 @@
 # RNS 1.5.4 signed-artifact receipt
 
+**Follow-up, September 27:** the [broader repin receipt](../rns-1.5.4-repin/README.md)
+supplants 1.5.2 as the current live-oracle target. This earlier run and its restored
+environment statement remain unchanged historical evidence.
+
 Recorded September 26, 2026 (America/New_York; September 27 UTC). Baseline:
 Retinue `96c562d92d94ee580c7a8bb6d213d08cf45bf790`, initially clean. This receipt
 adds a versioned fixture and extends the existing Rust replay to both versions.

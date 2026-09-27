@@ -1,0 +1,20 @@
+RNS 1.5.4
+
+  [retinue] LISTENING 56996
+waiting...
+
+  RNS: link up, sending a raw link data packet
+  RNS: sent b'hello-over-stream'
+  [retinue] WAITING_LINK
+  [retinue] LINK d2f215f17a5c6ce6a1d73ab9eb87d79e
+  [retinue] RECV hello-over-stream
+  [retinue] SENT_ECHO
+  RNS: received b'echo:hello-over-stream'
+
+====================================================================
+retinue read from the stream:    PASS
+RNS read retinue's echo back:    PASS (got [b'echo:hello-over-stream'])
+====================================================================
+ENDPOINT STREAM INTEROP: PASS
+  [retinue] DONE
+[2026-09-27 08:09:42] [Warning]  The socket for TCPInterface[retinue/127.0.0.1:56996] was closed, attempting to reconnect...

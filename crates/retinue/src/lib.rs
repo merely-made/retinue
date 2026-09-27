@@ -5,14 +5,16 @@
 //!
 //! A retinue is the company that travels with a person. This crate is that for a peer: the
 //! identity, announce, link, resource, and reliable-stream layers a node needs to *be* a
-//! Reticulum endpoint, embedded as a library, wire-compatible with RNS 1.3.x.
+//! Reticulum endpoint, embedded as a library, qualified against RNS 1.5.4 within the
+//! measured local interoperability scope.
 //!
 //! # Status
 //!
 //! The wire vocabulary, links, resources, request/response, the endpoint runtime, opt-in
-//! transport-node routing, and reliable streaming are all implemented and checked
-//! byte-for-byte against a black-box RNS oracle (pinned at 1.4.2; the committed fixtures
-//! retain their observed 1.3.8 provenance; see *Provenance*). The
+//! transport-node routing, and reliable streaming are implemented. RNS 1.5.4 live
+//! gates check local interoperability; byte fixtures retain their actual producer
+//! versions, including the historical 1.3.8 corpus. These receipts do not establish
+//! full upstream parity or requalify firmware. See *Provenance*. The
 //! layering:
 //!
 //! - **Allocation-free floor** — always available, no heap: identities ([`identity`]),
@@ -34,23 +36,26 @@
 //! (RNode serial, direct PHY) live in the sibling `tulle` crate and are proven over real
 //! RF; endpoint-level resource sessions, route expiry, and announce budgeting are
 //! implemented. Ratcheted single packets use caller-owned rotation and retained-key state.
-//! IFAC virtual-network authentication is applied at each carrier boundary,
-//! including TCP and Tulle. See the README's *Maturity* section and
+//! Host IFAC virtual-network authentication is applied at TCP and Tulle carrier
+//! boundaries. The firmware Node carrier has a separate, still-open IFAC gate.
+//! See the README's *Maturity* section and
 //! `design_docs/`.
 //!
 //! # Provenance
 //!
-//! Wire-compatibility target is RNS 1.3.8. This crate was implemented from the
+//! The current live-oracle target is RNS 1.5.4. This crate was implemented from the
 //! public-domain Reticulum protocol specification and the MIT-licensed Beechat
-//! `reticulum` crate. The Python reference implementation was never read: it is used
-//! strictly as a black-box interoperability oracle, run and observed, and the bytes it
-//! emitted are checked in as fixtures under `tests/fixtures/`. See
+//! `reticulum` crate, with later inputs recorded below and in the notices. Historical
+//! oracle work ran and observed the reference implementation. Limited comparative
+//! source review began September 26; the owner reported no RNS implementation code
+//! copied or translated. Captured bytes live under `tests/fixtures/`. See
 //! `design_docs/2026-07-13_rns_wire_format_reference.md`.
 //!
-//! One seam has a third input. The signed-artifact envelope in [`artifact`] had its layout
+//! The signed-artifact envelope in [`artifact`] had its layout
 //! read from [Prns](https://github.com/KenAKAFrosty/Prns) (MIT OR Apache-2.0, MIT elected),
-//! so this crate no longer has only two implementation inputs. The vectors proving it are
-//! still independent: they were captured by running RNS 1.4.2's own `rnid`. See `NOTICE`
+//! which is now withdrawn as a donor and trusted independent reference. Historical
+//! donor inputs remain attributed; current signed-artifact captures use project inputs
+//! with `rnid` 1.5.2 and 1.5.4. Compatibility does not resolve provenance. See `NOTICE`
 //! and `design_docs/2026-08-10_prns_donor_ledger.md`.
 
 #![no_std]

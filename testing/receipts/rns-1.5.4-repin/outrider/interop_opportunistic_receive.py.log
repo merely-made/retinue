@@ -1,0 +1,20 @@
+LXMF 1.1.1 / RNS 1.5.4
+  [outrider] LISTENING 57307
+[2026-09-27 08:10:43] [Verbose]  Bringing up system interfaces...
+[2026-09-27 08:10:43] [Verbose]  System interfaces are ready
+[2026-09-27 08:10:43] [Verbose]  Configuration loaded from C:\Users\mark_\AppData\Local\Temp\outrider-opportunistic-receive-mi1e_6ac/config
+[2026-09-27 08:10:43] [Verbose]  Destinations file does not exist, no known destinations loaded
+[2026-09-27 08:10:43] [Verbose]  No valid Transport Identity in storage, creating...
+[2026-09-27 08:10:43] [Verbose]  Identity keys created for <404b33f45e980d616014a31232b099a0>
+[2026-09-27 08:10:43] [Verbose]  Identity keys created for <dc4b9be1a89bf25c798471daafb17a8e>
+[2026-09-27 08:10:43] [Verbose]  Initialized ephemeral transport identity <dc4b9be1a89bf25c798471daafb17a8e>
+  [outrider] STOCK_ANNOUNCE 8f77e37e8a1c8904553a29095a6dcadd 93c41c53746f636b204f70706f7274756e6973746963205265636569766572c09100
+  [outrider] MESSAGE_ID 3ab78c866429cddf2ce72c2d3b69515586a05e35f68b073eb38066ecd5915138
+  [outrider] RATCHET cc974a3915d040e6c273
+  [outrider] QUEUED 1
+  stock: received 3ab78c866429cddf2ce72c2d3b69515586a05e35f68b073eb38066ecd5915138
+[2026-09-27 08:10:43] [Warning]  The socket for TCPInterface[outrider/127.0.0.1:57307] was closed, attempting to reconnect...
+stock delivery callback fired: PASS
+stock decoded title/body: PASS
+stock agreed on message id: PASS
+OUTRIDER_TO_STOCK_OPPORTUNISTIC: PASS

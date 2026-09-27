@@ -1,5 +1,10 @@
 # Re-pin receipt: RNS 1.5.0 to 1.5.2, LXMF held at 1.1.1
 
+**Superseded as current pin, 2026-09-27:** see the
+[1.5.4 qualification](../testing/receipts/rns-1.5.4-repin/README.md).
+The measurements and statements below record the August run. Prns was subsequently
+withdrawn as a trusted independent reference; its historical results remain here.
+
 **Date:** 2026-08-29 local / 2026-08-30 UTC
 **Pins:** `rns==1.5.2`; `lxmf==1.1.1`
 **Baseline Retinue revision:** `af4b858099ead8d5034236cbc7017362ccfcdc24`
