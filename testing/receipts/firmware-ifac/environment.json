@@ -1,0 +1,28 @@
+{
+  "date": "2026-09-27T19:24:17.106051-04:00",
+  "baseline": "16c278461afe6873ed7f9fde2d43cea5fff2293e",
+  "cargo_target_dir": "C:\\t\\cargo-targets\\retinue",
+  "cargo_home": "ordinary default cache; no isolated home used",
+  "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)\nbinary: rustc\ncommit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452\ncommit-date: 2026-07-14\nhost: x86_64-pc-windows-msvc\nrelease: 1.97.1\nLLVM version: 22.1.6",
+  "esp_rustc": "rustc 1.95.0-nightly (95e5bda86 2026-04-15) (1.95.0.0)",
+  "esp_cargo": "cargo 1.95.0-nightly (f2d3ce0bd 2026-03-21) (1.95.0.0)",
+  "oracle": "3.14.2 rns=1.5.4 lxmf=1.1.1",
+  "source_sha256": {
+    "crates/radio-hand/src/channel/node.rs": "d9c5635ea0e3f0d22a2ed5309db837e0055b27aaad7be98a8a07d458f50894b1",
+    "crates/radio-hand/src/instances.rs": "dd91c782a8c09d9c58d3d6951deabf355fe80a330b4ad1732be8405b99170f2b",
+    "crates/radio-hand/src/lib.rs": "2350512ac3ed6cb2ce7f96ccd7eddb9334a9b198dd938f84713b759ffac501a7",
+    "crates/radio-hand/src/retinue_carrier.rs": "97e9b7d73af2f35fa0ac59240bdd299604184dd9407101a56e100db057394a07",
+    "crates/radio-hand/tests/firmware_ifac_oracle.rs": "90e544a05beaf436cbb05b79dcfa55b0af01566463cde8ca108bb5ad1e20c1a3",
+    "crates/radio-hand/tests/instances.rs": "5811dca1d88ac4f4abb85aabb520fd2a1f44f8279a829fe65159a886fc95343d",
+    "crates/retinue/oracle/capture_firmware_ifac.py": "ed2dce685f9e7487f2990a16c76c1d80b82d9834d5bee6c0e26b7d9767a5a666",
+    "crates/retinue/src/node.rs": "00a67e4c6a2fa44c462f62a90b1e47c56250148e34d75faf28b168205efd697e",
+    "crates/retinue/tests/fixtures/rns_ifac_1_5_4.json": "07bf7fc151bc401e2131e7cec5efc733563057f6ccd0a284ccc924520c991108",
+    "crates/retinue/tests/node_pause.rs": "d8dcaf52cf87c513351f2b1d12d2adec1e267aa9259b0d6500d5d6080097b5dc",
+    "Cargo.lock": "58077f379fe26ce69a35b4c03527f01ee606f68ea17a23e607c9f4804e121891",
+    "Cargo.toml": "f6621e338cb8a0547f624930ace25f3cd504161981d188dd2ac1d9a05de60df4",
+    "crates/radio-hand/Cargo.toml": "50342a106f6aa43b8a58f45f3a18a2d7fe8686901187f8fb1b11c6799d69520a",
+    "crates/retinue/Cargo.toml": "15a9ff1f486118992aaf1def44197b8d64edafe99255abc4d9362e6d894ba9af"
+  },
+  "source_hash_note": "Working-tree bytes at qualification; Git text normalization may change line endings on checkout.",
+  "fixture_sha256": "07bf7fc151bc401e2131e7cec5efc733563057f6ccd0a284ccc924520c991108"
+}

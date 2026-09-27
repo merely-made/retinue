@@ -140,6 +140,32 @@ pub const DEFAULT_ANNOUNCE_INTERVAL: u64 = 600_000;
 /// belongs to the RNode personality; see the plan's pressure point 4.
 pub const LINK_MTU: u32 = 255;
 
+/// Minimum logical budget, including a plain announce without application data.
+pub const MIN_LOGICAL_MTU: u32 = (crate::packet::HEADER_MIN_LEN
+    + crate::identity::IDENTITY_LEN
+    + crate::hash::NAME_HASH_LEN
+    + announce::RAND_HASH_LEN
+    + crate::identity::SIGNATURE_LEN) as u32;
+
+/// Why a logical packet budget cannot be installed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LogicalMtuError {
+    OutOfRange,
+    SessionsActive,
+    AppDataTooLarge,
+}
+
+impl core::fmt::Display for LogicalMtuError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match self {
+            Self::OutOfRange => "logical MTU outside supported radio range",
+            Self::SessionsActive => "logical MTU cannot change while sessions are active",
+            Self::AppDataTooLarge => "announce application data exceeds logical MTU",
+        })
+    }
+}
+impl core::error::Error for LogicalMtuError {}
+
 /// The most parts this node will accept for one inbound resource.
 ///
 /// A sender chooses the advertised part count, so this is where a peer's ambition stops
@@ -550,6 +576,7 @@ pub struct Node<
     /// Application data carried in our announces.
     app_data: Vec<u8>,
     payload_limits: PayloadLimits,
+    logical_mtu: u32,
     refused_payloads: u64,
     /// The explicit policy for carrying traffic whose destination is not this node.
     transport: TransportConfig,
@@ -614,6 +641,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             book: AddressBook::with_max_peers(PEERS),
             app_data: Vec::new(),
             payload_limits: PayloadLimits::default(),
+            logical_mtu: LINK_MTU,
             refused_payloads: 0,
             transport: TransportConfig::none(),
             routes: BoundedVec::new(),
@@ -652,11 +680,47 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         node
     }
 
+    /// Logical packet bytes available after the carrier reserves its own envelope.
+    pub fn logical_mtu(&self) -> u32 {
+        self.logical_mtu
+    }
+
+    /// Whether negotiation, links, transfers or transit bridges still retain session state.
+    /// Carriers use this to refuse changing credentials around an existing logical session.
+    pub fn has_active_sessions(&self) -> bool {
+        !self.links.is_empty()
+            || !self.pending.is_empty()
+            || !self.receivers.is_empty()
+            || !self.senders.is_empty()
+            || !self.bridges.is_empty()
+    }
+
+    /// Install a carrier budget before negotiation. Repeating the current value is safe.
+    /// Changing it requires all links, pending requests, transfers and bridges to end.
+    /// The carrier must separately reject oversized final frames, including relays.
+    pub fn set_logical_mtu(&mut self, mtu: u32) -> Result<(), LogicalMtuError> {
+        if !(MIN_LOGICAL_MTU..=LINK_MTU).contains(&mtu) {
+            return Err(LogicalMtuError::OutOfRange);
+        }
+        if mtu == self.logical_mtu {
+            return Ok(());
+        }
+        if self.has_active_sessions() {
+            return Err(LogicalMtuError::SessionsActive);
+        }
+        if self.app_data.len() > mtu as usize - MIN_LOGICAL_MTU as usize {
+            return Err(LogicalMtuError::AppDataTooLarge);
+        }
+        self.logical_mtu = mtu;
+        Ok(())
+    }
+
     pub fn payload_limits(&self) -> PayloadLimits {
         self.payload_limits
     }
 
-    /// Oversized inbound packets and outbound resource requests refused so far.
+    /// Oversized inbound packets, relay packets, announcements and outbound resource
+    /// requests refused so far.
     /// `send` is immutable and reports its refusal through `None`.
     pub fn refused_payloads(&self) -> u64 {
         self.refused_payloads
@@ -664,7 +728,9 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
 
     /// Replace announce data, refusing before allocation or mutation.
     pub fn try_set_app_data(&mut self, app_data: &[u8]) -> Result<(), AppDataTooLarge> {
-        if app_data.len() > self.payload_limits.max_app_data {
+        if app_data.len() > self.payload_limits.max_app_data
+            || app_data.len() > self.logical_mtu as usize - MIN_LOGICAL_MTU as usize
+        {
             return Err(AppDataTooLarge);
         }
         self.app_data = app_data.to_vec();
@@ -1022,7 +1088,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             ephemeral_seed,
             LinkTrailer {
                 mode: LinkMode::Aes256Cbc,
-                mtu: LINK_MTU,
+                mtu: self.logical_mtu,
             },
         );
         let _ = self.pending.push(attempt);
@@ -1049,11 +1115,26 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             return None;
         }
         let (link, _, _) = self.links.iter().find(|(l, _, _)| l.id() == link_id)?;
+        // CBC always adds a padding block, even for aligned plaintext. Refuse before
+        // encryption/allocation, then verify the codec's actual packet size as well.
+        let padded = payload
+            .len()
+            .checked_div(16)?
+            .checked_add(1)?
+            .checked_mul(16)?;
+        let encoded = padded
+            .checked_add(crate::token::TOKEN_OVERHEAD)?
+            .checked_add(crate::packet::HEADER_MIN_LEN)?;
+        let budget = link.mtu().min(self.logical_mtu) as usize;
+        if encoded > budget {
+            return None;
+        }
+        let packet = link.data_packet(payload, iv);
+        if packet.encoded_len() > budget {
+            return None;
+        }
         let mut actions = Actions::new();
-        actions.push(Action::Send {
-            interface,
-            packet: link.data_packet(payload, iv),
-        });
+        actions.push(Action::Send { interface, packet });
         Some(actions)
     }
 
@@ -1239,15 +1320,19 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         if !self.transit_is_new(packet.hash(), now) {
             return true;
         }
-        self.bridges[index].seen = now;
         let mut forwarded = packet.clone();
         forwarded.hops = forwarded.hops.saturating_add(1);
         forwarded.header_type = HeaderType::Type1;
         forwarded.transport = None;
+        if forwarded.encoded_len() > self.logical_mtu as usize {
+            self.refused_payloads = self.refused_payloads.saturating_add(1);
+            return true;
+        }
         if actions.push(Action::Send {
             interface: out,
             packet: forwarded,
         }) {
+            self.bridges[index].seen = now;
             self.transport_counters.forwarded_packets =
                 self.transport_counters.forwarded_packets.saturating_add(1);
         }
@@ -1287,11 +1372,6 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         if !self.transit_is_new(packet.hash(), now) {
             return true;
         }
-        if packet.packet_type == PacketType::LinkRequest
-            && let Ok(link_id) = link::link_id(packet)
-        {
-            self.remember_bridge(link_id, interface, route.interface, now);
-        }
         let mut forwarded = packet.clone();
         forwarded.hops = forwarded.hops.saturating_add(1);
         forwarded.header_type = HeaderType::Type1;
@@ -1300,10 +1380,19 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             forwarded.header_type = HeaderType::Type2;
             forwarded.transport = Some(next_transport);
         }
+        if forwarded.encoded_len() > self.logical_mtu as usize {
+            self.refused_payloads = self.refused_payloads.saturating_add(1);
+            return true;
+        }
         if actions.push(Action::Send {
             interface: route.interface,
             packet: forwarded,
         }) {
+            if packet.packet_type == PacketType::LinkRequest
+                && let Ok(link_id) = link::link_id(packet)
+            {
+                self.remember_bridge(link_id, interface, route.interface, now);
+            }
             self.transport_counters.forwarded_packets =
                 self.transport_counters.forwarded_packets.saturating_add(1);
         }
@@ -1334,6 +1423,10 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         forwarded.hops = forwarded.hops.saturating_add(1);
         forwarded.header_type = HeaderType::Type2;
         forwarded.transport = Some(self.identity.hash());
+        if forwarded.encoded_len() > self.logical_mtu as usize {
+            self.refused_payloads = self.refused_payloads.saturating_add(1);
+            return;
+        }
         if actions.push(Action::Send {
             interface,
             packet: forwarded,
@@ -1496,7 +1589,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         let seed = self.responder_seed(&id);
         let offered = LinkTrailer {
             mode: LinkMode::Aes256Cbc,
-            mtu: LINK_MTU,
+            mtu: self.logical_mtu,
         };
         if let Ok((link, proof)) = link::accept(packet, &self.identity, &seed, offered) {
             let link_id = link.id();
@@ -1736,10 +1829,14 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             && let Some(blob) = blob
         {
             self.last_announce = Some(now);
-            actions.push(Action::Send {
-                interface,
-                packet: self.announce(blob, None),
-            });
+            match self.try_announce(blob, None) {
+                Ok(packet) => {
+                    actions.push(Action::Send { interface, packet });
+                }
+                Err(_) => {
+                    self.refused_payloads = self.refused_payloads.saturating_add(1);
+                }
+            }
         }
 
         // Loss recovery. A transfer that has heard nothing for a retry interval is
@@ -1793,7 +1890,21 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         self.last_announce = None;
     }
 
-    /// Build this node's announce packet.
+    /// Build an announce within the logical carrier budget, including optional ratchet bytes.
+    pub fn try_announce(
+        &self,
+        blob: &AnnounceBlob,
+        ratchet: Option<&[u8; RATCHET_LEN]>,
+    ) -> Result<Packet, AppDataTooLarge> {
+        let base = MIN_LOGICAL_MTU as usize + if ratchet.is_some() { RATCHET_LEN } else { 0 };
+        if base + self.app_data.len() > self.logical_mtu as usize {
+            return Err(AppDataTooLarge);
+        }
+        Ok(self.announce(blob, ratchet))
+    }
+
+    /// Build this node's announce packet without enforcing the carrier budget.
+    /// Use [`Self::try_announce`] for production egress; this builder also serves wire fixtures.
     pub fn announce(&self, blob: &AnnounceBlob, ratchet: Option<&[u8; RATCHET_LEN]>) -> Packet {
         announce::build(
             &self.identity,
@@ -1840,6 +1951,120 @@ mod tests {
             Action::LinkUp { link_id } => Some(*link_id),
             _ => None,
         })
+    }
+
+    #[test]
+    fn logical_mtu_validates_configuration_and_announce_shapes() {
+        let mut n = node();
+        assert_eq!(n.logical_mtu(), LINK_MTU);
+        assert!(!n.has_active_sessions());
+        assert_eq!(
+            n.set_logical_mtu(MIN_LOGICAL_MTU - 1),
+            Err(LogicalMtuError::OutOfRange)
+        );
+        assert_eq!(
+            n.set_logical_mtu(LINK_MTU + 1),
+            Err(LogicalMtuError::OutOfRange)
+        );
+        n.set_logical_mtu(247).unwrap();
+        n.try_set_app_data(&[1; 80]).unwrap();
+        assert_eq!(
+            n.try_announce(&blob([1; RAND_HASH_LEN]), None)
+                .unwrap()
+                .encoded_len(),
+            247
+        );
+        assert!(
+            n.try_announce(&blob([1; RAND_HASH_LEN]), Some(&[0; RATCHET_LEN]))
+                .is_err()
+        );
+        assert!(n.try_set_app_data(&[2; 81]).is_err());
+        assert_eq!(
+            n.set_logical_mtu(246),
+            Err(LogicalMtuError::AppDataTooLarge)
+        );
+        assert_eq!(n.logical_mtu(), 247);
+    }
+
+    #[test]
+    fn logical_mtu_negotiates_both_roles_and_bounds_direct_data() {
+        let (mut a, mut b) = pair();
+        a.set_logical_mtu(247).unwrap();
+        b.set_logical_mtu(239).unwrap();
+        a.ingest(IFACE, &b.announce(&blob([2; RAND_HASH_LEN]), None), 0);
+        let request = sent(&a.open_link(b.destination(), IFACE, &[0x31; 64]).unwrap()).unwrap();
+        assert!(
+            a.has_active_sessions(),
+            "pending negotiation retains session state"
+        );
+        assert_eq!(a.set_logical_mtu(246), Err(LogicalMtuError::SessionsActive));
+        let proof = sent(&b.ingest(IFACE, &request, 0)).unwrap();
+        let id = link_up(&a.ingest(IFACE, &proof, 0)).unwrap();
+        assert!(a.has_active_sessions());
+        assert!(b.has_active_sessions());
+        assert_eq!(a.links[0].0.mtu(), 239);
+        assert_eq!(b.links[0].0.mtu(), 239);
+        assert_eq!(b.set_logical_mtu(238), Err(LogicalMtuError::SessionsActive));
+        assert_eq!(b.set_logical_mtu(239), Ok(()));
+        let exact = sent(
+            &a.send(id, IFACE, &[0; 159], &[1; crate::token::IV_LEN])
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(exact.encoded_len(), 227);
+        assert!(
+            a.send(id, IFACE, &[0; 160], &[2; crate::token::IV_LEN])
+                .is_none()
+        );
+        assert!(
+            b.send(id, IFACE, &[0; 160], &[3; crate::token::IV_LEN])
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn logical_mtu_bridge_lifecycle_and_refused_request_leave_no_phantom_session() {
+        let mut relay = node().with_transport_config(TransportConfig::transit());
+        relay.remember_bridge(AddressHash::from_bytes([9; 16]), 1, 2, 0);
+        assert!(relay.has_active_sessions());
+        assert_eq!(
+            relay.set_logical_mtu(247),
+            Err(LogicalMtuError::SessionsActive)
+        );
+        relay.expire_transport_state(LINK_TRANSPORT_TIMEOUT);
+        assert!(!relay.has_active_sessions());
+        relay.set_logical_mtu(247).unwrap();
+        let (mut source, destination) = pair();
+        let announce = destination.announce(&blob([3; RAND_HASH_LEN]), None);
+        relay.ingest(IFACE + 1, &announce, LINK_TRANSPORT_TIMEOUT);
+        source.ingest(IFACE, &announce, 0);
+        let mut request = sent(
+            &source
+                .open_link(destination.destination(), IFACE, &[0x55; 64])
+                .unwrap(),
+        )
+        .unwrap();
+        request.header_type = HeaderType::Type2;
+        request.transport = Some(relay.identity.hash());
+        request.payload.resize(250, 0);
+        assert!(sent(&relay.ingest(IFACE, &request, LINK_TRANSPORT_TIMEOUT + 1)).is_none());
+        assert!(relay.bridges.is_empty());
+        assert_eq!(relay.refused_payloads(), 1);
+        relay.set_logical_mtu(246).unwrap();
+    }
+
+    #[test]
+    fn relay_refuses_type_two_growth_beyond_logical_mtu() {
+        let mut relay = node().with_transport_config(TransportConfig::transit());
+        relay.set_logical_mtu(247).unwrap();
+        let (_, mut peer) = pair();
+        peer.try_set_app_data(&[0; 80]).unwrap();
+        let packet = peer.announce(&blob([4; RAND_HASH_LEN]), None);
+        assert_eq!(packet.encoded_len(), 247);
+        let actions = relay.ingest(IFACE, &packet, 0);
+        assert!(sent(&actions).is_none());
+        assert_eq!(relay.refused_payloads(), 1);
+        assert!(relay.peers().knows(peer.destination()));
     }
 
     /// Two nodes that have not met.

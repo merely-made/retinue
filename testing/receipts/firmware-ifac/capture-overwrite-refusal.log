@@ -1,0 +1,6 @@
+Traceback (most recent call last):
+  File "C:\Users\mark_\Code\repos\retinue\crates\retinue\oracle\capture_firmware_ifac.py", line 114, in <module>
+    exit_code = main()
+  File "C:\Users\mark_\Code\repos\retinue\crates\retinue\oracle\capture_firmware_ifac.py", line 39, in main
+    raise FileExistsError(f"Refusing to overwrite retained capture: {args.output}")
+FileExistsError: Refusing to overwrite retained capture: testing\receipts\firmware-ifac\rns_ifac_1_5_4_supervised.json

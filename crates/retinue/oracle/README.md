@@ -113,6 +113,16 @@ Python-free. The live oracle is a local gate, run when the wire format is in que
 (`ifac_packet.bin` and its JSON manifest). It states and falsifies derivation,
 signature, placement, and mask hypotheses against stock RNS output.
 
+`capture_firmware_ifac.py` captures actual stock RNS 1.5.4 Type1 egress at
+239, 240, 255 and 256 wire bytes, using public APIs and a local TCP socket.
+Supply `--output` with a new path: retained captures cannot be overwritten.
+The parent process removes the temporary RNS configuration after child exit.
+`radio-hand --features instances,replay` replays the committed fixture against
+the firmware carrier, including authentication negatives and the 255-byte
+physical limit. Type2 growth tests are local transformations, not stock captures.
+See the [software receipt](../../../testing/receipts/firmware-ifac/README.md);
+board provisioning and physical IFAC acceptance remain separate gates.
+
 ## What the oracle settled
 
 These were unanswerable from the manual and from Beechat, and a wrong guess on any of them

@@ -1,0 +1,345 @@
+   Compiling futures-sink v0.3.33
+   Compiling slab v0.4.12
+   Compiling futures-channel v0.3.33
+   Compiling futures-io v0.3.33
+   Compiling serde_core v1.0.228
+   Compiling futures-util v0.3.33
+   Compiling sennet v0.0.2 (C:\Users\mark_\Code\repos\retinue\crates\sennet)
+   Compiling retinue v0.1.1 (C:\Users\mark_\Code\repos\retinue\crates\retinue)
+   Compiling futures-executor v0.3.33
+   Compiling tucket v0.0.2 (C:\Users\mark_\Code\repos\retinue\crates\tucket)
+   Compiling futures v0.3.33
+   Compiling radio-hand v0.0.1 (C:\Users\mark_\Code\repos\retinue\crates\radio-hand)
+   Compiling serde_json v1.0.151
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 16.71s
+     Running unittests src\lib.rs (C:\t\cargo-targets\retinue\debug\deps\radio_hand-b94af7313780cfd2.exe)
+
+running 194 tests
+test announce_reservation::tests::a_future_version_is_refused ... ok
+test announce_reservation::tests::a_nonblank_body_with_wrong_magic_is_not_a_new_board ... ok
+test announce_reservation::tests::nonzero_reserved_byte_is_refused ... ok
+test announce_reservation::tests::planned_lease_requires_exact_readback ... ok
+test announce_reservation::tests::next_boot_starts_above_the_old_durable_ceiling ... ok
+test announce_reservation::tests::malformed_readback_cannot_become_a_lease ... ok
+test announce_reservation::tests::body_length_is_part_of_the_format ... ok
+test announce_reservation::tests::valid_body_preserves_the_big_endian_u40_ceiling ... ok
+test announce_reservation::tests::checked_constructor_rejects_values_outside_u40 ... ok
+test announce_reservation::tests::zero_lease_and_u40_exhaustion_fail_closed ... ok
+test control::admission::tests::admission_debug_redacts_arguments ... ok
+test control::admission::tests::idempotence_is_scoped_by_verified_controller_and_read_only_requests_ignore_cas ... ok
+test control::arguments::tests::lifecycle_arguments_round_trip_exactly ... ok
+test announce_reservation::tests::only_a_proven_blank_outer_pair_is_uncommissioned ... ok
+test control::durable::model::recovery::tests::board_facts_reject_duplicates_and_unauthenticated_remote ... ok
+test announce_reservation::tests::first_commission_reserves_default_lease_above_zero ... ok
+test control::durable::model::recovery::tests::clauses_are_canonical_and_both_active_clauses_are_independent ... ok
+test control::durable::model::recovery::tests::remote_clause_needs_board_authenticated_remote_not_candidate_claims ... ok
+test control::durable::model::commissioning::tests::staged_state_rejects_a_tampered_replay_counter ... ok
+test control::durable::model::sequence_tests::observer_grant_authenticates_but_cannot_mutate_configuration ... ok
+test control::durable::model::tests::corrupt_slot_pair_cannot_be_reused_but_one_valid_slot_can_recover ... ok
+test control::durable::model::sequence_tests::updater_cannot_mutate_configuration ... ok
+test control::position_disclosure::tests::capacity_refuses_and_never_evicts ... ok
+test control::position_disclosure::tests::decode_rejects_every_non_canonical_form ... ok
+test control::position_disclosure::tests::duplicate_hashes_are_refused_at_construction ... ok
+test control::position_disclosure::tests::absent_identity_gets_broadcast_by_default_and_fixed_when_set ... ok
+test control::durable::model::sequence_tests::safe_policy_refusals_advance_and_retain_their_sequence ... ok
+test control::position_disclosure::tests::no_table_resolves_everything_to_broadcast_and_never_fails ... ok
+test control::durable::model::tests::decoded_operator_provisional_cannot_change_management_carriers ... ok
+test control::position_disclosure::tests::round_trips_canonically_and_sorts_on_construction ... ok
+test control::position_disclosure::tests::pd2_sequence_is_monotonic_and_replay_is_refused_and_counted ... ok
+test control::position_disclosure::tests::stored_form_holds_no_plaintext_hash ... ok
+test control::position_disclosure::tests::pd2_revocation_holds_and_a_lockout_table_is_still_correctable ... ok
+test control::public_configuration::tests::golden_bytes_are_fixed_and_round_trip ... ok
+test control::public_configuration::tests::region_and_phy_are_bound_together ... ok
+test control::public_configuration::tests::requested_power_round_trips_while_effective_power_is_clamped ... ok
+test control::public_configuration::tests::strict_decoder_rejects_length_version_reserved_and_noncanonical_fields ... ok
+test control::durable::model::sequence_tests::operator_is_limited_to_reticulum_phy_and_transport_not_carriers_or_secrets ... ok
+test control::durable::model::tests::durable_encoding_is_bounded_round_trips_and_never_keeps_request_bytes ... ok
+test control::public_identity::tests::accepts_arbitrary_x25519_bytes_and_a_valid_ed25519_half ... ok
+test control::public_identity::tests::rejects_truncation_and_malformed_ed25519_without_touching_x25519_rules ... ok
+test control::durable::model::tests::invariants::accepted_outer_counter_is_monotonic_and_durable ... ok
+test control::runtime::tests::basic::blank_and_short_scratch_fail_closed ... ok
+test control::durable::model::sequence_tests::mutation_sequences_survive_receipt_eviction_without_reopening_a_mutation ... ok
+test control::durable::model::tests::semantic_tag_key_must_survive_reboot_to_recognize_replays ... ok
+test control::durable::model::tests::decoded_state_rejects_tampered_invariants ... ok
+test control::runtime::tests::basic::boot_is_one_shot_and_new_runtime_acknowledges_simulated_reset ... ok
+test control::runtime::tests::authority::hash_mismatched_grant_journal_poisons_before_any_apply ... ok
+test control::runtime::tests::basic::dropped_pre_radio_boot_cannot_admit_live_work ... ok
+test control::runtime::tests::basic::clean_boot_foreign_and_apply_failure ... ok
+test control::runtime::tests::changed_refused_persists_counter_without_candidate_apply ... ok
+test control::runtime::tests::candidate_apply_failure_restores_and_persists_known_good ... ok
+test control::runtime::tests::arm_counter_persists_before_apply_and_replay ... ok
+test control::durable::model::tests::replay_refusals_and_generation_watermark_are_durable ... ok
+test control::durable::model::tests::invariants::v3_worst_case_body_fits_and_grant_debug_redacts_identity ... ok
+test control::runtime::tests::nonmonotonic_counter_poisons_before_persist ... ok
+test control::runtime::tests::provisional_reboot_applies_known_good_before_rollback_persist ... ok
+test control::runtime::tests::commit_success_persists_and_readback_selects_candidate ... ok
+test control::runtime::tests::quiet::dropped_finish_aborts_quiet_and_leaves_the_runtime_blocked ... ok
+test control::runtime::tests::quiet::dropped_quiet_entry_latches_reset_before_any_durable_or_apply_work ... ok
+test control::runtime::tests::quiet::dropped_live_apply_aborts_quiet_and_blocks_the_runtime ... ok
+test control::runtime::tests::quiet::apply_failure_recovery_reuses_the_entered_window ... ok
+test control::runtime::tests::expire_and_revert_apply_before_persist ... ok
+test gnss::tests::bad_checksum_overflow_and_unknown_sentences_are_dropped_without_changing_state ... ok
+test control::runtime::tests::produced_flash_reboots_and_commit_failure_poisons ... ok
+test control::runtime::tests::quiet::operation_error_wins_finish_error_but_still_poisons ... ok
+test gnss::tests::line_noise_before_dollar_and_a_torn_first_sentence_are_ignored ... ok
+test gnss::tests::gga_refines_satellites_and_hdop_but_never_asserts_a_fix ... ok
+test control::status::tests::exact_payload_and_frame_round_trip ... ok
+test control::runtime::tests::recovery::incompatible_board_facts_poison_boot_before_apply ... ok
+test gnss::tests::real_constants_carry_valid_checksums ... ok
+test gnss::tests::rmc_active_produces_a_fix_with_e7_coordinates ... ok
+test control::status::tests::rejects_bad_length_version_tags_and_generation_order ... ok
+test gnss::tests::rmc_void_falls_back_to_nofix_and_does_not_keep_the_old_position ... ok
+test control::runtime::tests::quiet::live_storage_and_apply_are_inside_one_quiet_window ... ok
+test gnss::tests::southern_and_eastern_hemispheres_sign_correctly ... ok
+test link::write_tests::complete_write_and_observed_reconnect_allow_reuse ... ok
+test link::write_tests::partial_failure_and_cancellation_require_reconnect ... ok
+test observation::collection::tests::wrong_boot_future_cursor_and_absent_owner_are_explicit ... ok
+test control::status::tests::verified_controller_status_is_bound_to_its_transaction ... ok
+test observation::owner::tests::confirmed_standby_closes_a_matching_listening_interval ... ok
+test observation::owner::tests::confirmed_start_is_not_repeated_and_invalidation_is_unknown ... ok
+test observation::collection::tests::discovery_and_pages_are_read_only_and_exact ... ok
+test observation::owner::tests::finished_transmit_is_closed_and_later_invalidation_is_silent ... ok
+test observation::owner::tests::profiles_are_exact_deduplicated_and_boot_local ... ok
+test control::runtime::tests::recovery::unsafe_recovery_arm_journals_counter_and_refusal_without_apply ... ok
+test control::runtime::tests::erase_program_and_readback_failures_poison_before_candidate_apply ... ok
+test observation::owner::tests::transmit_timeout_leaves_a_continuity_break_without_a_false_finish ... ok
+test observation::owner::tests::registry_overflow_disables_without_reusing_ids ... ok
+test control::runtime::tests::quiet::reset_required_blocks_live_work_until_new_runtime ... ok
+test observation::owner::tests::work_ids_start_nonzero_and_exhaust_without_wrapping ... ok
+test observation::recorder::tests::counters_saturate ... ok
+test control::runtime::tests::quiet::expire_and_revert_keep_every_operation_inside_quiet_bounds ... ok
+test observation::recorder::tests::invalid_event_counts_encode_failure_without_consuming_sequence ... ok
+test observation::recorder::tests::exhaustive_small_rings_bound_every_drain ... ok
+test observation::recorder::tests::overwrite_emits_exact_gap_and_gap_counts_against_limit ... ok
+test observation::recorder::tests::records_in_sequence_and_rejects_uptime_regression ... ok
+test observation::recorder::tests::rejects_wrong_boot_and_future_cursor_and_handles_empty_ring ... ok
+test observation::recorder::tests::rejects_zero_boot_and_zero_capacity ... ok
+test observation::recorder::tests::repeated_cursor_is_idempotent_and_bounds_are_exposed ... ok
+test observation::recorder::tests::sequence_exhaustion_does_not_wrap ... ok
+test control::runtime::tests::quiet::quiet_entry_errors_are_retryable_but_finish_errors_poison ... ok
+test observation::tests::continuity_loss_has_an_independent_literal ... ok
+test observation::tests::boundary_unknown_and_raw_reasons_are_literal_and_lossless ... ok
+test observation::tests::all_kinds_fit_and_roundtrip ... ok
+test observation::tests::crc_vector ... ok
+test control::runtime::tests::recovery_apply_and_recovery_persistence_failures_poison ... ok
+test observation::tests::every_truncation_point_and_checksum_valid_payload_mutation_reject ... ok
+test observation::tests::literal_event_fixtures_pin_every_known_kind ... ok
+test observation::tests::rejects_trailing_truncated_and_bad_values ... ok
+test observation::tests::unknown_and_gap_roundtrip ... ok
+test observation::tests::unknown_empty_payload_is_preserved ... ok
+test observation::tests::zero_identity_sequence_and_gap_end_overflow_are_rejected_after_checksum ... ok
+test packet_reservation::tests::authoritative_pair_readback_precedes_lease_release ... ok
+test packet_reservation::tests::corrupt_and_exhausted_state_never_restarts ... ok
+test packet_reservation::tests::pair_refuses_torn_tail_ambiguous_sequence_and_counter_rollback ... ok
+test packet_reservation::tests::reset_skips_unused_ids_and_readback_is_required ... ok
+test phy::tests::bandwidth_is_exact_not_nearest ... ok
+test phy::tests::coding_rate_takes_denominators_and_refuses_the_rest ... ok
+test phy::tests::every_spreading_factor_the_chip_has_decodes_and_nothing_else_does ... ok
+test phy::tests::the_longfast_profile_decodes_end_to_end ... ok
+test profiles::tests::overfull_registry_is_refused_before_scheduling ... ok
+test profiles::tests::receive_slot_resolves_to_an_exact_hardware_profile ... ok
+test profiles::tests::registry_refuses_a_capture_without_an_exact_detection_group ... ok
+test profiles::tests::separate_detection_groups_do_not_share_a_cad_step ... ok
+test profiles::tests::shared_detection_still_has_one_capture_slot_per_sync_word ... ok
+test region::tests::an_unknown_byte_is_refused ... ok
+test region::tests::every_region_round_trips_and_has_a_profile ... ok
+test region::tests::frequency_is_a_hard_bound ... ok
+test region::tests::power_clamps_to_region_then_hardware ... ok
+test region::tests::unset_is_zero_has_no_profile_and_does_not_name_a_place ... ok
+test replay::tests::a_non_hex_digit_is_refused ... ok
+test replay::tests::hex_round_trips ... ok
+test replay::tests::odd_length_hex_is_refused ... ok
+test resident_command::tests::fragmented_commands_and_payload_markers_remain_data ... ok
+test resident_command::tests::invalid_flags_lengths_text_and_retry_counts_are_refused ... ok
+test resident_command::tests::overlong_body_is_drained_without_interpreting_embedded_commands ... ok
+test resident_wire::tests::fragmented_stream_never_eats_an_ordinary_marker_in_payload ... ok
+test replay::tests::the_replay_identity_is_fixed ... ok
+test resident_wire::tests::malformed_profile_and_zero_lease_are_refused ... ok
+test resident_wire::tests::round_trip_is_fixed_and_lossless ... ok
+test rnode::tests::a_profile_is_withheld_until_every_field_the_host_controls_has_arrived ... ok
+test rnode::tests::a_truncated_setting_is_unhandled_rather_than_guessed ... ok
+test rnode::tests::data_carries_its_payload_verbatim ... ok
+test rnode::tests::frames_encode_with_their_command_byte ... ok
+test rnode::tests::non_settings_commands_are_not_accepted_as_settings ... ok
+test rnode::tests::signal_reports_encode_as_the_capture_did ... ok
+test rnode::tests::the_captured_init_commands_decode ... ok
+test rnode::tests::the_worst_case_encoding_bound_holds ... ok
+test scheduler::tests::acknowledgement_at_a_deadline_cannot_represent_a_live_lease ... ok
+test scheduler::tests::deadline_and_missing_restore_ack_are_visible ... ok
+test scheduler::tests::designated_keeper_cannot_delegate_to_make_two_peers_each_sole_keeper ... ok
+test scheduler::tests::exact_expiry_during_a_lease_requests_restore_and_never_reuses_cover ... ok
+test scheduler::tests::invalid_capacity_and_unknown_or_unauthorized_profiles_are_explicit ... ok
+test scheduler::tests::ordinary_finish_requires_hardware_ack_before_another_lease ... ok
+test scheduler::tests::peer_loss_before_deadline_preempts_future_talk_at_safe_boundary ... ok
+test scheduler::tests::recovery_hold_delays_re_admission_without_extending_expiry ... ok
+test scheduler::tests::time_overflow_and_regression_are_refused ... ok
+test scheduler::tests::withdrawal_latches_restore_even_if_the_peer_renews_before_poll ... ok
+test settings::tests::a_body_shorter_than_an_identity_is_refused ... ok
+test settings::tests::a_legacy_identity_only_body_keeps_its_identity ... ok
+test settings::tests::a_longer_body_from_a_later_firmware_is_read_as_far_as_it_is_understood ... ok
+test settings::tests::an_unknown_channel_falls_back_without_losing_the_identity ... ok
+test settings::tests::debug_redacts_private_identity_but_keeps_boot_metadata ... ok
+test settings::tests::every_known_channel_round_trips ... ok
+test settings::tests::legacy_node_byte_is_read_but_every_rewrite_arms_the_guard ... ok
+test settings::tests::old_firmware_unknown_channel_rule_will_recover_from_guarded_node ... ok
+test settings::tests::round_trips ... ok
+test store::tests::a_flipped_body_bit_is_caught ... ok
+test store::tests::a_flipped_sequence_bit_is_caught ... ok
+test store::tests::a_fresh_board_writes_slot_a_at_sequence_zero ... ok
+test store::tests::a_half_erased_slot_reads_as_blank_and_is_reused ... ok
+test store::tests::a_slot_too_small_reports_both_sizes ... ok
+test store::tests::a_torn_write_leaves_the_previous_record_standing ... ok
+test store::tests::body_running_past_the_slot_is_bad_length ... ok
+test store::tests::body_longer_than_the_length_field_is_refused ... ok
+test store::tests::checksum_matches_the_published_vector ... ok
+test store::tests::empty_body_round_trips ... ok
+test store::tests::encoded_length_is_word_aligned ... ok
+test store::tests::erased_flash_is_blank_not_corrupt ... ok
+test store::tests::erased_magic_with_programmed_body_is_corrupt ... ok
+test store::tests::erased_magic_with_programmed_header_tail_is_corrupt ... ok
+test store::tests::foreign_bytes_are_bad_magic ... ok
+test store::tests::future_version_is_refused_by_number ... ok
+test store::tests::padding_is_outside_the_checksum ... ok
+test store::tests::record_debug_reports_only_sequence_and_body_length ... ok
+test store::tests::round_trip ... ok
+test store::tests::short_slot_is_truncated ... ok
+test store::tests::the_higher_sequence_wins_in_either_position ... ok
+test work::tests::a_previous_activation_cannot_submit_or_complete_work ... ok
+test work::tests::capacity_deadline_and_clock_refusals_preserve_queue ... ok
+test work::tests::timer_or_permission_cannot_revoke_inflight_custody ... ok
+test store::tests::writes_alternate_slots_and_climb ... ok
+test control::durable::model::tests::cut_points_always_boot_to_last_known_good_until_commit_is_durable ... ok
+
+test result: ok. 194 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests\commissioning.rs (C:\t\cargo-targets\retinue\debug\deps\commissioning-9591c705b810644a.exe)
+
+running 6 tests
+test invalid_public_configuration_or_recovery_policy_is_refused_by_its_existing_validator ... ok
+test malformed_or_truncated_public_identity_is_rejected ... ok
+test valid_claim_creates_exactly_one_owner_at_the_canonical_initial_state ... ok
+test owner_role_is_implicit_and_unsafe_recovery_configuration_is_rejected ... ok
+test board_recovery_facts_are_required_before_state_construction ... ok
+test construction_is_deterministic_and_has_no_transaction_artifacts ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\control_contract.rs (C:\t\cargo-targets\retinue\debug\deps\control_contract-0a4dbd8a816e1c9a.exe)
+
+running 6 tests
+test generation_never_wraps_and_read_only_operations_are_identified ... ok
+test canonical_request_and_provisional_response_round_trip ... ok
+test observation_and_debug_redaction_are_explicit ... ok
+test frame_ceilings_and_bounded_capabilities_hold ... ok
+test response_rejects_unknown_capability_role ... ok
+test codec_rejects_bad_version_tags_lengths_and_tails ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\durable_control.rs (C:\t\cargo-targets\retinue\debug\deps\durable_control-5942ad7b8036c597.exe)
+
+running 4 tests
+test only_a_proven_blank_pair_is_uninitialized ... ok
+test public_configuration_and_sealed_credentials_remain_separate ... ok
+test rhd_v2_is_refused_instead_of_reinterpreting_weak_recovery_claims ... ok
+test public_journal_format_round_trips_and_uses_existing_ab_selection ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\firmware_ifac_oracle.rs (C:\t\cargo-targets\retinue\debug\deps\firmware_ifac_oracle-a63c4292c75b590c.exe)
+
+running 4 tests
+test plain_carrier_keeps_its_full_physical_budget ... ok
+test local_type2_growth_reserves_sixteen_bytes_before_final_carrier_admission ... ok
+test actual_stock_rns_1_5_4_frames_match_and_obey_the_radio_boundary ... ok
+test protected_ingress_refuses_wrong_credentials_plain_and_tampered_stock_frames ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+     Running tests\first_write_staging.rs (C:\t\cargo-targets\retinue\debug\deps\first_write_staging-f14a3c7844555f31.exe)
+
+running 8 tests
+test corrupt_control_without_valid_pending_faults ... ok
+test only_two_erased_pending_slots_are_blank_and_torn_data_is_corrupt ... ok
+test non_initial_generation_cannot_be_staged ... ok
+test write_helpers_reject_foreign_or_unrecoverable_state ... ok
+test pending_initial_state_recovers_blank_or_corrupt_control_pair ... ok
+test canonical_initial_state_round_trips_through_staging_and_rhd1 ... ok
+test pending_state_must_match_this_node_and_current_recovery_facts ... ok
+test valid_control_wins_over_stale_pending_state ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\instances.rs (C:\t\cargo-targets\retinue\debug\deps\instances-49faa253ac288c25.exe)
+
+running 14 tests
+test bounded_usb_report_keeps_complete_events_and_accounts_for_omissions ... ok
+test stale_work_completion_is_refused_without_releasing_current_work ... ok
+test an_exact_tx_deadline_is_not_physical_tx_budget ... ok
+test malformed_input_preserves_before_deadline_and_reports_loss_once_at_deadline ... ok
+test inflight_custody_defers_allow_loss_and_unknown_transition_ack_recovers ... ok
+test sennet_dedup_and_packet_ids_survive_a_real_return_home ... ok
+test carrier_refuses_envelope_flag_as_logical_packet ... ok
+test startup_carrier_preserves_stricter_node_budget ... ok
+test carrier_checks_exact_physical_limit_and_relay_growth ... ok
+test protected_startup_refuses_existing_pending_link_at_identical_mtu ... ok
+test protected_retinue_runtime_authenticates_before_protocol_ingress ... ok
+test delayed_tucket_ack_cancels_queued_retry_and_retains_contact ... ok
+test forced_retinue_resource_loss_reports_link_resource_and_unsent_close ... ok
+test retinue_link_and_freshness_survive_an_admitted_home_absence ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests\portable_first_write.rs (C:\t\cargo-targets\retinue\debug\deps\portable_first_write-8e2ad33f091d5b9c.exe)
+
+running 12 tests
+test every_simple_request_and_response_variant_is_exact_and_rejects_bad_dispositions ... ok
+test inspect_action_bits_are_exact_for_every_recovery_shape ... ok
+test inspection_read_failures_are_typed_and_scratch_refuses_mismatched_slots ... ok
+test exact_wire_round_trips_and_rejects_truncation_trailing_versions_and_opcodes ... ok
+test abandon_requires_blank_control_and_its_partial_cleanup_is_safe_to_retry ... ok
+test valid_control_wins_stale_pending_and_abandon_will_not_erase_it ... ok
+test corrupt_repair_advances_outer_sequence_and_handles_max_without_losing_pending ... ok
+test corrupt_control_can_be_repaired_from_valid_pending_but_torn_control_never_hides_pending ... ok
+test abandon_erases_corrupt_pending_only_with_blank_control_and_can_retry_after_slot_b_failure ... ok
+test stage_failures_never_touch_control_and_leave_a_safe_retry_state ... ok
+test resume_failures_preserve_pending_until_control_is_durable_then_report_cleanup ... ok
+test claim_proof_binds_every_authority_bearing_byte_and_is_one_shot ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests\public_identity.rs (C:\t\cargo-targets\retinue\debug\deps\public_identity-394c3a952867218c.exe)
+
+running 2 tests
+test local_validator_keeps_the_slice_boundary_typed ... ok
+test local_syntax_validator_matches_retinue_on_a_fixed_generated_corpus ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests\replay_corpus.rs (C:\t\cargo-targets\retinue\debug\deps\replay_corpus-06bf2d6936c8d009.exe)
+
+running 3 tests
+test a_first_poll_announces_reproducibly ... ok
+test print_the_board_script ... ok
+test the_corpus_produces_the_committed_actions ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+     Running tests\rnode_device.rs (C:\t\cargo-targets\retinue\debug\deps\rnode_device-369fc331a7d0962e.exe)
+
+running 6 tests
+test the_frequency_echo_escapes_the_delimiter_inside_it ... ok
+test the_receive_triplet_encodes_as_the_capture_did ... ok
+test every_command_the_oracle_sent_is_one_this_device_knows ... ok
+test the_captured_transmit_fits_the_air_frame ... ok
+test the_captured_settings_rebuild_the_profile_the_host_asked_for ... ok
+test our_answers_match_the_oracle_device_frame_for_frame ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+   Doc-tests radio_hand
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

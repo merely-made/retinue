@@ -1,0 +1,28 @@
+   Compiling retinue v0.1.1 (C:\Users\mark_\Code\repos\retinue\crates\retinue)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.02s
+     Running tests\node_pause.rs (C:\t\cargo-targets\retinue\debug\deps\node_pause-cd74bb09552b481d.exe)
+
+running 20 tests
+test oversized_announce_is_refused_before_learning_or_freshness ... ok
+test forced_interruption_reports_and_clears_pending_link ... ok
+test pending_handshake_blocks_then_clears_after_proof ... ok
+test link_expiry_is_checked_against_elapsed_return_bound ... ok
+test payload_budgets_refuse_oversized_work_without_losing_the_link ... ok
+test dropped_final_proof_keeps_sender_busy_and_poll_retries ... ok
+test forced_interruption_drops_resource_state_and_late_packet_is_ignored ... ok
+test refused_app_data_keeps_previous_announce ... ok
+test established_link_can_pause_and_encrypted_data_survives_resume ... ok
+test poll_reclaims_expired_link_before_a_later_pause_query ... ok
+test inbound_resource_offer_blocks_pause ... ok
+test configured_resource_part_limit_refuses_offer ... ok
+test active_resource_blocks_pause_without_mutating_transfer ... ok
+test preserve_sessions_refuses_without_calling_nonce_source ... ok
+test link_expiry_overflow_fails_closed ... ok
+test multipart_resource_blocks_then_completion_allows_pause ... ok
+test forced_interruption_closes_link_and_allows_fresh_handshake ... ok
+test regressed_clock_before_latest_link_activity_is_rejected ... ok
+test return_bound_before_now_is_rejected ... ok
+test forced_report_uses_its_own_capacity_for_multiple_links ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+

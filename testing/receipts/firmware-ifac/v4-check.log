@@ -1,0 +1,209 @@
+   Compiling compiler_builtins v0.1.160 (C:\Users\mark_\.rustup\toolchains\esp\lib\rustlib\src\rust\library\compiler-builtins\compiler-builtins)
+   Compiling core v0.0.0 (C:\Users\mark_\.rustup\toolchains\esp\lib\rustlib\src\rust\library\core)
+   Compiling proc-macro2 v1.0.106
+   Compiling quote v1.0.46
+   Compiling unicode-ident v1.0.24
+   Compiling syn v2.0.118
+   Compiling litrs v1.0.0
+   Compiling document-features v0.2.12
+   Compiling esp-metadata-generated v0.4.0
+   Compiling equivalent v1.0.2
+   Compiling hashbrown v0.17.1
+   Compiling indexmap v2.14.0
+   Compiling version_check v0.9.5
+   Compiling serde_core v1.0.228
+   Compiling alloc v0.0.0 (C:\Users\mark_\.rustup\toolchains\esp\lib\rustlib\src\rust\library\alloc)
+   Compiling generic-array v0.14.7
+   Compiling ident_case v1.0.1
+   Compiling serde v1.0.228
+    Checking typenum v1.20.1
+    Checking cfg-if v1.0.4
+    Checking byteorder v1.5.0
+    Checking critical-section v1.2.0
+    Checking hash32 v0.3.1
+    Checking stable_deref_trait v1.2.1
+    Checking hybrid-array v0.4.13
+   Compiling serde_derive v1.0.228
+   Compiling somni-parser v0.2.2
+   Compiling itoa v1.0.18
+   Compiling unsafe-libyaml v0.2.11
+   Compiling ryu v1.0.23
+   Compiling somni-expr v0.2.0
+   Compiling serde_yaml v0.9.34+deprecated
+    Checking crypto-common v0.2.2
+   Compiling autocfg v1.5.1
+   Compiling esp-config v0.7.0
+   Compiling fnv v1.0.7
+   Compiling heapless v0.9.3
+   Compiling num-traits v0.2.19
+    Checking crypto-common v0.1.7
+    Checking subtle v2.6.1
+    Checking futures-core v0.3.33
+   Compiling strsim v0.11.1
+    Checking cmov v0.5.4
+    Checking nb v1.1.0
+   Compiling embedded-hal-async v1.0.0
+    Checking ctutils v0.4.2
+    Checking block-buffer v0.12.1
+    Checking embedded-hal v1.0.0
+   Compiling esp-rom-sys v0.1.4
+   Compiling embedded-io-async v0.6.1
+   Compiling heapless v0.8.0
+    Checking digest v0.11.3
+    Checking nb v0.1.3
+    Checking void v1.0.2
+    Checking embedded-io v0.7.1
+    Checking futures-sink v0.3.33
+    Checking embedded-io v0.6.1
+   Compiling portable-atomic v1.14.0
+   Compiling semver v1.0.28
+   Compiling embassy-time-driver v0.2.2
+   Compiling rustc_version v0.4.1
+    Checking embedded-io-async v0.7.0
+    Checking embedded-hal v0.2.7
+    Checking block-buffer v0.10.4
+   Compiling syn v3.0.3
+   Compiling embassy-sync v0.8.0
+   Compiling thiserror v2.0.19
+   Compiling winnow v1.0.4
+   Compiling windows-link v0.2.1
+   Compiling windows-sys v0.61.2
+   Compiling thiserror-impl v2.0.19
+   Compiling toml_parser v1.1.2+spec-1.1.0
+    Checking digest v0.10.7
+   Compiling curve25519-dalek v5.0.0
+   Compiling darling_core v0.21.3
+    Checking vcell v0.1.3
+   Compiling object v0.37.3
+   Compiling esp32s3 v0.35.2
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling toml_edit v0.25.13+spec-1.1.0
+   Compiling winapi-util v0.1.11
+   Compiling darling_macro v0.21.3
+   Compiling darling_core v0.23.0
+    Checking inout v0.1.4
+    Checking block-padding v0.4.2
+    Checking xtensa-lx v0.13.0
+    Checking futures-task v0.3.33
+    Checking pin-project-lite v0.2.17
+    Checking zeroize v1.9.0
+    Checking embedded-storage v0.3.1
+    Checking rand_core v0.10.1
+   Compiling xtensa-lx-rt v0.22.0
+   Compiling embassy-hal-internal v0.4.0
+   Compiling defmt-macros v1.1.1
+   Compiling memchr v2.8.3
+   Compiling embassy-sync v0.6.2
+   Compiling embassy-sync v0.7.2
+   Compiling heck v0.5.0
+   Compiling strum_macros v0.27.2
+   Compiling darling_macro v0.23.0
+    Checking futures-util v0.3.33
+    Checking inout v0.2.2
+    Checking cipher v0.4.4
+   Compiling darling v0.21.3
+    Checking embassy-time v0.5.1
+   Compiling termcolor v1.4.1
+   Compiling defmt-parser v1.0.0
+   Compiling proc-macro-crate v3.5.0
+   Compiling darling_core v0.20.11
+    Checking embassy-futures v0.1.2
+    Checking signature v3.0.0
+   Compiling esp-sync v0.2.1
+   Compiling paste v1.0.15
+   Compiling log v0.4.33
+   Compiling defmt v1.1.1
+   Compiling esp-synopsys-usb-otg v0.4.2
+   Compiling instability v0.3.12
+   Compiling esp-println v0.17.0
+    Checking ed25519 v3.0.0
+   Compiling darling_macro v0.20.11
+   Compiling esp-hal-procmacros v0.22.0
+   Compiling enumset_derive v0.15.0
+    Checking cipher v0.5.2
+    Checking strum v0.27.2
+   Compiling darling v0.23.0
+    Checking embedded-storage-async v0.4.1
+    Checking usb-device v0.3.2
+    Checking embassy-usb-driver v0.2.2
+    Checking sha2 v0.11.0
+   Compiling esp-hal v1.1.1
+    Checking az v1.3.0
+    Checking ral-registers v0.1.3
+    Checking gcd v2.3.0
+    Checking bitflags v1.3.2
+   Compiling xtensa-lx-rt-proc-macros v0.5.0
+   Compiling bitfield-macros v0.19.4
+   Compiling indoc v2.0.7
+   Compiling rustversion v1.0.23
+   Compiling jiff-core v0.1.0
+   Compiling embassy-time-queue-utils v0.3.2
+   Compiling jiff v0.2.34
+    Checking bitfield v0.19.4
+    Checking embedded-graphics-core v0.4.1 (C:\Users\mark_\Code\repos\retinue\vendor\embedded-graphics-core)
+    Checking fugit v0.3.9
+    Checking ed25519-dalek v3.0.0
+    Checking embassy-usb-synopsys-otg v0.3.3
+    Checking embassy-embedded-hal v0.6.0
+    Checking enumset v1.1.14
+   Compiling darling v0.20.11
+    Checking aes v0.8.4
+    Checking hmac v0.13.0
+    Checking float-cmp v0.9.0
+    Checking embedded-can v0.4.1
+    Checking bytemuck v1.25.2
+    Checking embassy-executor-timer-queue v0.1.0
+    Checking micromath v2.1.0
+    Checking ufmt-write v0.1.0
+    Checking rand_core v0.9.5
+    Checking cpubits v0.1.1
+    Checking rand_core v0.6.4
+    Checking bitflags v2.13.1
+   Compiling delegate v0.13.5
+   Compiling embassy-executor v0.10.0
+    Checking aes v0.9.1
+    Checking embedded-graphics v0.8.2 (C:\Users\mark_\Code\repos\retinue\vendor\embedded-graphics)
+    Checking hkdf v0.13.0
+   Compiling esp-bootloader-esp-idf v0.5.0
+   Compiling embassy-executor-macros v0.8.0
+    Checking defmt v0.3.100
+    Checking cbc v0.2.1
+    Checking ctr v0.9.2
+    Checking x25519-dalek v3.0.0
+    Checking hmac v0.12.1
+    Checking sha2 v0.10.9
+   Compiling esp-rtos v0.3.0
+   Compiling esp-backtrace v0.19.0
+    Checking cordyceps v0.3.4
+    Checking lora-modulation v0.1.5
+    Checking const-default v1.0.0
+   Compiling esp-storage v0.9.0
+    Checking rlsf v0.2.3
+    Checking lora-phy v3.0.1 (C:\Users\mark_\Code\repos\retinue\vendor\lora-phy)
+    Checking tucket v0.0.2 (C:\Users\mark_\Code\repos\retinue\crates\tucket)
+    Checking retinue v0.1.1 (C:\Users\mark_\Code\repos\retinue\crates\retinue)
+    Checking sennet v0.0.2 (C:\Users\mark_\Code\repos\retinue\crates\sennet)
+    Checking radio-face v0.0.1 (C:\Users\mark_\Code\repos\retinue\crates\radio-face)
+    Checking selvage v0.1.0 (C:\Users\mark_\Code\repos\retinue\crates\selvage)
+    Checking linked_list_allocator v0.10.6
+    Checking embedded-alloc v0.7.0
+    Checking radio-hand v0.0.1 (C:\Users\mark_\Code\repos\retinue\crates\radio-hand)
+    Checking static_cell v2.1.1
+    Checking embedded-hal-bus v0.3.0
+    Checking tulle-heltec-v4-phy v0.0.1 (C:\Users\mark_\Code\repos\retinue\firmware\heltec-v4-phy)
+warning: function `last_sleep_us` is never used
+  --> firmware\heltec-v4-phy\src\power.rs:46:12
+   |
+46 |     pub fn last_sleep_us() -> u32 {
+   |            ^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `radio_wake_registrations` is never used
+  --> firmware\heltec-v4-phy\src\wake_input.rs:65:8
+   |
+65 | pub fn radio_wake_registrations() -> u32 {
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `tulle-heltec-v4-phy` (bin "tulle-heltec-v4-phy") generated 2 warnings
+    Finished `release` profile [optimized + debuginfo] target(s) in 1m 29s

@@ -1,0 +1,81 @@
+    Checking typenum v1.20.1
+    Checking cmov v0.5.4
+    Checking cfg-if v1.0.4
+    Checking ctutils v0.4.2
+    Checking subtle v2.6.1
+    Checking windows-link v0.2.1
+    Checking cpufeatures v0.3.0
+    Checking windows-sys v0.61.2
+    Checking hybrid-array v0.4.13
+    Checking crypto-common v0.2.2
+    Checking generic-array v0.14.7
+    Checking block-buffer v0.12.1
+    Checking digest v0.11.3
+    Checking crypto-common v0.1.7
+    Checking pin-project-lite v0.2.17
+    Checking byteorder v1.5.0
+    Checking inout v0.1.4
+    Checking block-padding v0.4.2
+    Checking zeroize v1.9.0
+    Checking curve25519-dalek v5.0.0
+    Checking inout v0.2.2
+    Checking cipher v0.4.4
+    Checking block-buffer v0.10.4
+    Checking signature v3.0.0
+    Checking digest v0.10.7
+    Checking ed25519 v3.0.0
+    Checking socket2 v0.6.5
+    Checking mio v1.2.2
+    Checking num-traits v0.2.19
+    Checking cipher v0.5.2
+    Checking sha2 v0.11.0
+    Checking az v1.3.0
+    Checking memchr v2.8.3
+    Checking bytes v1.12.1
+    Checking embedded-graphics-core v0.4.1 (C:\Users\mark_\Code\repos\retinue\vendor\embedded-graphics-core)
+    Checking tokio v1.53.1
+    Checking ed25519-dalek v3.0.0
+    Checking float-cmp v0.9.0
+    Checking aes v0.8.4
+    Checking hash32 v0.3.1
+    Checking hmac v0.13.0
+    Checking cpubits v0.1.1
+    Checking micromath v2.1.0
+    Checking stable_deref_trait v1.2.1
+    Checking libbz2-rs-sys v0.2.5
+    Checking rand_core v0.10.1
+    Checking x25519-dalek v3.0.0
+    Checking bzip2 v0.6.1
+    Checking heapless v0.9.3
+    Checking embedded-graphics v0.8.2 (C:\Users\mark_\Code\repos\retinue\vendor\embedded-graphics)
+    Checking aes v0.9.1
+    Checking hkdf v0.13.0
+    Checking serde_core v1.0.228
+    Checking cbc v0.2.1
+    Checking hmac v0.12.1
+    Checking sha2 v0.10.9
+    Checking ctr v0.9.2
+    Checking getrandom v0.2.17
+    Checking retinue v0.1.1 (C:\Users\mark_\Code\repos\retinue\crates\retinue)
+    Checking sennet v0.0.2 (C:\Users\mark_\Code\repos\retinue\crates\sennet)
+    Checking tucket v0.0.2 (C:\Users\mark_\Code\repos\retinue\crates\tucket)
+    Checking radio-face v0.0.1 (C:\Users\mark_\Code\repos\retinue\crates\radio-face)
+    Checking zmij v1.0.23
+    Checking selvage v0.1.0 (C:\Users\mark_\Code\repos\retinue\crates\selvage)
+    Checking lora-modulation v0.1.5
+    Checking serde_json v1.0.151
+    Checking radio-hand v0.0.1 (C:\Users\mark_\Code\repos\retinue\crates\radio-hand)
+    Checking serial2 v0.2.37
+    Checking serial2-tokio v0.1.24
+    Checking serde v1.0.228
+    Checking hex v0.4.3
+    Checking futures-core v0.3.33
+    Checking futures-sink v0.3.33
+    Checking futures-channel v0.3.33
+    Checking futures-io v0.3.33
+    Checking slab v0.4.12
+    Checking futures-task v0.3.33
+    Checking futures-util v0.3.33
+    Checking futures-executor v0.3.33
+    Checking futures v0.3.33
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 20.81s

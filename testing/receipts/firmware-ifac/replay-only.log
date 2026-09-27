@@ -1,0 +1,12 @@
+   Compiling radio-hand v0.0.1 (C:\Users\mark_\Code\repos\retinue\crates\radio-hand)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.33s
+     Running tests\firmware_ifac_oracle.rs (C:\t\cargo-targets\retinue\debug\deps\firmware_ifac_oracle-e4e9216f45d817cd.exe)
+
+running 4 tests
+test plain_carrier_keeps_its_full_physical_budget ... ok
+test local_type2_growth_reserves_sixteen_bytes_before_final_carrier_admission ... ok
+test actual_stock_rns_1_5_4_frames_match_and_obey_the_radio_boundary ... ok
+test protected_ingress_refuses_wrong_credentials_plain_and_tampered_stock_frames ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+

@@ -26,10 +26,14 @@ fn budget_node() -> TestNode {
 #[test]
 fn oversized_announce_is_refused_before_learning_or_freshness() {
     let mut node = budget_node();
-    let peer = pair().0.with_app_data(&[0; 256]);
-    let packet = peer.announce(
+    // Construct foreign oversized input directly; Node's local announce setter
+    // now correctly refuses this payload before it can become local state.
+    let packet = retinue::announce::build(
+        &PrivateIdentity::from_secret_bytes(&[0x11; 64]),
+        DestinationName::new("retinue", ["oversized"]).name_hash(),
         &retinue::announce::AnnounceBlob::from_wire([2; RAND_HASH_LEN]),
         None,
+        &[0; 256],
     );
     assert!(node.ingest(IFACE, &packet, 0).is_empty());
     assert_eq!(node.refused_payloads(), 1);
@@ -90,6 +94,7 @@ fn configured_resource_part_limit_refuses_offer() {
     let payload: Vec<u8> = (0..350u32)
         .map(|n| (n.wrapping_mul(2_654_435_761) >> 8) as u8)
         .collect();
+    #[cfg(feature = "compression")]
     assert!(retinue::resource::compress(&payload).len() >= payload.len());
     let blob = retinue::announce::AnnounceBlob::from_wire([2; RAND_HASH_LEN]);
     peer.ingest(IFACE, &small.announce(&blob, None), 0);

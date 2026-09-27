@@ -1,0 +1,6 @@
+CAPTURE type1_231: logical=231 carrier=239 fits255=True
+CAPTURE type1_232: logical=232 carrier=240 fits255=True
+CAPTURE type1_247: logical=247 carrier=255 fits255=True
+CAPTURE type1_248: logical=248 carrier=256 fits255=False
+WROTE C:\Users\mark_\Code\repos\retinue\crates\retinue\tests\fixtures\rns_ifac_1_5_4.json
+[2026-09-27 19:12:01] [Warning]  The socket for TCPInterface[capture/127.0.0.1:57265] was closed, attempting to reconnect...

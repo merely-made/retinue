@@ -1,0 +1,12 @@
+CAPTURE type1_231: logical=231 carrier=239 fits255=True
+Traceback (most recent call last):
+  File "C:\Users\mark_\Code\repos\retinue\crates\retinue\oracle\capture_firmware_ifac.py", line 88, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "C:\Users\mark_\Code\repos\retinue\crates\retinue\oracle\capture_firmware_ifac.py", line 58, in main
+    packet.pack()
+    ~~~~~~~~~~~^^
+  File "C:\Users\mark_\Code\repos\retinue\crates\retinue\oracle\.venv\Lib\site-packages\RNS\Packet.py", line 236, in pack
+    self.raw = self.header + self.ciphertext
+                             ^^^^^^^^^^^^^^^
+AttributeError: 'RNS.Packet.Packet' object has no attribute 'ciphertext'

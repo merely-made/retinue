@@ -1,0 +1,23 @@
+2026-09-27 firmware IFAC capture temporary-directory cleanup
+
+Retained generated temporary directories:
+C:\Users\mark_\AppData\Local\Temp\retinue-firmware-ifac-39vxcvvw
+C:\Users\mark_\AppData\Local\Temp\retinue-firmware-ifac-mwc8cfxx
+C:\Users\mark_\AppData\Local\Temp\retinue-firmware-ifac-mzdfg8rg
+
+Ownership inspection:
+39vxcvvw created 19:13:43; configured TCP target port 54695 matches capture-attempt6.log.
+mwc8cfxx created 19:12:00; configured TCP target port 57265 matches capture-attempt4.log.
+mzdfg8rg created 19:13:07; configured TCP target port 53445 matches capture-attempt5.log.
+All config files use network_name retinue-firmware-ifac and the public fixture passphrase.
+Contents were inspected: generated config, interfaces directory, RNS storage/cache directories,
+one-byte destination tables/tunnels, and generated 64-byte transport_identity. No source or receipt output.
+Win32_Process inventory found no live capture_firmware_ifac.py process before attempted cleanup.
+
+Deletion request used native PowerShell Remove-Item -LiteralPath after verifying exact resolved
+absolute paths under C:\Users\mark_\AppData\Local\Temp and generated config markers.
+Automatic execution approval review rejected the command: blocked by policy.
+No deletion occurred. No retry or alternate deletion mechanism was attempted.
+All three directories remain retained. Receipt files and preexisting Cargo homes were untouched.
+
+The supervised capture-attempt7.log separately confirms TEMP_CONFIG_REMOVED=True.

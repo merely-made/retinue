@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "C:\Users\mark_\Code\repos\retinue\crates\retinue\oracle\capture_firmware_ifac.py", line 88, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "C:\Users\mark_\Code\repos\retinue\crates\retinue\oracle\capture_firmware_ifac.py", line 68, in main
+    assert len(wire) == len(logical) + 8
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError

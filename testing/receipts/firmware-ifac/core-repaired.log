@@ -1,0 +1,49 @@
+   Compiling retinue v0.1.1 (C:\Users\mark_\Code\repos\retinue\crates\retinue)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.54s
+     Running unittests src\lib.rs (C:\t\cargo-targets\retinue\debug\deps\retinue-f145801b2aca443a.exe)
+
+running 41 tests
+test node::tests::actions_report_overflow_rather_than_dropping_silently ... ok
+test node::tests::a_due_announce_without_a_blob_stays_due_until_supplied ... ok
+test node::tests::a_failed_announce_can_be_retried_before_the_interval ... ok
+test node::tests::announces_on_boot_then_waits_for_the_interval ... ok
+test node::tests::a_real_announce_is_learned ... ok
+test node::tests::a_link_request_for_another_destination_is_ignored ... ok
+test node::tests::a_retransmitted_request_is_answered_with_the_same_proof ... ok
+test node::tests::a_full_book_stops_learning_without_faulting ... ok
+test node::tests::a_full_link_table_refuses_and_counts ... ok
+test node::tests::address_book_refusal_does_not_commit_freshness ... ok
+test node::tests::foreign_interface_cannot_refresh_or_poison_a_link_bridge ... ok
+test node::tests::a_silent_peer_releases_its_link_slot ... ok
+test node::tests::a_second_publish_on_a_busy_link_is_refused ... ok
+test node::tests::a_link_that_keeps_talking_keeps_its_slot ... ok
+test node::tests::logical_mtu_validates_configuration_and_announce_shapes ... ok
+test node::tests::a_lost_advertisement_is_re_offered_on_poll ... ok
+test node::tests::a_peer_closing_the_link_drops_it ... ok
+test node::tests::packets_this_gate_does_not_handle_are_dropped ... ok
+test node::tests::a_lost_part_is_re_requested_on_poll ... ok
+test node::tests::data_crosses_an_established_link ... ok
+test node::tests::closing_a_link_discards_its_transfer ... ok
+test node::tests::a_resource_crosses_a_link_whole ... ok
+test node::tests::our_announce_round_trips_through_the_decoder ... ok
+test node::tests::derived_ivs_never_repeat_across_calls ... ok
+test node::tests::packet_loop_dedup_is_after_freshness ... ok
+test node::tests::relay_refuses_type_two_growth_beyond_logical_mtu ... ok
+test node::tests::exact_idle_expiry_reclaims_a_real_link_and_its_resource_sender ... ok
+test node::tests::freshness_policy_is_bounded_and_reconfigures_without_resetting_history ... ok
+test node::tests::stale_same_blob_cannot_roll_back_ratchet_or_app_data ... ok
+test node::tests::every_invalid_announce_fixture_is_refused ... ok
+test node::tests::two_nodes_learn_each_other ... ok
+test node::tests::pause_assessment_rejects_a_clock_before_retained_link_activity ... ok
+test node::tests::logical_mtu_negotiates_both_roles_and_bounds_direct_data ... ok
+test node::tests::transport_routes_expire_then_evict_at_their_bound ... ok
+test node::tests::freshness_gates_effects_and_newer_route_replaces_regardless_of_hops ... ok
+test node::tests::two_nodes_establish_a_link ... ok
+test node::tests::unhandled_link_traffic_is_dropped ... ok
+test node::tests::expired_route_only_accepts_a_stale_copy_at_worse_hops ... ok
+test node::tests::transport_relays_announce_request_and_proof ... ok
+test node::tests::an_oversized_resource_is_refused_without_holding_state ... ok
+test node::tests::transport_flood_keeps_retained_state_bounded ... ok
+
+test result: ok. 41 passed; 0 failed; 0 ignored; 0 measured; 190 filtered out; finished in 0.34s
+

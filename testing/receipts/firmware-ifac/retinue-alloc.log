@@ -1,0 +1,30 @@
+   Compiling tokio v1.53.1
+   Compiling radio-hand v0.0.1 (C:\Users\mark_\Code\repos\retinue\crates\radio-hand)
+   Compiling serial2-tokio v0.1.24
+   Compiling retinue v0.1.1 (C:\Users\mark_\Code\repos\retinue\crates\retinue)
+warning: function `sha256_counter_payload` is never used
+   --> crates\retinue\src\resource_transfer.rs:491:8
+    |
+491 |     fn sha256_counter_payload(len: usize) -> Vec<u8> {
+    |        ^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+error[E0425]: cannot find function `compress` in module `retinue::resource`
+  --> crates\retinue\tests\node_pause.rs:97:32
+   |
+97 |     assert!(retinue::resource::compress(&payload).len() >= payload.len());
+   |                                ^^^^^^^^ not found in `retinue::resource`
+   |
+note: found an item that was configured out
+  --> crates\retinue\src\resource.rs:76:8
+   |
+75 | #[cfg(feature = "compression")]
+   |       ----------------------- the item is gated behind the `compression` feature
+76 | pub fn compress(content: &[u8]) -> Vec<u8> {
+   |        ^^^^^^^^
+
+For more information about this error, try `rustc --explain E0425`.
+error: could not compile `retinue` (test "node_pause") due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+warning: `retinue` (lib test) generated 1 warning

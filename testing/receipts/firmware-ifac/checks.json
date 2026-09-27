@@ -1,0 +1,86 @@
+[
+  {
+    "command": "cargo test -p retinue --locked --offline -j 2",
+    "exit_code": 0,
+    "log": "retinue-default.log",
+    "log_sha256": "f06b571400b53e1d186798490ac78de01c3ab8bc178acc599ae8f5b415d76bf8",
+    "passed_tests": 354
+  },
+  {
+    "command": "cargo test -p radio-hand --features instances,replay --locked --offline -j 2",
+    "exit_code": 0,
+    "log": "radio-hand.log",
+    "log_sha256": "0dcf19b741faa162c066215e67d11b6d58ed3e2d8cbd8193a531b7e7774bf804",
+    "passed_tests": 259
+  },
+  {
+    "command": "cargo check -p tulle-t114-phy --release --target thumbv7em-none-eabihf --locked --offline -j 2",
+    "exit_code": 0,
+    "log": "t114-check.log",
+    "log_sha256": "dff3b73668b23b97b08d7d69e851f2c5c76ae5c4d69ce15c811a90eae9a60f2a",
+    "passed_tests": 0
+  },
+  {
+    "command": "cargo +esp check -p tulle-heltec-v4-phy --release --target xtensa-esp32s3-none-elf --features resident-protocols '-Zbuild-std=core,alloc' --locked --offline -j 2",
+    "exit_code": 0,
+    "log": "v4-check.log",
+    "log_sha256": "905e6e356084aa3ddbe276e90c175a478b36d298d0e9519b4bbcc06196810650",
+    "passed_tests": 0
+  },
+  {
+    "command": "cargo test -p retinue --no-default-features --features alloc --locked --offline -j 2",
+    "exit_code": 101,
+    "log": "retinue-alloc.log",
+    "log_sha256": "c4d8b31578d43d656b800a529915913d04be63beed252f2c423f7e9cb7183826",
+    "passed_tests": 0
+  },
+  {
+    "command": "cargo test -p retinue --no-default-features --features alloc --locked --offline -j 2",
+    "exit_code": 0,
+    "log": "retinue-alloc-repaired.log",
+    "log_sha256": "15f17c1dcbcb1fb89d6d558de4b82bf3899d1a16b157777aa336fb50a49553e9",
+    "passed_tests": 255
+  },
+  {
+    "command": "cargo clippy -p retinue -p radio-hand --all-targets --features radio-hand/instances,radio-hand/replay --locked --offline -j 2 -- -D warnings",
+    "exit_code": 0,
+    "log": "clippy.log",
+    "log_sha256": "b1f3df16563d3166116ffb79b3549098cf29c4987cfeb1f7b943240a5c7515a7",
+    "passed_tests": 0
+  },
+  {
+    "command": "cargo check -p retinue --no-default-features --lib --locked --offline -j 2",
+    "exit_code": 0,
+    "log": "core-only.log",
+    "log_sha256": "d88d8ab4a15d83414f2bea56fc8c75841bea8f963f748218f8386fe8b2038897",
+    "passed_tests": 0
+  },
+  {
+    "command": "cargo test -p radio-hand --features replay --test firmware_ifac_oracle --locked --offline -j 2",
+    "exit_code": 0,
+    "log": "replay-only.log",
+    "log_sha256": "35c9b0553eaed1aba08b06c0f937da3424424f97b4aafbae6f5207af4f02d140",
+    "passed_tests": 4
+  },
+  {
+    "command": "cargo test -p retinue --test node_pause --locked --offline -j 2",
+    "exit_code": 0,
+    "log": "node-pause-final.log",
+    "log_sha256": "b36a8f0f23948619359e5e3965c1ec481286cbf5f291c65b1f8871ef2cf4a5de",
+    "passed_tests": 20
+  },
+  {
+    "command": "cargo fmt -p retinue -p radio-hand -- --check",
+    "exit_code": 0,
+    "log": "fmt.log",
+    "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "passed_tests": 0
+  },
+  {
+    "command": "python validation/run.py verify",
+    "exit_code": 0,
+    "log": "registry.log",
+    "log_sha256": "452927f8828871f463ba36ae2d45de0097f53b5c235caa8dedd51ec433684890",
+    "passed_tests": 0
+  }
+]

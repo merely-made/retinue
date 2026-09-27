@@ -42,6 +42,8 @@ pub mod region;
 pub mod replay;
 pub mod resident_command;
 pub mod resident_wire;
+#[cfg(any(feature = "replay", feature = "instances"))]
+pub mod retinue_carrier;
 pub mod rnode;
 pub mod scheduler;
 #[cfg(feature = "radio")]

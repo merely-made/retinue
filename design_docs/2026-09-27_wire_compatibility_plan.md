@@ -61,6 +61,10 @@ failure contract before it can be claimed as a total memory limit.
 - Specify embedded IFAC admission and egress at the carrier boundary before
   `Packet::decode`. Done requires positive/negative authenticated-frame tests and
   a separate physical receipt; host TCP/Tulle IFAC results do not close it.
+  **Implemented:** a shared radio-hand adapter, startup configuration in both
+  shells, and a configured Node budget. Software and target results are recorded
+  in the [firmware IFAC receipt](../testing/receipts/firmware-ifac/README.md).
+  Provisioning and physical acceptance remain open.
 - Define configurable decoded-frame limits and error propagation for compressed
   streams. Measure peak allocation and prove that over-limit input cannot silently
   acknowledge and discard bytes while presenting a healthy stream to its caller.
@@ -100,36 +104,55 @@ The parent integrates the live runner, reviews boundaries and records results.
 Software gates precede any physical claim. Queue pressure and elapsed route expiry
 remain separate lanes.
 
-### Embedded IFAC prerequisites
+### Embedded IFAC implementation and remaining acceptance
 
-Firmware has two production carrier seams: `radio-hand/src/channel/node.rs`
-decodes directly in `Event::RadioFrame` and encodes in `transmit`, while
-`radio-hand/src/instances.rs` does the same in retained Retinue receive/actions.
-Both must apply the existing `retinue::ifac::Ifac` envelope outside logical
-`Packet` decoding. The replay diagnostic consumes logical packets and must not
-silently acquire a physical-carrier envelope.
+**Execution, September 27:** the owner approved the firmware IFAC software lane
+after the topology/stream receipts. Three Sol agents cover Node packet budgets,
+the two radio-hand carrier seams, and independent stock-RNS boundary captures.
+The parent owns integration, target checks and receipts. The author's README at
+`16c2784` is preserved.
 
-`node.rs` currently uses a fixed `LINK_MTU = 255` for both link roles, matching
-Selvage's physical frame limit before IFAC. An eight-byte access code would make
-a full logical packet too large. A complete lane therefore needs a configured
-logical MTU that reserves the access-code bytes before link negotiation and
-packet formation, then propagation through both firmware shells. Credential
-configuration and durability remain caller-owned; do not add a second IFAC codec
-or silently enable credentials.
+The implementation contract is startup configuration: a caller supplies an
+optional existing `Ifac` to a shared radio-hand carrier adapter, which reserves
+its overhead from the physical frame limit. Existing constructors stay plain.
+Node gains a validated logical MTU, with configuration changes refused while
+sessions or carried links are active. Incoming protected frames authenticate
+before logical decoding; final egress checks include relay-header growth.
+Credentials, persistence and device provisioning stay with the caller.
 
-Link MTU alone is insufficient: `Node::send` checks the configured payload cap,
-but `Link::data_packet` and `Packet::encode` do not enforce the negotiated size.
-Announce app-data limits also need to account for the carrier budget. A relayed
-Type1 announce becomes Type2 and gains sixteen address bytes, so valid ingress
-does not guarantee valid egress. Preserve an observable final frame-size refusal
-in both shells. ResourceSender already sizes its parts and advertisement from
-the negotiated link MTU and should keep owning that calculation.
+Done for this software slice: exact boundary and refusal tests pass, both
+firmware seams consume the adapter, Node link negotiation and local data honor
+the configured budget, stock-RNS captures retain their real producer/version,
+and target compilation is recorded. Physical acceptance and provisioned board
+settings require their own identified-image receipt.
 
-Software acceptance must exercise both shells, exact physical frame limits,
-matching credentials, wrong credentials, tampering and plain-frame refusal on a
-protected carrier. Physical acceptance requires identified firmware and peers
-with matching settings plus negative cases. Neither is closed by the host IFAC
-receipt or by this phase's software-only orchestration.
+Both production seams now use `radio-hand/src/retinue_carrier.rs`:
+`channel/node.rs` authenticates `Event::RadioFrame` and seals `transmit`, while
+`instances.rs` does the same around retained Retinue receive/actions. The adapter
+uses the existing IFAC codec; the logical replay diagnostic stays logical.
+Protected construction rejects pending or active sessions even when the Node's
+MTU already matches. Neither shell exposes a credential setter. A caller's
+stricter Node budget is preserved.
+
+Node defaults to 255 logical bytes, supports validated budgets down to the
+167-byte plain announce minimum, and negotiates that budget in both link roles.
+An eight-byte IFAC reserves eight physical bytes, leaving 247 logical bytes.
+Direct sends account for CBC padding before allocation; fallible announces
+include optional ratchet bytes. The unconstrained announce builder remains a
+fixture tool. Relays check their final shape, including Type2's sixteen extra
+address bytes, and refused link requests do not create phantom bridges.
+ResourceSender retains ownership of its negotiated-MTU sizing.
+
+The carrier independently checks final frames against Selvage's 255-byte limit.
+Runtime records typed drops and rejection counts; NodeChannel uses its existing
+undecoded/unsent counters. Host tests exercise the shared adapter and actual
+Runtime. NodeChannel's hardware-facing integration is target-compiled; it has
+not gained an emulated or physical driver receipt. Stock RNS 1.5.4 supplied
+deterministic Type1 captures at the boundary; Type2 growth is tested locally.
+
+Credential persistence, device provisioning and physical acceptance remain open.
+They require identified firmware and matching peers plus negative cases.
+Target compilation and local TCP capture do not close those gates.
 
 ### Existing owner seams
 
@@ -140,7 +163,7 @@ receipt or by this phase's software-only orchestration.
 | Host versus firmware runtime | `node.rs` explicitly owns caller-driven bounded firmware state; `endpoint.rs` owns asynchronous host tasks/interfaces. Different lifecycle and allocation requirements justify separate runtimes. |
 | Routing policy | Route learning, announce relay and link bridges are implemented in both runtimes. Node rejects ingress outside a bridge pair; Endpoint initially treated every non-`from` interface as the reverse direction. This is a concrete parity defect. |
 | Announce egress | Node's `relay_announce` emits on its ingress radio; Endpoint fans out to other permitted interfaces. The difference needs a topology-specific test, not an unsupported assertion that one is universally wrong. |
-| IFAC | Host Endpoint and `iface/tulle.rs` apply the carrier envelope. Both `radio-hand/src/channel/node.rs` and `radio-hand/src/instances.rs` decode received RF directly as a Packet; firmware IFAC and its MTU reservation remain outside the measured host claim. |
+| IFAC | Host Endpoint and `iface/tulle.rs` retain their carrier envelope. Both radio-hand firmware shells now share an adapter around the same codec with Node MTU reservation. Board provisioning and physical acceptance remain separate. |
 | Read buffering | `channel::Buffer::fill` initially appended whole decoded frames after only testing whether the read buffer was below its limit. A large frame can cross that limit. |
 | Radio execution | Selvage owns portable PHY/wire/controller facts; Tulle re-exports them and supplies host async radio interfaces; radio-hand owns physical execution. Sibling protocols retain their own protocol state. |
 
@@ -176,3 +199,14 @@ until the paired behavioral tests identify a useful common policy seam.
   The firmware audit identified both carrier shells, fixed Node MTU and relay
   header growth as IFAC prerequisites. Physical gates and total decoder peak
   allocation remain open.
+- September 27: three Sol lanes implemented the shared firmware IFAC adapter,
+  startup configuration in both shells and Node logical budgets. Review added
+  active-session startup refusal and prevented phantom bridges on oversized
+  transit. Passed 354 default Retinue tests, 259 radio-hand tests, 255
+  allocation-only Retinue tests, replay-only fixture tests, core-only check,
+  strict Clippy and both T114/V4 resident target checks. The allocation-only
+  integration run exposed an older optional-compression assertion, now gated;
+  its failed attempt is retained. Actual RNS 1.5.4 Type1 captures reproduce
+  byte-identically; local Type2 growth is separately labelled. See the
+  [firmware receipt](../testing/receipts/firmware-ifac/README.md). Board provisioning,
+  physical IFAC and identified-image acceptance remain open.

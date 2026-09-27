@@ -63,9 +63,17 @@ const MAX_LINE: usize = 2 * selvage::MAX_RADIO_FRAME_LEN + 40;
 /// check every couple of minutes — cheap enough for a board whose radio is truly dead.
 const ANNOUNCE_RETRY_MAX_BEATS: u8 = 32;
 
+/// Startup configuration refused before any channel state is retained.
+#[derive(Debug)]
+pub enum NodeChannelConfigError {
+    Mtu(retinue::node::LogicalMtuError),
+    Timebase(retinue::announce::TimebaseError),
+}
+
 /// The board as a Retinue node.
 pub struct NodeChannel<const PEERS: usize = 32, const ACTIONS: usize = 8, const LINKS: usize = 4> {
     pub(super) node: Node<PEERS, ACTIONS, LINKS>,
+    carrier: crate::retinue_carrier::RetinueCarrier,
     /// Host bytes accumulated since the last newline. Host reads arrive in 64-byte chunks
     /// and a replay line is several hundred bytes, so a line spans many of them.
     line: heapless::Vec<u8, MAX_LINE>,
@@ -114,8 +122,29 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
         node: Node<PEERS, ACTIONS, LINKS>,
         lease: crate::announce_reservation::ActiveLease,
     ) -> Result<Self, retinue::announce::TimebaseError> {
+        Self::build(node, lease, Default::default())
+    }
+
+    /// Credentials and carrier MTU are fixed before this channel starts serving.
+    pub fn new_with_carrier(
+        mut node: Node<PEERS, ACTIONS, LINKS>,
+        lease: crate::announce_reservation::ActiveLease,
+        carrier: crate::retinue_carrier::RetinueCarrier,
+    ) -> Result<Self, NodeChannelConfigError> {
+        carrier
+            .configure_node(&mut node)
+            .map_err(NodeChannelConfigError::Mtu)?;
+        Self::build(node, lease, carrier).map_err(NodeChannelConfigError::Timebase)
+    }
+
+    fn build(
+        node: Node<PEERS, ACTIONS, LINKS>,
+        lease: crate::announce_reservation::ActiveLease,
+        carrier: crate::retinue_carrier::RetinueCarrier,
+    ) -> Result<Self, retinue::announce::TimebaseError> {
         Ok(Self {
             node,
+            carrier,
             line: heapless::Vec::new(),
             line_lost: false,
             replay: None,
@@ -256,7 +285,10 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
         RK: RadioKind,
         DLY: DelayNs,
     {
-        let bytes = packet.encode();
+        let Ok(bytes) = self.carrier.encode(&packet) else {
+            self.unsent = self.unsent.saturating_add(1);
+            return;
+        };
         if bytes.len() > selvage::MAX_RADIO_FRAME_LEN
             || exec.transmit(&bytes).await != selvage::TX_ACCEPTED
         {
@@ -519,7 +551,7 @@ where
     ) -> Flow {
         match event {
             Event::RadioFrame { frame, rssi, snr } => {
-                let Ok(packet) = Packet::decode(frame) else {
+                let Ok(packet) = self.carrier.decode(frame) else {
                     self.undecoded = self.undecoded.saturating_add(1);
                     return Flow::Continue;
                 };

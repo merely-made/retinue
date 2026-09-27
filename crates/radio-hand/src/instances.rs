@@ -27,11 +27,13 @@ pub struct Config {
 #[derive(Debug)]
 pub enum Error {
     Configuration,
+    CarrierConfiguration(retinue::node::LogicalMtuError),
     ClockRegression,
     Inactive,
     WrongInstance,
     FrameTooLong,
     Malformed,
+    Carrier(retinue::Error),
     TimeOverflow,
     RecoveryRequired,
     Controller(ControllerError),
@@ -83,6 +85,9 @@ pub enum Event {
         reason: WorkError,
     },
     ActionsOverflowed(u16),
+    RetinueCarrierDropped {
+        reason: retinue::Error,
+    },
 }
 #[derive(Debug, Default)]
 pub struct Report {
@@ -132,6 +137,9 @@ pub struct Runtime {
     controller: Controller,
     last_now: u64,
     retinue: retinue::instance::Instance,
+    carrier: crate::retinue_carrier::RetinueCarrier,
+    carrier_rejected_rx: u64,
+    carrier_rejected_tx: u64,
     sennet: sennet::instance::SennetInstance,
     tucket: tucket::instance::Instance,
     work: WorkQueue<8>,
@@ -146,6 +154,20 @@ impl Runtime {
         sennet: sennet::instance::SennetInstance,
         tucket: tucket::instance::Instance,
     ) -> Result<Self, Error> {
+        Self::new_with_carrier(now, config, node, sennet, tucket, Default::default())
+    }
+    /// Configure the carrier before retaining instances or queueing frames.
+    pub fn new_with_carrier(
+        now: u64,
+        config: Config,
+        mut node: RetinueNode,
+        sennet: sennet::instance::SennetInstance,
+        tucket: tucket::instance::Instance,
+        carrier: crate::retinue_carrier::RetinueCarrier,
+    ) -> Result<Self, Error> {
+        carrier
+            .configure_node(&mut node)
+            .map_err(Error::CarrierConfiguration)?;
         let ids = [RETINUE, SENNET, TUCKET];
         if !ids.contains(&config.controller.home)
             || config.tx_budget_ms == 0
@@ -160,6 +182,9 @@ impl Runtime {
             Controller::new(config.controller, now).map_err(|_| Error::Configuration)?;
         let mut result = Self {
             config,
+            carrier,
+            carrier_rejected_rx: 0,
+            carrier_rejected_tx: 0,
             controller,
             last_now: now,
             retinue: retinue::instance::Instance::new(node, now),
@@ -175,6 +200,10 @@ impl Runtime {
         }
         result.work.activate(now, config.controller.home)?;
         Ok(result)
+    }
+    /// Rejected physical Retinue ingress and final egress, including authentication failures.
+    pub fn carrier_rejections(&self) -> (u64, u64) {
+        (self.carrier_rejected_rx, self.carrier_rejected_tx)
     }
     pub fn state(&self) -> ControllerState {
         self.controller.state()
@@ -292,7 +321,13 @@ impl Runtime {
         let deadline = self.ttl(now)?;
         for a in actions {
             match a {
-                Action::Send { packet, .. } => self.queue(now, None, deadline, &packet.encode()),
+                Action::Send { packet, .. } => match self.carrier.encode(&packet) {
+                    Ok(frame) => self.queue(now, None, deadline, &frame),
+                    Err(reason) => {
+                        self.carrier_rejected_tx = self.carrier_rejected_tx.saturating_add(1);
+                        self.event(Event::RetinueCarrierDropped { reason });
+                    }
+                },
                 e => self.event(Event::Retinue(e)),
             }
         }
@@ -618,13 +653,22 @@ impl Runtime {
     }
     pub fn ingest(&mut self, now: u64, frame: &[u8]) -> Result<Report, Error> {
         self.time(now)?;
-        if frame.len() > 255 {
+        if frame.len() > selvage::MAX_RADIO_FRAME_LEN {
+            if self
+                .active()
+                .is_some_and(|active| active.instance == RETINUE)
+            {
+                self.carrier_rejected_rx = self.carrier_rejected_rx.saturating_add(1);
+            }
             return Err(Error::FrameTooLong);
         }
         self.expiry(now)?;
         match self.active().ok_or(Error::Inactive)?.instance {
             RETINUE => {
-                let p = retinue::Packet::decode(frame).map_err(|_| Error::Malformed)?;
+                let p = self.carrier.decode(frame).map_err(|reason| {
+                    self.carrier_rejected_rx = self.carrier_rejected_rx.saturating_add(1);
+                    Error::Carrier(reason)
+                })?;
                 let a = self.retinue.ingest(now, &p)?;
                 self.retinue_actions(now, a)?;
             }
