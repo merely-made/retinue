@@ -1,0 +1,52 @@
+{
+  "date": "2026-09-29",
+  "meshcore": {
+    "companion": "1.17.1",
+    "repeater": "1.17.1",
+    "revision": "d92964352441e53b93e8667b802e04f6e072b39e",
+    "comparison_inputs": [
+      {
+        "path": "src/Packet.cpp",
+        "url": "https://raw.githubusercontent.com/meshcore-dev/MeshCore/d92964352441e53b93e8667b802e04f6e072b39e/src/Packet.cpp",
+        "sha256": "6f401a4abe57b67aae6ce54172a8cd5cfa64f801c2186894d4bf28aaf30b52e0",
+        "input_kind": "MIT source/document comparison; not an executed stock peer"
+      },
+      {
+        "path": "src/Mesh.cpp",
+        "url": "https://raw.githubusercontent.com/meshcore-dev/MeshCore/d92964352441e53b93e8667b802e04f6e072b39e/src/Mesh.cpp",
+        "sha256": "63cffc2438c1537dbe73c993c2331ae91b3adb14a6cad78222a939d5c73f757f",
+        "input_kind": "MIT source/document comparison; not an executed stock peer"
+      },
+      {
+        "path": "docs/packet_format.md",
+        "url": "https://raw.githubusercontent.com/meshcore-dev/MeshCore/d92964352441e53b93e8667b802e04f6e072b39e/docs/packet_format.md",
+        "sha256": "b1937c3581833a678671c2001976489d3bee5500fd0a367ef34f7f0a18bb2bb5",
+        "input_kind": "MIT source/document comparison; not an executed stock peer"
+      },
+      {
+        "path": "docs/companion_protocol.md",
+        "url": "https://raw.githubusercontent.com/meshcore-dev/MeshCore/d92964352441e53b93e8667b802e04f6e072b39e/docs/companion_protocol.md",
+        "sha256": "dcbcc465d6f65e3474014e2e29dcffd114ddc84721dbf327e7f61ff2dee94269",
+        "input_kind": "MIT source/document comparison; not an executed stock peer"
+      }
+    ],
+    "stock_peer_qualification": "pending"
+  },
+  "sennet": {
+    "stable_target": "2.7.26.54e0d8d",
+    "alpha_comparison": "2.8.0.47db0e3",
+    "method": "independently authored public-prose and black-box observation; firmware source and schemas excluded",
+    "public_prose": [
+      "https://meshtastic.org/docs/overview/mesh-algo/",
+      "https://meshtastic.org/docs/overview/encryption/"
+    ],
+    "stock_peer_qualification": "pending; historical producer versions remain unknown"
+  },
+  "trace_hash_vector": {
+    "input_hex": "094101020304",
+    "sha256_prefix_hex": "3d182acf45bf589c",
+    "broken_prior_input_hex": "09410001020304",
+    "broken_prior_prefix_hex": "cc39712dcf0426c9",
+    "input_kind": "project-selected input; external .NET and Python SHA256 calculations, not a stock capture"
+  }
+}

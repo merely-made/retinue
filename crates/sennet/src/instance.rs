@@ -8,7 +8,7 @@
 use alloc::vec::Vec;
 
 use crate::{
-    flood::{FloodConfigError, FloodDecision, FloodIgnore, ManagedFlood, ManagedFloodConfig},
+    flood::{FloodConfigError, FloodIgnore, ManagedFlood, ManagedFloodConfig},
     node::{Channel, NodeError, ReceivedText},
     node_info::{DirectoryConfigError, NodeDirectory, NodeDirectoryConfig, NodeInfoError},
     packet_id::{PacketIdError, PacketIdState, PacketIdentity},
@@ -152,6 +152,7 @@ impl LossPermission {
 #[derive(Debug, PartialEq, Eq)]
 pub enum ReceiveOutcome {
     IgnoredChannel,
+    IgnoredDestination,
     Duplicate { identity: PacketIdentity },
     Text(ReceivedText),
     NotText,
@@ -568,29 +569,31 @@ impl SennetInstance {
     pub fn receive(&mut self, now: u64, frame: &[u8]) -> Result<ReceiveOutcome, InstanceError> {
         self.require_active()?;
         self.record_now(now)?;
-        match self
-            .flood
-            .consider(frame)
-            .map_err(InstanceError::Transport)?
-        {
-            FloodDecision::Ignore(FloodIgnore::Channel) => Ok(ReceiveOutcome::IgnoredChannel),
-            FloodDecision::Ignore(FloodIgnore::Duplicate) => {
-                let packet =
-                    crate::transport::Packet::decode(frame).map_err(InstanceError::Transport)?;
-                Ok(ReceiveOutcome::Duplicate {
-                    identity: PacketIdentity {
-                        source: packet.header.source,
-                        packet_id: packet.header.packet_id,
-                    },
-                })
-            }
-            FloodDecision::Ignore(FloodIgnore::HopLimit) | FloodDecision::Relay { .. } => {
-                match self.channel.open_text(frame).map_err(InstanceError::Node)? {
-                    Some(text) => Ok(ReceiveOutcome::Text(text)),
-                    None => Ok(ReceiveOutcome::NotText),
-                }
-            }
+        let packet = crate::transport::Packet::decode(frame).map_err(InstanceError::Transport)?;
+        if packet.header.channel_hash != self.channel.hash {
+            return Ok(ReceiveOutcome::IgnoredChannel);
         }
+        if packet.header.destination != crate::transport::BROADCAST_DESTINATION
+            && packet.header.destination != self.packet_ids.source()
+        {
+            return Ok(ReceiveOutcome::IgnoredDestination);
+        }
+        // Decode before remembering: malformed application input must not make
+        // a later valid packet with the same public identity disappear. Channel
+        // AES-CTR remains unauthenticated, regardless of successful parsing.
+        let text = self.channel.open_text(frame).map_err(InstanceError::Node)?;
+        if self.flood.observe(packet.header) == Err(FloodIgnore::Duplicate) {
+            return Ok(ReceiveOutcome::Duplicate {
+                identity: PacketIdentity {
+                    source: packet.header.source,
+                    packet_id: packet.header.packet_id,
+                },
+            });
+        }
+        Ok(match text {
+            Some(text) => ReceiveOutcome::Text(text),
+            None => ReceiveOutcome::NotText,
+        })
     }
 
     pub fn ingest_node_info(&mut self, now: u64, bytes: &[u8]) -> Result<bool, InstanceError> {

@@ -13,6 +13,7 @@ extern crate alloc;
 
 pub mod advert;
 pub mod cipher;
+pub mod companion;
 pub mod identity;
 pub mod instance;
 pub mod mesh;

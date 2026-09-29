@@ -256,7 +256,7 @@ impl Packet {
         if self.payload_type() == payload_type::TRACE {
             // TRACE packets can revisit a node on the return path; the
             // evolving path_len keeps their hashes distinct.
-            sha.update([self.path_len, 0]);
+            sha.update([self.path_len]);
         }
         sha.update(&self.payload);
         let full = sha.finalize();

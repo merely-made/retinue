@@ -6,7 +6,7 @@ use alloc::{
 };
 use core::time::Duration;
 
-use crate::transport::{Packet, TransportError};
+use crate::transport::{BROADCAST_DESTINATION, Header, Packet, TransportError};
 
 /// Caller-selected window in which a relay transmission may be scheduled.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -74,15 +74,12 @@ impl ManagedFlood {
     /// Inspect one complete radio frame and return the caller's relay action.
     pub fn consider(&mut self, frame: &[u8]) -> Result<FloodDecision, TransportError> {
         let mut packet = Packet::decode(frame)?;
-        if packet.header.channel_hash != self.config.channel_hash {
-            return Ok(FloodDecision::Ignore(FloodIgnore::Channel));
+        if packet.header.destination != BROADCAST_DESTINATION {
+            return Ok(FloodDecision::Ignore(FloodIgnore::Directed));
         }
-
-        let identity = (packet.header.source, packet.header.packet_id);
-        if self.seen.contains(&identity) {
-            return Ok(FloodDecision::Ignore(FloodIgnore::Duplicate));
+        if let Err(reason) = self.observe(packet.header) {
+            return Ok(FloodDecision::Ignore(reason));
         }
-        self.remember(identity);
 
         let Some(forwarded) = packet.header.forwarded_by(self.config.relay_node) else {
             return Ok(FloodDecision::Ignore(FloodIgnore::HopLimit));
@@ -92,6 +89,21 @@ impl ManagedFlood {
             frame: packet.encode()?,
             delay: self.config.delay,
         })
+    }
+
+    /// Record an admitted packet's header without constructing relay output.
+    /// Text-leaf callers apply their destination and application checks first.
+    /// Header observation is duplicate suppression, not authentication.
+    pub fn observe(&mut self, header: Header) -> Result<(), FloodIgnore> {
+        if header.channel_hash != self.config.channel_hash {
+            return Err(FloodIgnore::Channel);
+        }
+        let identity = (header.source, header.packet_id);
+        if self.seen.contains(&identity) {
+            return Err(FloodIgnore::Duplicate);
+        }
+        self.remember(identity);
+        Ok(())
     }
 
     fn remember(&mut self, identity: (u32, u32)) {
@@ -116,6 +128,8 @@ pub enum FloodDecision {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FloodIgnore {
+    /// Directed traffic requires its own routing policy, not broadcast flooding.
+    Directed,
     Channel,
     Duplicate,
     HopLimit,

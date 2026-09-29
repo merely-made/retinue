@@ -13,7 +13,8 @@
 //! Text messaging works only after the two ends have heard each other's adverts, since the
 //! per-pair cipher key is ECDH over the peer's public key. A first message floods when no route
 //! is known; its authenticated PATH response establishes reciprocal direct routes for later
-//! messages. This is V1 (1-byte path hashes).
+//! messages. V1 payload identity hashes remain one byte; routes support one-,
+//! two- and three-byte public-key prefixes.
 //!
 //! Ported from upstream MeshCore (MIT, <https://github.com/ripplebiz/MeshCore>).
 
@@ -266,6 +267,7 @@ pub struct Node {
     me: Identity,
     seen: SeenTable,
     allow_forward: bool,
+    flood_hash_size: u8,
     /// Learned contacts, keyed by 1-byte node hash. A collision with a different full identity
     /// is refused, so it cannot replace the existing identity or route.
     contacts: Vec<(u8, Contact)>,
@@ -293,6 +295,7 @@ impl Node {
             me,
             seen,
             allow_forward,
+            flood_hash_size: 1,
             contacts: Vec::with_capacity(capacity.contacts),
             capacity,
         })
@@ -306,6 +309,21 @@ impl Node {
     /// Our 1-byte node hash.
     pub fn my_hash(&self) -> u8 {
         self.me.hash()[0]
+    }
+
+    /// Set the public-key prefix width for newly originated flood paths.
+    /// Received paths and learned direct routes retain their own wire width.
+    /// Refuses reserved/invalid widths without changing the current setting.
+    pub fn set_flood_hash_size(&mut self, size: u8) -> bool {
+        if !(1..=3).contains(&size) {
+            return false;
+        }
+        self.flood_hash_size = size;
+        true
+    }
+
+    pub fn flood_hash_size(&self) -> u8 {
+        self.flood_hash_size
     }
 
     /// A learned contact by node hash.
@@ -471,12 +489,20 @@ impl Node {
         let Some(raw) = PacketRef::decode(frame) else {
             return (events, out);
         };
+        // This node implements V1 payloads in an unscoped mesh. Keep future
+        // payload formats and transport scopes opaque at the codec layer;
+        // neither may learn contacts, poison dedup, or cross into this realm.
+        if raw.header >> 6 != 0 || raw.has_transport_codes() {
+            return (events, out);
+        }
         let packet = raw.to_owned();
         // A direct packet is processed only by its current next hop. Other radios hear the
         // same transmission but must not mark it seen before it reaches their turn in the
         // source route.
-        let is_our_direct_hop =
-            packet.path_hop_count() == 0 || packet.path.first().copied() == Some(self.my_hash());
+        let is_our_direct_hop = packet.path_hop_count() == 0
+            || self
+                .me
+                .hash_matches(&packet.path[..packet.path_hop_size() as usize]);
         if !packet.is_flood() && !is_our_direct_hop {
             return (events, out);
         }
@@ -484,10 +510,16 @@ impl Node {
             return (events, out);
         }
 
-        let consumed = self.dispatch(&packet, &mut events, &mut out);
+        // An intermediate hop forwards the route. Payload delivery belongs to
+        // the endpoint reached after every source-route entry is consumed.
+        let consumed = if packet.is_flood() || packet.path_hop_count() == 0 {
+            self.dispatch(&packet, &mut events, &mut out)
+        } else {
+            false
+        };
 
         if let Forward::Retransmit(fwd) =
-            route_recv(&packet, self.my_hash(), self.allow_forward, consumed)
+            route_recv(&packet, &self.me, self.allow_forward, consumed)
         {
             out.push(fwd.encode());
         }
@@ -663,7 +695,7 @@ impl Node {
             packet.path_len = route.path_len;
             packet.path = route.path.clone();
         }
-        Some(self.seal_outgoing(&packet))
+        Some(self.seal_outgoing(&mut packet))
     }
 
     fn route_outgoing(&mut self, to: u8, mut packet: Packet) -> Vec<u8> {
@@ -677,11 +709,15 @@ impl Node {
             packet.path_len = route.path_len;
             packet.path = route.path;
         }
-        self.seal_outgoing(&packet)
+        self.seal_outgoing(&mut packet)
     }
 
     /// Record a packet we are about to transmit as seen, so its echo off the air is suppressed.
-    fn seal_outgoing(&mut self, packet: &Packet) -> Vec<u8> {
+    fn seal_outgoing(&mut self, packet: &mut Packet) -> Vec<u8> {
+        if packet.is_flood() {
+            // Newly originated flood frames have no recorded hops yet.
+            packet.path_len = (self.flood_hash_size - 1) << 6;
+        }
         self.seen.has_seen(packet);
         packet.encode()
     }
@@ -696,7 +732,7 @@ impl Node {
             .ok_or(CapacityError::AdvertDataTooLong)?;
         let mut packet = Packet::new(ROUTE_FLOOD, payload_type::ADVERT);
         packet.payload = payload;
-        Ok(self.seal_outgoing(&packet))
+        Ok(self.seal_outgoing(&mut packet))
     }
 
     /// A flood advert frame carrying our identity and `app_data`, to broadcast.
@@ -722,7 +758,7 @@ impl Node {
     pub fn ack_frame(&mut self, ack: [u8; 4]) -> Vec<u8> {
         let mut packet = Packet::new(ROUTE_FLOOD, payload_type::ACK);
         packet.payload = encode_ack(ack);
-        self.seal_outgoing(&packet)
+        self.seal_outgoing(&mut packet)
     }
 
     /// An ACK to a known contact, sent directly when a route is known and flooded otherwise.

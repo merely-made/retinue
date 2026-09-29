@@ -1,0 +1,62 @@
+{
+  "baseline_commit": "10a171125a87eaad4ea75e5ee369fb7130842e9d",
+  "evidence_kind": "working-tree software gates; no stock-peer or physical acceptance",
+  "cargo_target": "C:\\t\\cargo-targets\\retinue",
+  "cargo_home": "C:\\t\\cargo-homes\\retinue-wire-compat",
+  "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+  "source_sha256": {
+    "crates/sennet/examples/direct_phy_pair.rs": "4c73dc42d872c764f5dda86bcf3e16c5eb39767c281ef7ad3c663b13f6def349",
+    "crates/sennet/examples/direct_phy_receive.rs": "da55ec77fed0acf64aba48b5234559752ff21c16cfb830951a813160d6068ede",
+    "crates/sennet/examples/direct_phy_text.rs": "8dea2bd80082a107951a5d5c651442fd2e2e5b13bac6f24a1a051f71f1b13afe",
+    "crates/sennet/examples/seal_text.rs": "795cac9f255c1d17eff553d3106b1ef5f267d56959c2086e231c3d01d2fd1f9d",
+    "crates/sennet/examples/seal_transport.rs": "a24694934c071d81b73556b1684624321d787ddec6c1fe55a657807cf3056823",
+    "crates/sennet/src/application.rs": "bc3ff3560d290dfebb0a64cb6ca6c006e72cc2b40bf80d3c16047e355248560b",
+    "crates/sennet/src/flood.rs": "b6365904078bb5c7a708c9cdd1492fb5778181b58d94275dd4dadc66ff31399e",
+    "crates/sennet/src/instance.rs": "bcb1771944b7add03947b9846f6076ee148bdd8b72eb3e9b880fd0123414d53a",
+    "crates/sennet/src/lib.rs": "7435b57efb4cdfc92993423b5415e90fcaf5abe8f6596502170385e522a5e844",
+    "crates/sennet/src/node.rs": "f97b3a6e81c67de6e77fe2a3bc1c50ba56a3edb04d340800f45ae064c07f58ed",
+    "crates/sennet/src/node_info.rs": "ec1e1a605a57ba548312321ee6f1df21f1cc8e78008504d6f38978aa9c9a966c",
+    "crates/sennet/src/packet_id.rs": "c2dbc799b2a8f4143474c6e818f3281ba9ef6b4ea1d18b3420f89f4e52808532",
+    "crates/sennet/src/protobuf.rs": "8c1f0b039af2e9659fbd084546115a322534dabc20423f8fce115a05adafc342",
+    "crates/sennet/src/stream.rs": "0d2e944eebe94707a72ba0e292c1d396f5e80d2a8642e4f962093308bc9b2ac5",
+    "crates/sennet/src/transport.rs": "ad8a439018a363084719c46b50183eb2c0e8755e36d5d08f6c77b6b05aac5f60",
+    "crates/sennet/tests/current_boundaries.rs": "e353bde780d168b522634cd473d288522d884003c358aa352758cb6bb4d2ece9",
+    "crates/sennet/tests/direct_phy_capture.rs": "95f3a750077ad414004f322e7e54b5dd554b7bc75879846dfb11f954ab41666e",
+    "crates/sennet/tests/node_info_capture.rs": "dae86395df6dc23563bb0320bb9b4619fdebd61ed6c5f9fb51c4bd726cd3a759",
+    "crates/sennet/tests/structural_capture.rs": "3e73bc2eb636c5fad6cb4af787e573c4cce5a1b01f95e93afe4b9ec16ef3528a",
+    "crates/tucket/examples/meshcore_headed.rs": "5a79044616ae4fb288b69f4eca9cce774d21fd906c5c88afb64a55ff7705f071",
+    "crates/tucket/src/advert.rs": "764318d8a6f982af2ce0c7ed43143b1522352572536bcb84353f9cf45bc069bd",
+    "crates/tucket/src/cipher.rs": "da3ce75ca65ccb81186f3a8128b35603d30216bc38f959cbae1d6d9045e74d9f",
+    "crates/tucket/src/companion.rs": "ff40540a6fe9165615fad12ce65b5eac25848ffeb51b9da99c92e9bdc2eac676",
+    "crates/tucket/src/identity.rs": "4253633f92cad235a8a948a1a058132357c89c79bbec28bd9d36b5705c5a2f4c",
+    "crates/tucket/src/instance.rs": "70f59cc7dc15e3bb6bdb64e81319c6645bbbd07179beb5d99da2136b8f6a4351",
+    "crates/tucket/src/lib.rs": "386fd226aec4c367ffaaf0b3d4a4fc607074aae05a98baaad815d20f2a5643a5",
+    "crates/tucket/src/mesh.rs": "a28e8f25b5ae2423a775a3b5ab29228aea9bb36b8414fea4b33b6584a7173754",
+    "crates/tucket/src/message.rs": "d3ef45506e5a27e7a2648e4088867c04d595c0c36fe552dea33e955af2eef8dc",
+    "crates/tucket/src/node.rs": "d192cebafa441385218365b191e9ba99f865c675e6a6862f855aaca2ee41d4e3",
+    "crates/tucket/src/packet.rs": "5c6757063765525457a5cc819a4551ae3cd7f54c13859320a64b0197a80388b8",
+    "crates/tucket/src/path.rs": "075e1d02ecc774ea343c22ad6d42ff59263eaa4a85972775b2db6ac484803009",
+    "crates/tucket/tests/current_paths.rs": "7d03cba53c56cae6bbea405476203984b400930aa09ff56cf107622eda9bcd51"
+  },
+  "gates": {
+    "capture-cli": {
+      "command": [
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\.venv\\Scripts\\python.exe",
+        "testing/receipts/sennet-tucket-current/capture_cli_checks.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.706,
+      "log_sha256": "37064e2e0936a21d8af196698e8ea8be0aebe63a6894de98a020d761ed40bc0c"
+    },
+    "registry": {
+      "command": [
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\.venv\\Scripts\\python.exe",
+        "validation/run.py",
+        "verify"
+      ],
+      "exit_code": 0,
+      "seconds": 1.619,
+      "log_sha256": "71466fca5ea59811bfd8fb54fda8d8f18d9ed825e057411b593f9968673d9fae"
+    }
+  }
+}

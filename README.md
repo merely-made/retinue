@@ -22,7 +22,7 @@ implementations, at the very least. That's my goal, and I'm sticking to it.
 
 Each crate has its own README with more detail, and here's a generated overview.
 
-## Status (2026-09-27)
+## Status (2026-09-29)
 
 - The shared Rust protocol crates serve both host applications and firmware.
   Retinue's recorded RNS 1.5.4 qualification covers links, requests, streams,
@@ -30,6 +30,11 @@ Each crate has its own README with more detail, and here's a generated overview.
   LXMF 1.1.1 gates also passed. The [repin receipt](testing/receipts/rns-1.5.4-repin/README.md)
   records measured scope; the [wire plan](design_docs/2026-09-27_wire_compatibility_plan.md)
   records boundary repairs and remaining gates. These are not full upstream parity.
+- Sennet/Tucket's [September 29 software receipt](testing/receipts/sennet-tucket-current/README.md)
+  covers complete multi-byte MeshCore hops, TRACE hashes, Sennet destination and
+  envelope boundaries, and explicit peer identification. Current stock-radio
+  qualification remains open: MeshCore 1.17.1 and separately identified
+  Meshtastic beta/alpha peers still need fresh exchanges.
 - T114 bounded transport has an on-air receipt from August 13. September's V4
   resident-protocol receipt covers retained state and ordinary protocol traffic;
   full fault, memory and unattended-operation acceptance remain open.

@@ -1,0 +1,82 @@
+{
+  "capture-validation/capture-cli.log": {
+    "bytes": 593,
+    "sha256": "37064e2e0936a21d8af196698e8ea8be0aebe63a6894de98a020d761ed40bc0c"
+  },
+  "capture-validation/registry.log": {
+    "bytes": 119,
+    "sha256": "71466fca5ea59811bfd8fb54fda8d8f18d9ed825e057411b593f9968673d9fae"
+  },
+  "capture-validation/result.json": {
+    "bytes": 4569,
+    "sha256": "e29cbd9ac77c42799f45a1ebab475dd77025ce60139abfda08988c7e48ff1c34"
+  },
+  "capture_cli_checks.py": {
+    "bytes": 2720,
+    "sha256": "ef27355e8234443406a01119a6915b345e8986edb069d13bef87d31bb119343f"
+  },
+  "cleanup.log": {
+    "bytes": 442,
+    "sha256": "03e788831190e1b870500254f51e356fada8ff6a6d792f77b3217eb95235a9bc"
+  },
+  "dependency-repair/clippy.log": {
+    "bytes": 380,
+    "sha256": "fee6019d3c2c22a23f128e25e58afb9c261623b54189e8a334d794d0ecf3a28c"
+  },
+  "dependency-repair/hardware-check.log": {
+    "bytes": 1493,
+    "sha256": "d7dd203ff42529243dd11227ea561e5c99da6908709ebabd43334ca112a8b64c"
+  },
+  "dependency-repair/radio-hand-tests.log": {
+    "bytes": 23651,
+    "sha256": "e568151620e3932e66e30b886b6ca737c67b5f4b70c1cff795aab98bfc07ec9e"
+  },
+  "dependency-repair/result.json": {
+    "bytes": 5131,
+    "sha256": "84d500e3ea251dbaaa495fa1e125bf26595a0cbbb782026b099b2e19be781b10"
+  },
+  "gates/clippy.log": {
+    "bytes": 122,
+    "sha256": "f36e514431c49dcb838d8e3e00196225feb79acfbe9e783c2f23eafc94e01620"
+  },
+  "gates/embedded-check.log": {
+    "bytes": 974,
+    "sha256": "afc076e32f6c46b70ca7dd1fcb2aacfbcdb92b3067abe66844b38078430fcef3"
+  },
+  "gates/format.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "gates/hardware-check.log": {
+    "bytes": 122,
+    "sha256": "f36e514431c49dcb838d8e3e00196225feb79acfbe9e783c2f23eafc94e01620"
+  },
+  "gates/protocol-tests.log": {
+    "bytes": 11984,
+    "sha256": "ebe88ab865448a4f6e37d98f3ef26704a10045e7d032125ef89f88917a764dc0"
+  },
+  "gates/radio-hand-tests.log": {
+    "bytes": 117,
+    "sha256": "35319fe59ceb499c3b18be193c3f4d86ad63938d1c3be1ac332296164255e47a"
+  },
+  "gates/registry.log": {
+    "bytes": 119,
+    "sha256": "1b50b7f83d9b5525660b21b4bea31f03fa57a61e4513fb9ed1f75cf2e06f7535"
+  },
+  "gates/result.json": {
+    "bytes": 6658,
+    "sha256": "78dfbc913f86707a5daef39af110f785c9332cfac7fbfb94001a0b7a0af9de60"
+  },
+  "README.md": {
+    "bytes": 6508,
+    "sha256": "dcc3d779847d5502a4ab6fe24f9829c3d367b2ac843ecbdb78d3011a406a1b9b"
+  },
+  "reference.json": {
+    "bytes": 2485,
+    "sha256": "1957e324ad1c24842e3ec17e0c27989b960548ed2595afd898f5b2cb400067a1"
+  },
+  "run.py": {
+    "bytes": 3959,
+    "sha256": "88692747fe880c262c3bb35e1094b57602070d60d782e4aecae05407968136c9"
+  }
+}

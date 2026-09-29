@@ -11,6 +11,26 @@ mesh project.
 
 A sennet is a ceremonial fanfare for a procession.
 
+**Current comparison, September 29:** the stock target is Meshtastic
+`2.7.26.54e0d8d` beta, with `2.8.0.47db0e3` alpha kept as a separate comparison.
+Fresh qualification against either version remains open. The historical stock
+captures below do not identify an exact producer release and are not relabeled.
+The [software receipt](../../testing/receipts/sennet-tucket-current/README.md)
+records current destination, duplicate-state and envelope-boundary repairs.
+
+`ManagedFlood::consider` handles broadcasts only. Directed traffic is returned
+as `FloodIgnore::Directed` before duplicate-state changes. Text-leaf receive
+accepts broadcast or its own full destination ID, validates application bytes
+before remembering them, and does not construct discarded relay output.
+Directed channel-encrypted text is not PKI/private-message or routing parity.
+
+For a fresh config capture, `capture/capture_config.py` accepts paired
+`--producer-version` and `--producer-evidence` arguments. The identification
+receipt's SHA-256 is stored with the capture, explicitly marked caller-supplied;
+the script does not infer firmware identity from packet bytes. Omitting the
+pair records an unknown producer. Capture time is bounded, and an empty attempt
+is preserved with a failing exit status.
+
 **Status:** the client serial deframer, schema-free protobuf reader, direct
 capture fixtures, LoRa transport header/AES-128/256-CTR layer, application
 envelope, port-1 UTF-8 text path, node-number/name reader, caller-persisted
@@ -41,8 +61,10 @@ The default protocol core is `no_std + alloc`. Its errors implement
 changing embedded dependencies. USB examples require `hardware`.
 
 Sennet refuses inputs before retaining unbounded state. A transport payload is
-at most 237 bytes and an application payload is at most 232 bytes, leaving the
-worst-case envelope overhead. `encode_text`, `ApplicationEnvelope::encode`,
+at most 237 bytes and a text application payload is at most 232 bytes. Generic
+port selectors use their actual varint width: the largest selector leaves 228
+payload bytes. The complete envelope budget is checked before allocation.
+`encode_text`, `ApplicationEnvelope::encode`,
 and stream `encode` return explicit errors when those limits do not fit.
 
 `NodeDirectory::with_config(NodeDirectoryConfig)` bounds retained records and

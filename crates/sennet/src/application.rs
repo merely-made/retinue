@@ -14,7 +14,8 @@ use crate::transport::MAX_PAYLOAD_LEN;
 /// Port observed carrying a UTF-8 text message.
 pub const TEXT_PORT: u32 = 1;
 /// Largest application payload which can fit a Sennet transport packet.
-/// Five bytes reserve the worst-case observed envelope overhead.
+/// Five bytes reserve the text-port envelope overhead. Wider generic port
+/// varints reduce the available payload further in [`ApplicationEnvelope::encode`].
 pub const MAX_APPLICATION_PAYLOAD: usize = MAX_PAYLOAD_LEN - 5;
 
 const PORT_FIELD: u32 = 1;
@@ -77,13 +78,18 @@ impl<'a> ApplicationEnvelope<'a> {
     /// Encode the independently reconstructed field pair. Still-unnamed fields
     /// seen in some captures are deliberately omitted.
     pub fn encode(self) -> Result<Vec<u8>, ApplicationError> {
-        if self.payload.len() > MAX_APPLICATION_PAYLOAD {
+        let port_bytes = (32 - self.port.leading_zeros()).div_ceil(7).max(1) as usize;
+        // At this transport's maximum, the length varint needs two bytes.
+        // Refuse before allocation, including the generic port's actual width.
+        let limit = MAX_PAYLOAD_LEN - 2 - port_bytes - 2;
+        if self.payload.len() > limit {
             return Err(ApplicationError::PayloadTooLong {
                 actual: self.payload.len(),
-                limit: MAX_APPLICATION_PAYLOAD,
+                limit,
             });
         }
-        let mut out = Vec::with_capacity(self.payload.len() + 8);
+        let length_bytes = if self.payload.len() < 128 { 1 } else { 2 };
+        let mut out = Vec::with_capacity(self.payload.len() + 2 + port_bytes + length_bytes);
         write_tag(PORT_FIELD, 0, &mut out);
         write_varint(u64::from(self.port), &mut out);
         write_tag(PAYLOAD_FIELD, 2, &mut out);

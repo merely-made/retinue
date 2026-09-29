@@ -6,6 +6,20 @@ shared [tulle](https://github.com/merely-made/retinue) radio layer.
 
 A tucket is a trumpet flourish announcing a single arrival.
 
+**Current comparison, September 29:** MeshCore companion/repeater 1.17.1 at
+`d92964352441e53b93e8667b802e04f6e072b39e`. Software routing supports one-,
+two- and three-byte public-key prefixes, including complete next-hop matching
+and caller-configurable `Node::set_flood_hash_size`. V1 payload identity hashes
+remain one byte, with collision refusal. `mesh::route_recv` now takes an
+`&Identity` so it has the complete prefix to match/append. Unsupported payload
+versions and transport-scoped packets are refused by the unscoped Node before
+contact/dedup changes. This is refusal, not region-scope support. TRACE packet
+hashing uses the reference's one-byte path metadata.
+
+The [software receipt](../../testing/receipts/sennet-tucket-current/README.md)
+records the comparison separately from the older on-air receipts below. Fresh
+1.17.1 stock-peer, scope, restart and broader role acceptance remain open.
+
 ## Embedded core and capacities
 
 The default library is `#![no_std]` with `alloc`. The `hardware` feature is
@@ -91,13 +105,27 @@ A second headed acceptance passes through an official MeshCore repeater v1.16.0
 on a Heltec T114. Tucket and the stock companion were each given the repeater's
 one-hop source route. Encrypted text and acknowledgements crossed the named
 relay in both directions. The hardware receipt is in
-[`design_docs/2026-07-22_meshcore_relay_headed.md`](design_docs/2026-07-22_meshcore_relay_headed.md).
+[`design_docs/2026-07-22_meshcore_relay_headed.md`](../../design_docs/2026-07-22_meshcore_relay_headed.md).
 
 With the `hardware` feature, `meshcore_headed` configures an official MeshCore
 companion through its serial API while Tucket uses Tulle direct-PHY on the
 other radio. The acceptance requires authenticated adverts and encrypted text
 in both directions, then checks that both implementations select the reciprocal
 direct route and acknowledge it over RF.
+
+Before changing settings, the harness checks the reported firmware release
+against `MESHCORE_EXPECTED_VERSION` (default `1.17.1`). Serial API version is
+recorded separately; it cannot substitute for a firmware version. To identify
+a companion without changing its settings or opening the Tulle radio:
+
+```text
+cargo run -p tucket --features hardware --example meshcore_headed -- --probe COM8
+```
+
+The probe displays model, build, release and API version, excluding the BLE PIN.
+The existing exchange harness changes radio/name/time/contact settings. Save
+and restore those settings for any physical qualification; its software build
+does not establish physical acceptance or a settings-restoration receipt.
 
 An optional fourth argument is a repeater's one-byte hash in hexadecimal:
 

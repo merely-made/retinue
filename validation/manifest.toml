@@ -105,6 +105,12 @@ tier = "pr"
 command = ["cargo", "test", "-p", "sennet", "-p", "tucket", "--no-default-features"]
 
 [[suite]]
+id = "sennet-tucket-current-reference"
+tier = "local"
+command = ["python3", "testing/receipts/sennet-tucket-current/run.py", "--output", "validation/results/sennet-tucket-current"]
+asset_globs = ["testing/receipts/sennet-tucket-current/*.py", "testing/receipts/sennet-tucket-current/*.json", "crates/tucket/tests/*.rs", "crates/sennet/tests/current_boundaries.rs"]
+
+[[suite]]
 id = "t114-firmware"
 tier = "pr"
 command = ["cargo", "build", "-p", "tulle-t114-phy", "--release", "--target", "thumbv7em-none-eabihf"]

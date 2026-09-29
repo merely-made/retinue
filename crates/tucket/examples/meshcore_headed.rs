@@ -13,6 +13,7 @@ use serial2_tokio::SerialPort;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::time::{Instant, timeout, timeout_at};
 use tucket::advert::AdvertData;
+use tucket::companion::DeviceInfo;
 use tucket::identity::LocalIdentity;
 use tucket::node::{DirectRoute, Event, Node};
 use tucket::packet::Packet;
@@ -332,6 +333,22 @@ async fn receive_route(
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
     let tulle_port = args.next().unwrap_or_else(|| "COM6".into());
+    if tulle_port == "--probe" {
+        let port = args
+            .next()
+            .ok_or("usage: meshcore_headed --probe <companion port>")?;
+        let mut companion = Companion::open(&port)?;
+        tokio::time::sleep(Duration::from_millis(1_200)).await;
+        let response = companion
+            .expect(&[CMD_DEVICE_QUERY, 10], RESP_DEVICE_INFO)
+            .await?;
+        let info = DeviceInfo::decode(&response).ok_or("invalid MeshCore device info")?;
+        println!(
+            "{port}: model={}, firmware={}, build={}, companion_api={}",
+            info.model, info.version, info.build, info.protocol_version
+        );
+        return Ok(());
+    }
     let meshcore_port = args.next().unwrap_or_else(|| "COM8".into());
     let frequency_hz = args
         .next()
@@ -345,7 +362,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let device = companion
         .expect(&[CMD_DEVICE_QUERY, 10], RESP_DEVICE_INFO)
         .await?;
-    let firmware_protocol = device.get(1).copied().unwrap_or(0);
+    let info = DeviceInfo::decode(&device).ok_or("invalid MeshCore device info")?;
+    let expected_version =
+        std::env::var("MESHCORE_EXPECTED_VERSION").unwrap_or_else(|_| "1.17.1".into());
+    if !info.matches_release(&expected_version) {
+        return Err(format!(
+            "MeshCore firmware {} does not match expected {}; settings were not changed",
+            info.version, expected_version
+        )
+        .into());
+    }
+    let firmware_protocol = info.protocol_version;
+    println!(
+        "MeshCore peer: model={}, firmware={}, build={}, companion_api={}",
+        info.model, info.version, info.build, info.protocol_version
+    );
     let mut app_start = vec![CMD_APP_START, 0, 0, 0, 0, 0, 0, 0];
     app_start.extend_from_slice(b"tucket-headed");
     let self_info = companion.expect(&app_start, RESP_SELF_INFO).await?;

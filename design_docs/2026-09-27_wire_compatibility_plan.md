@@ -256,3 +256,80 @@ until the paired behavioral tests identify a useful common policy seam.
   extensions and command-suffix risk from extending the fixed resident message.
   Repaired secret-bearing resident Debug output and retained the provisioning
   lifetime/confidentiality decision explicitly above.
+
+## Sennet and Tucket current-reference work (2026-09-29)
+
+**Status:** software slice complete; stock-radio qualification open. The owner requested current Sennet and Tucket
+compatibility while awaiting the next published RNS package. RNS remains 1.5.4.
+This extends the existing compatibility plan; it does not promote either sibling
+to full reference parity.
+
+**Software results:** 149 Sennet/Tucket tests, hardware-feature checks, strict
+Clippy and the installed `thumbv7em-none-eabihf` library target pass. All 235
+downstream radio-hand tests and five simulated capture CLI cases pass.
+See the [current-reference receipt](../testing/receipts/sennet-tucket-current/README.md).
+
+### Phase 4: protocol-core repairs and current reference pins
+
+Tucket targets official MeshCore companion/repeater 1.17.1, revision
+`d929643`. Sennet targets published Meshtastic 2.7.26.54e0d8d beta first;
+2.8.0.47db0e3 alpha is a separate comparison. Preserve Sennet's documented
+independent-source boundary: public prose and black-box captures, excluding
+firmware implementation and schemas. MeshCore's MIT source remains an approved
+comparison input with attribution.
+
+Done when multi-byte MeshCore path hashes are forwarded and matched in their
+entirety, malformed/unsupported frames cannot corrupt state or poison a later
+valid packet, and Sennet broadcast-relay decisions do not masquerade as directed
+routing. Exact envelope budgets must apply before outbound allocation. Run
+focused host tests, strict Clippy, hardware-example compilation, and the installed
+embedded target checks using `C:/t/cargo-targets/retinue`. Record reference pins,
+source-derived versus observed inputs, commands, results and remaining gates.
+
+### Phase 5: stock-radio qualification
+
+Identify each physical peer and its installed firmware before changing settings.
+Preserve settings and identities. For Sennet, record an exact stock release,
+bidirectional encrypted broadcast text, maximum-length/refusal boundaries,
+node-info association, duplicate behavior and restart packet-ID continuity.
+For Tucket, run adverts, flood, learned routes, encrypted text, ACK, retry,
+fallback and multi-repeater/multi-byte routing against identified 1.17.1 peers.
+Scope policy and unsupported roles require their own cases. Store failed attempts
+alongside successes. Historical captures retain their original unknown or older
+pins. Software/self-peer runs do not close these physical gates.
+
+### Findings, September 29
+
+- `tucket::packet` accepts one-, two- and three-byte path hashes, while
+  `mesh::route_recv` appends only one byte and `Node::on_frame` matches only
+  the first byte. The accepted wider-path format therefore exceeds routing
+  support.
+- `Packet::packet_hash` hashes a second zero byte after TRACE's path-length
+  metadata. The pinned MeshCore `Packet.cpp` hashes only its one-byte
+  `path_len` field.
+- Sennet's `ManagedFlood` currently forwards directed packets without applying
+  the published distinction between broadcast flooding and directed routing.
+  The retained text leaf calls that relay engine and discards generated output.
+- A generic Sennet application port can require more bytes than the text-port
+  envelope budget. Check the actual encoded size before allocating.
+
+### Progress, September 29
+
+Repository initially clean at `10a1711`; connected ports are COM6, COM7 and
+COM10, with no protocol/firmware identity inferred from their port numbers.
+Physical testing is pending bench availability. No firmware changed.
+
+Implemented complete MeshCore path-prefix append/match/consume and configurable
+outbound flood width, corrected TRACE hashing, and kept future versions and
+transport scopes out of the unscoped Node before state mutation. Sennet now
+separates broadcast relay from admitted leaf observations, checks the full
+destination ID, and applies the actual port-varint envelope budget. The companion
+harness can identify a peer without radio configuration and refuses an unexpected
+firmware version before changing settings. Sennet captures can retain separate
+producer-identification evidence; unknown producers remain unknown.
+
+The temporary gate home remains at `C:/t/cargo-homes/retinue-wire-compat`, owned
+by this Sennet/Tucket software qualification. Automatic approval review blocked
+the checked cleanup command with reason "blocked by policy"; the subsequent
+live-owner recheck found no matching gate process. The ordinary reusable build
+target is `C:/t/cargo-targets/retinue`. No isolated target or worktree was created.

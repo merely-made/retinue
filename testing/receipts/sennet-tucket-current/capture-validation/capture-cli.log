@@ -1,0 +1,13 @@
+usage: capture_config.py [-h] [--producer-version PRODUCER_VERSION]
+                         [--producer-evidence PRODUCER_EVIDENCE]
+                         [port] [output] [label]
+capture_config.py: error: --producer-version and --producer-evidence must be supplied together
+captured 6 bytes, 1 FromRadio frames
+wrote unused.json
+captured 6 bytes, 1 FromRadio frames
+wrote unused.json
+captured 0 bytes, 0 FromRadio frames
+wrote unused.json
+captured 65536 bytes, 4574 FromRadio frames
+wrote unused.json
+5 simulated CLI cases passed; no serial port opened or capture file written
