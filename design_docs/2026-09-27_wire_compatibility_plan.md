@@ -425,3 +425,16 @@ Both V4 originals are restored, T114 was never reflashed, and 152 protocol tests
 plus strict Clippy, formatting, registry and bench controls pass. The earlier
 embedded checks remain valid because this follow-up changes capture tooling and
 replay tests, not the protocol libraries.
+
+### Firmware refresh, September 30
+
+The owner authorized new firmware builds, state-preserving packages and physical
+qualification. Build the ordinary V4 modem image, the optional V4 resident image,
+and T114's native Retinue image from a clean source pin. Status now identifies the
+build revision supplied through `RETINUE_FIRMWARE_REVISION` and the image type;
+omitting that build input reports `unidentified`, never a guessed revision.
+The first locked/offline builds exposed missing cache dependencies; acquired
+builds linked both board families. These initial untagged builds are preparation,
+not upgraded-device receipts. Preserve existing private backup/state evidence,
+use accepted Linkboy plans and require returned build identity plus RF operation
+before promoting updated packages. IFAC provisioning remains a separate gate.

@@ -242,7 +242,7 @@ fn decimal(mut value: u64, out: &mut [u8; 20]) -> usize {
 /// them, whether or not the host read the reply.
 pub async fn probe<L: HostLink>(
     packet: &[u8],
-    online: &'static [u8],
+    online: &[u8],
     identity_line: &[u8],
     settings: Option<Settings>,
     store: &mut store::SettingsStore,
@@ -427,7 +427,7 @@ pub async fn probe<L: HostLink>(
 /// Faults still reach the screen.
 pub async fn serve_rnode<RK, DLY, L>(
     mut owner: V4RadioOwner<RK, DLY>,
-    online: &'static [u8],
+    online: &[u8],
     identity_line: &[u8],
     mut host: L,
 ) -> !

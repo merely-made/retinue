@@ -252,7 +252,7 @@ where
 pub async fn handle<L, RK, DLY, D>(
     packet: &[u8],
     at_boundary: bool,
-    online: &radio_face::Text<192>,
+    online: &radio_face::Text<320>,
     settings: Option<Settings>,
     diagnostics: &D,
     exec: &mut Executive<'_, RK, DLY>,

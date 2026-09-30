@@ -22,6 +22,7 @@ use core::future::{Future, poll_fn};
 #[cfg(all(feature = "host-uart-low-power", feature = "rf-sleep-proof"))]
 use core::task::Poll;
 
+use core::fmt::Write;
 use embassy_executor::Spawner;
 #[cfg(feature = "host-uart-low-power")]
 use embassy_futures::select::select;
@@ -382,12 +383,21 @@ async fn main(spawner: Spawner) {
         }
     };
 
-    let online = concat!(
-        "tulle/heltec-v4 phy online; version=",
+    let mut online_line = radio_face::Text::<320>::empty();
+    let _ = write!(
+        &mut online_line,
+        "tulle/heltec-v4 phy online; version={}; sx1262 online; sync=2b reg=24b4; longfast=906875000; build={}; image={}\r\n",
         env!("CARGO_PKG_VERSION"),
-        "; sx1262 online; sync=2b reg=24b4; longfast=906875000\r\n",
-    )
-    .as_bytes();
+        option_env!("RETINUE_FIRMWARE_REVISION").unwrap_or("unidentified"),
+        if cfg!(feature = "resident-protocols") {
+            "v4-resident-usb"
+        } else if cfg!(feature = "host-uart-low-power") {
+            "v4-modem-uart"
+        } else {
+            "v4-modem-usb"
+        },
+    );
+    let online = online_line.as_str().as_bytes();
     local_status.radio = radio_face::RadioState::Online;
     local_status.fault = None;
     ui::publish(local_status, radio_face::LedSignal::Idle);

@@ -530,7 +530,7 @@ impl<RK: RadioKind, DLY: DelayNs> V4RadioOwner<RK, DLY> {
     pub async fn probe<L: HostLink>(
         &mut self,
         packet: &[u8],
-        online: &'static [u8],
+        online: &[u8],
         identity_line: &[u8],
         host: &mut L,
     ) -> channels::Outcome {

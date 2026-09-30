@@ -404,11 +404,11 @@ async fn main(spawner: Spawner) {
 
     // The banner names the region, the carrier, the reset reason, and any crash residue —
     // the facts a bench or a user needs before trusting the boot.
-    let mut online_line = radio_face::Text::<192>::empty();
+    let mut online_line = radio_face::Text::<320>::empty();
     let _ = write!(
         &mut online_line,
         "tulle/t114 phy online; version={}; sx1262 online; spi=software; irq=poll; \
-         sync=2b reg=24b4; region={} freq={} reset={} crash={} timebase={}{}\r\n",
+         sync=2b reg=24b4; region={} freq={} reset={} crash={} timebase={}{}; build={}; image=t114-native\r\n",
         env!("CARGO_PKG_VERSION"),
         region.name(),
         boot_frequency,
@@ -428,6 +428,7 @@ async fn main(spawner: Spawner) {
         } else {
             ""
         },
+        option_env!("RETINUE_FIRMWARE_REVISION").unwrap_or("unidentified"),
     );
     publish_online(&mut local_status);
     if timebase_fault {
