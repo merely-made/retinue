@@ -33,10 +33,10 @@ Each crate has its own README with more detail, and here's a generated overview.
 - Sennet/Tucket's [current receipt](testing/receipts/sennet-tucket-current/README.md)
   covers the software repairs and September 30 identified stock-radio exchanges.
   MeshCore 1.17.1 passed endpoint traffic, ACKs, fallback and one-repeater routes
-  at all three path widths. Meshtastic 2.7.26 accepted and rebroadcast Sennet text
-  and suppressed repeated delivery. Its remaining boundary/reverse checks and
-  COM7 restoration await USB reconnection. Alpha, multiple repeaters, scope
-  policy and broader upstream roles remain open.
+  at all three path widths. Meshtastic 2.7.26 passed bidirectional encrypted text,
+  rebroadcast, node association and duplicate suppression. Both temporary stock
+  radios are restored. Maximum-size stock acceptance remains unqualified after
+  USB interruptions; alpha, multiple repeaters, scopes and broader roles are open.
 - T114 bounded transport has an on-air receipt from August 13. September's V4
   resident-protocol receipt covers retained state and ordinary protocol traffic;
   full fault, memory and unattended-operation acceptance remain open.

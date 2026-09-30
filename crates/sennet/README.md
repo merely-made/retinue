@@ -13,9 +13,10 @@ A sennet is a ceremonial fanfare for a procession.
 
 **Current comparison, September 30:** the stock target is Meshtastic
 `2.7.26.54e0d8d` beta, with `2.8.0.47db0e3` alpha kept as a separate comparison.
-The identified beta peer accepted and rebroadcast Sennet text and suppressed two
-repeated deliveries. Its maximum-size/reverse checks and COM7 restoration await
-USB reconnection; alpha remains unqualified. The historical stock captures below
+The identified beta peer passed encrypted text in both directions, rebroadcast,
+node association and duplicate suppression. Both temporary stock radios are
+restored. Maximum-size stock acceptance remains unqualified after USB
+interruptions; alpha remains unqualified. The historical stock captures below
 do not identify an exact producer release and are not relabeled. The
 [current receipt](../../testing/receipts/sennet-tucket-current/README.md) records
 destination, duplicate-state and envelope-boundary repairs and fresh RF evidence.

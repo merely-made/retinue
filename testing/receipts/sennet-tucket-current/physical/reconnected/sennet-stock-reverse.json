@@ -1,0 +1,31 @@
+{
+  "started_utc": "2026-09-30T16:45:45.425707+00:00",
+  "producer_version": "2.7.26.54e0d8d",
+  "text": "Sennet stock to Rust 0930 reconnected",
+  "producer_evidence_sha256": "526d1eeae094242f0d48d0c93e525896ea4fa5935fd5c42cf821ad7e871395e4",
+  "receiver_command": [
+    "C:/t/cargo-targets/retinue/debug/examples/direct_phy_receive.exe",
+    "COM6",
+    "08",
+    "d4f1bb3a20290759f0bcffabcf4e6901",
+    "f66afa64",
+    "Sennet stock to Rust 0930 reconnected"
+  ],
+  "sender_command": [
+    "C:\\Users\\mark_\\Code\\repos\\retinue\\validation\\results\\sennet-tucket-radios\\stock-cli\\Scripts\\meshtastic.exe",
+    "--port",
+    "COM7",
+    "--sendtext",
+    "Sennet stock to Rust 0930 reconnected",
+    "--wait-to-disconnect",
+    "5",
+    "--timeout",
+    "25"
+  ],
+  "sender_exit": 0,
+  "sender_output": "Connected to radio\nSending text message Sennet stock to Rust 0930 reconnected to ^all on channelIndex:0 \nWaiting 5 seconds before disconnecting\nWARNING file:stream_interface.py __reader line:233 Meshtastic serial port disconnected, disconnecting... ClearCommError failed (OSError(22, 'The I/O operation has been aborted because of either a thread exit or an application request.', None, 995))\n",
+  "receiver_exit": 0,
+  "receiver_output": "direct-PHY receiver ready\nreceived \"Sennet stock to Rust 0930 reconnected\" from f66afa64, RSSI -26 dBm, SNR 6.0 dB\npacket_id=19410aa1\nreceived_frame=ffffffff64fa6af6a10a411963080064c0bd80058147833b88b3fecc529a8918e807a6e4bb66884500bec293aa0b4f9dd040bd99efe50165ffd296\n",
+  "passed": true,
+  "received_frame": "ffffffff64fa6af6a10a411963080064c0bd80058147833b88b3fecc529a8918e807a6e4bb66884500bec293aa0b4f9dd040bd99efe50165ffd296"
+}

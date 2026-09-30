@@ -116,7 +116,7 @@ not a protocol exchange receipt. [physical](physical/) retains the observations.
 | --- | --- |
 | MeshCore companion `v1.17.1-d929643`, API 13 | Signed adverts, flood/private text, encrypted ACK, learned reciprocal routes, three failed direct sends then fourth-attempt flood recovery; outbound widths 1, 2 and 3 |
 | MeshCore repeater `v1.17.1-d929643` | Forced reciprocal one-hop text/ACK routes with prefixes `bc`, `bcb6`, `bcb6a6`; both endpoints must cross the stock repeater |
-| Meshtastic `2.7.26.54e0d8d`, CLIENT, HELTEC_V4 | Sennet text accepted once in its client interface and rebroadcast with matching source, packet ID and exact text; two identical repeats suppressed in an eight-second observation window |
+| Meshtastic `2.7.26.54e0d8d`, CLIENT, HELTEC_V4 | Bidirectional encrypted text; Sennet text accepted once in its client interface and rebroadcast with matching source, packet ID and exact text; two identical repeats suppressed in an eight-second observation window; captured stock sender resolves to its node name |
 | Independent Retinue V4/T114 | Encrypted bidirectional text; durable IDs advanced by one across host process restarts |
 | Text boundary | 233 bytes refused before opening a radio; current stock maximum-size acceptance remains pending |
 
@@ -149,7 +149,8 @@ region readback was UNSET. Keeping the CLI connected for five seconds after a
 separate region setter persisted US; the succeeding readback precedes the
 successful RF exchange. COM7 then disappeared from USB, and the maximum-size
 attempt failed before opening the absent port. Reverse/current maximum-size
-checks and original-image restoration await physical reconnection.
+checks and original-image restoration initially awaited physical reconnection.
+The reconnection results below close reverse reception and restoration.
 
 COM6's compressed full-image Linkboy restore timed out in `FlashDeflData` and
 remains recovery-required in that transaction receipt. Separate expert recovery
@@ -157,13 +158,47 @@ wrote the exact original 16 MiB image uncompressed with esptool 5.3.1, verified
 the full write, then independently compared the complete private settings tail
 at `0x3f0000..0x400000`. Its original slot B / sequence 9 returned. T114 was
 never reflashed and retains slot A / sequence 84, US915/modem and LongFast.
-COM7's verified original backup remains ready for the same uncompressed
+COM7's verified original backup subsequently passed the same uncompressed
 restoration. Private images, settings fragments and the stock CLI environment
 are excluded from public receipts.
 
-Remaining gates: COM7 restoration, beta reverse/current maximum-size RF,
+Remaining gates: beta current-stock maximum-size acceptance,
 separately pinned alpha, multiple stock repeaters, region scopes, PKI/directed
 routing and broader reference roles. The ordinary build target remains
 `C:/t/cargo-targets/retinue`; private recovery evidence remains under ignored
 `validation/results/sennet-tucket-radios/backups`. The earlier policy-blocked
 Cargo home is retained as described above. No worktree or isolated target exists.
+
+### Reconnection and restoration
+
+The owner reconnected COM7. [Reconnection evidence](physical/reconnected/manifest.json)
+records fresh matching firmware metadata and persisted US/LongFast. The untouched
+CLI sent `Sennet stock to Rust 0930 reconnected`; Rust received and decrypted the
+exact text from `f66afa64`, packet ID `19410aa1`, RSSI -26 dBm, SNR 6 dB. The new
+RF fixture resolves that sender through the captured node directory to its
+`Sennet Current Stock` / `SC26` name. The sender's CLI also logged a serial
+disconnect; successful reception rests on the matching physical RF receipt.
+
+Both maximum-size retries hit USB errors during stock capture. The second
+preserves Rust's 232-byte transmission, ID `b9300005`, 2115.584 ms airtime.
+No matching client delivery/rebroadcast completed, so current-stock boundary
+acceptance remains unqualified. This is a capture failure, not evidence assigning
+a protocol defect to either implementation. The bench now retains child output
+when serial collection fails; its simulated failure control passes.
+
+COM7's original 16 MiB write passed full-data hash verification. Independent
+readback of `0x3f0000..0x400000` exactly matches the original private tail,
+SHA-256 `637e48d43b78dd653eb20abb10e306ab03a6fc9ed8249178158763d8a8a54ddc`.
+Initial application diagnostics timed out or returned empty after readback.
+An explicit watchdog reset returned Retinue 0.0.1, original slot B / sequence 5,
+US915/modem and 906.875 MHz. All three radios are back on their original images.
+This is expert recovery evidence, separate from a Linkboy success receipt.
+
+[Follow-up gates](physical/reconnected/gates/result.json) pass 152 protocol tests,
+strict hardware Clippy, formatting, registry and seven bench controls. The earlier
+embedded core gates retain their scope because no protocol-library source changed.
+Prior attempts, receipts and hashes remain intact. Automatic approval review
+rejected deletion of the temporary stock CLI environment with only "blocked by
+policy" as its reason. A separate live-owner check found no matching CLI process;
+the environment remains in the ignored bench directory. Private recovery backups
+and original artifact evidence remain there for recovery/reproduction.

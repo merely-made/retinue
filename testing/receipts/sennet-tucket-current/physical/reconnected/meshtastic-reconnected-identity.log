@@ -1,0 +1,35 @@
+usage: python.exe C:\Users\mark_\Code\repos\retinue\validation\results\sennet-tucket-radios\stock-cli\Scripts\meshtastic
+       [-h | --version | --support] [--port [PORT] | --host [HOST[:PORT]] |
+       --ble [BLE]] [--ble-scan] [--dest !xxxxxxxx] [--ch-index INDEX]
+       [--configure CONFIGURE] [--export-config [FILE]]
+       [--export-format {auto,yaml,binary,protobuf}] [--get FIELD]
+       [--set FIELD VALUE] [--begin-edit] [--commit-edit]
+       [--get-canned-message] [--set-canned-message SET_CANNED_MESSAGE]
+       [--get-ringtone] [--set-ringtone RINGTONE] [--ch-vlongslow]
+       [--ch-longslow] [--ch-longmod] [--ch-longfast] [--ch-longturbo]
+       [--ch-medslow] [--ch-medfast] [--ch-shortslow] [--ch-shortfast]
+       [--ch-shortturbo] [--set-owner SET_OWNER]
+       [--set-owner-short SET_OWNER_SHORT] [--set-ham SET_HAM]
+       [--set-is-unmessageable SET_IS_UNMESSAGEABLE] [--ch-set-url URL]
+       [--ch-add-url URL] [--setalt SETALT] [--setlat SETLAT]
+       [--setlon SETLON] [--remove-position] [--pos-fields [POS_FIELDS ...]]
+       [--ch-add CH_ADD] [--ch-del] [--ch-set FIELD VALUE]
+       [--channel-fetch-attempts ATTEMPTS] [--qr] [--qr-all]
+       [--contact-qr !xxxxxxxx] [--contact-verified] [--contact-ignore]
+       [--ch-enable] [--ch-disable] [--info] [--nodes]
+       [--show-fields SHOW_FIELDS] [--sendtext TEXT] [--private]
+       [--traceroute !xxxxxxxx] [--request-telemetry [TYPE]]
+       [--request-position] [--reply] [--reboot | --reboot-ota |
+       --ota-update FIRMWARE_FILE | --enter-dfu | --shutdown |
+       --device-metadata | --factory-reset | --factory-reset-device |
+       --remove-node !xxxxxxxx | --set-favorite-node !xxxxxxxx |
+       --remove-favorite-node !xxxxxxxx | --set-ignored-node !xxxxxxxx |
+       --remove-ignored-node !xxxxxxxx | --reset-nodedb | --add-contact URL |
+       --set-time [TIMESTAMP]] [--seriallog [LOG_DESTINATION]] [--ack]
+       [--timeout SECONDS] [--no-nodes] [--debug] [--debuglib] [--test]
+       [--wait-to-disconnect [SECONDS]] [--noproto] [--listen] [--no-time]
+       [--power-riden POWER_RIDEN | --power-ppk2-meter | --power-ppk2-supply |
+       --power-sim] [--power-voltage POWER_VOLTAGE] [--power-stress]
+       [--power-wait] [--slog [SLOG]] [--gpio-wrb GPIO_WRB GPIO_WRB]
+       [--gpio-rd GPIO_RD] [--gpio-watch GPIO_WATCH]
+python.exe C:\Users\mark_\Code\repos\retinue\validation\results\sennet-tucket-radios\stock-cli\Scripts\meshtastic: error: unrecognized arguments: --get-metadata

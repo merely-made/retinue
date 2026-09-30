@@ -1,0 +1,22 @@
+{
+  "command": [
+    "esptool",
+    "--chip",
+    "esp32s3",
+    "--port",
+    "COM7",
+    "--baud",
+    "921600",
+    "write-flash",
+    "--no-progress",
+    "--no-compress",
+    "0",
+    "C:\\Users\\mark_\\Code\\repos\\retinue\\validation\\results\\sennet-tucket-radios\\backups\\com7-retinue-full-fast.bin"
+  ],
+  "started_utc": "2026-09-30T16:52:18.966371+00:00",
+  "exit_code": 0,
+  "seconds": 165.281,
+  "image_sha256": "dd75f798b334b72904b8a274c2934aac241f992da0ae037d64df52e499d5380f",
+  "bytes": 16777216,
+  "not_a_linkboy_success_receipt": true
+}

@@ -1,0 +1,19 @@
+{
+  "command": [
+    "espflash",
+    "reset",
+    "--port",
+    "COM7",
+    "--chip",
+    "esp32s3",
+    "--before",
+    "usb-reset",
+    "--after",
+    "watchdog-reset",
+    "--non-interactive",
+    "--skip-update-check"
+  ],
+  "exit_code": 0,
+  "evidence_kind": "recorded exec_command tool result; reset log was empty",
+  "prior_diagnostics": "First unattached query raised SerialTimeoutException during region; attached query returned empty. Full flash write and private readback already passed."
+}

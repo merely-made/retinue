@@ -1,0 +1,27 @@
+{
+  "producer_version": "2.7.26.54e0d8d",
+  "started_utc": "2026-09-30T16:47:00.090905+00:00",
+  "producer_evidence_sha256": "526d1eeae094242f0d48d0c93e525896ea4fa5935fd5c42cf821ad7e871395e4",
+  "runner_sha256": "bba4465ecba8cfc4ef8dbc1dcf24906cab792f9267e9dff478cb7452090bb05c",
+  "phy": "COM6",
+  "stock": "COM7",
+  "text": "Sennet maximum 0930 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "source": "f66afb28",
+  "duplicates_requested": 0,
+  "phy_profile": {
+    "frequency_hz": 906875000,
+    "bandwidth_hz": 250000,
+    "spreading_factor": 11,
+    "coding_rate_denominator": 5,
+    "preamble_symbols": 16,
+    "sync_word": "2b"
+  },
+  "public_node_info_frames": [
+    "22800108e4f4abb30f12550a09216636366166613634121453656e6e65742043757272656e742053746f636b1a04534332362206441bf66afa64286e42208c7f622c683b33958f03a8df0e2aa9700bde005c7d159c3324956200cd50781748001a0525043dbd6a2d043dbd6a3213080015068145401d00000000250000000028435001"
+  ],
+  "matching_client_frames": [],
+  "passed": false,
+  "error": "ClearCommError failed (PermissionError(13, 'The device does not recognize the command.', None, 22))",
+  "rust_exit": 1,
+  "rust_output": "transmitted source=f66afb28 packet_id=b9300005 text_bytes=232 in 2115.584 ms\n"
+}

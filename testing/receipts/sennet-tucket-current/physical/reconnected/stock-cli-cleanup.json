@@ -1,0 +1,10 @@
+{
+  "path": "C:\\Users\\mark_\\Code\\repos\\retinue\\validation\\results\\sennet-tucket-radios\\stock-cli",
+  "cleanup_status": "automatic approval review rejected deletion",
+  "note": "No deletion workaround attempted",
+  "retained_owner": "Sennet/Tucket September 30 physical qualification",
+  "kind": "generated stock CLI virtual environment",
+  "removed": false,
+  "reason": "blocked by policy",
+  "live_owners": 0
+}

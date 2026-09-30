@@ -123,6 +123,34 @@ fn identified_2_7_26_peer_accepts_and_rebroadcasts_sennet_text() {
 }
 
 #[test]
+fn identified_2_7_26_stock_text_resolves_to_its_captured_node_identity() {
+    let radio = current_fixture(include_str!(
+        "fixtures/meshtastic_2_7_26_stock_text_2026_09_30.hex"
+    ));
+    let channel = Channel {
+        hash: 8,
+        key: PUBLIC_LONGFAST_KEY,
+    };
+    let received = channel.open_text(&radio).unwrap().unwrap();
+    assert_eq!(received.header.source, 0xf66a_fa64);
+    assert_eq!(received.header.packet_id, 0x1941_0aa1);
+    let mut directory = NodeDirectory::new();
+    directory
+        .ingest_from_radio(&current_fixture(include_str!(
+            "fixtures/meshtastic_2_7_26_nodeinfo_2026_09_30.hex"
+        )))
+        .unwrap();
+    let resolved = received.resolve(&directory);
+    assert_eq!(
+        resolved.from.user.unwrap().long_name,
+        "Sennet Current Stock"
+    );
+    assert_eq!(resolved.from.user.unwrap().short_name, "SC26");
+    assert!(resolved.to.is_broadcast());
+    assert_eq!(resolved.text, "Sennet stock to Rust 0930 reconnected");
+}
+
+#[test]
 fn direct_phy_capture_decrypts_at_the_transport_boundary() {
     let mut packet = Packet::decode(&RADIO_FRAME).unwrap();
     assert_eq!(packet.header.destination, BROADCAST_DESTINATION);

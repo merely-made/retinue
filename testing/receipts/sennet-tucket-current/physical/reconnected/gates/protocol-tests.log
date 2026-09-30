@@ -1,0 +1,208 @@
+   Compiling sennet v0.0.2 (C:\Users\mark_\Code\repos\retinue\crates\sennet)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.91s
+     Running unittests src\lib.rs (C:\t\cargo-targets\retinue\debug\deps\sennet-8e16afd8ad7de1d1.exe)
+
+running 56 tests
+test application::tests::application_envelope_round_trips ... ok
+test application::tests::decodes_the_direct_phy_text_capture ... ok
+test application::tests::encodes_only_the_reconstructed_fields ... ok
+test flood::tests::filters_channels_before_mutating_the_seen_table ... ok
+test flood::tests::zero_hop_is_remembered_but_not_relayed ... ok
+test instance::tests::absence_keeps_directory_and_advances_the_instance_clock ... ok
+test flood::tests::duplicate_identity_is_source_and_packet_id ... ok
+test instance::tests::expiry_boundary_stays_queued_until_advance_accounts_for_it ... ok
+test application::tests::encoding_refuses_before_allocating_an_oversized_message ... ok
+test instance::tests::absence_advances_time_and_requires_explicit_loss ... ok
+test application::tests::text_requires_the_observed_port_and_utf8 ... ok
+test instance::tests::in_flight_loss_is_refused_without_mutation ... ok
+test instance::tests::dispatched_failure_settles_late_but_queued_failure_is_refused ... ok
+test application::tests::malformed_or_ambiguous_envelopes_are_rejected ... ok
+test instance::tests::denied_pause_does_not_mutate_state ... ok
+test flood::tests::bounded_seen_table_evicts_oldest_identity ... ok
+test instance::tests::expiry_time_and_lease_extension_are_checked ... ok
+test instance::tests::invalid_composition_does_not_burn_ids_or_operations ... ok
+test instance::tests::paused_operations_are_refused ... ok
+test instance::tests::queued_completion_is_refused_without_mutation ... ok
+test instance::tests::retained_channel_ids_and_dedup_survive_lifecycle ... ok
+test node::tests::channel_seals_the_live_direct_phy_fixture ... ok
+test node::tests::other_channels_are_ignored_before_decryption ... ok
+test node_info::tests::decodes_the_observed_identity_fields ... ok
+test node_info::tests::directory_refuses_long_names_before_retaining_them ... ok
+test node_info::tests::directory_refuses_new_records_at_configured_capacity ... ok
+test node_info::tests::directory_retains_owned_names ... ok
+test node_info::tests::malformed_and_ambiguous_records_are_rejected ... ok
+test node_info::tests::other_from_radio_variants_are_ignored ... ok
+test packet_id::tests::allocation_exhausts_instead_of_wrapping ... ok
+test packet_id::tests::corrupt_or_unknown_records_are_rejected ... ok
+test packet_id::tests::restored_state_does_not_reuse_reserved_ids ... ok
+test packet_id::tests::state_round_trip_persists_source_and_next_id ... ok
+test protobuf::tests::descends_into_a_nested_message ... ok
+test protobuf::tests::reads_a_length_delimited_field ... ok
+test protobuf::tests::reads_a_varint_field ... ok
+test protobuf::tests::reads_fixed_width_fields ... ok
+test protobuf::tests::rejects_field_zero_and_unsupported_wire_types ... ok
+test protobuf::tests::reports_a_complete_message ... ok
+test protobuf::tests::stops_cleanly_at_truncation ... ok
+test protobuf::tests::structure_summarizes_field_numbers_and_types ... ok
+test protobuf::tests::varint_round_trips ... ok
+test stream::tests::chunks ... ok
+test stream::tests::corrupt_length_resyncs ... ok
+test stream::tests::oversized_encode_is_refused ... ok
+test stream::tests::quota_preserves_coalesced_frames ... ok
+test stream::tests::round_trips ... ok
+test stream::tests::skips_leading_noise_and_preserves_a_split_magic ... ok
+test transport::tests::bounds_are_checked ... ok
+test transport::tests::channel_cipher_matches_independent_published_example ... ok
+test transport::tests::channel_cipher_round_trips_opaque_payload ... ok
+test transport::tests::forwarding_preserves_cipher_identity ... ok
+test transport::tests::header_matches_published_byte_layout ... ok
+test transport::tests::nonce_matches_published_two_little_endian_words ... ok
+test transport::tests::packet_round_trips_without_interpreting_payload ... ok
+test transport::tests::zero_hop_packet_is_not_forwarded ... ok
+
+test result: ok. 56 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\current_boundaries.rs (C:\t\cargo-targets\retinue\debug\deps\current_boundaries-bcf3ab332a43d39c.exe)
+
+running 4 tests
+test every_port_varint_width_respects_the_complete_transport_budget ... ok
+test broadcast_engine_leaves_directed_routing_to_its_owner ... ok
+test leaf_does_not_deliver_or_remember_another_destinations_text ... ok
+test malformed_application_cannot_poison_valid_text_with_the_same_identity ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\direct_phy_capture.rs (C:\t\cargo-targets\retinue\debug\deps\direct_phy_capture-7909925de274b200.exe)
+
+running 7 tests
+test managed_flood_relay_preserves_captured_ciphertext_and_nonce_identity ... ok
+test stock_node_accepted_sennet_sealed_transport_packet ... ok
+test identified_2_7_26_stock_text_resolves_to_its_captured_node_identity ... ok
+test identified_2_7_26_peer_accepts_and_rebroadcasts_sennet_text ... ok
+test stock_node_accepted_the_reconstructed_text_encoder ... ok
+test direct_phy_capture_decrypts_at_the_transport_boundary ... ok
+test node_info_resolves_the_stock_rf_receipt_to_from_to_and_text ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\node_info_capture.rs (C:\t\cargo-targets\retinue\debug\deps\node_info_capture-5d7516dd3365f9fd.exe)
+
+running 2 tests
+test controlled_long_name_change_identifies_user_field_2 ... ok
+test controlled_short_name_change_identifies_user_field_3 ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\structural_capture.rs (C:\t\cargo-targets\retinue\debug\deps\structural_capture-d1e77eee7089de43.exe)
+
+running 5 tests
+test a_captured_text_message_decodes_to_readable_utf8 ... ok
+test over_the_air_packets_share_one_deeply_nested_variant ... ok
+test every_frame_is_a_single_field_oneof ... ok
+test exactly_one_scalar_completion_variant_marks_the_config_end ... ok
+test summarize_variant_numbers_present ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src\lib.rs (C:\t\cargo-targets\retinue\debug\deps\tucket-16a216a05cb46ee3.exe)
+
+running 72 tests
+test advert::tests::current_chat_advert_data_round_trips ... ok
+test advert::tests::advert_data_round_trips_optional_fields ... ok
+test advert::tests::borrowed_chat_name_is_checked_before_copying ... ok
+test cipher::tests::bounded_encrypt_refuses_before_buffering ... ok
+test cipher::tests::a_flipped_ciphertext_byte_fails_the_mac ... ok
+test cipher::tests::empty_plaintext_yields_an_undecryptable_blob ... ok
+test cipher::tests::roundtrip_padded_and_unpadded ... ok
+test cipher::tests::too_short_blob_is_rejected ... ok
+test cipher::tests::wrong_key_is_rejected_by_mac ... ok
+test companion::tests::incomplete_wrong_and_empty_responses_do_not_qualify_a_release ... ok
+test companion::tests::official_build_suffix_matches_release_but_other_versions_do_not ... ok
+test companion::tests::release_is_distinct_from_api_version_and_pin_is_not_retained ... ok
+test identity::tests::bad_sig_len_rejected ... ok
+test advert::tests::oversize_app_data_refused_on_encode ... ok
+test identity::tests::hash_is_pub_key_prefix ... ok
+test cipher::tests::ecdh_secret_actually_encrypts ... ok
+test cipher::tests::ecdh_is_symmetric ... ok
+test advert::tests::timestamp_is_little_endian ... ok
+test mesh::tests::a_consumed_packet_is_not_reflooded ... ok
+test mesh::tests::direct_forwards_only_at_the_next_hop ... ok
+test mesh::tests::a_leaf_never_forwards ... ok
+test mesh::tests::configured_seen_capacity_is_an_exact_ring ... ok
+test mesh::tests::direct_zero_hop_is_neighbour_only ... ok
+test mesh::tests::flood_appends_our_hash_to_the_path ... ok
+test mesh::tests::flood_drops_when_the_path_is_full ... ok
+test advert::tests::truncated_rejected ... ok
+test mesh::tests::seen_table_is_check_and_insert ... ok
+test message::tests::attempt_and_type_survive_the_ctrl_byte ... ok
+test message::tests::bounded_group_encode_refuses_before_ciphertext_allocation ... ok
+test message::tests::bounded_text_encode_refuses_before_ciphertext_allocation ... ok
+test message::tests::group_text_rejects_a_foreign_channel ... ok
+test message::tests::standalone_decoders_refuse_oversize_payloads ... ok
+test message::tests::group_text_round_trips_over_the_psk ... ok
+test mesh::tests::seen_table_evicts_after_capacity ... ok
+test message::tests::wrong_secret_fails_the_mac ... ok
+test advert::tests::tampered_app_data_rejected ... ok
+test advert::tests::tampered_timestamp_rejected ... ok
+test advert::tests::empty_app_data_ok ... ok
+test node::tests::a_hash_collision_refuses_to_replace_contact_or_route ... ok
+test identity::tests::sign_verify_roundtrip ... ok
+test advert::tests::roundtrip ... ok
+test message::tests::text_message_round_trips_over_the_pairwise_secret ... ok
+test message::tests::ack_crc_matches_on_both_sides ... ok
+test node::tests::a_same_identity_refresh_keeps_the_learned_route ... ok
+test instance::tests::final_attempt_waits_for_ack_but_expiry_wins_at_its_exact_boundary ... ok
+test instance::tests::denial_is_pure_and_time_regression_refuses ... ok
+test node::tests::a_leaf_does_not_forward ... ok
+test packet::tests::borrowed_codec_refuses_bad_input_before_allocating_and_writes_exactly ... ok
+test packet::tests::empty_payload_rejected ... ok
+test packet::tests::hash_distinguishes_type_not_route ... ok
+test packet::tests::reserved_hash_size_rejected ... ok
+test node::tests::a_duplicate_flood_is_dropped ... ok
+test packet::tests::roundtrip_direct_no_transport ... ok
+test packet::tests::roundtrip_transport_codes ... ok
+test packet::tests::truncated_transport_codes_rejected ... ok
+test packet::tests::two_byte_path_hashes ... ok
+test path::tests::authenticated_path_round_trips ... ok
+test path::tests::malformed_path_is_rejected ... ok
+test path::tests::standalone_decode_refuses_oversize_payload ... ok
+test instance::tests::delayed_ack_from_prior_attempt_matches ... ok
+test instance::tests::pause_requires_loss_then_resume_expires_without_sending ... ok
+test node::tests::a_repeater_forwards_a_flood_it_is_not_the_target_of ... ok
+test instance::tests::two_nodes_ack_a_retained_send ... ok
+test node::tests::delayed_ack_from_any_attempt_completes_the_send ... ok
+test instance::tests::pending_capacity_invalid_return_and_retry_overflow_refuse_before_mutation ... ok
+test node::tests::operator_can_set_a_validated_route_for_a_known_contact ... ok
+test node::tests::configured_contact_and_pending_bounds_refuse_without_eviction ... ok
+test node::tests::a_message_for_someone_else_is_not_decrypted ... ok
+test node::tests::two_nodes_advert_then_message_and_ack ... ok
+test node::tests::flood_message_establishes_reciprocal_direct_routes ... ok
+test node::tests::direct_retries_clear_the_path_and_flood_the_last_attempt ... ok
+test node::tests::flood_fallback_can_be_disabled ... ok
+
+test result: ok. 72 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+     Running tests\current_paths.rs (C:\t\cargo-targets\retinue\debug\deps\current_paths-f126ca71b4a1e995.exe)
+
+running 6 tests
+test malformed_public_packet_fields_do_not_panic_or_create_a_frame ... ok
+test every_supported_width_appends_and_consumes_a_complete_hop ... ok
+test wider_flood_paths_stop_at_the_last_encodable_hop ... ok
+test trace_hash_matches_an_external_sha256_calculation ... ok
+test unsupported_version_and_scope_do_not_poison_later_plain_advert ... ok
+test two_repeaters_deliver_wider_direct_text_without_intermediate_app_delivery ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+
+   Doc-tests sennet
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests tucket
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

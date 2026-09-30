@@ -1,8 +1,8 @@
 # Wire compatibility and ownership boundaries
 
 **Status, 2026-09-30:** phases 1, 2 and 4 implemented and verified; phase 3 partially implemented;
-phase 5 has bounded physical stock-peer receipts; COM7 restoration and remaining
-Sennet checks await USB reconnection.
+phase 5 has bounded physical stock-peer receipts and restored original radios.
+Sennet maximum-size stock acceptance remains unqualified after USB interruptions.
 RNS 1.5.4 is the live oracle within the [recorded scope](../testing/receipts/rns-1.5.4-repin/README.md).
 Versioned receipts are preserved, with concrete host/core boundary defects repaired.
 The earlier 1.5.2 and signed-artifact-only 1.5.4 receipts remain historical facts.
@@ -402,8 +402,26 @@ exchanges also retained consecutive packet IDs across host-session restarts.
 
 COM7 disappeared from the USB inventory after the successful stock duplicate
 test. The subsequent maximum-size attempt failed before opening that absent
-port. Reverse/current maximum-size checks and restoration are pending physical
-reconnection; the exact original full-flash backup remains private and intact.
+port. Reverse/current maximum-size checks and restoration initially awaited
+physical reconnection; the exact original full-flash backup remained intact.
 COM6 restoration and T114's unchanged image are verified separately. The public
 receipt preserves successes, failed attempts and this interruption without
 claiming full beta, alpha or upstream-role parity.
+
+The owner reconnected COM7 on September 30. Fresh stock metadata still identifies
+`2.7.26.54e0d8d`, and US/LongFast persisted. Stock-to-Sennet encrypted text passed
+with exact source/text matching, and its captured node-info resolves the sender
+to `Sennet Current Stock` / `SC26`. Two 232-byte attempts encountered USB capture
+interruptions; the second retains the exact reserved ID and 2115.584 ms transmit
+output. Neither establishes stock acceptance. The bench now retains child output
+on serial failure, with a simulated interruption regression.
+
+COM7's exact original 16 MiB image was written uncompressed and fully verified.
+Independent readback of the entire private settings tail matches the backup.
+The readback tool left application diagnostics silent; an explicit watchdog
+reset returned original firmware 0.0.1, slot B / sequence 5, US915/modem and
+906.875 MHz. Failed diagnostics remain separate from the final passing probe.
+Both V4 originals are restored, T114 was never reflashed, and 152 protocol tests
+plus strict Clippy, formatting, registry and bench controls pass. The earlier
+embedded checks remain valid because this follow-up changes capture tooling and
+replay tests, not the protocol libraries.

@@ -1,0 +1,236 @@
+Connected to radio
+LocalConfig and LocalModuleConfig do not have attribute firmware.
+Choices are...
+device:
+    device.button_gpio
+    device.buzzer_gpio
+    device.buzzer_mode
+    device.disable_triple_click
+    device.double_tap_as_button_press
+    device.is_managed
+    device.led_heartbeat_disabled
+    device.node_info_broadcast_secs
+    device.rebroadcast_mode
+    device.role
+    device.serial_enabled
+    device.tzdef
+position:
+    position.broadcast_smart_minimum_distance
+    position.broadcast_smart_minimum_interval_secs
+    position.fixed_position
+    position.gps_attempt_time
+    position.gps_en_gpio
+    position.gps_enabled
+    position.gps_mode
+    position.gps_update_interval
+    position.position_broadcast_secs
+    position.position_broadcast_smart_enabled
+    position.position_flags
+    position.rx_gpio
+    position.tx_gpio
+power:
+    power.adc_multiplier_override
+    power.device_battery_ina_address
+    power.is_power_saving
+    power.ls_secs
+    power.min_wake_secs
+    power.on_battery_shutdown_after_secs
+    power.powermon_enables
+    power.sds_secs
+    power.wait_bluetooth_secs
+network:
+    network.address_mode
+    network.enabled_protocols
+    network.eth_enabled
+    network.ipv4_config
+    network.ipv6_enabled
+    network.ntp_server
+    network.rsyslog_server
+    network.wifi_enabled
+    network.wifi_psk
+    network.wifi_ssid
+display:
+    display.auto_screen_carousel_secs
+    display.compass_north_top
+    display.compass_orientation
+    display.displaymode
+    display.enable_message_bubbles
+    display.flip_screen
+    display.gps_format
+    display.heading_bold
+    display.oled
+    display.screen_on_secs
+    display.units
+    display.use_12h_clock
+    display.use_long_node_name
+    display.wake_on_tap_or_motion
+lora:
+    lora.bandwidth
+    lora.channel_num
+    lora.coding_rate
+    lora.config_ok_to_mqtt
+    lora.fem_lna_mode
+    lora.frequency_offset
+    lora.hop_limit
+    lora.ignore_incoming
+    lora.ignore_mqtt
+    lora.modem_preset
+    lora.override_duty_cycle
+    lora.override_frequency
+    lora.pa_fan_disabled
+    lora.region
+    lora.serial_hal_only
+    lora.spread_factor
+    lora.sx126x_rx_boosted_gain
+    lora.tx_enabled
+    lora.tx_power
+    lora.use_preset
+bluetooth:
+    bluetooth.enabled
+    bluetooth.fixed_pin
+    bluetooth.mode
+security:
+    security.admin_channel_enabled
+    security.admin_key
+    security.debug_log_api_enabled
+    security.is_managed
+    security.private_key
+    security.public_key
+    security.serial_enabled
+mqtt:
+    mqtt.address
+    mqtt.enabled
+    mqtt.encryption_enabled
+    mqtt.json_enabled
+    mqtt.map_report_settings
+    mqtt.map_reporting_enabled
+    mqtt.password
+    mqtt.proxy_to_client_enabled
+    mqtt.root
+    mqtt.tls_enabled
+    mqtt.username
+serial:
+    serial.baud
+    serial.echo
+    serial.enabled
+    serial.mode
+    serial.override_console_serial_port
+    serial.rxd
+    serial.timeout
+    serial.txd
+external_notification:
+    external_notification.active
+    external_notification.alert_bell
+    external_notification.alert_bell_buzzer
+    external_notification.alert_bell_vibra
+    external_notification.alert_message
+    external_notification.alert_message_buzzer
+    external_notification.alert_message_vibra
+    external_notification.enabled
+    external_notification.nag_timeout
+    external_notification.output
+    external_notification.output_buzzer
+    external_notification.output_ms
+    external_notification.output_vibra
+    external_notification.use_i2s_as_buzzer
+    external_notification.use_pwm
+store_forward:
+    store_forward.enabled
+    store_forward.heartbeat
+    store_forward.history_return_max
+    store_forward.history_return_window
+    store_forward.is_server
+    store_forward.records
+range_test:
+    range_test.clear_on_reboot
+    range_test.enabled
+    range_test.save
+    range_test.sender
+telemetry:
+    telemetry.air_quality_enabled
+    telemetry.air_quality_interval
+    telemetry.air_quality_screen_enabled
+    telemetry.device_telemetry_enabled
+    telemetry.device_update_interval
+    telemetry.environment_display_fahrenheit
+    telemetry.environment_measurement_enabled
+    telemetry.environment_screen_enabled
+    telemetry.environment_update_interval
+    telemetry.health_measurement_enabled
+    telemetry.health_screen_enabled
+    telemetry.health_update_interval
+    telemetry.power_measurement_enabled
+    telemetry.power_screen_enabled
+    telemetry.power_update_interval
+canned_message:
+    canned_message.allow_input_source
+    canned_message.enabled
+    canned_message.inputbroker_event_ccw
+    canned_message.inputbroker_event_cw
+    canned_message.inputbroker_event_press
+    canned_message.inputbroker_pin_a
+    canned_message.inputbroker_pin_b
+    canned_message.inputbroker_pin_press
+    canned_message.rotary1_enabled
+    canned_message.send_bell
+    canned_message.updown1_enabled
+audio:
+    audio.bitrate
+    audio.codec2_enabled
+    audio.i2s_din
+    audio.i2s_sck
+    audio.i2s_sd
+    audio.i2s_ws
+    audio.ptt_pin
+remote_hardware:
+    remote_hardware.allow_undefined_pin_access
+    remote_hardware.available_pins
+    remote_hardware.enabled
+neighbor_info:
+    neighbor_info.enabled
+    neighbor_info.transmit_over_lora
+    neighbor_info.update_interval
+ambient_lighting:
+    ambient_lighting.blue
+    ambient_lighting.current
+    ambient_lighting.green
+    ambient_lighting.led_state
+    ambient_lighting.red
+detection_sensor:
+    detection_sensor.detection_trigger_type
+    detection_sensor.enabled
+    detection_sensor.minimum_broadcast_secs
+    detection_sensor.monitor_pin
+    detection_sensor.name
+    detection_sensor.send_bell
+    detection_sensor.state_broadcast_secs
+    detection_sensor.use_pullup
+paxcounter:
+    paxcounter.ble_threshold
+    paxcounter.enabled
+    paxcounter.paxcounter_update_interval
+    paxcounter.wifi_threshold
+statusmessage:
+    statusmessage.node_status
+traffic_management:
+    traffic_management.drop_unknown_enabled
+    traffic_management.enabled
+    traffic_management.exhaust_hop_position
+    traffic_management.exhaust_hop_telemetry
+    traffic_management.nodeinfo_direct_response
+    traffic_management.nodeinfo_direct_response_max_hops
+    traffic_management.position_dedup_enabled
+    traffic_management.position_min_interval_secs
+    traffic_management.position_precision_bits
+    traffic_management.rate_limit_enabled
+    traffic_management.rate_limit_max_packets
+    traffic_management.rate_limit_window_secs
+    traffic_management.router_preserve_hops
+    traffic_management.unknown_packet_threshold
+tak:
+    tak.role
+    tak.team
+lora.region: 1
+lora.modem_preset: 0
+lora.channel_num: 0
+Completed getting preferences

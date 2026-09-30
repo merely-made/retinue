@@ -152,9 +152,11 @@ def main():
     except Exception as error:
         report.update(passed=False, error=str(error))
     finally:
-        if process is not None and process.poll() is None:
-            process.kill()
-            process.communicate()
+        if process is not None and "rust_output" not in report:
+            if process.poll() is None:
+                process.kill()
+            stdout, _ = process.communicate()
+            report.update(rust_exit=process.returncode, rust_output=stdout)
         args.output.write_text(json.dumps(report, indent=2)+"\n", encoding="utf-8")
     print(json.dumps({k:v for k,v in report.items()
                       if k in ("passed", "error", "packet_id", "producer_version")}))

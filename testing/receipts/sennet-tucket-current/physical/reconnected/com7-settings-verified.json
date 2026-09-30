@@ -1,0 +1,23 @@
+{
+  "command": [
+    "C:\\Users\\mark_\\.cargo\\bin\\espflash.exe",
+    "read-flash",
+    "--port",
+    "COM7",
+    "--chip",
+    "esp32s3",
+    "--before",
+    "usb-reset",
+    "--baud",
+    "921600",
+    "--non-interactive",
+    "--skip-update-check",
+    "4128768",
+    "65536",
+    "C:\\Users\\mark_\\Code\\repos\\retinue\\validation\\results\\sennet-tucket-radios\\backups\\com7-settings-readback.bin"
+  ],
+  "range": "0x3f0000..0x400000",
+  "bytes": 65536,
+  "sha256": "637e48d43b78dd653eb20abb10e306ab03a6fc9ed8249178158763d8a8a54ddc",
+  "exact_original_private_tail": true
+}

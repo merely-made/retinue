@@ -1,0 +1,2 @@
+{"producer_version": "simulated", "passed": false, "error": "simulated USB interruption"}
+6 captured-byte admission cases and 1 serial-interruption case passed; no serial ports opened

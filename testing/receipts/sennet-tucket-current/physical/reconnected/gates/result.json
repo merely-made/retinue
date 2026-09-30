@@ -1,0 +1,115 @@
+{
+  "baseline_commit": "f435cd2163e546b797a516ced1e80cef0ca635ba",
+  "evidence_kind": "working-tree software gates; no stock-peer or physical acceptance",
+  "cargo_target": "C:\\t\\cargo-targets\\retinue",
+  "cargo_home": "C:\\t\\cargo-homes\\retinue-wire-compat",
+  "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+  "source_sha256": {
+    "crates/sennet/examples/direct_phy_pair.rs": "c91634779d27f5dd77678065779136332028d9f68b3cbe9fd2cdc2625495e28c",
+    "crates/sennet/examples/direct_phy_receive.rs": "88eb8845a0f38ba9069915ade48fef930eb948c859af159dd1b3f5370d1c8cef",
+    "crates/sennet/examples/direct_phy_text.rs": "943837cb8861d31c3cf4ae13f8c407b3412dfeb305345bd87920db070aac7a6c",
+    "crates/sennet/examples/seal_text.rs": "795cac9f255c1d17eff553d3106b1ef5f267d56959c2086e231c3d01d2fd1f9d",
+    "crates/sennet/examples/seal_transport.rs": "a24694934c071d81b73556b1684624321d787ddec6c1fe55a657807cf3056823",
+    "crates/sennet/src/application.rs": "bc3ff3560d290dfebb0a64cb6ca6c006e72cc2b40bf80d3c16047e355248560b",
+    "crates/sennet/src/flood.rs": "b6365904078bb5c7a708c9cdd1492fb5778181b58d94275dd4dadc66ff31399e",
+    "crates/sennet/src/instance.rs": "bcb1771944b7add03947b9846f6076ee148bdd8b72eb3e9b880fd0123414d53a",
+    "crates/sennet/src/lib.rs": "7435b57efb4cdfc92993423b5415e90fcaf5abe8f6596502170385e522a5e844",
+    "crates/sennet/src/node.rs": "f97b3a6e81c67de6e77fe2a3bc1c50ba56a3edb04d340800f45ae064c07f58ed",
+    "crates/sennet/src/node_info.rs": "ec1e1a605a57ba548312321ee6f1df21f1cc8e78008504d6f38978aa9c9a966c",
+    "crates/sennet/src/packet_id.rs": "c2dbc799b2a8f4143474c6e818f3281ba9ef6b4ea1d18b3420f89f4e52808532",
+    "crates/sennet/src/protobuf.rs": "8c1f0b039af2e9659fbd084546115a322534dabc20423f8fce115a05adafc342",
+    "crates/sennet/src/stream.rs": "0d2e944eebe94707a72ba0e292c1d396f5e80d2a8642e4f962093308bc9b2ac5",
+    "crates/sennet/src/transport.rs": "ad8a439018a363084719c46b50183eb2c0e8755e36d5d08f6c77b6b05aac5f60",
+    "crates/sennet/tests/current_boundaries.rs": "e353bde780d168b522634cd473d288522d884003c358aa352758cb6bb4d2ece9",
+    "crates/sennet/tests/direct_phy_capture.rs": "172aa2768631db5efc981bde083023d6ea102710750c4ed60a94b61edfcf1f53",
+    "crates/sennet/tests/node_info_capture.rs": "dae86395df6dc23563bb0320bb9b4619fdebd61ed6c5f9fb51c4bd726cd3a759",
+    "crates/sennet/tests/structural_capture.rs": "3e73bc2eb636c5fad6cb4af787e573c4cce5a1b01f95e93afe4b9ec16ef3528a",
+    "crates/tucket/examples/meshcore_headed.rs": "f8f91afa4d80c0eb9967e079a2d46a57d8e9c4695fb3f5528d4fdd63aac06a26",
+    "crates/tucket/src/advert.rs": "764318d8a6f982af2ce0c7ed43143b1522352572536bcb84353f9cf45bc069bd",
+    "crates/tucket/src/cipher.rs": "da3ce75ca65ccb81186f3a8128b35603d30216bc38f959cbae1d6d9045e74d9f",
+    "crates/tucket/src/companion.rs": "a12252842ab6e4a48820a039fb5da961079c6596afaf999767dc836b3fb53b13",
+    "crates/tucket/src/identity.rs": "4253633f92cad235a8a948a1a058132357c89c79bbec28bd9d36b5705c5a2f4c",
+    "crates/tucket/src/instance.rs": "70f59cc7dc15e3bb6bdb64e81319c6645bbbd07179beb5d99da2136b8f6a4351",
+    "crates/tucket/src/lib.rs": "386fd226aec4c367ffaaf0b3d4a4fc607074aae05a98baaad815d20f2a5643a5",
+    "crates/tucket/src/mesh.rs": "a28e8f25b5ae2423a775a3b5ab29228aea9bb36b8414fea4b33b6584a7173754",
+    "crates/tucket/src/message.rs": "d3ef45506e5a27e7a2648e4088867c04d595c0c36fe552dea33e955af2eef8dc",
+    "crates/tucket/src/node.rs": "d192cebafa441385218365b191e9ba99f865c675e6a6862f855aaca2ee41d4e3",
+    "crates/tucket/src/packet.rs": "5c6757063765525457a5cc819a4551ae3cd7f54c13859320a64b0197a80388b8",
+    "crates/tucket/src/path.rs": "075e1d02ecc774ea343c22ad6d42ff59263eaa4a85972775b2db6ac484803009",
+    "crates/tucket/tests/current_paths.rs": "7d03cba53c56cae6bbea405476203984b400930aa09ff56cf107622eda9bcd51"
+  },
+  "gates": {
+    "protocol-tests": {
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "sennet",
+        "-p",
+        "tucket",
+        "--locked",
+        "--offline",
+        "-j",
+        "2"
+      ],
+      "exit_code": 0,
+      "seconds": 8.703,
+      "log_sha256": "a634c15992ab1dc18df48bf24e1487bfd81cb4da9c74e7c6b5ebec1e81061e2e"
+    },
+    "clippy": {
+      "command": [
+        "cargo",
+        "clippy",
+        "-p",
+        "sennet",
+        "-p",
+        "tucket",
+        "--all-targets",
+        "--features",
+        "sennet/hardware,tucket/hardware",
+        "--locked",
+        "--offline",
+        "-j",
+        "2",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "seconds": 1.672,
+      "log_sha256": "0a1ded413f67cba315fcf26ae1a0acb5df63d2a542c4f765f1f6be8e33e59924"
+    },
+    "format": {
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "seconds": 1.75,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "registry": {
+      "command": [
+        "C:\\Users\\mark_\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\python.exe",
+        "validation/run.py",
+        "verify"
+      ],
+      "exit_code": 0,
+      "seconds": 0.672,
+      "log_sha256": "dc7c017d6551444bc14db53be428f323dd0bfa4c6c8c10345a165b6185c091dc"
+    },
+    "stock-bench-admission": {
+      "command": [
+        "C:\\Users\\mark_\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\python.exe",
+        "-B",
+        "testing/receipts/sennet-tucket-current/stock_bench_checks.py"
+      ],
+      "exit_code": 0,
+      "seconds": 0.468,
+      "log_sha256": "7d1faae21072ab541bd4b03e362e4965a809eb5984df022446ade17688437f79"
+    }
+  }
+}

@@ -1,0 +1,67 @@
+{
+  "baseline_commit": "f435cd2163e546b797a516ced1e80cef0ca635ba",
+  "evidence_kind": "identified physical observations and working-tree replay/tooling gates; not a clean-commit release certificate",
+  "source_sha256": {
+    "crates/sennet/tests/direct_phy_capture.rs": "172aa2768631db5efc981bde083023d6ea102710750c4ed60a94b61edfcf1f53",
+    "testing/sennet_stock_bench.py": "bba4465ecba8cfc4ef8dbc1dcf24906cab792f9267e9dff478cb7452090bb05c",
+    "testing/receipts/sennet-tucket-current/stock_bench_checks.py": "fde6720df2e6de8e2eff102c85ac5947e56f2f18b8089bfb1636f5dbf8eed778",
+    "crates/sennet/tests/fixtures/meshtastic_2_7_26_stock_text_2026_09_30.hex": "1b885730da61ac4ba7fec409ba9ce1d9ef5114b3ab7a9a4cada7c94c74314c59"
+  },
+  "scope": "Meshtastic 2.7.26 reverse RF and public node association; exact COM7 restoration and final three-radio original-state probes",
+  "maximum_size_verdict": "unqualified: both retries interrupted stock USB capture; final retry retained 232-byte RF transmit output but no matching stock receipt",
+  "receipt_timestamp_note": "com7-uncompressed-recovery.json started_utc was recorded after writing completed; elapsed seconds and raw log retain the write evidence",
+  "restoration": {
+    "COM6": "original, slot B sequence 9",
+    "COM7": "original full flash and private tail verified, slot B sequence 5",
+    "COM10": "never reflashed, slot A sequence 84"
+  },
+  "retained_resources": {
+    "private_recovery_and_artifacts": "C:\\Users\\mark_\\Code\\repos\\retinue\\validation\\results\\sennet-tucket-radios",
+    "cargo_home": "C:/t/cargo-homes/retinue-wire-compat; earlier cleanup blocked by policy",
+    "stock_cli_home": "C:\\Users\\mark_\\Code\\repos\\retinue\\validation\\results\\sennet-tucket-radios\\stock-cli; cleanup blocked by policy, no CLI process owner",
+    "cargo_target": "C:/t/cargo-targets/retinue; ordinary reusable repository target",
+    "worktree": null
+  },
+  "uncompleted": [
+    "Sennet current-stock 232-byte acceptance",
+    "separate alpha qualification",
+    "multiple stock repeaters",
+    "broader upstream roles/scopes"
+  ],
+  "files_sha256": {
+    "com7-post-read-reset.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "com7-reset.json": "13c3284abeb66a2fc4458714f262673c25684ab950d8983ae615141d65399a90",
+    "com7-restored-status-attached.json": "2b221e0579361c53d0b832c6f4acf7ff28100170a0cbba3da74d777badafb38e",
+    "com7-restored-status-reset.json": "b4fa21b76f100dadd8db3968cee611d5b6c7ab7d56fea83b7e902aed62dc592f",
+    "com7-settings-readback.log": "b0c61c70920c7524714729a9b109adaff7c79b83e008918b33b01e5f4d31422d",
+    "com7-settings-verified.json": "6bb396943bf467e7b6c8823150e167486d14895eb47ef86e62d8456137a91ab9",
+    "com7-uncompressed-recovery.json": "4a52bec12377690467b8f5013b922e6bdfe6d57bed8bf99a8e8007f200928d76",
+    "com7-uncompressed-recovery.log": "c5d99092c0b12441de86ab352f5c8ad540ab569af1c8e0ceaeb87a2639bdc15a",
+    "final-original-radios.json": "925369625b16c1f41bda126ab0dd38eea224ee6229626b93cce319f20af951af",
+    "gates/clippy.log": "0a1ded413f67cba315fcf26ae1a0acb5df63d2a542c4f765f1f6be8e33e59924",
+    "gates/format.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "gates/protocol-tests.log": "a634c15992ab1dc18df48bf24e1487bfd81cb4da9c74e7c6b5ebec1e81061e2e",
+    "gates/registry.log": "dc7c017d6551444bc14db53be428f323dd0bfa4c6c8c10345a165b6185c091dc",
+    "gates/result.json": "aba3521cbad52d576a84fb62d9d986002a0a2b4a1979cf41a0b8a10b7a5cf933",
+    "gates/stock-bench-admission.log": "7d1faae21072ab541bd4b03e362e4965a809eb5984df022446ade17688437f79",
+    "meshtastic-reconnected-identified.log": "526d1eeae094242f0d48d0c93e525896ea4fa5935fd5c42cf821ad7e871395e4",
+    "meshtastic-reconnected-identity.log": "caaf96afcbe7e6bc571f332d69b69257ccc29c42653b41bed5f06f1802875036",
+    "meshtastic-reconnected.log": "9c9742f046d6b0059a82204466441c4e484179ad72500880162cee403555ce0c",
+    "sennet-stock-maximum-reconnected.json": "58755278a230539b5aba777c994959081604a30127c72b7fc4cefc8d0f02291f",
+    "sennet-stock-maximum-settled.json": "3cacaf0b5072bf61d75807f9b49f2d2312105aa4f9d192a26e03814805ba1df0",
+    "sennet-stock-reverse.json": "fe94b18f37db4c6ab249129ef73a6480a3e6a1b327134ed854571e41501bf000",
+    "stock-cli-cleanup.json": "be89e668bb0fc6f92bc3f0d23918d9e8dba7430048b2306c47bc83115442a5ea"
+  },
+  "staged_source_sha256": {
+    "crates/sennet/tests/direct_phy_capture.rs": "172aa2768631db5efc981bde083023d6ea102710750c4ed60a94b61edfcf1f53",
+    "testing/sennet_stock_bench.py": "bba4465ecba8cfc4ef8dbc1dcf24906cab792f9267e9dff478cb7452090bb05c",
+    "testing/receipts/sennet-tucket-current/stock_bench_checks.py": "fde6720df2e6de8e2eff102c85ac5947e56f2f18b8089bfb1636f5dbf8eed778",
+    "crates/sennet/tests/fixtures/meshtastic_2_7_26_stock_text_2026_09_30.hex": "b5c41b47ea3095f289f041b18e32acb4382eb99b86c3f816f7b2e92676cfdce1"
+  },
+  "source_checkout_normalization": {
+    "description": "Raw working-tree source hashes and staged source hashes distinguish CRLF normalization without content changes",
+    "paths": [
+      "crates/sennet/tests/fixtures/meshtastic_2_7_26_stock_text_2026_09_30.hex"
+    ]
+  }
+}

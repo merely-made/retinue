@@ -1,0 +1,51 @@
+{
+  "status": "tulle/heltec-v4 phy online; version=0.0.1; sx1262 online; sync=2b reg=24b4; longfast=906875000\r\nidentity=loaded slot=B seq=5\r\n",
+  "region": "region=US915\r\n",
+  "channel": "channel=modem\r\n",
+  "original_identity_seen": true,
+  "passed": true,
+  "transcript": [
+    {
+      "utc": "2026-09-30T16:54:41.197462+00:00",
+      "perf": 378090.7387596,
+      "port": "COM7",
+      "direction": "tx",
+      "hex": "7374617475730a"
+    },
+    {
+      "utc": "2026-09-30T16:54:41.302840+00:00",
+      "perf": 378090.8442131,
+      "port": "COM7",
+      "direction": "rx",
+      "hex": "74756c6c652f68656c7465632d763420706879206f6e6c696e653b2076657273696f6e3d302e302e313b20737831323632206f6e6c696e653b2073796e633d3262207265673d323462343b206c6f6e67666173743d3930363837353030300d0a6964656e746974793d6c6f6164656420736c6f743d42207365713d350d0a"
+    },
+    {
+      "utc": "2026-09-30T16:54:42.481571+00:00",
+      "perf": 378092.0228854,
+      "port": "COM7",
+      "direction": "tx",
+      "hex": "726567696f6e0a"
+    },
+    {
+      "utc": "2026-09-30T16:54:42.585384+00:00",
+      "perf": 378092.1266511,
+      "port": "COM7",
+      "direction": "rx",
+      "hex": "726567696f6e3d55533931350d0a"
+    },
+    {
+      "utc": "2026-09-30T16:54:43.774110+00:00",
+      "perf": 378093.3154665,
+      "port": "COM7",
+      "direction": "tx",
+      "hex": "6368616e6e656c0a"
+    },
+    {
+      "utc": "2026-09-30T16:54:43.882100+00:00",
+      "perf": 378093.42331,
+      "port": "COM7",
+      "direction": "rx",
+      "hex": "6368616e6e656c3d6d6f64656d0d0a"
+    }
+  ]
+}
