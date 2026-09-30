@@ -15,7 +15,7 @@ use tokio::time::{Instant, timeout, timeout_at};
 use tucket::advert::AdvertData;
 use tucket::companion::DeviceInfo;
 use tucket::identity::LocalIdentity;
-use tucket::node::{DirectRoute, Event, Node};
+use tucket::node::{DirectRoute, Event, Node, TextRetryPolicy};
 use tucket::packet::Packet;
 use tulle::PhyProfile;
 use tulle::airtime::AirtimeBudget;
@@ -145,8 +145,17 @@ impl Companion {
         }
     }
 
-    async fn set_contact_route(&mut self, public_key: &[u8; 32], path: &[u8]) -> io::Result<()> {
-        if path.len() > 63 {
+    async fn set_contact_route(
+        &mut self,
+        public_key: &[u8; 32],
+        path: &[u8],
+        hash_size: u8,
+    ) -> io::Result<()> {
+        if !(1..=3).contains(&hash_size)
+            || path.len() > 64
+            || !path.len().is_multiple_of(hash_size as usize)
+            || path.len() / hash_size as usize > 63
+        {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "MeshCore V1 route exceeds 63 hops",
@@ -165,7 +174,7 @@ impl Companion {
             ));
         }
         contact[0] = CMD_ADD_UPDATE_CONTACT;
-        contact[PATH_LEN_AT] = path.len() as u8;
+        contact[PATH_LEN_AT] = ((hash_size - 1) << 6) | (path.len() / hash_size as usize) as u8;
         contact[PATH_AT..PATH_AT + PATH_CAPACITY].fill(0);
         contact[PATH_AT..PATH_AT + path.len()].copy_from_slice(path);
         self.expect(&contact, RESP_OK).await?;
@@ -214,14 +223,18 @@ fn contact_text(frame: &[u8]) -> Option<&str> {
     std::str::from_utf8(&frame[16..]).ok()
 }
 
-fn relay_hash(value: &str) -> Result<u8, std::num::ParseIntError> {
-    u8::from_str_radix(
-        value
-            .strip_prefix("0x")
-            .or_else(|| value.strip_prefix("0X"))
-            .unwrap_or(value),
-        16,
-    )
+fn relay_path(value: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let value = value
+        .strip_prefix("0x")
+        .or_else(|| value.strip_prefix("0X"))
+        .unwrap_or(value);
+    if !value.is_ascii() || !value.len().is_multiple_of(2) || !(2..=6).contains(&value.len()) {
+        return Err("relay prefix must contain one, two or three complete hex bytes".into());
+    }
+    (0..value.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&value[i..i + 2], 16).map_err(Into::into))
+        .collect()
 }
 
 async fn sync_text(companion: &mut Companion, wait: Duration) -> io::Result<Vec<u8>> {
@@ -355,7 +368,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(|value| value.parse::<u32>())
         .transpose()?
         .unwrap_or(915_000_000);
-    let relay_hash = args.next().map(|value| relay_hash(&value)).transpose()?;
+    let relay_path = args.next().map(|value| relay_path(&value)).transpose()?;
+    let flood_hash_size = std::env::var("MESHCORE_PATH_HASH_SIZE")
+        .unwrap_or_else(|_| "1".into())
+        .parse::<u8>()?;
+    if !(1..=3).contains(&flood_hash_size) {
+        return Err("MESHCORE_PATH_HASH_SIZE must be 1, 2 or 3".into());
+    }
 
     let mut companion = Companion::open(&meshcore_port)?;
     tokio::time::sleep(Duration::from_millis(1_200)).await;
@@ -423,6 +442,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut tucket_prefix = [0_u8; 6];
     tucket_prefix.copy_from_slice(&tucket_public[..6]);
     let mut node = Node::new(identity, false);
+    assert!(node.set_flood_hash_size(flood_hash_size));
+    println!("Tucket outbound flood hash width: {flood_hash_size} bytes");
 
     let advert_data = AdvertData::chat("Tucket");
     let imported_advert = node
@@ -458,22 +479,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     println!("authenticated adverts crossed the MeshCore/Tucket boundary");
 
-    if let Some(relay_hash) = relay_hash {
-        let route = DirectRoute::new(1, &[relay_hash]).ok_or("invalid one-hop relay route")?;
+    if let Some(relay_path) = relay_path {
+        let hash_size = relay_path.len() as u8;
+        let path_len = ((hash_size - 1) << 6) | 1;
+        let route = DirectRoute::new(path_len, &relay_path).ok_or("invalid one-hop relay route")?;
         if !node.set_route(stock_hash, route) {
             return Err("MeshCore contact disappeared before route installation".into());
         }
         companion
-            .set_contact_route(&tucket_public, &[relay_hash])
+            .set_contact_route(&tucket_public, &relay_path, hash_size)
             .await?;
-        println!("forced reciprocal one-hop route through relay {relay_hash:02x}");
+        println!("forced reciprocal one-hop route through relay {relay_path:02x?}");
 
         let tucket_text = "Tucket source route crossed the relay";
         let (frame, expected_ack) = node
             .text_frame(stock_hash, now().wrapping_add(1), tucket_text)
             .ok_or("MeshCore contact disappeared")?;
         let packet = Packet::decode(&frame).ok_or("Tucket emitted a malformed packet")?;
-        if packet.is_flood() || packet.path != [relay_hash] {
+        if packet.is_flood() || packet.path_len != path_len || packet.path != relay_path {
             return Err("Tucket did not select the forced relay route".into());
         }
         link.send(frame).await?;
@@ -488,7 +511,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         receive_ack_and_route(&mut link, &mut node, stock_hash, expected_ack).await?;
         if node
             .route_to(stock_hash)
-            .is_none_or(|route| route.path() != [relay_hash])
+            .is_none_or(|route| route.path_len() != path_len || route.path() != relay_path)
         {
             return Err("Tucket relay route changed while receiving the ACK".into());
         }
@@ -568,6 +591,59 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .wait_push(PUSH_SEND_CONFIRMED, Duration::from_secs(45))
         .await?;
     println!("stock MeshCore selected the reciprocal route and received Tucket's ACK");
+
+    // The intentionally wrong hop cannot be consumed by the only stock peer.
+    // Three actual RF transmissions must remain unacknowledged; the fourth
+    // exercises Tucket's own pending-send policy and recovers through flooding.
+    let wrong_hop = stock_hash.wrapping_add(1);
+    let invalid_route = DirectRoute::new(1, &[wrong_hop]).ok_or("invalid test route")?;
+    if !node.set_route(stock_hash, invalid_route) {
+        return Err("stock contact disappeared before fallback test".into());
+    }
+    let fallback_text = "Tucket fourth attempt recovers through flood";
+    let mut pending = node
+        .begin_text(
+            stock_hash,
+            now().wrapping_add(3),
+            fallback_text,
+            TextRetryPolicy::default(),
+        )
+        .ok_or("could not begin fallback send")?;
+    for number in 0..4 {
+        let attempt = node
+            .next_text_attempt(&mut pending)
+            .ok_or("fallback attempt unexpectedly refused")?;
+        if attempt.attempt != number || attempt.flooded != (number == 3) {
+            return Err("fallback attempt selected the wrong route or number".into());
+        }
+        link.send(attempt.frame).await?;
+        if number == 3 {
+            let received = sync_text(&mut companion, Duration::from_secs(45)).await?;
+            if contact_text(&received) != Some(fallback_text) {
+                return Err("stock peer did not decode fallback text".into());
+            }
+            receive_ack_and_route(&mut link, &mut node, stock_hash, attempt.ack).await?;
+            if !pending.acknowledge(attempt.ack) || !pending.is_complete() {
+                return Err("stock ACK did not complete the pending send".into());
+            }
+        } else {
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while let Ok(Some(received)) = timeout_at(deadline, link.recv()).await {
+                let (events, outgoing) = node.on_frame(&received.frame);
+                if events
+                    .iter()
+                    .any(|event| matches!(event, Event::Ack(ack) if *ack == attempt.ack))
+                {
+                    return Err("stock peer acknowledged an intentionally unreachable route".into());
+                }
+                for frame in outgoing {
+                    link.send(frame).await?;
+                }
+            }
+        }
+        println!("fallback attempt {number}: flooded={}", attempt.flooded);
+    }
+    println!("three failed direct attempts, fourth flood, stock ACK and route recovery passed");
     println!("TUCKET MESHCORE HEADED PASSED");
 
     link.shutdown().await?;

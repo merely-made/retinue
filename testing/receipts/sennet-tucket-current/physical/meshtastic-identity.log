@@ -1,0 +1,10 @@
+INFO file:node.py getMetadata line:795 Requesting device metadata
+Connected to radio
+
+firmware_version: 2.7.26.54e0d8d
+device_state_version: 24
+role: CLIENT
+position_flags: ['ALTITUDE', 'ALTITUDE_MSL', 'DOP', 'SATINVIEW', 'HEADING', 'SPEED']
+hw_model: HELTEC_V4
+hasPKC: True
+excluded_modules: ['REMOTEHARDWARE_CONFIG', 'AMBIENTLIGHTING_CONFIG']

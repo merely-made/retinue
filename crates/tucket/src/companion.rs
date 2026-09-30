@@ -34,8 +34,18 @@ impl<'a> DeviceInfo<'a> {
     }
 
     pub fn matches_release(&self, expected: &str) -> bool {
-        self.version.strip_prefix('v').unwrap_or(self.version)
-            == expected.strip_prefix('v').unwrap_or(expected)
+        let actual = self.version.strip_prefix('v').unwrap_or(self.version);
+        let expected = expected.strip_prefix('v').unwrap_or(expected);
+        !expected.is_empty()
+            && (actual == expected
+                || (!expected.contains('-')
+                    && actual
+                        .strip_prefix(expected)
+                        .and_then(|suffix| suffix.strip_prefix('-'))
+                        .is_some_and(|revision| {
+                            (7..=40).contains(&revision.len())
+                                && revision.bytes().all(|byte| byte.is_ascii_hexdigit())
+                        })))
     }
 }
 
@@ -81,5 +91,37 @@ mod tests {
         assert!(DeviceInfo::decode(&wire).is_none());
         wire[60] = 0xff;
         assert!(DeviceInfo::decode(&wire).is_none());
+    }
+
+    #[test]
+    fn official_build_suffix_matches_release_but_other_versions_do_not() {
+        // Observed from the official V4 USB binary on 2026-09-30.
+        let info = DeviceInfo {
+            protocol_version: 13,
+            build: "14-Aug-2026",
+            model: "Heltec V4.3 OLED",
+            version: "v1.17.1-d929643",
+        };
+        assert!(info.matches_release("1.17.1"));
+        assert!(info.matches_release("v1.17.1-d929643"));
+        assert!(!info.matches_release("1.17.1-1234567"));
+        assert!(!info.matches_release(""));
+        assert!(
+            !DeviceInfo {
+                version: "v1.17.1-d929643-1234567",
+                ..info
+            }
+            .matches_release("1.17.1-d929643")
+        );
+        for version in [
+            "v1.17.10-d929643",
+            "v1.17.1-beta",
+            "v1.17.1-d929643-dirty",
+            "v1.17.1-",
+            "v1.17.1-d92964",
+            "v1.17.1.5",
+        ] {
+            assert!(!DeviceInfo { version, ..info }.matches_release("1.17.1"));
+        }
     }
 }

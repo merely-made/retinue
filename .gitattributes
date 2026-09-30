@@ -65,4 +65,6 @@ testing/receipts/rns-1.5.4-lanes/** -text whitespace=cr-at-eol,-blank-at-eof
 testing/receipts/firmware-ifac/** -text whitespace=cr-at-eol,-blank-at-eof
 testing/receipts/ifac-provisioning-preflight/** -text whitespace=cr-at-eol,-blank-at-eof
 testing/receipts/sennet-tucket-current/** -text whitespace=cr-at-eol,-blank-at-eof
+# Physical tool logs retain their emitted trailing spaces as receipt bytes.
+testing/receipts/sennet-tucket-current/physical/*.log -text whitespace=cr-at-eol,-blank-at-eof,-blank-at-eol
 crates/retinue/tests/fixtures/rns_ifac_1_5_4.json -text whitespace=cr-at-eol

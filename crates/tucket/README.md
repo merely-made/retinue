@@ -6,7 +6,7 @@ shared [tulle](https://github.com/merely-made/retinue) radio layer.
 
 A tucket is a trumpet flourish announcing a single arrival.
 
-**Current comparison, September 29:** MeshCore companion/repeater 1.17.1 at
+**Current comparison, September 30:** MeshCore companion/repeater 1.17.1 at
 `d92964352441e53b93e8667b802e04f6e072b39e`. Software routing supports one-,
 two- and three-byte public-key prefixes, including complete next-hop matching
 and caller-configurable `Node::set_flood_hash_size`. V1 payload identity hashes
@@ -16,9 +16,10 @@ versions and transport-scoped packets are refused by the unscoped Node before
 contact/dedup changes. This is refusal, not region-scope support. TRACE packet
 hashing uses the reference's one-byte path metadata.
 
-The [software receipt](../../testing/receipts/sennet-tucket-current/README.md)
-records the comparison separately from the older on-air receipts below. Fresh
-1.17.1 stock-peer, scope, restart and broader role acceptance remain open.
+The [current receipt](../../testing/receipts/sennet-tucket-current/README.md)
+records fresh identified 1.17.1 endpoint adverts, text/ACKs, learned routes and
+fourth-attempt flood recovery, plus forced one-repeater routes at all three path
+widths. Multiple repeaters, scope, restart and broader role acceptance remain open.
 
 ## Embedded core and capacities
 

@@ -32,6 +32,7 @@ def main():
         "format": base + ["fmt", "--all", "--", "--check"],
         "registry": [sys.executable, "validation/run.py", "verify"],
         "capture-cli": [sys.executable, "testing/receipts/sennet-tucket-current/capture_cli_checks.py"],
+        "stock-bench-admission": [sys.executable, "-B", "testing/receipts/sennet-tucket-current/stock_bench_checks.py"],
     }
     if args.gates:
         unknown = set(args.gates) - commands.keys()

@@ -1,0 +1,56 @@
+inspecting COM6 with package bench.meshcore.heltec-v4-repeater
+owner action: persistent identity and settings impact is unknown; owner confirmation is required before writing
+erasing
+verifying transfer
+rebooting
+manual check required
+{
+  "schema": 4,
+  "package_id": "bench.meshcore.heltec-v4-repeater",
+  "package_parts": [
+    {
+      "kind": "bootloader",
+      "offset": 0,
+      "byte_length": 32768,
+      "sha256": "6ac230d6941c798d91b83334598bb2266a417200aec3b15c74d4d69787e6a269"
+    },
+    {
+      "kind": "partition-table",
+      "offset": 32768,
+      "byte_length": 32768,
+      "sha256": "cef8ba7167fe524e8a85596828b207f1d5e00364c38f9dad6cc937051ef991d8"
+    },
+    {
+      "kind": "application",
+      "offset": 65536,
+      "byte_length": 1168784,
+      "sha256": "13e3bcd40ea88faa4cd5c59b7ff480cc5195d9707b79b570415af89b13d13c66"
+    }
+  ],
+  "publisher_signature": null,
+  "board": "heltec-v4",
+  "board_revision": "4.2",
+  "board_selection_evidence": "owner confirmation from carrier marking",
+  "route": "esp-rom",
+  "helper": {
+    "program": "espflash",
+    "version": "4.5.0",
+    "platform": "windows-x86_64",
+    "binary_sha256": "0cc03364c70a86325236f18ad1aaed17eedf267d89312c0cdabe4964f5cb758e",
+    "archive_sha256": "854c82c947c20e7f337f120f0398042ed1760f2269cb0f9be3d2beae3b66fbfb",
+    "archive_url": "https://github.com/esp-rs/espflash/releases/download/v4.5.0/espflash-x86_64-pc-windows-msvc.zip"
+  },
+  "transport": "serial:COM6",
+  "processor": "esp32-s3",
+  "flash_size": 16777216,
+  "bootloader": "esp-rom",
+  "stages": [
+    {
+      "name": "manual-check-required",
+      "detail": "Every package part transferred and verified by the helper."
+    }
+  ],
+  "result": "manual-check-required",
+  "application": null,
+  "manual_check": "Use repeater ver, board, get public.key and get radio CLI commands; require v1.17.1-d929643 before configuring the stock relay."
+}

@@ -1,0 +1,5 @@
+Connected to radio
+lora.region: 0
+lora.modem_preset: 0
+lora.tx_enabled: True
+Completed getting preferences

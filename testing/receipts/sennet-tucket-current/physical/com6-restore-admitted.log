@@ -1,0 +1,73 @@
+inspecting COM6 with package bench.retinue.com6-restore
+owner action: persistent identity and settings impact is unknown; owner confirmation is required before writing
+erasing
+recovery required: espflash failed: Chip type:         esp32s3 (revision v0.2)
+Crystal frequency: 40 MHz
+Flash size:        16MB
+Features:          WiFi, BLE, Embedded Flash
+MAC address:       44:1b:f6:6a:fb:28
+[2026-09-30T06:53:51Z WARN ] Monitor options were provided, but `--monitor/-M` flag isn't set. These options will be ignored.
+[2026-09-30T06:53:51Z WARN ] Pre-connection option 'NoReset' was selected. Connection may fail if the chip is not in bootloader or flasher stub mode.
+Error:   × Error while connecting to device
+  ╰─▶ Timeout while running FlashDeflData command
+before write: Require complete private 16 MiB COM7 Retinue flash backup, verified source chunks and official helper.
+after failure: Use the ESP ROM loader to restore the exact full flash backup; verify private settings-tail bytes and Retinue status.
+{
+  "schema": 4,
+  "package_id": "bench.retinue.com6-restore",
+  "package_parts": [
+    {
+      "kind": "bootloader",
+      "offset": 0,
+      "byte_length": 32768,
+      "sha256": "99545acb20c08246967173bf5fd223607c855f01416bb97166321153790afe48"
+    },
+    {
+      "kind": "partition-table",
+      "offset": 32768,
+      "byte_length": 32768,
+      "sha256": "c6807c9a3cd6d23e2cfbec3e89cabf313b8514d654b16522189137f5822c205e"
+    },
+    {
+      "kind": "application",
+      "offset": 65536,
+      "byte_length": 16711680,
+      "sha256": "ff8a8272e4e2e11ded711d02f6c1562b14ea04c19f89800dde9ddccadb36f52e"
+    }
+  ],
+  "publisher_signature": null,
+  "board": "heltec-v4",
+  "board_revision": "4.2",
+  "board_selection_evidence": "owner confirmation from carrier marking",
+  "route": "esp-rom",
+  "helper": {
+    "program": "espflash",
+    "version": "4.5.0",
+    "platform": "windows-x86_64",
+    "binary_sha256": "0cc03364c70a86325236f18ad1aaed17eedf267d89312c0cdabe4964f5cb758e",
+    "archive_sha256": "854c82c947c20e7f337f120f0398042ed1760f2269cb0f9be3d2beae3b66fbfb",
+    "archive_url": "https://github.com/esp-rs/espflash/releases/download/v4.5.0/espflash-x86_64-pc-windows-msvc.zip"
+  },
+  "transport": "serial:COM6",
+  "processor": "esp32-s3",
+  "flash_size": 16777216,
+  "bootloader": "esp-rom",
+  "stages": [
+    {
+      "name": "recovery-Transfer",
+      "detail": "espflash failed: Chip type:         esp32s3 (revision v0.2)\nCrystal frequency: 40 MHz\nFlash size:        16MB\nFeatures:          WiFi, BLE, Embedded Flash\nMAC address:       44:1b:f6:6a:fb:28\n[2026-09-30T06:53:51Z WARN ] Monitor options were provided, but `--monitor/-M` flag isn't set. These options will be ignored.\n[2026-09-30T06:53:51Z WARN ] Pre-connection option 'NoReset' was selected. Connection may fail if the chip is not in bootloader or flasher stub mode.\nError:   × Error while connecting to device\n  ╰─▶ Timeout while running FlashDeflData command"
+    }
+  ],
+  "result": "recovery-required",
+  "application": null,
+  "manual_check": null
+}
+linkboy: recovery required: espflash failed: Chip type:         esp32s3 (revision v0.2)
+Crystal frequency: 40 MHz
+Flash size:        16MB
+Features:          WiFi, BLE, Embedded Flash
+MAC address:       44:1b:f6:6a:fb:28
+[2026-09-30T06:53:51Z WARN ] Monitor options were provided, but `--monitor/-M` flag isn't set. These options will be ignored.
+[2026-09-30T06:53:51Z WARN ] Pre-connection option 'NoReset' was selected. Connection may fail if the chip is not in bootloader or flasher stub mode.
+Error:   × Error while connecting to device
+  ╰─▶ Timeout while running FlashDeflData command

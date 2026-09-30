@@ -1,0 +1,13 @@
+
+running 3 tests
+test companion::tests::official_build_suffix_matches_release_but_other_versions_do_not ... ok
+test companion::tests::release_is_distinct_from_api_version_and_pin_is_not_retained ... ok
+test companion::tests::incomplete_wrong_and_empty_responses_do_not_qualify_a_release ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 69 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s
+

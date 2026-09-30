@@ -1,6 +1,8 @@
 # Wire compatibility and ownership boundaries
 
-**Status, 2026-09-27:** phases 1 and 2 implemented and verified; phase 3 partially implemented.
+**Status, 2026-09-30:** phases 1, 2 and 4 implemented and verified; phase 3 partially implemented;
+phase 5 has bounded physical stock-peer receipts; COM7 restoration and remaining
+Sennet checks await USB reconnection.
 RNS 1.5.4 is the live oracle within the [recorded scope](../testing/receipts/rns-1.5.4-repin/README.md).
 Versioned receipts are preserved, with concrete host/core boundary defects repaired.
 The earlier 1.5.2 and signed-artifact-only 1.5.4 receipts remain historical facts.
@@ -333,3 +335,75 @@ by this Sennet/Tucket software qualification. Automatic approval review blocked
 the checked cleanup command with reason "blocked by policy"; the subsequent
 live-owner recheck found no matching gate process. The ordinary reusable build
 target is `C:/t/cargo-targets/retinue`. No isolated target or worktree was created.
+
+### Physical preparation, September 30
+
+Read-only status queries identified COM6 and COM7 as running Heltec V4 Retinue
+direct-PHY firmware and COM10 as running T114 Retinue direct-PHY firmware. All
+three report US915 and modem personality. No current stock peer was connected.
+The owner authorized use of the connected radios. COM7 is the temporary stock
+oracle candidate; a complete private 16 MiB flash backup and a verified restore
+route are prerequisites to any foreign firmware write. Failed/interrupted
+backup attempts remain under ignored validation results.
+
+The official MeshCore 1.17.1 V4 USB merged binary and Meshtastic 2.7.26 V4
+factory binary were acquired from their pinned GitHub release assets. Only the
+Meshtastic firmware binary was extracted; no schemas or implementation source
+were consulted. Its untouched CLI is a process-boundary oracle.
+
+The Sennet transmit receipt now requires the exact source, packet ID and text,
+and ignores unrelated or malformed traffic. Its receive example accepts an
+optional expected source/text pair and exposes received frame bytes for replay.
+
+The August 20 physical transaction already selected COM7's carrier as V4 4.2;
+its current MAC and loaded slot/sequence match that same carrier. COM6's July
+28 UI receipt names V4 4.2 and its matching current MAC. Those existing board
+selections were reused for the temporary packages. MeshCore's firmware model
+string is `Heltec V4.3 OLED`; that build label does not replace the recorded
+carrier selections. Official espflash 4.5.0 executable/archive hashes were
+checked before Linkboy wrote either stock package.
+
+Tucket passed endpoint adverts, bidirectional private text/ACKs, reciprocal
+route learning and three failed direct attempts followed by fourth-attempt
+flood recovery against stock `v1.17.1-d929643`, API 13, at all three flood widths.
+The official repeater also passed forced one-hop source routes with complete
+one-, two- and three-byte prefixes in both directions, using T114 as the
+independent endpoint. The forced first hop cannot be consumed by either endpoint.
+These are one-repeater results, not a multiple-repeater topology receipt.
+
+The exact stock version exposed a harness defect: `matches_release` originally
+refused its official hexadecimal build suffix. The repair accepts that suffix
+for a base release, preserves exact full-build pins, and refuses malformed or
+other-release strings. A final-build endpoint run and regression cover the
+subsequent tighter empty/full-pin guards. Earlier repeater runs retain the
+executed example's separate binary hash.
+
+Both V4 radios received complete private 16 MiB backups before foreign writes.
+COM6's full-image compressed restore timed out in FlashDeflData. Its original
+image was recovered through an uncompressed esptool 5.3.1 write, with full-data
+verification followed by exact independent readback of `0x3f0000..0x400000`.
+The application again reports loaded slot B / sequence 9. Failure attempts
+remain evidence; that manual recovery is separate from Linkboy package success.
+T114 was never reflashed and again reports US915/modem, sync 2b, 906.875 MHz,
+and its original slot A / sequence 84 in the retained attach transcript.
+
+Meshtastic's untouched CLI independently reports installed firmware
+`2.7.26.54e0d8d`, CLIENT role and HELTEC_V4. The temporary stock peer was set to
+US/LongFast and named `Sennet Current Stock` / `SC26` for the node-association
+comparison. Alpha 2.8.0 remains outside this qualification.
+
+Sennet's first two stock attempts received no matching rebroadcast while the
+stock region remained UNSET. A separate setter with five seconds of connection
+settling persisted US; its readback precedes the successful encrypted broadcast,
+matching RF rebroadcast and exactly one stock-client delivery. Two repetitions
+of the same packet produced no duplicate client delivery in the bounded window.
+The 233-byte text refusal occurs before opening the radio. Independent V4/T114
+exchanges also retained consecutive packet IDs across host-session restarts.
+
+COM7 disappeared from the USB inventory after the successful stock duplicate
+test. The subsequent maximum-size attempt failed before opening that absent
+port. Reverse/current maximum-size checks and restoration are pending physical
+reconnection; the exact original full-flash backup remains private and intact.
+COM6 restoration and T114's unchanged image are verified separately. The public
+receipt preserves successes, failed attempts and this interruption without
+claiming full beta, alpha or upstream-role parity.

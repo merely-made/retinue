@@ -92,18 +92,32 @@ async fn main() {
         .expect("text transport packet");
 
     let profile = PhyProfile::meshtastic_long_fast(906_875_000);
-    let budget = AirtimeBudget::new(60_000, 1_000);
+    // A maximum-size LongFast frame can exceed one second. Keep the bench
+    // allowance explicit so that the envelope gate can exercise that frame.
+    let airtime_limit_ms = std::env::var("SENNET_BENCH_AIRTIME_MS")
+        .unwrap_or_else(|_| "5000".into())
+        .parse::<u64>()
+        .expect("bench airtime allowance in milliseconds");
+    let budget = AirtimeBudget::new(60_000, airtime_limit_ms);
     let mut radio =
         DirectPhySerialLink::open(&args[1], profile, budget, DirectPhySerialConfig::default())
             .expect("open direct-PHY serial port");
     radio.wait_online().await.expect("direct-PHY online");
     let airtime = radio.send(frame).await.expect("radio transmit");
-    println!("transmitted in {:.3} ms", airtime.as_secs_f64() * 1_000.0);
+    println!(
+        "transmitted source={source:08x} packet_id={packet_id:08x} text_bytes={} in {:.3} ms",
+        text.len(),
+        airtime.as_secs_f64() * 1_000.0
+    );
 
     let receipt = tokio::time::timeout(Duration::from_secs(15), async {
         loop {
             let received = radio.recv().await.expect("radio stopped");
-            if let Some(message) = channel.open_text(&received.frame).expect("received packet") {
+            if let Ok(Some(message)) = channel.open_text(&received.frame)
+                && message.header.source == source
+                && message.header.packet_id == packet_id
+                && message.text == text
+            {
                 break (received, message);
             }
         }
@@ -114,5 +128,10 @@ async fn main() {
         "received {:?} from {:08x}, RSSI {} dBm, SNR {:.1} dB",
         receipt.1.text, receipt.1.header.source, receipt.0.rssi_dbm, receipt.0.snr_db
     );
+    print!("received_frame=");
+    for byte in &receipt.0.frame {
+        print!("{byte:02x}");
+    }
+    println!();
     radio.shutdown().await.expect("close direct-PHY link");
 }

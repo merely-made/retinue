@@ -1,0 +1,52 @@
+{
+  "producer_version": "2.7.26.54e0d8d",
+  "started_utc": "2026-09-30T07:13:54.186490+00:00",
+  "producer_evidence_sha256": "526d1eeae094242f0d48d0c93e525896ea4fa5935fd5c42cf821ad7e871395e4",
+  "runner_sha256": "1537dddec30c42b0d43842a797c59ca9e26ebc8c6c9627c0b3737b61d9d986b9",
+  "phy": "COM6",
+  "stock": "COM7",
+  "text": "Sennet stock comparison 0930 settled duplicate",
+  "source": "f66afb28",
+  "duplicates_requested": 2,
+  "phy_profile": {
+    "frequency_hz": 906875000,
+    "bandwidth_hz": 250000,
+    "spreading_factor": 11,
+    "coding_rate_denominator": 5,
+    "preamble_symbols": 16,
+    "sync_word": "2b"
+  },
+  "public_node_info_frames": [
+    "227a08e4f4abb30f12550a09216636366166613634121453656e6e65742043757272656e742053746f636b1a04534332362206441bf66afa64286e42208c7f622c683b33958f03a8df0e2aa9700bde005c7d159c3324956200cd50781748001a140d7634ee1615f492bece18c10125b3b6bc6a28022db3b6bc6a5001"
+  ],
+  "matching_client_frames": [
+    "12620d28fb6af615ffffffff22320801122e53656e6e65742073746f636b20636f6d70617269736f6e203039333020736574746c6564206475706c696361746535020030b93db7b6bc6a450000c840480360d9ffffffffffffffff017803980128a80101"
+  ],
+  "rust_command": [
+    "C:\\t\\cargo-targets\\retinue\\debug\\examples\\direct_phy_text.exe",
+    "COM6",
+    "validation\\results\\sennet-tucket-radios\\ids\\stock-tx.bin",
+    "f66afb28",
+    "b9300000",
+    "08",
+    "d4f1bb3a20290759f0bcffabcf4e6901",
+    "Sennet stock comparison 0930 settled duplicate"
+  ],
+  "rust_exit": 0,
+  "rust_output": "transmitted source=f66afb28 packet_id=b9300002 text_bytes=46 in 722.944 ms\nreceived \"Sennet stock comparison 0930 settled duplicate\" from f66afb28, RSSI 0 dBm, SNR 6.0 dB\nreceived_frame=ffffffff28fb6af6020030b9620800640ebe53f57f805ef45fb5deff1dd0f0a8c3fe404076d893ba37463c2c5f7a6f3a634b65fef811df076423c171d3b1018cc50b\n",
+  "packet_id": "b9300002",
+  "duplicate_transmits": [
+    {
+      "sequence": 0,
+      "length": 66,
+      "status": 0
+    },
+    {
+      "sequence": 1,
+      "length": 66,
+      "status": 0
+    }
+  ],
+  "duplicate_client_frames": [],
+  "passed": true
+}

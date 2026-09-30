@@ -1,0 +1,13 @@
+MeshCore peer: model=Heltec V4.3 OLED, firmware=v1.17.1-d929643, build=14-Aug-2026, companion_api=13
+radios online: COM6=Tulle direct PHY, COM7=MeshCore companion protocol 13
+Tucket outbound flood hash width: 2 bytes
+authenticated adverts crossed the MeshCore/Tucket boundary
+stock flood text, encrypted ACK, and reciprocal route passed
+Tucket selected its learned direct route
+stock MeshCore selected the reciprocal route and received Tucket's ACK
+fallback attempt 0: flooded=false
+fallback attempt 1: flooded=false
+fallback attempt 2: flooded=false
+fallback attempt 3: flooded=true
+three failed direct attempts, fourth flood, stock ACK and route recovery passed
+TUCKET MESHCORE HEADED PASSED

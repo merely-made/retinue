@@ -1,0 +1,15 @@
+{
+  "command": [
+    "C:\\t\\cargo-targets\\retinue\\debug\\examples\\direct_phy_text.exe",
+    "COM6",
+    "validation/results/sennet-tucket-radios/ids/stock-tx.bin",
+    "f66afb28",
+    "b9300000",
+    "08",
+    "d4f1bb3a20290759f0bcffabcf4e6901",
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  ],
+  "exit_code": 101,
+  "output": "\nthread 'main' (70400) panicked at crates\\sennet\\examples\\direct_phy_text.rs:92:10:\ntext transport packet: Application(PayloadTooLong { actual: 233, limit: 232 })\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n",
+  "expected_refusal": true
+}

@@ -134,9 +134,9 @@ async fn main() {
     right.send(right_frame).await.expect("right radio transmit");
     let right_to_left = receive_text(&mut left, right_source, right_text).await;
     match &right_to_left {
-        Some((receipt, _)) => println!(
-            "right-to-left text passed: RSSI {} dBm, SNR {:.1} dB",
-            receipt.rssi_dbm, receipt.snr_db
+        Some((receipt, message)) => println!(
+            "right-to-left text passed: source={:08x} packet_id={:08x}, RSSI {} dBm, SNR {:.1} dB",
+            message.header.source, message.header.packet_id, receipt.rssi_dbm, receipt.snr_db
         ),
         None => eprintln!("right-to-left text failed: no matching RF text within 20 seconds"),
     }
@@ -146,9 +146,9 @@ async fn main() {
     left.send(left_frame).await.expect("left radio transmit");
     let left_to_right = receive_text(&mut right, left_source, left_text).await;
     match &left_to_right {
-        Some((receipt, _)) => println!(
-            "left-to-right text passed: RSSI {} dBm, SNR {:.1} dB",
-            receipt.rssi_dbm, receipt.snr_db
+        Some((receipt, message)) => println!(
+            "left-to-right text passed: source={:08x} packet_id={:08x}, RSSI {} dBm, SNR {:.1} dB",
+            message.header.source, message.header.packet_id, receipt.rssi_dbm, receipt.snr_db
         ),
         None => eprintln!("left-to-right text failed: no matching RF text within 20 seconds"),
     }

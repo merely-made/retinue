@@ -1,0 +1,7 @@
+{
+  "set radio 915,250,10,5": "set radio 915,250,10,5\r\n",
+  "set repeat on": "  -> OK - reboot to apply\r\nset repeat on\r\n  -> OK - repeat is now ON\r\n",
+  "set name TucketStockRelay": "set name TucketStockRelay\r\n  -> OK\r\n",
+  "set path.hash.mode 0": "set path.hash.mode 0\r\n  -> OK\r\n",
+  "reboot": "reboot\r\nESP-ROM:esp32s3-20210327\r\nBuild:Mar 27 2021\r\nrst:0xc (RTC_SW_CPU_RST),boot:0x29 (SPI_FAST_FLASH_BOOT)\r\nSaved PC:0x420bd836\r\nSPIWP:0xee\r\nmode:DIO, clock div:1\r\nload:0x3fce3808,len:0x4bc\r\nload:0x403c9700,len:0xbd8\r\nload:0x403cc700,len:0x2a0c\r\nentry 0x403c98d0\r\n"
+}

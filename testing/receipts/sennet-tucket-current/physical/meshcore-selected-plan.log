@@ -1,0 +1,22 @@
+flash plan
+  device: COM7
+  board: Heltec V4 revision 4.2
+  package: Temporary MeshCore stock oracle 1.17.1
+  parts: bootloader at 0x0 (32768 bytes, sha256 6ac230d6941c798d91b83334598bb2266a417200aec3b15c74d4d69787e6a269), partition table at 0x8000 (32768 bytes, sha256 cef8ba7167fe524e8a85596828b207f1d5e00364c38f9dad6cc937051ef991d8), application at 0x10000 (641728 bytes, sha256 c97c949663e594563a0f4725bdc573c0c2e28927e1f70e90cec68ec3d47277be)
+  route: ESP ROM loader (espflash)
+  helper: espflash 4.5.0 for windows-x86_64 (executable sha256 0cc03364c70a86325236f18ad1aaed17eedf267d89312c0cdabe4964f5cb758e)
+  write ranges: 0x0..0x8000, 0x8000..0x10000, 0x10000..0xacac0
+  preserved ranges: 
+  state impact: unknown
+  compatibility:
+    board family: Heltec V4 [owner selection, checked against running status]
+    board revision: 4.2 [owner confirmation from carrier marking]
+    processor: ESP32-S3 [running Retinue identity; checked against package]
+    flash size: 16777216 bytes [running Retinue identity; checked against package]
+    bootloader: esp-rom [running Retinue identity; checked against package]
+    native-node persistent state: unknown [running status; absent or non-guard token remains non-authoritative]
+    package node-timebase support: not declared [package manifest]
+  warnings:
+    persistent identity and settings impact is unknown; owner confirmation is required before writing
+  recovery before write: Require complete private 16 MiB COM7 Retinue flash backup, verified source chunks and official helper.
+  recovery after failure: Use the ESP ROM loader to restore the exact full flash backup; verify private settings-tail bytes and Retinue status.

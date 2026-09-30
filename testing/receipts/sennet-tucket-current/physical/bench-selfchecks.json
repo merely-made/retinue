@@ -1,0 +1,12 @@
+{
+  "cases": 5,
+  "passed": true,
+  "serial_ports_opened": 0,
+  "positive_control": "matching captured source and text accepted",
+  "negative_controls": [
+    "wrong source",
+    "wrong text",
+    "truncated payload",
+    "noise/incomplete framing"
+  ]
+}

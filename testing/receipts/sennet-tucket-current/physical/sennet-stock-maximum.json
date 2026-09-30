@@ -1,0 +1,23 @@
+{
+  "producer_version": "2.7.26.54e0d8d",
+  "started_utc": "2026-09-30T07:20:54.801111+00:00",
+  "producer_evidence_sha256": "526d1eeae094242f0d48d0c93e525896ea4fa5935fd5c42cf821ad7e871395e4",
+  "runner_sha256": "1537dddec30c42b0d43842a797c59ca9e26ebc8c6c9627c0b3737b61d9d986b9",
+  "phy": "COM6",
+  "stock": "COM7",
+  "text": "Sennet maximum 0930 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "source": "f66afb28",
+  "duplicates_requested": 0,
+  "phy_profile": {
+    "frequency_hz": 906875000,
+    "bandwidth_hz": 250000,
+    "spreading_factor": 11,
+    "coding_rate_denominator": 5,
+    "preamble_symbols": 16,
+    "sync_word": "2b"
+  },
+  "public_node_info_frames": [],
+  "matching_client_frames": [],
+  "passed": false,
+  "error": "could not open port 'COM7': FileNotFoundError(2, 'The system cannot find the file specified.', None, 2)"
+}

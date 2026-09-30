@@ -1,0 +1,27 @@
+{
+  "status": "pending physical USB reconnection; not executed",
+  "expected_mac": "44:1b:f6:6a:fa:64",
+  "expected_original_image_bytes": 16777216,
+  "expected_original_image_sha256": "dd75f798b334b72904b8a274c2934aac241f992da0ae037d64df52e499d5380f",
+  "expert_recovery_command": [
+    "esptool",
+    "--chip",
+    "esp32s3",
+    "--port",
+    "COM7",
+    "--baud",
+    "921600",
+    "write-flash",
+    "--no-progress",
+    "--no-compress",
+    "0",
+    "validation/results/sennet-tucket-radios/backups/com7-retinue-full-fast.bin"
+  ],
+  "required_after_write": [
+    "full write hash verification",
+    "independent readback and exact comparison of 0x3f0000..0x400000",
+    "original Retinue version 0.0.1, slot B sequence 5, US915/modem LongFast"
+  ],
+  "reason_for_uncompressed_write": "COM6 full-image compressed transfer timed out; separately recorded uncompressed recovery succeeded",
+  "not_a_linkboy_success_receipt": true
+}

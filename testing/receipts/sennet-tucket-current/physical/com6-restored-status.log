@@ -1,0 +1,4 @@
+I (99) esp_image: segment 2: paddr=00015e60 vaddr=40378000 size=b reg=24b4; longfast=906875000
+identity=loaded slot=B seq=9
+tulle/heltec-v4 phy online; version=0.0.1; sx1262 online; sync=2b reg=24b4; longfast=906875000
+identity=loaded slot=B seq=9

@@ -1,0 +1,8 @@
+MeshCore peer: model=Heltec V4.3 OLED, firmware=v1.17.1-d929643, build=14-Aug-2026, companion_api=13
+radios online: COM10=Tulle direct PHY, COM7=MeshCore companion protocol 13
+Tucket outbound flood hash width: 3 bytes
+authenticated adverts crossed the MeshCore/Tucket boundary
+forced reciprocal one-hop route through relay [bc, b6, a6]
+Tucket text and MeshCore ACK crossed the relay
+MeshCore text and Tucket ACK crossed the relay
+TUCKET MESHCORE RELAY HEADED PASSED

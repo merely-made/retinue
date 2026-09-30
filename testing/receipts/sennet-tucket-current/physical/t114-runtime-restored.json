@@ -1,0 +1,14 @@
+{
+  "before": "tulle/t114 phy online; version=0.0.1; sx1262 online; spi=software; irq=poll; sync=2b reg=24b4; region=US915 freq=906875000 reset=pin crash=0 timebase=inactive\r\n",
+  "after": "tulle/t114 phy online; version=0.0.1; sx1262 online; spi=software; irq=poll; sync=2b reg=24b4; region=US915 freq=906875000 reset=pin crash=0 timebase=inactive\r\n",
+  "sync": "2b 24b4\r\n",
+  "configuration": "0278d00d3690d003000b0510002b0311",
+  "events": [
+    {
+      "kind": "config",
+      "status": 0
+    }
+  ],
+  "identity_slot_sequence_observed": false,
+  "identity_scope": "Firmware was never reflashed; these text status replies do not include the identity slot/sequence, so they alone do not prove it."
+}

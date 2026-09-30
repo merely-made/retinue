@@ -20,11 +20,16 @@ fn hex_bytes(value: &str) -> Vec<u8> {
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     let args: Vec<String> = std::env::args().collect();
-    assert_eq!(
-        args.len(),
-        4,
-        "usage: direct_phy_receive PORT CHANNEL_HASH_HEX KEY_HEX"
+    assert!(
+        args.len() == 4 || args.len() >= 6,
+        "usage: direct_phy_receive PORT CHANNEL_HASH_HEX KEY_HEX [EXPECTED_SOURCE_HEX EXPECTED_TEXT]"
     );
+    let expected = (args.len() >= 6).then(|| {
+        (
+            u32::from_str_radix(&args[4], 16).expect("expected source hex"),
+            args[5..].join(" "),
+        )
+    });
     let hash = u8::from_str_radix(&args[2], 16).expect("channel hash hex");
     let key = match hex_bytes(&args[3]).as_slice() {
         bytes @ [..] if bytes.len() == 16 => {
@@ -42,12 +47,20 @@ async fn main() {
         DirectPhySerialLink::open(&args[1], profile, budget, DirectPhySerialConfig::default())
             .expect("open direct-PHY serial port");
     radio.wait_online().await.expect("direct-PHY online");
+    println!("direct-PHY receiver ready");
 
     let receipt = tokio::time::timeout(Duration::from_secs(20), async {
         loop {
             let received = radio.recv().await.expect("radio stopped");
             match channel.open_text(&received.frame) {
-                Ok(Some(message)) => break (received, message),
+                Ok(Some(message))
+                    if expected.as_ref().is_none_or(|(source, text)| {
+                        message.header.source == *source && message.text == *text
+                    }) =>
+                {
+                    break (received, message);
+                }
+                Ok(Some(_)) => {}
                 Ok(None) => {}
                 Err(_) => {}
             }
@@ -59,5 +72,11 @@ async fn main() {
         "received {:?} from {:08x}, RSSI {} dBm, SNR {:.1} dB",
         receipt.1.text, receipt.1.header.source, receipt.0.rssi_dbm, receipt.0.snr_db
     );
+    println!("packet_id={:08x}", receipt.1.header.packet_id);
+    print!("received_frame=");
+    for byte in &receipt.0.frame {
+        print!("{byte:02x}");
+    }
+    println!();
     radio.shutdown().await.expect("close direct-PHY link");
 }

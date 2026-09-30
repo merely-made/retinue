@@ -1,0 +1,152 @@
+{
+  "baseline_commit": "e898d54ef0d3e93e753a9a5c6105f9b7961195d8",
+  "evidence_kind": "identified physical observations against working-tree source and separately hashed executables; not a clean-commit release certificate",
+  "source_sha256": {
+    "crates/sennet/examples/direct_phy_pair.rs": "c91634779d27f5dd77678065779136332028d9f68b3cbe9fd2cdc2625495e28c",
+    "crates/sennet/examples/direct_phy_receive.rs": "88eb8845a0f38ba9069915ade48fef930eb948c859af159dd1b3f5370d1c8cef",
+    "crates/sennet/examples/direct_phy_text.rs": "943837cb8861d31c3cf4ae13f8c407b3412dfeb305345bd87920db070aac7a6c",
+    "crates/sennet/tests/direct_phy_capture.rs": "5f497cfa2c89d557fac3fecc68d5bd9e30a0efb8873bc0f6d51a7ac0433cc36a",
+    "crates/tucket/examples/meshcore_headed.rs": "f8f91afa4d80c0eb9967e079a2d46a57d8e9c4695fb3f5528d4fdd63aac06a26",
+    "crates/tucket/src/companion.rs": "a12252842ab6e4a48820a039fb5da961079c6596afaf999767dc836b3fb53b13",
+    "testing/sennet_stock_bench.py": "1537dddec30c42b0d43842a797c59ca9e26ebc8c6c9627c0b3737b61d9d986b9",
+    "testing/receipts/sennet-tucket-current/stock_bench_checks.py": "4bcf090e55cc2a94fc15b58d90a60c7abc61871074127840a848d9ddb66d3595"
+  },
+  "executables_sha256": {
+    "direct_phy_text.exe": "f85758153686d5270b5a1e8eb05ca8486981d7b2109cca3b76435ed32d394937",
+    "direct_phy_receive.exe": "0aea33847edfc49f4a4bff23fc2336ef2c2ed54b758676db6d7d02a29f9d9475",
+    "direct_phy_pair.exe": "e2126e63513a50f9d15784d9d842a2dba31b746b63da0a8923b84d1e2be209c1",
+    "meshcore_headed.exe": "2d9ee687a843174ab088c5f9c7bf4e821cf187818c9ec6016c8f4e1948126b91"
+  },
+  "private_backups": {
+    "COM6": {
+      "bytes": 16777216,
+      "sha256": "d584d56a7584fcf47129a824e1bb8860b5c203fba79c2bbf4ef08d360eeedc30",
+      "published": false
+    },
+    "COM7": {
+      "bytes": 16777216,
+      "sha256": "dd75f798b334b72904b8a274c2934aac241f992da0ae037d64df52e499d5380f",
+      "published": false
+    }
+  },
+  "restoration": {
+    "COM6": "original full write verified, exact private tail independently compared, original slot B sequence 9",
+    "COM10": "never reflashed; original slot A sequence 84, US915/modem LongFast confirmed",
+    "COM7": "disconnected from USB after stock duplicate test; original restoration pending physical reconnect"
+  },
+  "uncompleted": [
+    "COM7 restoration",
+    "Sennet beta stock to Sennet RF",
+    "Sennet current-stock 232-byte boundary",
+    "Meshtastic alpha qualification",
+    "multiple stock repeaters",
+    "broader upstream roles/scopes"
+  ],
+  "files_sha256": {
+    "bench-selfchecks.json": "6f1508e059c54c6acebb6cc630fde89069a806376b86fd2590892dbaafdbfc18",
+    "com6-restore-admitted.log": "a5a0c75e297439a3dbe2b511086bd6de9bb524cfe021973cfbed0f765aebd42c",
+    "com6-restore.json": "4b5eb60a596debfbaca3bed249832a4a25405f8c7dab0fad69b1b08911c7dfe8",
+    "com6-restore.log": "ef889b459a3baaa320e4e69dcbcadd168110d6410f8bb70ab43d51d5aaaff3b1",
+    "com6-restored-status.log": "8c8f48a831a6a64d6ef4605eb6e753f1c1aa9bb756d655786580039feda12257",
+    "com6-settings-readback.log": "77cbf874c9ca1ec66c178084dcacf85a19143cee9542d7319316f03c8e50266a",
+    "com6-settings-verified.json": "f123b90ca5d2b6d99de736c2aeabd1a18240c696945dc46743aece62cdbaeec6",
+    "com6-uncompressed-recovery.json": "8ed4062975cd17cbe994e881cab1102087d2ebee2e6162b8e93d8e35a6c79262",
+    "com6-uncompressed-recovery.log": "951d9244f6dc267952f0fab7777b293f53238d15535b42bb0531a1ed21299649",
+    "com7-pending-recovery.json": "573d19f427edb721afeb81531448a1e9998482db6e0cda9ff7cd76d6e2c384c8",
+    "direct-phy-baselines.json": "f4d5692717f0039a49f58f69d574f401b8f94ebd2ad7168e459175cdd75d4ef6",
+    "gates/clippy.log": "efcea537f5a08aaff5bb880212e00bc31b0e53561cc55c4ff6dc88e1c53d5122",
+    "gates/embedded-check.log": "fbeb5eafb1e9715f39f72f18cc4be4c67c31faad352d82b2c358e62c9059f257",
+    "gates/format.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "gates/protocol-tests.log": "dc7c6feef7e9f88af33b08b68a545f24800a06cacbc67dc4cbc83a3f92381636",
+    "gates/registry.log": "29075919abeadc501610f67881445973f109808d6daac9726ed53bbb18611a57",
+    "gates/result.json": "d20d3e33531dd19b0c35b63ca71d849bc460ffba6e74ad14f8908cf64331148a",
+    "gates/stock-bench-admission.log": "6de9ba2ff0f443f490f1b6be3855c174d1ef13227e9e5756660872d0f5dc07ae",
+    "meshcore-flash.json": "c18eede05b7bcf1273cf8b430cab2fb712e9363cac59ffa5f1a90c20273b497f",
+    "meshcore-flash.log": "77621b1f8420a7d68d30c810703f5bc60f92a25e5ae330268e13897147516aac",
+    "meshcore-identity.log": "0f20f3ab4fdc1725f6185a3b62cac0b829c83fb20d8b3b9d6bb802a0bf5014c6",
+    "meshcore-plan.log": "eab7d1dff90d62a7b9bfc435e83c1ea99d183d398b0e2cccf9f241db6bb03844",
+    "meshcore-selected-plan.log": "55d2b2f82d555451dc72a811ecb33f099e3054380e2b2ab80a78dd3551d3fbff",
+    "meshtastic-configure.log": "06f744f856dbb06d55b36a186ad9983a1a97ea24edb9c6c3df1e1856cb05cd21",
+    "meshtastic-flash.json": "2b11f7e92ef63208a6ba7f9a3941b4e2109db9a4ed7040c5c6fce6d06cd4f89d",
+    "meshtastic-flash.log": "16ed2a5dd89c62566822518c3040c6d794cb9fca6099b9075d47f71a2e3a2730",
+    "meshtastic-identity.log": "526d1eeae094242f0d48d0c93e525896ea4fa5935fd5c42cf821ad7e871395e4",
+    "meshtastic-radio-query.log": "23b10f526f7fec6458fbb53727ce3957b7e6d30d0520a9a98e038ba043911c0e",
+    "meshtastic-radio-verified.log": "922dbe087e988d7c26a990a13efa1353ae9de8f13087ef6cf8f316746a9392cc",
+    "meshtastic-region-set-settled.log": "2ca094c5d045881967e17604fd2c3791fedb41a7f9efdabd78c207f99ead83d8",
+    "meshtastic-region-set.log": "52aaeba20ac825e6e59e253fcd11f57e6b8363d6d3b78398d735f812f1546c0e",
+    "meshtastic-region-verified-settled.log": "8a9292146b20dc5b16dce8dd2ec2d943d921d09290c6d740bfad76236a77761c",
+    "pair-id-continuity.json": "183bd45d4e4d63f7b58f1ca0e26baecce7affdac0ec58ac92d93c51a90f13713",
+    "protocol-tests.log": "ec1d5a542d0e973f7dbabe29dbaf54e9ee1ed7b33b05c470d0cf8872ea091d59",
+    "repeater-configuration.json": "ba23dd36bdcdc076ed129baed304c88dd56bcb1b32f915c5e5034178ac33a6ae",
+    "repeater-flash.json": "d97c67f61d755cee3675533c05451a4982e635f095f741b5fec52044bffb2458",
+    "repeater-flash.log": "21acdf978c0fdd5ee5c24aa76a46094df72d0b8e1f0a9489a93761d83843703c",
+    "repeater-identity.json": "25cc246d816bf80c7f5f4c03092fca55db06cee1428824ad3a3b865a34ce46c2",
+    "repeater-plan.log": "167153e37a6bbfd90b65e6ccd76c7a8d2641bcc6f865d0ca2767f63cb8a8a5ad",
+    "sennet-oversize-refusal.json": "1f9d8e0511d79cbdf725321c0d988f578cef525e9c09f197f3f1f7238131994f",
+    "sennet-pair-ids-restart.log": "7d4c40f38cf13d239d5b0f999a1ccf0bf471cbf0702199deb7c68e7f71b4fd38",
+    "sennet-pair-ids.log": "73599f3eb0b319c8d5a0d32a2211640ae485b15e4bd8d1b5a5ea3fc4a164a0aa",
+    "sennet-pair-restart.log": "c83e99b74f2d8c7c65ecd72b49a304b95863958e54c9ad4af70dc70bd0336aef",
+    "sennet-pair.log": "de3f6b1b988de5506973fa8c9831e45583f33b4bda7a595ac9d445ae8d7e7ccd",
+    "sennet-stock-duplicate-repaired.json": "0ef9f4d8ca858e647b8aaf7b7bdf78bcfe9b74890a487f897d430067f0463d4a",
+    "sennet-stock-duplicate-settled.json": "d3279ac6b227d382f33ebc2c146e25bc198da03086cf55d4db283ace241fca7b",
+    "sennet-stock-duplicate.json": "6169fb8fdcebf9f0a9fb7b5c3bd6bd50d8b6032d7f3e775bd50b47987c21406d",
+    "sennet-stock-maximum.json": "ae5d4463a7d5f3feb6507e3181eebbb4feeb0ff34e194a56bb066528ac61c475",
+    "t114-final-probe.json": "3028c8cf2961cd53ddfe788c18503c7f5e3d45f856be73b4a139a905706a91b6",
+    "t114-runtime-restored.json": "abbe4edbdbec216a67c749869a427e85d764f5cf61574e74681c027c64a98d24",
+    "tucket-final-guard-width3.log": "6b4556644d642b221cb60bfee3d7b4d9a087264a04f6c1403c0aa8fb6f00acb8",
+    "tucket-physical-executable.json": "15e571fe32c86a8be5b03e247a7feb4def31b374bf6425b816f862b854dbf7db",
+    "tucket-relay-width1.log": "897b9a7919d84efd25e5a9d89a1832c272415ae393744120a4b2c82088801bc5",
+    "tucket-relay-width2.log": "59de7afbc8f2db1de2bf44c75d204e984ac3be6921283ff36f1703c234be6878",
+    "tucket-relay-width3.log": "9f2eb4fb33ba6f6a3f0e2e82e7dc72dffbadb8c1e97f6fc137b22be53f1faf56",
+    "tucket-stock-width1-repaired.log": "4b5e0b6fab2775454eaeb3bba2e5fc9b6b70247772efd1f2a93851837051287f",
+    "tucket-stock-width1.log": "5efdcec440e8b5c508637360ea7a6a89f8f0e733eb7e7bc79f8a47dc04122232",
+    "tucket-stock-width2.log": "7032aee58b657fca04eec032a7c451617af3886fdf17225d940ddf82f7c7e633",
+    "tucket-stock-width3.log": "d16a5907bf31b7277c5d79212469d18d52a1ddf3959f780c12df2c4a54af7ee0",
+    "version-guard-tests.log": "11857bec7f548b46496299e820f4f15b2785f17e85260102cd66096ff2bacace"
+  },
+  "official_artifacts": {
+    "heltec_v4_companion_radio_usb-v1.17.1-d929643-merged.bin": {
+      "bytes": 707264,
+      "sha256": "67ef59c7687787255c23659e7525b81c1fc88bf679521f4183099a50580d0a3d"
+    },
+    "heltec_v4_repeater-v1.17.1-d929643-merged.bin": {
+      "bytes": 1234320,
+      "sha256": "b06d38a2e1e43249410dfebbb4321cf40e7ff6a5bbee6fa0fe12dd1e04661e4a"
+    },
+    "firmware-esp32s3-2.7.26.54e0d8d.zip": {
+      "bytes": 170272165,
+      "sha256": "339650ced8b8c859751f04be69c6af845fea96baca1327518f199afd2595a9d4"
+    },
+    "firmware-heltec-v4-2.7.26.54e0d8d.factory.bin": {
+      "bytes": 2182944,
+      "sha256": "2f8385e4167c6598fcdf6140dfe6ae6efd66f46ec8a34ffca67b55257266ebe2"
+    },
+    "espflash.exe": {
+      "bytes": 17014272,
+      "sha256": "0cc03364c70a86325236f18ad1aaed17eedf267d89312c0cdabe4964f5cb758e"
+    }
+  },
+  "official_release_pages": [
+    "https://github.com/meshcore-dev/MeshCore/releases/tag/companion-v1.17.1",
+    "https://github.com/meshcore-dev/MeshCore/releases/tag/repeater-v1.17.1",
+    "https://github.com/meshtastic/firmware/releases/tag/v2.7.26.54e0d8d"
+  ],
+  "staged_source_sha256": {
+    "crates/sennet/examples/direct_phy_pair.rs": "4be66b55834f972273a3386acd91f8a388935c66a54d22d40799bc8e4be4d92e",
+    "crates/sennet/examples/direct_phy_receive.rs": "d4160e9361b302cdcb3a0ba4cef403facb309f5255e6bfbd933b311305648ed2",
+    "crates/sennet/examples/direct_phy_text.rs": "ac9adfa6674f03372470848be4312fe8b762872fd2b1c276d5f6f51dead8eb85",
+    "crates/sennet/tests/direct_phy_capture.rs": "5f497cfa2c89d557fac3fecc68d5bd9e30a0efb8873bc0f6d51a7ac0433cc36a",
+    "crates/tucket/examples/meshcore_headed.rs": "f8f91afa4d80c0eb9967e079a2d46a57d8e9c4695fb3f5528d4fdd63aac06a26",
+    "crates/tucket/src/companion.rs": "a12252842ab6e4a48820a039fb5da961079c6596afaf999767dc836b3fb53b13",
+    "testing/sennet_stock_bench.py": "1537dddec30c42b0d43842a797c59ca9e26ebc8c6c9627c0b3737b61d9d986b9",
+    "testing/receipts/sennet-tucket-current/stock_bench_checks.py": "4bcf090e55cc2a94fc15b58d90a60c7abc61871074127840a848d9ddb66d3595"
+  },
+  "source_checkout_normalization": {
+    "description": "Working-tree source hashes preserve observed bytes; staged hashes separately account for Git CRLF normalization without content changes.",
+    "normalized_paths": [
+      "crates/sennet/examples/direct_phy_pair.rs",
+      "crates/sennet/examples/direct_phy_receive.rs",
+      "crates/sennet/examples/direct_phy_text.rs"
+    ]
+  }
+}

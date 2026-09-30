@@ -69,6 +69,59 @@ fn fixture_frames(name: &str) -> Vec<Vec<u8>> {
         .collect()
 }
 
+fn current_fixture(text: &str) -> Vec<u8> {
+    let hex = text.trim();
+    (0..hex.len())
+        .step_by(2)
+        .map(|index| u8::from_str_radix(&hex[index..index + 2], 16).unwrap())
+        .collect()
+}
+
+#[test]
+fn identified_2_7_26_peer_accepts_and_rebroadcasts_sennet_text() {
+    // Fresh black-box observations, separately identified through the untouched
+    // stock CLI. The original July fixtures above retain their unknown release.
+    let radio = current_fixture(include_str!(
+        "fixtures/meshtastic_2_7_26_rebroadcast_2026_09_30.hex"
+    ));
+    let channel = Channel {
+        hash: 8,
+        key: PUBLIC_LONGFAST_KEY,
+    };
+    let message = channel.open_text(&radio).unwrap().unwrap();
+    assert_eq!(message.header.source, 0xf66a_fb28);
+    assert_eq!(message.header.packet_id, 0xb930_0002);
+    assert_eq!(message.header.destination, BROADCAST_DESTINATION);
+    assert_eq!(
+        message.text,
+        "Sennet stock comparison 0930 settled duplicate"
+    );
+
+    let client = current_fixture(include_str!(
+        "fixtures/meshtastic_2_7_26_client_text_2026_09_30.hex"
+    ));
+    let Value::Len(packet) = Reader::new(&client).next().unwrap().value else {
+        panic!("captured client packet must be nested");
+    };
+    let application = Reader::new(packet).find(|field| field.number == 4).unwrap();
+    let Value::Len(application) = application.value else {
+        panic!("captured application must be nested");
+    };
+    assert_eq!(application::decode_text(application).unwrap(), message.text);
+
+    let node_info = current_fixture(include_str!(
+        "fixtures/meshtastic_2_7_26_nodeinfo_2026_09_30.hex"
+    ));
+    let mut directory = NodeDirectory::new();
+    assert!(directory.ingest_from_radio(&node_info).unwrap());
+    let stock = directory.get(0xf66a_fa64).unwrap();
+    assert_eq!(stock.id, "!f66afa64");
+    assert_eq!(stock.long_name, "Sennet Current Stock");
+    assert_eq!(stock.short_name, "SC26");
+    // The relay's public identity does not become the original sender's name.
+    assert!(message.resolve(&directory).from.user.is_none());
+}
+
 #[test]
 fn direct_phy_capture_decrypts_at_the_transport_boundary() {
     let mut packet = Packet::decode(&RADIO_FRAME).unwrap();

@@ -1,0 +1,19 @@
+{
+  "command": [
+    "esptool",
+    "--chip",
+    "esp32s3",
+    "--port",
+    "COM6",
+    "--baud",
+    "921600",
+    "write-flash",
+    "--no-progress",
+    "--no-compress",
+    "0",
+    "validation\\results\\sennet-tucket-radios\\backups\\com6-retinue-full-local.bin"
+  ],
+  "exit_code": 0,
+  "seconds": 172.9,
+  "image_sha256": "d584d56a7584fcf47129a824e1bb8860b5c203fba79c2bbf4ef08d360eeedc30"
+}

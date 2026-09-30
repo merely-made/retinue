@@ -1,9 +1,9 @@
-# Sennet and Tucket current-reference software work
+# Sennet and Tucket current-reference work
 
 **September 29, 2026. Baseline:** Retinue `10a1711` on clean `main`.
-**Verdict:** bounded protocol repairs pass software gates. Fresh stock-radio
-qualification remains open. No serial port was opened, firmware flashed, radio
-setting changed, or deployment credential provisioned in this work.
+**September 29 verdict:** bounded protocol repairs pass software gates. No serial
+port was opened, firmware flashed or radio setting changed during that software
+pass. The September 30 physical results below have their own evidence boundary.
 
 The [wire plan](../../../design_docs/2026-09-27_wire_compatibility_plan.md)
 owns the scope and remaining acceptance. [reference.json](reference.json)
@@ -85,12 +85,11 @@ Run `run.py --output <unused evidence directory>` with the ordinary approved
 only named failures while preserving earlier output. Existing evidence is never
 overwritten.
 
-Fresh Sennet beta and alpha stock peers need separate identified captures and
-bidirectional text/boundary/restart receipts. Tucket needs identified 1.17.1
-companions/repeaters for advert, flood, learned route, text, ACK, retry, fallback,
-multi-byte and multi-repeater acceptance. Scope policy and broader reference
-roles remain separate implementation/acceptance work. Preserve settings and
-identities before physical changes. RNS remains pinned to published 1.5.4.
+Sennet alpha needs separate identified captures and bidirectional text/boundary/
+restart receipts. Beta's outstanding gates and measured Tucket 1.17.1 scopes are
+listed below. Scope policy, multiple repeaters and broader reference roles remain
+separate work. Preserve settings and identities before physical changes. RNS
+remains pinned to published 1.5.4.
 
 The shared default package-cache lock was held by an unrelated Mere fetch. The
 existing marker-identified `C:/t/cargo-homes/retinue-wire-compat` was reused for
@@ -102,3 +101,69 @@ Automatic approval review rejected the checked deletion command with only
 "blocked by policy" as its reason. A separate live-owner recheck found no matching
 gate process. The temporary home remains owned by this completed software
 qualification; deletion was not bypassed.
+
+## September 30 physical qualification
+
+Baseline `e898d54` on clean main. Three connected boards were independently
+identified before writes: V4 COM6 / MAC ending FB:28, V4 COM7 / FA:64, and T114
+COM10. Existing owner selections from July 28 and August 20 identify both V4
+carriers as revision 4.2. Firmware model labels are recorded separately. Full
+16 MiB private V4 backups preceded foreign writes. Stock images were installed
+through Linkboy's hash-checked three-part packages; a transfer receipt alone is
+not a protocol exchange receipt. [physical](physical/) retains the observations.
+
+| Comparison | Measured scope |
+| --- | --- |
+| MeshCore companion `v1.17.1-d929643`, API 13 | Signed adverts, flood/private text, encrypted ACK, learned reciprocal routes, three failed direct sends then fourth-attempt flood recovery; outbound widths 1, 2 and 3 |
+| MeshCore repeater `v1.17.1-d929643` | Forced reciprocal one-hop text/ACK routes with prefixes `bc`, `bcb6`, `bcb6a6`; both endpoints must cross the stock repeater |
+| Meshtastic `2.7.26.54e0d8d`, CLIENT, HELTEC_V4 | Sennet text accepted once in its client interface and rebroadcast with matching source, packet ID and exact text; two identical repeats suppressed in an eight-second observation window |
+| Independent Retinue V4/T114 | Encrypted bidirectional text; durable IDs advanced by one across host process restarts |
+| Text boundary | 233 bytes refused before opening a radio; current stock maximum-size acceptance remains pending |
+
+The current Meshtastic release was queried through an untouched CLI 2.7.11
+process. Only official binary firmware was extracted; no Meshtastic schema,
+firmware or client implementation source was read. New hex fixtures replay
+today’s raw RF/client/node-info observations, with their exact producer pin.
+Historical July fixtures retain their original unknown producer. Public
+node-info identifies `!f66afa64` as `Sennet Current Stock` / `SC26`; a relay's
+name does not replace the original sender's identity.
+
+[Final software gates](physical/gates/result.json) passed 151 protocol tests,
+strict Clippy across both hardware examples, both embedded protocol checks,
+formatting, registry verification and six captured-byte admission controls.
+Those controls reject a wrong source, text or packet ID and truncated input;
+they never open a serial port. The earlier five-case ad hoc self-check remains
+historical. [manifest.json](physical/manifest.json) hashes public evidence,
+working-tree source, executed examples and the unpublished recovery backups.
+
+The first Tucket exchange exposed refusal of the official hexadecimal build
+suffix. The repair accepts that suffix for a base-release pin while preserving
+exact full-build pins and rejecting other releases, malformed suffixes and
+empty pins. Earlier endpoint/repeater runs retain their executed binary hash;
+the final tightened guards have a separate passing width-three endpoint run.
+Sennet receipt admission now requires the exact source, packet ID and text,
+preventing unrelated traffic from producing a successful transmit receipt.
+
+Failures are retained. Two Sennet attempts received no rebroadcast while stock
+region readback was UNSET. Keeping the CLI connected for five seconds after a
+separate region setter persisted US; the succeeding readback precedes the
+successful RF exchange. COM7 then disappeared from USB, and the maximum-size
+attempt failed before opening the absent port. Reverse/current maximum-size
+checks and original-image restoration await physical reconnection.
+
+COM6's compressed full-image Linkboy restore timed out in `FlashDeflData` and
+remains recovery-required in that transaction receipt. Separate expert recovery
+wrote the exact original 16 MiB image uncompressed with esptool 5.3.1, verified
+the full write, then independently compared the complete private settings tail
+at `0x3f0000..0x400000`. Its original slot B / sequence 9 returned. T114 was
+never reflashed and retains slot A / sequence 84, US915/modem and LongFast.
+COM7's verified original backup remains ready for the same uncompressed
+restoration. Private images, settings fragments and the stock CLI environment
+are excluded from public receipts.
+
+Remaining gates: COM7 restoration, beta reverse/current maximum-size RF,
+separately pinned alpha, multiple stock repeaters, region scopes, PKI/directed
+routing and broader reference roles. The ordinary build target remains
+`C:/t/cargo-targets/retinue`; private recovery evidence remains under ignored
+`validation/results/sennet-tucket-radios/backups`. The earlier policy-blocked
+Cargo home is retained as described above. No worktree or isolated target exists.

@@ -1,0 +1,8 @@
+{
+  "ver": "ver\r\n  -> v1.17.1-d929643 (Build: 14-Aug-2026)\r\n",
+  "board": "board\r\n  -> Heltec V4.3 OLED\r\n",
+  "get public.key": "get public.key\r\n  -> > BCB6A662C0F0B5746319A5AB1D92F3FD01695390CFB8CC72E7E4523CC0EB5249\r\n",
+  "get radio": "get radio\r\n  -> > 869.6179809,62.5,8,5\r\n",
+  "get repeat": "get repeat\r\n  -> > on\r\n",
+  "get path.hash.mode": "get path.hash.mode\r\n  -> > 0\r\n"
+}
