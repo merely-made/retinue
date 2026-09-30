@@ -156,11 +156,62 @@ async fn await_home(dut: &mut serial2_tokio::SerialPort, visit_start: Instant) -
     Ok(status)
 }
 
+async fn prove_cancellation(
+    dut: &mut serial2_tokio::SerialPort,
+    peer: &mut DirectPhySerialLink,
+    home_announce: &serde_json::Value,
+    events: &mut Vec<serde_json::Value>,
+    dut_reports: &mut Vec<String>,
+) -> Result<()> {
+    command(
+        dut,
+        Command::Excursion {
+            target: SENNET,
+            duration_ms: 10_000,
+            allow_loss: false,
+        },
+    )
+    .await?;
+    command(dut, Command::Status).await?;
+    let away = collect(dut, Duration::from_millis(500)).await?;
+    dut_reports.push(away.clone());
+    if !away.contains("state=Away") || !away.contains("instance: PersonalityId(1)") {
+        return Err("home-gap probe did not enter Sennet".into());
+    }
+    match resident_retinue::probe_home(peer, home_announce).await {
+        Err(error)
+            if error
+                .to_string()
+                .starts_with("resident home proof timed out;") =>
+        {
+            events.push(json!({"kind":"home_request_missed_while_away", "detail":error.to_string(), "scope":"one physical home request; observed absence, no coverage claimed"}));
+        }
+        Err(error) => return Err(error),
+        Ok(_) => return Err("home request unexpectedly succeeded during Sennet visit".into()),
+    }
+    command(dut, Command::Cancel).await?;
+    command(dut, Command::Status).await?;
+    let cancelled = collect(dut, Duration::from_millis(500)).await?;
+    dut_reports.push(cancelled.clone());
+    if !cancelled.contains("state=Home") {
+        return Err("cancel did not restore home".into());
+    }
+    let restored = resident_retinue::probe_home(peer, home_announce).await;
+    let close = collect(dut, Duration::from_secs(1)).await?;
+    dut_reports.push(close.clone());
+    events.push(restored?);
+    if !close.contains("LinkDown") {
+        return Err("post-gap home link did not close".into());
+    }
+    Ok(())
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     let args: Vec<_> = std::env::args().skip(1).collect();
-    if args.len() != 3 {
-        eprintln!("usage: resident_probe DUT_PORT PEER_PORT OUTPUT_JSON");
+    let cancel_only = args.get(3).is_some_and(|mode| mode == "--cancel-only");
+    if args.len() != 3 && !(args.len() == 4 && cancel_only) {
+        eprintln!("usage: resident_probe DUT_PORT PEER_PORT OUTPUT_JSON [--cancel-only]");
         std::process::exit(2);
     }
     let output = PathBuf::from(&args[2]);
@@ -210,6 +261,23 @@ async fn main() {
 
         let home_announce = resident_retinue::prove_home(&mut peer).await?;
         events.push(home_announce.clone());
+
+        if cancel_only {
+            for visit in 0..3 {
+                let before = resident_retinue::probe_home(&mut peer, &home_announce).await;
+                let close = collect(&mut dut, Duration::from_secs(1)).await?;
+                dut_reports.push(close.clone());
+                events.push(before?);
+                if !close.contains("LinkDown") { return Err("pre-gap home link did not close".into()); }
+                prove_cancellation(&mut dut, &mut peer, &home_announce, &mut events, &mut dut_reports).await?;
+                events.push(json!({"kind":"cancellation_visit", "visit":visit}));
+            }
+            command(&mut dut, Command::Status).await?;
+            let status = collect(&mut dut, Duration::from_millis(500)).await?;
+            dut_reports.push(status.clone());
+            peer.shutdown().await?;
+            return Ok(json!({"ready":ready,"status":status,"dut_reports":dut_reports,"retinue_home":home_announce,"cancellation_visits":3}));
+        }
 
         let key = match material.sennet_key { SennetKey::Aes128(k) => ChannelKey::Aes128(k), SennetKey::Aes256(k) => ChannelKey::Aes256(k) };
         let channel = Channel { hash: material.sennet_channel, key };
@@ -333,30 +401,7 @@ async fn main() {
         // Keep the peer on home while the board is explicitly away. A fresh
         // home request must be missed, then a fresh request after cancellation
         // must verify against the same retained identity.
-        command(&mut dut, Command::Excursion { target: SENNET, duration_ms: 10_000, allow_loss: false }).await?;
-        command(&mut dut, Command::Status).await?;
-        let away = collect(&mut dut, Duration::from_millis(500)).await?;
-        dut_reports.push(away.clone());
-        if !away.contains("state=Away") || !away.contains("instance: PersonalityId(1)") {
-            return Err("home-gap probe did not enter Sennet".into());
-        }
-        match resident_retinue::probe_home(&mut peer, &home_announce).await {
-            Err(error) if error.to_string().starts_with("resident home proof timed out;") => {
-                events.push(json!({"kind":"home_request_missed_while_away", "detail":error.to_string(), "scope":"one physical home request; observed absence, no coverage claimed"}));
-            }
-            Err(error) => return Err(error),
-            Ok(_) => return Err("home request unexpectedly succeeded during Sennet visit".into()),
-        }
-        command(&mut dut, Command::Cancel).await?;
-        command(&mut dut, Command::Status).await?;
-        let cancelled = collect(&mut dut, Duration::from_millis(500)).await?;
-        dut_reports.push(cancelled.clone());
-        if !cancelled.contains("state=Home") { return Err("cancel did not restore home".into()); }
-        let restored = resident_retinue::probe_home(&mut peer, &home_announce).await;
-        let close = collect(&mut dut, Duration::from_secs(1)).await?;
-        dut_reports.push(close.clone());
-        events.push(restored?);
-        if !close.contains("LinkDown") { return Err("post-gap home link did not close".into()); }
+        prove_cancellation(&mut dut, &mut peer, &home_announce, &mut events, &mut dut_reports).await?;
         command(&mut dut, Command::Status).await?;
         let status = collect(&mut dut, Duration::from_millis(500)).await?;
         dut_reports.push(status.clone());
@@ -366,7 +411,8 @@ async fn main() {
     let report = json!({"passed":outcome.is_ok(),"qualified":outcome.is_ok(),"events":events,"dut_reports":dut_reports,
         "error":outcome.as_ref().err().map(|e|e.to_string()),
         "elapsed_ms":started.elapsed().as_millis(),"result":outcome.ok(),
-        "scope":"MC4c resident RF visits: signed home announce, three bidirectional Sennet visits with duplicate retention, and three stable Tucket adverts"});
+        "mode":if cancel_only { "cancel" } else { "visits" },
+        "scope":if cancel_only { "three isolated resident cancellations, each with an initial signed home proof, missed request while away, and signed home proof after cancellation" } else { "MC4c resident RF visits: signed home announce, three bidirectional Sennet visits with duplicate retention, and three stable Tucket adverts" }});
     let write = fs::write(&output, serde_json::to_vec_pretty(&report).unwrap());
     if let Err(e) = write {
         eprintln!("receipt write: {e}");

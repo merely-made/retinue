@@ -28,6 +28,7 @@ def main() -> int:
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--dut", default="COM7")
     parser.add_argument("--peer", default="COM10")
+    parser.add_argument("--mode", choices=("visits", "cancel"), default="visits")
     parser.add_argument("--peer-baseline-receipt", type=Path)
     args = parser.parse_args()
     if args.output.exists():
@@ -36,7 +37,8 @@ def main() -> int:
     ports = {p.device: (p.vid, p.pid, p.serial_number) for p in comports()}
     report = {"started_utc": utc_now(), "passed": False, "baseline": {}, "restoration": {},
               "dut_reset_required": False, "transcript": [],
-              "scope": "MC4c resident setup; peer restoration only after one-shot DUT setup",
+              "scope": "MC4c resident visits" if args.mode == "visits" else "three isolated resident cancellations; not full visit acceptance",
+              "mode": args.mode,
               "runner_sha256": digest(Path(__file__)), "exe_sha256": digest(args.exe),
               "ports": {name: list(value) for name, value in ports.items()}}
     sources = ["Cargo.lock", "crates/retinue/Cargo.toml", "crates/retinue/examples/resident_probe.rs",
@@ -61,7 +63,10 @@ def main() -> int:
         report["baseline"]["peer"] = snapshot(args.peer, True, report["transcript"], previous)
         child = args.output.with_name(args.output.stem + "-host.json")
         report["dut_reset_required"] = True
-        run = subprocess.run([str(args.exe.resolve()), args.dut, args.peer, str(child.resolve())],
+        command = [str(args.exe.resolve()), args.dut, args.peer, str(child.resolve())]
+        if args.mode == "cancel":
+            command.append("--cancel-only")
+        run = subprocess.run(command,
                              capture_output=True, text=True, timeout=150)
         report.update(host_exit=run.returncode, host_stdout=run.stdout, host_stderr=run.stderr)
         if digest(args.exe) != report["exe_sha256"]:
@@ -74,6 +79,9 @@ def main() -> int:
         # The completed host harness must produce all on-air visit proofs.
         if run.returncode != 0 or not report.get("host", {}).get("qualified"):
             raise RuntimeError("resident host probe failed")
+        if args.mode == "cancel" and (report["host"].get("mode") != "cancel"
+                or report["host"].get("result", {}).get("cancellation_visits") != 3):
+            raise RuntimeError("host did not qualify three isolated cancellations")
         report["passed"] = True
     except Exception as error:
         report["error"] = repr(error)

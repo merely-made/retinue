@@ -452,3 +452,12 @@ T114's new native image is built but unpublished: its serial loader has appeared
 and physical double-tap into the stock UF2 volume remains required before its
 state-preserving installation and native-node RF qualification. Historical v51
 packages and receipts remain unchanged.
+
+The T114 UF2 drive appeared after owner reset. The verified application-only write
+returned source `711816a`, original slot A / sequence 84, and US915/modem.
+Native-node RF then refused oversized resource offers and echoed 1024 bytes in
+both directions. Two signature-verified native announces retained one identity
+and advanced across controlled soft resets. The full resident run with T114 as
+peer timed out during a Tucket visit, so the host bench now exposes an explicitly
+scoped three-cancellation mode. It reuses the existing cancellation checks and
+peer restoration, without claiming the complete visit suite from that narrow run.
