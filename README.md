@@ -40,6 +40,10 @@ Each crate has its own README with more detail, and here's a generated overview.
 - T114 bounded transport has an on-air receipt from August 13. September's V4
   resident-protocol receipt covers retained state and ordinary protocol traffic;
   full fault, memory and unattended-operation acceptance remain open.
+- The [firmware refresh](testing/receipts/firmware-refresh/README.md) installed
+  clean-pin modem and resident V4 images with exact live build identities and
+  preserved settings. Selected Sennet/Tucket RF traffic passed; the resident
+  cancellation proof timed out. T114's rebuilt image awaits UF2 installation.
 - Signalman desktop collected observations from identified V4 and T114 boards
   with automatic saving disabled, and keyboard export/reload was verified on
   September 21. Device-switch association clearing is implemented. Clipboard,

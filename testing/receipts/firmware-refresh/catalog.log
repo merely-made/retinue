@@ -1,0 +1,6 @@
+package index retinue.package-index/v1 publisher=Merely Made version=4 packages=4
+- retinue.heltec-v4 publisher=Merely Made state=proven-recipe installer_receipts=1 recovery_receipts=1 receipt_hosts=1
+- retinue.heltec-v4-resident publisher=Merely Made state=partial installer_receipts=0 recovery_receipts=0 receipt_hosts=0
+- retinue.t114 publisher=Merely Made state=proven-recipe installer_receipts=1 recovery_receipts=1 receipt_hosts=1
+- meshtastic.heltec-mesh-node-t114 publisher=Meshtastic state=partial installer_receipts=0 recovery_receipts=0 receipt_hosts=0
+

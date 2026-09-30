@@ -1,0 +1,16 @@
+{
+  "COM6": {
+    "settings_pair_unchanged": true,
+    "settings_pair_sha256": "d612a72c61391376e782b002a7869a64b55eef9113d0872258b5d7df03d14ce6",
+    "full_tail_sha256": "0b1d7708aa65e9b98f809c5ff81179e7b9818ad5b98f90b02c75b4442a831a63",
+    "changed_bytes": 0,
+    "changes_only_in_announce_and_packet_reservations": true
+  },
+  "COM7": {
+    "settings_pair_unchanged": true,
+    "settings_pair_sha256": "e46a9efa893b8f714603eac5a0e05de7e35f35ed9220e38797dd0d368b32373c",
+    "full_tail_sha256": "1159d3dd449a2e02ee8167dc0ce5732ecd81bb7ab159ac0764f3d1dbd4ea78ee",
+    "changed_bytes": 24,
+    "changes_only_in_announce_and_packet_reservations": true
+  }
+}

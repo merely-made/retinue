@@ -1,0 +1,38 @@
+{
+  "schema": 4,
+  "package_id": "retinue.heltec-v4-resident",
+  "package_parts": [
+    {
+      "kind": "application",
+      "offset": null,
+      "byte_length": 10833608,
+      "sha256": "efc5f0737591d5530bcda3c9f2a6d8d91d47de1d78414b4520be3e68f16e94f7"
+    }
+  ],
+  "publisher_signature": null,
+  "board": "heltec-v4",
+  "board_revision": "4.2",
+  "board_selection_evidence": "owner confirmation from carrier marking",
+  "route": "esp-rom",
+  "helper": {
+    "program": "espflash",
+    "version": "4.5.0",
+    "platform": "windows-x86_64",
+    "binary_sha256": "0cc03364c70a86325236f18ad1aaed17eedf267d89312c0cdabe4964f5cb758e",
+    "archive_sha256": "854c82c947c20e7f337f120f0398042ed1760f2269cb0f9be3d2beae3b66fbfb",
+    "archive_url": "https://github.com/esp-rs/espflash/releases/download/v4.5.0/espflash-x86_64-pc-windows-msvc.zip"
+  },
+  "transport": "serial:COM7",
+  "processor": "esp32-s3",
+  "flash_size": 16777216,
+  "bootloader": "esp-rom",
+  "stages": [
+    {
+      "name": "manual-check-required",
+      "detail": "Every package part transferred and verified by the helper."
+    }
+  ],
+  "result": "manual-check-required",
+  "application": null,
+  "manual_check": "Status must report build=711816a8124bd58cd8cc314ec4de5009be7df166 image=v4-resident-usb."
+}

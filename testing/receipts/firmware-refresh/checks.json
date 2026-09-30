@@ -1,0 +1,24 @@
+{
+  "firmware_source_revision": "711816a8124bd58cd8cc314ec4de5009be7df166",
+  "software": {
+    "target_release_builds": [
+      "v4-modem-usb",
+      "v4-resident-usb",
+      "t114-native"
+    ],
+    "linkboy_library_tests": 82,
+    "package_fixture_tests": 2,
+    "format": true,
+    "registry": true,
+    "catalogs": true,
+    "staged_payload_hashes": true,
+    "private_material_excluded": true
+  },
+  "physical": {
+    "v4_modem_installation_and_rom_retry": true,
+    "v4_settings_preserved": true,
+    "v4_bidirectional_sennet_text": true,
+    "resident_complete_acceptance": false,
+    "t114_installation": "pending stock UF2 volume"
+  }
+}

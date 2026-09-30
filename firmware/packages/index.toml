@@ -1,24 +1,29 @@
 schema = "retinue.package-index/v1"
 publisher = "Merely Made"
-version = "3"
+version = "4"
 
 [[packages]]
 package_id = "retinue.heltec-v4"
-release_sequence = 1
+release_sequence = 2
 manifest = "heltec-v4-current.toml"
 firmware_publisher = "Merely Made"
 state = "proven-recipe"
 instructions_url = "https://github.com/merely-made/retinue/blob/main/firmware/packages/README.md"
 recovery_url = "https://github.com/merely-made/retinue/blob/main/firmware/packages/heltec-v4-current-recovery.md"
-installer_receipts = [
-  "https://github.com/merely-made/retinue/blob/main/design_docs/2026-08-19_signalman_public_f5_windows_receipt.md",
-  "https://github.com/merely-made/retinue/blob/main/design_docs/2026-08-19_linkboy_f5_macos_linux_v4_receipt.md",
-]
-recovery_receipts = [
-  "https://github.com/merely-made/retinue/blob/main/design_docs/2026-08-14_com6_n39_hopspot_retinue_signalman_restore_receipt.md",
-  "https://github.com/merely-made/retinue/blob/main/design_docs/2026-08-19_linkboy_f5_windows_v4_retinue_receipt.json",
-]
-receipt_hosts = ["windows-x86_64", "macos-x86_64", "macos-aarch64", "linux-x86_64"]
+installer_receipts = ["https://github.com/merely-made/retinue/blob/main/testing/receipts/firmware-refresh/README.md"]
+recovery_receipts = ["https://github.com/merely-made/retinue/blob/main/testing/receipts/firmware-refresh/README.md"]
+receipt_hosts = ["windows-x86_64"]
+
+[[packages]]
+package_id = "retinue.heltec-v4-resident"
+release_sequence = 1
+manifest = "heltec-v4-resident.toml"
+firmware_publisher = "Merely Made"
+state = "partial"
+instructions_url = "https://github.com/merely-made/retinue/blob/main/firmware/packages/README.md"
+recovery_url = "https://github.com/merely-made/retinue/blob/main/firmware/packages/heltec-v4-current-recovery.md"
+installer_receipts = []
+recovery_receipts = []
 
 [[packages]]
 package_id = "retinue.t114"

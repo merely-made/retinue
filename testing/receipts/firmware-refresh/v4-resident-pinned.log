@@ -1,0 +1,20 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling tulle-heltec-v4-phy v0.0.1 (C:\Users\mark_\Code\repos\retinue\firmware\heltec-v4-phy)
+warning: function `last_sleep_us` is never used
+  --> firmware\heltec-v4-phy\src\power.rs:46:12
+   |
+46 |     pub fn last_sleep_us() -> u32 {
+   |            ^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `radio_wake_registrations` is never used
+  --> firmware\heltec-v4-phy\src\wake_input.rs:65:8
+   |
+65 | pub fn radio_wake_registrations() -> u32 {
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `tulle-heltec-v4-phy` (bin "tulle-heltec-v4-phy") generated 2 warnings
+    Finished `release` profile [optimized + debuginfo] target(s) in 28.80s

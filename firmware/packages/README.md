@@ -3,9 +3,18 @@
 This directory contains Linkboy package manifests, one-file payloads or ordered sparse parts,
 recovery instructions, and the public package index. Every part has its own digest; sparse ESP
 parts also name their write offset. The index is the publishable installer evidence artifact:
-`retinue.heltec-v4` and `retinue.t114` are
-`proven-recipe` entries with installer, recovery, and host receipts. The retained Meshtastic
-T114 package remains `partial` until its own interface check is recorded.
+`retinue.heltec-v4` is the September 30 modem build, with fresh Windows installation
+and ROM-loader retry evidence. `retinue.heltec-v4-resident` is a separate, partial
+commissioning image. T114 still offers the historical v51 recipe; its freshly built
+replacement awaits physical UF2 installation and qualification. The retained
+Meshtastic T114 package remains `partial` until its own interface check is recorded.
+
+The V4 images identify source `711816a8124bd58cd8cc314ec4de5009be7df166` and their
+image type in live status. Both installed V4s retain their original settings.
+The resident image starts in the persisted modem personality; one-shot resident
+setup uses volatile test channel material. Three Sennet and Tucket visits passed,
+but a final home link proof after cancellation timed out. It does not close the
+resident acceptance gate. See the [firmware receipt](../../testing/receipts/firmware-refresh/README.md).
 
 ## Before installing
 
@@ -28,7 +37,9 @@ Its immutable artifacts and manifest remain in `testing/receipts/prns-retirement
 as historical evidence, outside the active firmware offering. Retinue's V4
 recovery instructions continue to use its own package and the ROM loader.
 
-The V4 routes have Windows, Intel-macOS, Apple-silicon-macOS, and Linux physical receipts.
+Older V4 artifacts have Windows, Intel-macOS, Apple-silicon-macOS, and Linux physical receipts.
+The refreshed V4 artifact currently has Windows evidence only; older runs do not
+qualify these new bytes on other hosts.
 The public T114 UF2 route has a Windows physical receipt. The index records those exact host
 boundaries instead of extrapolating support from a helper's portability.
 
@@ -46,24 +57,25 @@ bootloader-only observation cannot recover the prior application state; callers 
 fact across a loader transition must retain it in the serialized device observation. Linkboy
 does not invent a hardware read for it.
 
-The 2026-08-31 WN1 software-only check does not update either immutable package. The current
+The 2026-08-31 WN1 software-only check did not update either immutable package. The current
 V4 package writes `0x0..0x3F0000` and preserves `0x3F0000..0x400000`, which includes the
 settings pair, announce-reservation pair, ordinary control rollback pair
 (`0x3F4000..0x3F6000`), and the writable pending first-write A/B pair
-(`0x3F6000..0x3F8000`). The remaining preserved tail (`0x3F8000..0x400000`)
-is unallocated future-vault space, not a pending claim or a credential-vault
-implementation; any vault needs its own selected range and overlap guard. The
-current immutable package artifacts were not rebuilt for this claim-only slice
-and gain no capability claim. T114 v51's immutable payload stops at `0x69400`; its native-node
+(`0x3F6000..0x3F8000`). The current resident build also owns the Sennet packet-ID
+reservation pair at `0x3F8000..0x3FA000`. The remaining tail is unallocated
+future space; any vault needs its own selected range and overlap guard. September
+30 rebuilt the V4 artifacts and independently verified the full preserved tail
+before resident setup. T114 v51's immutable payload stops at `0x69400`; its native-node
 preserved/guard declaration begins at `0xE8000`, so it does not contractually cover the new
-`0xE6000..0xE8000` control pair. This is preserved-tail inventory only, not a rebuilt-package,
-flash-contents, physical-reset, or on-air receipt.
+`0xE6000..0xE8000` control pair. The pending T114 replacement reserves all three
+A/B pairs at `0xE6000..0xEC000`, but is not yet an installed-device receipt.
 
 Inspect the catalog and a package before connecting a board:
 
 ```text
 linkboy catalog firmware/packages/index.toml
 linkboy inspect firmware/packages/heltec-v4-current.toml
+linkboy inspect firmware/packages/heltec-v4-resident.toml
 linkboy inspect firmware/packages/t114-v51.toml
 linkboy inspect firmware/packages/meshtastic-t114-2.7.26.54e0d8d.toml
 ```

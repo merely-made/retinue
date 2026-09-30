@@ -9,7 +9,7 @@ version = "1"
 
 [[packages]]
 package_id = "retinue.heltec-v4"
-release_sequence = 1
+release_sequence = 2
 manifest = "heltec-v4-current.toml"
 firmware_publisher = "Merely Made"
 state = "partial"

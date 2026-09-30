@@ -1,0 +1,14 @@
+{
+  "COM6": {
+    "start": "0x3f0000",
+    "length": 65536,
+    "matches_original": true,
+    "sha256": "0b1d7708aa65e9b98f809c5ff81179e7b9818ad5b98f90b02c75b4442a831a63"
+  },
+  "COM7": {
+    "start": "0x3f0000",
+    "length": 65536,
+    "matches_original": true,
+    "sha256": "637e48d43b78dd653eb20abb10e306ab03a6fc9ed8249178158763d8a8a54ddc"
+  }
+}

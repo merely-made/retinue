@@ -605,12 +605,11 @@ y/rUw2y8/hOUYjZU71eHp/Wo1KZ40fGy2VJEDl34XMJM+TX48Ss/17u3IvIfbVR1FkZZSNCisQbuQY+b
         );
         assert_eq!(
             package("retinue.heltec-v4").receipt_hosts,
-            [
-                "windows-x86_64",
-                "macos-x86_64",
-                "macos-aarch64",
-                "linux-x86_64",
-            ]
+            ["windows-x86_64"]
+        );
+        assert_eq!(
+            package("retinue.heltec-v4-resident").state,
+            CatalogState::Partial
         );
         assert_eq!(package("retinue.t114").state, CatalogState::ProvenRecipe);
         assert_eq!(

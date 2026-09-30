@@ -1,0 +1,4 @@
+radios online: COM6=left, COM7=right
+right-to-left text passed: source=72696768 packet_id=f43884e3, RSSI -33 dBm, SNR 6.0 dB
+left-to-right text passed: source=6c656674 packet_id=f4388713, RSSI -44 dBm, SNR 6.0 dB
+SENNET DIRECT-PHY PAIR HEADED PASSED

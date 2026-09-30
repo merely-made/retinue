@@ -1,0 +1,8 @@
+"""Use the original guarded resident harness with an explicitly identified V4 peer."""
+import sys
+from pathlib import Path
+root=Path(__file__).resolve().parents[3]
+sys.path.insert(0,str(root/'testing'))
+import mc4_resident_bench as bench
+bench.EXPECTED['peer']=(0x303a,0x1001,'44:1B:F6:6A:FB:28')
+raise SystemExit(bench.main())

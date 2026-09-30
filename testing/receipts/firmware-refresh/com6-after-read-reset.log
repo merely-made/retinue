@@ -1,0 +1,4 @@
+Error:   × Failed to open serial port COM6
+  ├─▶ Error while connecting to device
+  ╰─▶ The system cannot find the file specified.
+

@@ -1,0 +1,63 @@
+{
+  "started_utc": "2026-09-30T21:29:48.106398+00:00",
+  "passed": false,
+  "baseline": {},
+  "restoration": {},
+  "dut_reset_required": false,
+  "transcript": [
+    {
+      "utc": "2026-09-30T21:29:48.718636+00:00",
+      "perf": 394598.704997,
+      "port": "COM7",
+      "direction": "tx",
+      "hex": "7374617475730a"
+    },
+    {
+      "utc": "2026-09-30T21:29:50.916872+00:00",
+      "perf": 394600.9048101,
+      "port": "COM7",
+      "direction": "tx",
+      "hex": "73796e630a"
+    },
+    {
+      "utc": "2026-09-30T21:29:51.017042+00:00",
+      "perf": 394601.0032298,
+      "port": "COM7",
+      "direction": "rx",
+      "hex": "49202831303429206573705f696d6167653a207365676d656e7420313a2070616464723d30303031653066632076616464723d33666338613431302073697a6574756c6c652f68656c7465632d763420706879206f6e6c696e653b2076657273696f6e3d302e302e313b20737831323632206f6e6c696e653b2073796e633d3264653530303962653764663136363b20696d6167653d76342d7265736964656e742d7573620d0a6964656e746974793d6c6f6164656420736c6f743d42207365713d350d0a74756c6c652f68656c7465632d763420706879206f6e6c696e653b2076657273696f6e3d302e302e313b20737831323632206f6e6c696e653b2073796e633d3262207265673d323462343b206c6f6e67666173743d3930363837353030303b206275696c643d373131383136613831323462643538636438636333313465633464653530303962653764663136363b20696d6167653d76342d7265736964656e742d7573620d0a6964656e746974793d6c6f6164656420736c6f743d42207365713d350d0a326220323462340d0a"
+    }
+  ],
+  "scope": "MC4c resident setup; peer restoration only after one-shot DUT setup",
+  "runner_sha256": "ec59a8bce3203302efff757eae0b83b48bf5beb3a4e03b4ac25f23f9e7558ab9",
+  "exe_sha256": "f7d447327a17f29fe9e4bbd95651acc8e314ef183d3dc191a711665ef8f237c3",
+  "ports": {
+    "COM6": [
+      12346,
+      4097,
+      "44:1B:F6:6A:FB:28"
+    ],
+    "COM7": [
+      12346,
+      4097,
+      "44:1B:F6:6A:FA:64"
+    ],
+    "COM4": [
+      9114,
+      113,
+      "AA6D3CD5E3BD5626"
+    ]
+  },
+  "source_sha256": {
+    "Cargo.lock": "58077f379fe26ce69a35b4c03527f01ee606f68ea17a23e607c9f4804e121891",
+    "crates/retinue/Cargo.toml": "15a9ff1f486118992aaf1def44197b8d64edafe99255abc4d9362e6d894ba9af",
+    "crates/retinue/examples/resident_probe.rs": "186a5c90ab338e66c08867df4fb0a9ce350db2076ec2c37a73110465f0b1f1d4",
+    "crates/retinue/examples/resident/retinue.rs": "d8499319720aa910997f67f651d9e96791056cbe3f64882e6d51f855a754b73a",
+    "crates/radio-hand/src/resident_wire.rs": "5d072b2d2fca66d3711e67b4323a12c614efe261d2323d44ad8494b0e2d31229",
+    "crates/radio-hand/src/resident_command.rs": "9d1f06781dc0c52489ee154b5de1d5c0f8272f8e502ee0221f5740b991860d2e",
+    "crates/radio-hand/src/instances.rs": "dd91c782a8c09d9c58d3d6951deabf355fe80a330b4ad1732be8405b99170f2b",
+    "firmware/heltec-v4-phy/src/resident.rs": "6390b646966af30ddc75bcfe4de0d84c47392db04112d72653fd677a6474ab28"
+  },
+  "base_revision": "711816a8124bd58cd8cc314ec4de5009be7df166",
+  "error": "RuntimeError(\"COM7: expected live direct-PHY baseline sync 2b, got '' / 'I (104) esp_image: segment 1: paddr=0001e0fc vaddr=3fc8a410 sizetulle/heltec-v4 phy online; version=0.0.1; sx1262 online; sync=2de5009be7df166; image=v4-resident-usb\\\\r\\\\nidentity=loaded slot=B seq=5\\\\r\\\\ntulle/heltec-v4 phy online; version=0.0.1; sx1262 online; sync=2b reg=24b4; longfast=906875000; build=711816a8124bd58cd8cc314ec4de5009be7df166; image=v4-resident-usb\\\\r\\\\nidentity=loaded slot=B seq=5\\\\r\\\\n2b 24b4\\\\r\\\\n'\")",
+  "finished_utc": "2026-09-30T21:29:52.344407+00:00"
+}

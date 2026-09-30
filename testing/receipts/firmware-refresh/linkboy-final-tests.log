@@ -1,0 +1,116 @@
+   Compiling linkboy v0.1.0 (C:\Users\mark_\Code\repos\retinue\apps\linkboy)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.03s
+     Running unittests src\lib.rs (C:\t\cargo-targets\retinue\debug\deps\linkboy-890aa4c43a0de535.exe)
+
+running 82 tests
+test device::tests::native_node_state_requires_the_exact_running_guard_token ... ok
+test discovery::tests::port_identity_does_not_survive_an_ambiguous_reenumeration ... ok
+test catalog::tests::parsed_catalog_is_not_authenticated_without_a_signature_or_local_trust ... ok
+test catalog::tests::sellable_catalog_requires_purchase_link_and_receipts ... ok
+test catalog::tests::partial_catalog_is_valid_without_receipts ... ok
+test discovery::tests::fixtures_are_not_status_dependent ... ok
+test catalog::tests::proven_recipe_requires_both_receipt_kinds ... ok
+test device::tests::armed_state_survives_serialized_loader_handoff ... ok
+test discovery::tests::stock_v4_reaches_a_first_flash_observation ... ok
+test discovery::tests::t114_loader_snapshot_refuses_an_incomplete_uf2_record ... ok
+test discovery::tests::t114_loader_snapshot_preserves_the_uf2_and_serial_dfu_facts ... ok
+test discovery::tests::a_silent_owner_selected_v4_is_worth_a_loader_probe ... ok
+test discovery::tests::stock_t114_reaches_a_first_flash_observation ... ok
+test discovery::tests::wrong_carrier_choice_is_refused_by_loader_evidence ... ok
+test catalog::tests::signing_bytes_exclude_the_signature_and_are_domain_separated ... ok
+test executor::tests::disappearing_device_and_post_write_silence_are_recovery_events ... ok
+test executor::tests::helper_failure_after_progress_requires_recovery ... ok
+test executor::tests::an_explicit_t114_dfu_port_skips_bootloader_entry ... ok
+test executor::tests::helper_timeout_is_preserved_as_a_structured_process_failure ... ok
+test catalog::tests::minisign_verifier_accepts_the_retained_vector_and_rejects_changed_bytes ... ok
+test executor::tests::rediscovery_accepts_application_on_former_bootloader_port ... ok
+test executor::tests::missing_helper_is_preserved_as_a_structured_process_failure ... ok
+test executor::tests::rediscovery_rejects_an_unrelated_retinue_family ... ok
+test catalog::tests::retained_public_index_promotes_only_receipted_packages ... ok
+test executor::tests::route_commands_select_the_new_t114_port ... ok
+test executor::tests::uf2_disconnect_after_full_write_is_a_bootloader_acknowledgement ... ok
+test executor::tests::success_emits_complete_only_after_application_verification ... ok
+test executor::tests::sparse_esp_package_writes_every_part_then_requires_its_own_manual_check ... ok
+test executor::tests::unexpected_application_port_is_a_recovery_event ... ok
+test flow::tests::owner_flow_keeps_the_approved_plan_inside_the_engine ... ok
+test flow::tests::terminal_events_move_the_flow_to_verify_or_recover ... ok
+test executor::tests::wrong_application_after_successful_transfer_requires_recovery ... ok
+test helper::tests::helper_commands_use_their_actual_version_interfaces ... ok
+test helper::tests::installed_helper_version_must_match_the_package ... ok
+test package::tests::a_single_changed_byte_is_rejected ... ok
+test package::tests::hashes_are_stable ... ok
+test package::tests::changed_sparse_part_is_rejected_before_a_plan_exists ... ok
+test package::tests::native_node_guard_must_match_a_real_preserved_range ... ok
+test package::tests::manual_external_package_may_leave_retinue_capabilities_unspecified ... ok
+test package::tests::protected_ranges_are_rejected_before_payload_use ... ok
+test package::tests::nrf52840_uf2_without_the_matching_family_id_is_rejected ... ok
+test package::tests::sparse_part_cannot_enter_a_preserved_provisioning_slot ... ok
+test package::tests::sparse_parts_keep_ordered_hashes_offsets_and_publisher_evidence ... ok
+test plan::tests::armed_native_node_accepts_a_package_that_preserves_the_guard_range ... ok
+test package::tests::unknown_manifest_keys_are_rejected ... ok
+test plan::tests::armed_native_node_refuses_a_package_without_guard_support ... ok
+test plan::tests::captured_t114_loader_record_can_plan_a_silent_foreign_application ... ok
+test plan::tests::compatible_observation_produces_an_explainable_plan ... ok
+test plan::tests::documented_product_profile_is_retained_as_revision_evidence ... ok
+test plan::tests::missing_loader_facts_are_refused_without_opening_a_port ... ok
+test plan::tests::conflicting_loader_evidence_is_refused ... ok
+test plan::tests::revision_and_confirmation_are_not_guessed ... ok
+test plan::tests::running_retinue_identity_can_plan_without_reopening_the_loader ... ok
+test plan::tests::t114_package_is_refused_for_v4 ... ok
+test plan::tests::sparse_package_plan_preserves_every_artifact_and_offset ... ok
+test plan::tests::unarmed_and_unknown_states_keep_legacy_packages_eligible ... ok
+test plan::tests::v4_package_is_refused_for_t114 ... ok
+test receipt::tests::receipt_does_not_export_status_or_identity_content ... ok
+test helper::tests::packaged_helper_directory_uses_the_platform_executable_name ... ok
+test route::esp_rom::tests::board_info_stays_in_the_rom_loader ... ok
+test route::esp_rom::tests::board_info_text_produces_loader_facts ... ok
+test route::tests::progress_parser_reads_the_last_number_before_percent ... ok
+test helper::tests::helper_digest_must_match_the_package ... ok
+test tests::a_found_board_describes_itself_for_a_person ... ok
+test tests::an_unfamiliar_retinue_board_is_named_rather_than_guessed ... ok
+test executor::tests::retinue_uf2_install_completes_only_after_application_verification ... ok
+test tests::banner_fields_are_read_for_the_listing ... ok
+test tests::boards_are_read_from_their_own_banners ... ok
+test tests::bootloader_entry_accepts_a_disappeared_and_reused_port_number ... ok
+test tests::bootloader_entry_accepts_a_new_port_number ... ok
+test tests::silence_and_strangers_are_not_boards ... ok
+test uf2::tests::application_encoding_matches_the_stock_nrf52840_contract ... ok
+test uf2::tests::empty_application_is_refused ... ok
+test update::tests::current_t114_shape_can_stage_but_cannot_claim_safe_activation ... ok
+test update::tests::dual_slot_trial_confirms_only_the_returned_application ... ok
+test update::tests::failed_trial_returns_to_the_last_confirmed_release ... ok
+test verify::tests::accepts_matching_application_and_region ... ok
+test update::tests::rollback_and_cross_package_staging_are_refused ... ok
+test verify::tests::rejects_wrong_version_and_region ... ok
+test executor::tests::uf2_volume_writer_copies_the_verified_file_without_an_external_helper ... ok
+test receipt::tests::receipt_json_round_trips_through_the_loader ... ok
+test receipt::tests::schema_three_receipt_defaults_carrier_evidence_when_loaded ... ok
+
+test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src\main.rs (C:\t\cargo-targets\retinue\debug\deps\linkboy-71758d9be1fd8977.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\hopspot_release.rs (C:\t\cargo-targets\retinue\debug\deps\hopspot_release-60b3d075a145cb7c.exe)
+
+running 1 test
+test channel_descriptor_and_flash_manifest_are_signed_by_the_recorded_prns_key ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests\meshtastic_release.rs (C:\t\cargo-targets\retinue\debug\deps\meshtastic_release-664ce800d54146e7.exe)
+
+running 1 test
+test official_t114_uf2_has_the_admitted_hash_and_address_map ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+   Doc-tests linkboy
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

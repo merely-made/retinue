@@ -1,0 +1,6 @@
+[2026-09-30T21:40:41Z WARN ] Setting baud rate higher than 115,200 can cause issues
+Chip type:         esp32s3 (revision v0.2)
+Crystal frequency: 40 MHz
+Flash size:        16MB
+Features:          WiFi, BLE, Embedded Flash
+MAC address:       44:1b:f6:6a:fa:64

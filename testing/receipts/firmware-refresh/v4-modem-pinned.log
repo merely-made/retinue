@@ -1,0 +1,164 @@
+    Blocking waiting for file lock on artifact directory
+   Compiling typenum v1.20.1
+   Compiling byteorder v1.5.0
+   Compiling cfg-if v1.0.4
+   Compiling hash32 v0.3.1
+   Compiling stable_deref_trait v1.2.1
+   Compiling critical-section v1.2.0
+   Compiling futures-core v0.3.33
+   Compiling heapless v0.9.3
+   Compiling hybrid-array v0.4.13
+   Compiling crypto-common v0.2.2
+   Compiling nb v1.1.0
+   Compiling num-traits v0.2.19
+   Compiling embedded-hal v1.0.0
+   Compiling cmov v0.5.4
+   Compiling ctutils v0.4.2
+   Compiling embedded-hal-async v1.0.0
+   Compiling nb v0.1.3
+   Compiling block-buffer v0.12.1
+   Compiling futures-sink v0.3.33
+   Compiling embedded-io v0.7.1
+   Compiling void v1.0.2
+   Compiling embedded-io v0.6.1
+   Compiling embedded-io-async v0.7.0
+   Compiling embedded-io-async v0.6.1
+   Compiling embedded-hal v0.2.7
+   Compiling digest v0.11.3
+   Compiling heapless v0.8.0
+   Compiling portable-atomic v1.14.0
+   Compiling vcell v0.1.3
+   Compiling generic-array v0.14.7
+   Compiling embassy-sync v0.8.0
+   Compiling embassy-time-driver v0.2.2
+   Compiling block-padding v0.4.2
+   Compiling xtensa-lx v0.13.0
+   Compiling futures-task v0.3.33
+   Compiling esp-metadata-generated v0.4.0
+   Compiling pin-project-lite v0.2.17
+   Compiling embedded-storage v0.3.1
+   Compiling rand_core v0.10.1
+   Compiling futures-util v0.3.33
+   Compiling inout v0.2.2
+   Compiling embassy-time v0.5.1
+   Compiling esp32s3 v0.35.2
+   Compiling esp-config v0.7.0
+   Compiling subtle v2.6.1
+   Compiling zeroize v1.9.0
+   Compiling embassy-futures v0.1.2
+   Compiling curve25519-dalek v5.0.0
+   Compiling embassy-sync v0.6.2
+   Compiling cipher v0.5.2
+   Compiling embassy-sync v0.7.2
+   Compiling strum v0.27.2
+   Compiling embassy-hal-internal v0.4.0
+   Compiling embedded-storage-async v0.4.1
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling usb-device v0.3.2
+   Compiling embassy-usb-driver v0.2.2
+   Compiling az v1.3.0
+   Compiling esp-rom-sys v0.1.4
+   Compiling gcd v2.3.0
+   Compiling signature v3.0.0
+   Compiling ral-registers v0.1.3
+   Compiling bitflags v1.3.2
+   Compiling ed25519 v3.0.0
+   Compiling defmt v1.1.1
+   Compiling esp-synopsys-usb-otg v0.4.2
+   Compiling fugit v0.3.9
+   Compiling embedded-graphics-core v0.4.1 (C:\Users\mark_\Code\repos\retinue\vendor\embedded-graphics-core)
+   Compiling bitfield v0.19.4
+   Compiling xtensa-lx-rt v0.22.0
+   Compiling embassy-usb-synopsys-otg v0.3.3
+   Compiling digest v0.10.7
+   Compiling embassy-embedded-hal v0.6.0
+   Compiling esp-sync v0.2.1
+   Compiling enumset v1.1.14
+   Compiling hmac v0.13.0
+   Compiling sha2 v0.11.0
+   Compiling float-cmp v0.9.0
+   Compiling embedded-can v0.4.1
+   Compiling ufmt-write v0.1.0
+   Compiling rand_core v0.6.4
+   Compiling bitflags v2.13.1
+   Compiling rand_core v0.9.5
+   Compiling bytemuck v1.25.2
+   Compiling cpubits v0.1.1
+   Compiling micromath v2.1.0
+   Compiling embassy-executor-timer-queue v0.1.0
+   Compiling embedded-graphics v0.8.2 (C:\Users\mark_\Code\repos\retinue\vendor\embedded-graphics)
+   Compiling aes v0.9.1
+   Compiling esp-hal v1.1.1
+   Compiling ed25519-dalek v3.0.0
+   Compiling hkdf v0.13.0
+   Compiling defmt v0.3.100
+   Compiling cbc v0.2.1
+   Compiling x25519-dalek v3.0.0
+   Compiling lora-modulation v0.1.5
+   Compiling cordyceps v0.3.4
+   Compiling embassy-executor v0.10.0
+   Compiling lora-phy v3.0.1 (C:\Users\mark_\Code\repos\retinue\vendor\lora-phy)
+   Compiling retinue v0.1.1 (C:\Users\mark_\Code\repos\retinue\crates\retinue)
+   Compiling radio-face v0.0.1 (C:\Users\mark_\Code\repos\retinue\crates\radio-face)
+   Compiling embassy-time-queue-utils v0.3.2
+   Compiling esp-println v0.17.0
+   Compiling selvage v0.1.0 (C:\Users\mark_\Code\repos\retinue\crates\selvage)
+   Compiling radio-hand v0.0.1 (C:\Users\mark_\Code\repos\retinue\crates\radio-hand)
+   Compiling esp-backtrace v0.19.0
+   Compiling esp-bootloader-esp-idf v0.5.0
+   Compiling esp-storage v0.9.0
+   Compiling esp-rtos v0.3.0
+   Compiling static_cell v2.1.1
+   Compiling embedded-hal-bus v0.3.0
+   Compiling tulle-heltec-v4-phy v0.0.1 (C:\Users\mark_\Code\repos\retinue\firmware\heltec-v4-phy)
+warning: function `last_sleep_us` is never used
+  --> firmware\heltec-v4-phy\src\power.rs:46:12
+   |
+46 |     pub fn last_sleep_us() -> u32 {
+   |            ^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: constant `PACKET_RESERVATION_SLOT_READ_LEN` is never used
+  --> firmware\heltec-v4-phy\src\store.rs:84:7
+   |
+84 | const PACKET_RESERVATION_SLOT_READ_LEN: usize = SECTOR as usize;
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: variants `PacketRead`, `PacketErase`, `PacketWrite`, `PacketVerify`, and `PacketBody` are never constructed
+   --> firmware\heltec-v4-phy\src\store.rs:126:5
+    |
+117 | pub enum ReservationError {
+    |          ---------------- variants in this enum
+...
+126 |     PacketRead,
+    |     ^^^^^^^^^^
+127 |     PacketErase,
+    |     ^^^^^^^^^^^
+128 |     PacketWrite,
+    |     ^^^^^^^^^^^
+129 |     PacketVerify,
+    |     ^^^^^^^^^^^^
+130 |     PacketBody(PacketReservationError),
+    |     ^^^^^^^^^^
+    |
+    = note: `ReservationError` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: method `reserve_packet_ids` is never used
+   --> firmware\heltec-v4-phy\src\store.rs:323:12
+    |
+148 | impl SettingsStore {
+    | ------------------ method in this implementation
+...
+323 |     pub fn reserve_packet_ids(
+    |            ^^^^^^^^^^^^^^^^^^
+
+warning: function `radio_wake_registrations` is never used
+  --> firmware\heltec-v4-phy\src\wake_input.rs:65:8
+   |
+65 | pub fn radio_wake_registrations() -> u32 {
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `tulle-heltec-v4-phy` (bin "tulle-heltec-v4-phy") generated 5 warnings
+    Finished `release` profile [optimized + debuginfo] target(s) in 1m 08s

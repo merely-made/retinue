@@ -1,0 +1,22 @@
+flash plan
+  device: COM7
+  board: Heltec V4 revision 4.2
+  package: Retinue resident commissioning for Heltec V4 0.0.1-711816a
+  parts: application at container layout (10833608 bytes, sha256 efc5f0737591d5530bcda3c9f2a6d8d91d47de1d78414b4520be3e68f16e94f7)
+  route: ESP ROM loader (espflash)
+  helper: espflash 4.5.0 for windows-x86_64 (executable sha256 0cc03364c70a86325236f18ad1aaed17eedf267d89312c0cdabe4964f5cb758e)
+  write ranges: 0x0..0x3f0000
+  preserved ranges: 0x3f0000..0x400000
+  state impact: preserved
+  compatibility:
+    board family: Heltec V4 [owner selection, checked against running status]
+    board revision: 4.2 [owner confirmation from carrier marking]
+    processor: ESP32-S3 [running Retinue identity; checked against package]
+    flash size: 16777216 bytes [running Retinue identity; checked against package]
+    bootloader: esp-rom [running Retinue identity; checked against package]
+    native-node persistent state: unknown [running status; absent or non-guard token remains non-authoritative]
+    package node-timebase support: not declared [package manifest]
+  warnings:
+    none
+  recovery before write: Keep the USB cable attached and close other serial tools. If the application does not return, use the ESP32-S3 ROM loader through the board's reset and boot controls.
+  recovery after failure: Re-enter the ESP32-S3 ROM loader and retry the same verified package. Do not infer board identity from the new COM port.

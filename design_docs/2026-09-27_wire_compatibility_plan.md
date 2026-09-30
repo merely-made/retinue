@@ -438,3 +438,17 @@ builds linked both board families. These initial untagged builds are preparation
 not upgraded-device receipts. Preserve existing private backup/state evidence,
 use accepted Linkboy plans and require returned build identity plus RF operation
 before promoting updated packages. IFAC provisioning remains a separate gate.
+
+The [firmware refresh receipt](../testing/receipts/firmware-refresh/README.md)
+records clean-pin builds at `711816a`, installed ordinary/resident V4 images and
+returned build identities. Both original settings pairs survived byte-identically;
+the resident run changed only announce/packet reservations. Bidirectional Sennet
+text passed between the upgraded V4s. The resident repeat passed three Sennet
+visits, three Tucket visits including text/ACKs, and six signed home link proofs,
+but its final proof after cancellation timed out. Keep this separate image partial.
+The ordinary image also passed a Windows ROM-loader reinstall and returned the
+same build identity. Other hosts' older receipts do not qualify these new bytes.
+T114's new native image is built but unpublished: its serial loader has appeared,
+and physical double-tap into the stock UF2 volume remains required before its
+state-preserving installation and native-node RF qualification. Historical v51
+packages and receipts remain unchanged.

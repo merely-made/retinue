@@ -1,0 +1,26 @@
+{
+  "source_revision": "711816a8124bd58cd8cc314ec4de5009be7df166",
+  "artifacts": {
+    "v4-modem": {
+      "file": "v4-modem.elf",
+      "sha256": "6585c03d82880a2c61c3e4d47b5e93fe5d4752ba08b1c4b1de87eb1a0e71fca3",
+      "bytes": 6933912,
+      "write_bytes": 468416,
+      "image": "v4-modem-usb"
+    },
+    "v4-resident": {
+      "file": "v4-resident.elf",
+      "sha256": "efc5f0737591d5530bcda3c9f2a6d8d91d47de1d78414b4520be3e68f16e94f7",
+      "bytes": 10833608,
+      "write_bytes": 708656,
+      "image": "v4-resident-usb"
+    },
+    "t114": {
+      "file": "t114.uf2",
+      "sha256": "27424c8e634c10fe84a85823990d63ea8c11de23cd008e3ae877896984e6cfc9",
+      "bytes": 623104,
+      "write_bytes": 311552,
+      "image": "t114-native"
+    }
+  }
+}

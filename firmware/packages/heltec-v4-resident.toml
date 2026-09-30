@@ -1,6 +1,6 @@
 schema = 2
-package_id = "retinue.heltec-v4"
-display_name = "Retinue for Heltec WiFi LoRa 32 V4"
+package_id = "retinue.heltec-v4-resident"
+display_name = "Retinue resident commissioning for Heltec V4"
 version = "0.0.1-711816a"
 publisher = "Merely Made"
 regions = ["US915", "EU868", "EU433", "ANZ915", "JP920"]
@@ -50,11 +50,11 @@ archive_sha256 = "542c5cc81f0cca384cbead1cacb7ccc9f35072a989b2de0fb95333d814272c
 archive_url = "https://github.com/esp-rs/espflash/releases/download/v4.5.0/espflash-x86_64-unknown-linux-musl.zip"
 
 [payload]
-path = "../heltec-v4-phy/tulle-heltec-v4-phy"
+path = "../heltec-v4-phy/tulle-heltec-v4-resident"
 format = "espflash-elf"
-byte_length = 6933912
-sha256 = "6585c03d82880a2c61c3e4d47b5e93fe5d4752ba08b1c4b1de87eb1a0e71fca3"
-write_bytes = 468416
+byte_length = 10833608
+sha256 = "efc5f0737591d5530bcda3c9f2a6d8d91d47de1d78414b4520be3e68f16e94f7"
+write_bytes = 708656
 
 [[targets]]
 family = "heltec-v4"
@@ -73,7 +73,7 @@ start = 0x3f0000
 length = 0x10000
 
 [expected_application]
-manual_check = "Status must report build=711816a8124bd58cd8cc314ec4de5009be7df166 image=v4-modem-usb."
+manual_check = "Status must report build=711816a8124bd58cd8cc314ec4de5009be7df166 image=v4-resident-usb."
 board = "heltec-v4"
 version = "0.0.1"
 

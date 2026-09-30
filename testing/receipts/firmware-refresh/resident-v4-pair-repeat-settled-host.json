@@ -1,0 +1,190 @@
+{
+  "dut_reports": [
+    "resident ready\r\n",
+    "resident event Sennet(TxCompleted { operation_id: 1, identity: PacketIdentity { source: 1122571850, packet_id: 321 } })\nresident report now=52816 events=1 dropped=0 omitted=0\nresident event SennetReceived(Text(ReceivedText { header: Header { destination: 4294967295, source: 1122571851, packet_id: 1, hop_limit: 0, want_ack: false, via_mqtt: false, hop_start: 0, channel_hash: 2, next_hop: 0, relay_node: 0 }, text: \"mc4c-sennet-in-0\" }))\nresident report now=52941 events=1 dropped=0 omitted=0\n",
+    "resident event SennetReceived(Duplicate { identity: PacketIdentity { source: 1122571851, packet_id: 1 } })\nresident report now=55067 events=1 dropped=0 omitted=0\n",
+    "resident status now=65306 state=Home active=Some(Activation { instance: PersonalityId(0), generation: 3 }) deadline=None\nresident memory now=65306 heap_capacity=65536 heap_allocator_used=1040 heap_allocator_used_peak=1276 heap_requested=1040 heap_requested_peak=1275 heap_alloc_failures=0 stack_measurement=sampled_sp_not_high_water stack_sp=0x3fccc260 stack_sampled_bytes=62624 stack_capacity=128384 stack_sample_valid=true\n",
+    "resident event Retinue(LinkUp { link_id: AddressHash(de0f39e3f66d5ae135717c2cbf9dc3da) })\nresident report now=66030 events=1 dropped=0 omitted=0\nresident event Retinue(LinkDown { link_id: AddressHash(de0f39e3f66d5ae135717c2cbf9dc3da) })\nresident report now=66450 events=1 dropped=0 omitted=0\n",
+    "resident event SennetReceived(Duplicate { identity: PacketIdentity { source: 1122571851, packet_id: 1 } })\nresident report now=67635 events=1 dropped=0 omitted=0\n",
+    "resident event Sennet(TxCompleted { operation_id: 2, identity: PacketIdentity { source: 1122571850, packet_id: 322 } })\nresident report now=69674 events=1 dropped=0 omitted=0\nresident event SennetReceived(Text(ReceivedText { header: Header { destination: 4294967295, source: 1122571851, packet_id: 2, hop_limit: 0, want_ack: false, via_mqtt: false, hop_start: 0, channel_hash: 2, next_hop: 0, relay_node: 0 }, text: \"mc4c-sennet-in-1\" }))\nresident report now=69798 events=1 dropped=0 omitted=0\n",
+    "resident event SennetReceived(Duplicate { identity: PacketIdentity { source: 1122571851, packet_id: 2 } })\nresident report now=71894 events=1 dropped=0 omitted=0\n",
+    "resident status now=80072 state=Home active=Some(Activation { instance: PersonalityId(0), generation: 5 }) deadline=None\nresident memory now=80072 heap_capacity=65536 heap_allocator_used=1040 heap_allocator_used_peak=1444 heap_requested=1040 heap_requested_peak=1439 heap_alloc_failures=0 stack_measurement=sampled_sp_not_high_water stack_sp=0x3fccc260 stack_sampled_bytes=62624 stack_capacity=128384 stack_sample_valid=true\n",
+    "resident event Retinue(LinkUp { link_id: AddressHash(3652bfc29417f4b08d07a7f18e61dae5) })\nresident report now=80808 events=1 dropped=0 omitted=0\nresident event Retinue(LinkDown { link_id: AddressHash(3652bfc29417f4b08d07a7f18e61dae5) })\nresident report now=81229 events=1 dropped=0 omitted=0\n",
+    "resident event SennetReceived(Duplicate { identity: PacketIdentity { source: 1122571851, packet_id: 1 } })\nresident report now=82428 events=1 dropped=0 omitted=0\n",
+    "resident event Sennet(TxCompleted { operation_id: 3, identity: PacketIdentity { source: 1122571850, packet_id: 323 } })\nresident report now=84484 events=1 dropped=0 omitted=0\nresident event SennetReceived(Text(ReceivedText { header: Header { destination: 4294967295, source: 1122571851, packet_id: 3, hop_limit: 0, want_ack: false, via_mqtt: false, hop_start: 0, channel_hash: 2, next_hop: 0, relay_node: 0 }, text: \"mc4c-sennet-in-2\" }))\nresident report now=84616 events=1 dropped=0 omitted=0\n",
+    "resident event SennetReceived(Duplicate { identity: PacketIdentity { source: 1122571851, packet_id: 3 } })\nresident report now=86729 events=1 dropped=0 omitted=0\n",
+    "resident status now=94870 state=Home active=Some(Activation { instance: PersonalityId(0), generation: 7 }) deadline=None\nresident memory now=94870 heap_capacity=65536 heap_allocator_used=1040 heap_allocator_used_peak=1444 heap_requested=1040 heap_requested_peak=1439 heap_alloc_failures=0 stack_measurement=sampled_sp_not_high_water stack_sp=0x3fccc260 stack_sampled_bytes=62624 stack_capacity=128384 stack_sample_valid=true\n",
+    "resident event Retinue(LinkUp { link_id: AddressHash(f753d1eb21051be9d8b2e1fb85a45aa1) })\nresident report now=95615 events=1 dropped=0 omitted=0\nresident event Retinue(LinkDown { link_id: AddressHash(f753d1eb21051be9d8b2e1fb85a45aa1) })\nresident report now=96033 events=1 dropped=0 omitted=0\n",
+    "resident event Tucket(Advert { identity: Identity { pub_key: [65, 124, 60, 110, 192, 213, 97, 193, 140, 94, 7, 12, 193, 210, 208, 36, 53, 119, 132, 31, 120, 183, 198, 241, 151, 173, 19, 225, 78, 248, 240, 24] }, timestamp: 1790804039, app_data: [109, 99, 52, 99, 45, 112, 101, 101, 114] })\nresident report now=97488 events=1 dropped=0 omitted=0\n",
+    "resident event TucketAcknowledged(OperationId(1))\nresident event Tucket(Ack([192, 237, 53, 126]))\nresident report now=99819 events=2 dropped=0 omitted=0\n",
+    "resident event Tucket(Message { from: 65, message: TextMessage { timestamp: 1790804041, attempt: 0, txt_type: 0, text: \"mc4c-tucket-in\" }, ack: [219, 129, 47, 225] })\nresident report now=101945 events=1 dropped=0 omitted=0\n",
+    "resident status now=109658 state=Home active=Some(Activation { instance: PersonalityId(0), generation: 9 }) deadline=None\nresident memory now=109658 heap_capacity=65536 heap_allocator_used=1040 heap_allocator_used_peak=1444 heap_requested=1040 heap_requested_peak=1439 heap_alloc_failures=0 stack_measurement=sampled_sp_not_high_water stack_sp=0x3fccc260 stack_sampled_bytes=62624 stack_capacity=128384 stack_sample_valid=true\n",
+    "resident event Retinue(LinkUp { link_id: AddressHash(90989a0d532484b06c835f0cbb771abe) })\nresident report now=110392 events=1 dropped=0 omitted=0\nresident event Retinue(LinkDown { link_id: AddressHash(90989a0d532484b06c835f0cbb771abe) })\nresident report now=110814 events=1 dropped=0 omitted=0\n",
+    "resident event Tucket(Advert { identity: Identity { pub_key: [65, 124, 60, 110, 192, 213, 97, 193, 140, 94, 7, 12, 193, 210, 208, 36, 53, 119, 132, 31, 120, 183, 198, 241, 151, 173, 19, 225, 78, 248, 240, 24] }, timestamp: 1790804055, app_data: [109, 99, 52, 99, 45, 112, 101, 101, 114] })\nresident report now=112243 events=1 dropped=0 omitted=0\n",
+    "resident status now=124416 state=Home active=Some(Activation { instance: PersonalityId(0), generation: 11 }) deadline=None\nresident memory now=124416 heap_capacity=65536 heap_allocator_used=1040 heap_allocator_used_peak=1444 heap_requested=1040 heap_requested_peak=1439 heap_alloc_failures=0 stack_measurement=sampled_sp_not_high_water stack_sp=0x3fccc260 stack_sampled_bytes=62624 stack_capacity=128384 stack_sample_valid=true\n",
+    "resident event Retinue(LinkUp { link_id: AddressHash(969eefcd76076727c61ae4016f28c357) })\nresident report now=125140 events=1 dropped=0 omitted=0\nresident event Retinue(LinkDown { link_id: AddressHash(969eefcd76076727c61ae4016f28c357) })\nresident report now=125561 events=1 dropped=0 omitted=0\n",
+    "resident event Tucket(Advert { identity: Identity { pub_key: [65, 124, 60, 110, 192, 213, 97, 193, 140, 94, 7, 12, 193, 210, 208, 36, 53, 119, 132, 31, 120, 183, 198, 241, 151, 173, 19, 225, 78, 248, 240, 24] }, timestamp: 1790804071, app_data: [109, 99, 52, 99, 45, 112, 101, 101, 114] })\nresident report now=126990 events=1 dropped=0 omitted=0\n",
+    "resident event TucketLost(OperationId(2))\nresident report now=136679 events=1 dropped=0 omitted=0\nresident status now=139162 state=Home active=Some(Activation { instance: PersonalityId(0), generation: 13 }) deadline=None\nresident memory now=139162 heap_capacity=65536 heap_allocator_used=1040 heap_allocator_used_peak=1444 heap_requested=1040 heap_requested_peak=1439 heap_alloc_failures=0 stack_measurement=sampled_sp_not_high_water stack_sp=0x3fccc260 stack_sampled_bytes=62624 stack_capacity=128384 stack_sample_valid=true\n",
+    "resident event Retinue(LinkUp { link_id: AddressHash(80c5285ff64b41563a2d3ee16676be61) })\nresident report now=139913 events=1 dropped=0 omitted=0\nresident event Retinue(LinkDown { link_id: AddressHash(80c5285ff64b41563a2d3ee16676be61) })\nresident report now=140333 events=1 dropped=0 omitted=0\n",
+    "resident status now=141453 state=Away { target: PersonalityId(1), excursion_deadline: 151451, return_by: 152951, interruption: ResumableOnly } active=Some(Activation { instance: PersonalityId(1), generation: 14 }) deadline=Some(151451)\nresident memory now=141453 heap_capacity=65536 heap_allocator_used=1040 heap_allocator_used_peak=1444 heap_requested=1040 heap_requested_peak=1439 heap_alloc_failures=0 stack_measurement=sampled_sp_not_high_water stack_sp=0x3fccc260 stack_sampled_bytes=62624 stack_capacity=128384 stack_sample_valid=true\n",
+    "resident status now=147225 state=Home active=Some(Activation { instance: PersonalityId(0), generation: 15 }) deadline=None\nresident memory now=147225 heap_capacity=65536 heap_allocator_used=1040 heap_allocator_used_peak=1444 heap_requested=1040 heap_requested_peak=1439 heap_alloc_failures=0 stack_measurement=sampled_sp_not_high_water stack_sp=0x3fccc260 stack_sampled_bytes=62624 stack_capacity=128384 stack_sample_valid=true\n",
+    ""
+  ],
+  "elapsed_ms": 105283,
+  "error": "resident home proof timed out; request=0200921035b20b80510b09784116dde7453300d6fe39ef34e51c79d27f9ac4653392d536fb2668c3e4d96c4a59915f403bfa234a3bea241b81fd8b51e45eb435ffdcffd3c91e061b4df1dc55bd42076d4dde892000ff",
+  "events": [
+    {
+      "kind": "dut_diagnostic",
+      "raw": "resident ready\r\n"
+    },
+    {
+      "blob": "5e393cea770000050001",
+      "destination": "921035b20b80510b09784116dde74533",
+      "frame_hex": "0100921035b20b80510b09784116dde74533001c3b6449f0630e90a8bf4ed49ef4fc6c52ab2596f48f5396949d129b374392566675dc06304ab82aff6cd2d37ebb7b2024eeccfda91d5f13a8a8dd0a5ea7c2e6dc89cf3b1d1a7d47a4a35e393cea77000005000109c1819ee8c8291f71e0a9bfae3eedf2472d19d6ae5d8bf415bec88483c16d45385776b63620e716951fe7306b666ec460a2e9d4133349d7e191cd6cf508840f",
+      "identity_hash": "d58a524208475b0ce5a68ec5fa57c610",
+      "identity_public": "1c3b6449f0630e90a8bf4ed49ef4fc6c52ab2596f48f5396949d129b374392566675dc06304ab82aff6cd2d37ebb7b2024eeccfda91d5f13a8a8dd0a5ea7c2e6",
+      "kind": "retinue_home_announce",
+      "name_hash": "dc89cf3b1d1a7d47a4a3",
+      "rssi_dbm": -43,
+      "signature_verified": true,
+      "snr_db": 12.0,
+      "timebase": 327681
+    },
+    {
+      "dut_reports": [
+        "resident event Sennet(TxCompleted { operation_id: 1, identity: PacketIdentity { source: 1122571850, packet_id: 321 } })\nresident report now=52816 events=1 dropped=0 omitted=0\nresident event SennetReceived(Text(ReceivedText { header: Header { destination: 4294967295, source: 1122571851, packet_id: 1, hop_limit: 0, want_ack: false, via_mqtt: false, hop_start: 0, channel_hash: 2, next_hop: 0, relay_node: 0 }, text: \"mc4c-sennet-in-0\" }))\nresident report now=52941 events=1 dropped=0 omitted=0\n",
+        "resident event SennetReceived(Duplicate { identity: PacketIdentity { source: 1122571851, packet_id: 1 } })\nresident report now=55067 events=1 dropped=0 omitted=0\n"
+      ],
+      "kind": "sennet_visit",
+      "outbound_frame": "ffffffff4a16e94241010000000200007d6f7897259d87f9a36f5c49702d532a32702a3b5c",
+      "visit": 0
+    },
+    {
+      "close_hex": "0c00de0f39e3f66d5ae135717c2cbf9dc3dafc97acf42fb110e47b84454facdefdae6de45eca23d054406b4dfcd4c027c809257968e3bf531028cfb924e69c45d677c23755f74f8bca1ea879bb78dcfb6794cdf2ee4fb531d6c91efbbd17aec05f8920",
+      "close_tx_ack": true,
+      "elapsed_ms": 524,
+      "kind": "retinue_home_link_proof",
+      "link_id": "de0f39e3f66d5ae135717c2cbf9dc3da",
+      "proof_hex": "0f00de0f39e3f66d5ae135717c2cbf9dc3daff28454ff985e3b9c8f3b488727afed07b29487356385956948d37be72b587ca85fa4899190770d4c38a99a943c6bcae1f4a40782bf37e639089dad5967752ce0583bd29a9b2eca3970385cb6c2aef613ed13a3b182c3cd7df41dc84f0593ee4082000ff",
+      "request_hex": "0200921035b20b80510b09784116dde7453300a8fee773da7239567987638a6a64e35b0cfdfe2ff70853b646b85ccae9cd3b465d050c4431e9a1b8d92eb367e64bec87d31d6d85183665b81b1abbf252b30e2f2000ff",
+      "rssi_dbm": -43,
+      "same_identity": true,
+      "signature_verified": true,
+      "snr_db": 12.0
+    },
+    {
+      "dut_reports": [
+        "resident event Sennet(TxCompleted { operation_id: 2, identity: PacketIdentity { source: 1122571850, packet_id: 322 } })\nresident report now=69674 events=1 dropped=0 omitted=0\nresident event SennetReceived(Text(ReceivedText { header: Header { destination: 4294967295, source: 1122571851, packet_id: 2, hop_limit: 0, want_ack: false, via_mqtt: false, hop_start: 0, channel_hash: 2, next_hop: 0, relay_node: 0 }, text: \"mc4c-sennet-in-1\" }))\nresident report now=69798 events=1 dropped=0 omitted=0\n",
+        "resident event SennetReceived(Duplicate { identity: PacketIdentity { source: 1122571851, packet_id: 2 } })\nresident report now=71894 events=1 dropped=0 omitted=0\n"
+      ],
+      "kind": "sennet_visit",
+      "outbound_frame": "ffffffff4a16e94242010000000200007fe6b44aaf67e5ad21eb6c269fc7e7eef11140fa66",
+      "visit": 1
+    },
+    {
+      "close_hex": "0c003652bfc29417f4b08d07a7f18e61dae5fc88c09492ffb2aa54ffd77ea407950b4d678e237d145f700eed074c622595a111fb4df017bcc63aab806859d9587c795470449b72a6e86a767add365c754b13c3a166d04f923a0bbf2ff666fb8c880f6a",
+      "close_tx_ack": true,
+      "elapsed_ms": 525,
+      "kind": "retinue_home_link_proof",
+      "link_id": "3652bfc29417f4b08d07a7f18e61dae5",
+      "proof_hex": "0f003652bfc29417f4b08d07a7f18e61dae5fff63dc1a9c557633360a00cb3c9dcf4f20e2964c39d92e35cdd4e29b0a6a59346eaa5efb6be2f5f5e5a784d8efffdc3f027a4226668e3ed45206dd56a211f14004f5a229d3e8b5952b748a96b95a76c4b8d06fcbba3199c6a6c97651e057b85232000ff",
+      "request_hex": "0200921035b20b80510b09784116dde745330068a92a4bd6197df1b80a7a1a446ac68c8b6b93c7962dce58d8c09213bb800c54f4dd2db57298828af326136ff06cc8fd547246f8f3ff73380af7d95727f95d412000ff",
+      "rssi_dbm": -43,
+      "same_identity": true,
+      "signature_verified": true,
+      "snr_db": 13.0
+    },
+    {
+      "dut_reports": [
+        "resident event Sennet(TxCompleted { operation_id: 3, identity: PacketIdentity { source: 1122571850, packet_id: 323 } })\nresident report now=84484 events=1 dropped=0 omitted=0\nresident event SennetReceived(Text(ReceivedText { header: Header { destination: 4294967295, source: 1122571851, packet_id: 3, hop_limit: 0, want_ack: false, via_mqtt: false, hop_start: 0, channel_hash: 2, next_hop: 0, relay_node: 0 }, text: \"mc4c-sennet-in-2\" }))\nresident report now=84616 events=1 dropped=0 omitted=0\n",
+        "resident event SennetReceived(Duplicate { identity: PacketIdentity { source: 1122571851, packet_id: 3 } })\nresident report now=86729 events=1 dropped=0 omitted=0\n"
+      ],
+      "kind": "sennet_visit",
+      "outbound_frame": "ffffffff4a16e94243010000000200003c52237536e51ebe640e8c5e9301232b4e8b3fecbc",
+      "visit": 2
+    },
+    {
+      "close_hex": "0c00f753d1eb21051be9d8b2e1fb85a45aa1fca2bb575b34a8bb3cc6914c595a1f0fb8397e3d325c7337d225ac4d74b85e6f72d9c68f27de300fea00d5efaef3172ffd81132588eaebeb86fb28fcd2673dbec3a98c51aedb51d99980782476c298f8b2",
+      "close_tx_ack": true,
+      "elapsed_ms": 528,
+      "kind": "retinue_home_link_proof",
+      "link_id": "f753d1eb21051be9d8b2e1fb85a45aa1",
+      "proof_hex": "0f00f753d1eb21051be9d8b2e1fb85a45aa1ffdf266eae18fcf9c1ef623c422063379a41618c911a2508deefffb9f9da9fafe62def10dd5568fb790ca94a7d89a8f8d53704f56cb8ad23f2da9c9618b0de960bc69c2261f6561ce839482cee3f2dc72c33fcf7cf28b7464469d2d732c5a6c03c2000ff",
+      "request_hex": "0200921035b20b80510b09784116dde74533007cec488ce01bdf9a0796c8bcf2c3bcaadc9a605834b356a30e021ccba9cc2006751d8b1c24a600e742f03185541a41272c60c2fa139787838046455923308f392000ff",
+      "rssi_dbm": -43,
+      "same_identity": true,
+      "signature_verified": true,
+      "snr_db": 12.0
+    },
+    {
+      "identity_public": "b6767e8f531acec1f32f9b43ad35c0a8687a02afd9f05222c2e5c6046ae38a06",
+      "kind": "tucket_visit",
+      "outbound_frame": "1100b6767e8f531acec1f32f9b43ad35c0a8687a02afd9f05222c2e5c6046ae38a064680bd6a1043c8559f4dc4cb2e0c8179d0505f2594fd38725e1b0c91d1711cf45e8d408d89ef39760140c3e2760ea44a768e51aec78448be4bd100146c5e4515282fb30a6d6334632d30",
+      "visit": 0
+    },
+    {
+      "close_hex": "0c0090989a0d532484b06c835f0cbb771abefca5792296f8c534e5b6c0798e11e56099a2cccaa7b94ff05ffb01441ba74e03d060af376eeab2d387863d5cc054b38dc6925aa56dfd6e32aa07e947efc30dd8661631f13162ea63cf83fe890661fd3f3b",
+      "close_tx_ack": true,
+      "elapsed_ms": 526,
+      "kind": "retinue_home_link_proof",
+      "link_id": "90989a0d532484b06c835f0cbb771abe",
+      "proof_hex": "0f0090989a0d532484b06c835f0cbb771abeff0559d1446ec1030b56fce5262d1b5adf4ae0b51c8b2792eb216e6ab3ef78075878fefa0cdec2ac74630e125982dbe9c5ce5e648b0cc1c84de426300139598a0b92d13856973432e25364e1b9b33bcfd5711851d4c732184c3b7938ce821afa0d2000ff",
+      "request_hex": "0200921035b20b80510b09784116dde74533003122f4566d5ddc3dbb062b8eb30d5f660f1fa51361ef37a6189cb6161c24a25022e9b551002e33938fda9650a59bb39277dc70a329b41ededeee17de1b6ac4692000ff",
+      "rssi_dbm": -44,
+      "same_identity": true,
+      "signature_verified": true,
+      "snr_db": 13.0
+    },
+    {
+      "identity_public": "b6767e8f531acec1f32f9b43ad35c0a8687a02afd9f05222c2e5c6046ae38a06",
+      "kind": "tucket_visit",
+      "outbound_frame": "1100b6767e8f531acec1f32f9b43ad35c0a8687a02afd9f05222c2e5c6046ae38a065680bd6a007ae2036f58203d578872dedd9ce71a3100859e84ae0ac53ae87351f914cc54769f1189d86b7cd67488fe76817509119efbdfd038e71483b3d5cb0dfe05b9006d6334632d31",
+      "visit": 1
+    },
+    {
+      "close_hex": "0c00969eefcd76076727c61ae4016f28c357fc022d1df05b699a489849483afef433b6b5c0c0af3910e08e9167df07c82378c13d96566df2f286edd21dcd972aa0ec07a0b1681ddbccab65c8529dc3893bfadb6e286e5a82cbf871061228c1e6e4d65b",
+      "close_tx_ack": true,
+      "elapsed_ms": 524,
+      "kind": "retinue_home_link_proof",
+      "link_id": "969eefcd76076727c61ae4016f28c357",
+      "proof_hex": "0f00969eefcd76076727c61ae4016f28c357ff41b434beb3533ccc37777fa418b3e0051d2168465b66ebc667b8a1c98462f88c9dab237ab2f031d4ca3b8f3cd85844821e1f43e224202c6f3bc9e76fdea2b30fbc97a0c747b97e0bb4f814f1a13ef63e12a40f011bd6fc2747a1e856d7c18a562000ff",
+      "request_hex": "0200921035b20b80510b09784116dde745330041139b645beef9620105c399ac597f551d2e5322c50cef3c84b2b4979b9b4809a853e19ccf5d38158056026256319a101c86072ab86cf258899ca32a4cf40f1b2000ff",
+      "rssi_dbm": -43,
+      "same_identity": true,
+      "signature_verified": true,
+      "snr_db": 13.0
+    },
+    {
+      "frame": "0a0041b6e9fd8d1f7ca7ad6186fc3c917ebab04dd22d88a057ba152c0311f708714ead66ec32",
+      "kind": "tucket_ack_deliberately_withheld"
+    },
+    {
+      "identity_public": "b6767e8f531acec1f32f9b43ad35c0a8687a02afd9f05222c2e5c6046ae38a06",
+      "kind": "tucket_visit",
+      "outbound_frame": "1100b6767e8f531acec1f32f9b43ad35c0a8687a02afd9f05222c2e5c6046ae38a066680bd6ac5690a8e5027857fccd613c41a903c9b8d735605a6919db061dd48ed8f2cd96d383160be308db7bb042e8cd6f5ee6697a104cd90aceac74df514729bfecc30066d6334632d32",
+      "visit": 2
+    },
+    {
+      "close_hex": "0c0080c5285ff64b41563a2d3ee16676be61fc2dfce8a5a55aa5c99b9088cb0bcc9a1a1ef4850a179a689c17b9b41991828409fc888695a40591bf22af169865901b3bc1f885f3fb30f8c1aab4893c4cdc5250df29f47f16520e98ee7ca1420a2ace46",
+      "close_tx_ack": true,
+      "elapsed_ms": 524,
+      "kind": "retinue_home_link_proof",
+      "link_id": "80c5285ff64b41563a2d3ee16676be61",
+      "proof_hex": "0f0080c5285ff64b41563a2d3ee16676be61ffe65c79207a474ee4e7e91f2e065ffe9ec200eb22b28ac9bcfef3c2d0f1eee18435cfc543b79b6df8df507f2d7f638cc2c5b8764721a53539577344a99e45b4043754d067addb5c0733cff3b2abf3bc2b9df777b806f06e9e5e47f9b4460790352000ff",
+      "request_hex": "0200921035b20b80510b09784116dde74533006e229a05de939255148be48a7a7f959b04a655b0e74090e149513a934cfb0c6ed45858f5ac0537a8ed7bd12356d0bd28f4f6a071b375ae7e3e141a43f79c43022000ff",
+      "rssi_dbm": -43,
+      "same_identity": true,
+      "signature_verified": true,
+      "snr_db": 12.0
+    },
+    {
+      "detail": "resident home proof timed out; request=0200921035b20b80510b09784116dde7453300b418500f57865d22f0e159454e8f54bfb14c99e16198172c802edb52f2cc907ed7228da0aab9a275d8ba62912a27d8aae15edc893b799745668807782826c7562000ff",
+      "kind": "home_request_missed_while_away",
+      "scope": "one physical home request; observed absence, no coverage claimed"
+    }
+  ],
+  "passed": false,
+  "qualified": false,
+  "result": null,
+  "scope": "MC4c resident RF visits: signed home announce, three bidirectional Sennet visits with duplicate retention, and three stable Tucket adverts"
+}

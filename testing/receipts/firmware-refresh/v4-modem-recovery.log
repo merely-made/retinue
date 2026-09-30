@@ -1,0 +1,45 @@
+inspecting COM6 with package retinue.heltec-v4
+erasing
+writing 215471/468416
+writing 215471/468416
+verifying transfer
+rebooting
+manual check required
+{
+  "schema": 4,
+  "package_id": "retinue.heltec-v4",
+  "package_parts": [
+    {
+      "kind": "application",
+      "offset": null,
+      "byte_length": 6933912,
+      "sha256": "6585c03d82880a2c61c3e4d47b5e93fe5d4752ba08b1c4b1de87eb1a0e71fca3"
+    }
+  ],
+  "publisher_signature": null,
+  "board": "heltec-v4",
+  "board_revision": "4.2",
+  "board_selection_evidence": "owner confirmation from carrier marking",
+  "route": "esp-rom",
+  "helper": {
+    "program": "espflash",
+    "version": "4.5.0",
+    "platform": "windows-x86_64",
+    "binary_sha256": "0cc03364c70a86325236f18ad1aaed17eedf267d89312c0cdabe4964f5cb758e",
+    "archive_sha256": "854c82c947c20e7f337f120f0398042ed1760f2269cb0f9be3d2beae3b66fbfb",
+    "archive_url": "https://github.com/esp-rs/espflash/releases/download/v4.5.0/espflash-x86_64-pc-windows-msvc.zip"
+  },
+  "transport": "serial:COM6",
+  "processor": "esp32-s3",
+  "flash_size": 16777216,
+  "bootloader": "esp-rom",
+  "stages": [
+    {
+      "name": "manual-check-required",
+      "detail": "Every package part transferred and verified by the helper."
+    }
+  ],
+  "result": "manual-check-required",
+  "application": null,
+  "manual_check": "Status must report build=711816a8124bd58cd8cc314ec4de5009be7df166 image=v4-modem-usb."
+}

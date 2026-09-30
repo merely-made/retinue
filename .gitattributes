@@ -68,3 +68,4 @@ testing/receipts/sennet-tucket-current/** -text whitespace=cr-at-eol,-blank-at-e
 # Physical tool logs retain their emitted trailing spaces as receipt bytes.
 testing/receipts/sennet-tucket-current/physical/*.log -text whitespace=cr-at-eol,-blank-at-eof,-blank-at-eol
 crates/retinue/tests/fixtures/rns_ifac_1_5_4.json -text whitespace=cr-at-eol
+testing/receipts/firmware-refresh/** -text whitespace=cr-at-eol,-blank-at-eof,-blank-at-eol
