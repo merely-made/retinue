@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "model": "HT-n5262",
+  "uf2_bootloader": "0.9.0",
+  "softdevice": "S140 6.1.1",
+  "processor": "nrf52840",
+  "flash_size": 1048576
+}

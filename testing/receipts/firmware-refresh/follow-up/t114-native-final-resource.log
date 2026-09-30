@@ -1,0 +1,6 @@
+tulle/t114 phy online; version=0.0.1; sx1262 online; spi=software; irq=poll; sync=2b reg=24b4; region=US915 freq=906875000 reset=soft crash=0 timebase=active; build=711816a8124bd58cd8cc314ec4de5009be7df166; image=t114-native
+identity=loaded slot=A seq=86
+node=599997c8 heap=0/49152 highwater=24
+channel=node state=node-timebase-v1 dest=599997c8
+heap=1392/49152 highwater=6604 free=47760
+node tx=18 rx=20 peers=0 links=1 refusedlinks=0 refusedpeers=0 refusedoffers=3 routes=0 transport=1 fwdannounce=0 fwdpacket=0 routeexpired=0 routeevicted=0 hopdrop=0 noroute=0 unsent=0 unseeded=0 timebaseexhausted=0tulle/t114 phy online; version=0.0.1; sx1262 online; spi=software; irq=poll; sync=2b reg=24b4; region=US915 freq=906875000 reset=soft crash=0 timebase=active; build=711816a8124bd58cd8cc314ec4de5009be7df166; image=t114-native

@@ -5,8 +5,9 @@ recovery instructions, and the public package index. Every part has its own dige
 parts also name their write offset. The index is the publishable installer evidence artifact:
 `retinue.heltec-v4` is the September 30 modem build, with fresh Windows installation
 and ROM-loader retry evidence. `retinue.heltec-v4-resident` is a separate, partial
-commissioning image. T114 still offers the historical v51 recipe; its freshly built
-replacement awaits physical UF2 installation and qualification. The retained
+commissioning image. T114 now offers the installed native `711816a` image as
+`partial`, pending a recovery retry of those same bytes. Historical v51 artifacts
+and receipts remain retained outside the current offering. The retained
 Meshtastic T114 package remains `partial` until its own interface check is recorded.
 
 The V4 images identify source `711816a8124bd58cd8cc314ec4de5009be7df166` and their
@@ -15,6 +16,14 @@ The resident image starts in the persisted modem personality; one-shot resident
 setup uses volatile test channel material. Three Sennet and Tucket visits passed,
 but a final home link proof after cancellation timed out. It does not close the
 resident acceptance gate. See the [firmware receipt](../../testing/receipts/firmware-refresh/README.md).
+
+The [follow-up receipt](../../testing/receipts/firmware-refresh/follow-up/README.md)
+records T114 installation, original settings sequence and identity, native resource
+RF checks, guarded package admission and two signed announces advancing across
+soft resets. The loader backup omitted the settings pair; unchanged live sequence
+and identity are not a byte-identical readback. The isolated resident run passed
+one cancellation, then reported Home and LinkUp on a second but timed out waiting
+for its expected RF proof. Both current T114 and resident packages remain partial.
 
 ## Before installing
 
@@ -40,15 +49,16 @@ recovery instructions continue to use its own package and the ROM loader.
 Older V4 artifacts have Windows, Intel-macOS, Apple-silicon-macOS, and Linux physical receipts.
 The refreshed V4 artifact currently has Windows evidence only; older runs do not
 qualify these new bytes on other hosts.
-The public T114 UF2 route has a Windows physical receipt. The index records those exact host
-boundaries instead of extrapolating support from a helper's portability.
+The current T114 UF2 installation has a Windows physical receipt. Its same-image
+recovery retry remains open; historical v51 recovery does not qualify the new bytes.
 
 The Phase D package shape is `persistent_state.schema = 1` with the
 `native_node_guard` and preserved `0xE8000..0xEC000` reservation. Linkboy refuses to flash a
 known armed native-node device with a package that lacks that declaration. The retained v47 and
 v51 binaries predate this guard, so they declare the preserved range in their manifests but do
-not claim guard support. A rebuilt package must not be published with that claim until its
-immutable firmware artifact emits and honors the guard. First-flash, unarmed, unknown, and
+not claim guard support. The current T114 artifact emits the guard and passed
+admission while armed; the same armed device refused the old v51 package.
+First-flash, unarmed, unknown, and
 foreign running states remain eligible for an explicitly compatible package. Legacy and
 external packages intentionally omit the declaration.
 
@@ -67,8 +77,8 @@ future space; any vault needs its own selected range and overlap guard. Septembe
 30 rebuilt the V4 artifacts and independently verified the full preserved tail
 before resident setup. T114 v51's immutable payload stops at `0x69400`; its native-node
 preserved/guard declaration begins at `0xE8000`, so it does not contractually cover the new
-`0xE6000..0xE8000` control pair. The pending T114 replacement reserves all three
-A/B pairs at `0xE6000..0xEC000`, but is not yet an installed-device receipt.
+`0xE6000..0xE8000` control pair. The installed current T114 package reserves all
+three A/B pairs at `0xE6000..0xEC000` and writes only `0x26000..0x72100`.
 
 Inspect the catalog and a package before connecting a board:
 
@@ -76,7 +86,7 @@ Inspect the catalog and a package before connecting a board:
 linkboy catalog firmware/packages/index.toml
 linkboy inspect firmware/packages/heltec-v4-current.toml
 linkboy inspect firmware/packages/heltec-v4-resident.toml
-linkboy inspect firmware/packages/t114-v51.toml
+linkboy inspect firmware/packages/t114-current.toml
 linkboy inspect firmware/packages/meshtastic-t114-2.7.26.54e0d8d.toml
 ```
 
@@ -85,7 +95,7 @@ loader can prove the processor but cannot name the carrier revision:
 
 ```text
 linkboy plan PORT firmware/packages/heltec-v4-current.toml v4@REVISION
-linkboy plan PORT firmware/packages/t114-v51.toml t114@REVISION
+linkboy plan PORT firmware/packages/t114-current.toml t114@REVISION
 ```
 
 Do not identify a board from a COM number, USB identifier, or processor alone. Read the plan's
@@ -94,7 +104,7 @@ state-impact and recovery sections before accepting a write.
 ## Recovery
 
 - [Heltec V4 recovery](heltec-v4-current-recovery.md)
-- [T114 recovery](t114-v51-recovery.md)
+- [T114 recovery](t114-current-recovery.md)
 
 The recovery page remains part of each package's public evidence. The index may use
 `proven-recipe` only when installer and recovery receipts link to reproducible public runs and

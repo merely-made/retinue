@@ -1,0 +1,31 @@
+{
+  "firmware_revision": "711816a8124bd58cd8cc314ec4de5009be7df166",
+  "resident_host_revision": "1525278",
+  "software": {
+    "linkboy_library_tests": 82,
+    "package_fixture_tests": 2,
+    "format": true,
+    "registry": true,
+    "catalogs": true,
+    "staged_t114_payload_verified": true,
+    "private_material_excluded": true
+  },
+  "physical": {
+    "t114_installation": true,
+    "original_live_settings_sequence": 84,
+    "settings_byte_identical_readback": false,
+    "complete_loader_backup": false,
+    "native_guarded_plan": true,
+    "legacy_armed_refusal": true,
+    "resource_echo_bytes_both_directions": 1024,
+    "signed_advancing_soft_reset_announces": true,
+    "power_cut_acceptance": false,
+    "same_image_t114_recovery_retry": false,
+    "isolated_cancellation_cycles_passed": 1,
+    "isolated_cancellation_gate_passed": false,
+    "failed_proof_request_accepted_by_dut": "c027c1c5331c95d82e84c76bf4b6e580",
+    "resident_complete_acceptance": false,
+    "peer_restoration": true,
+    "all_three_final_modem": true
+  }
+}

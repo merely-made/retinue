@@ -82,6 +82,15 @@ variable `RETINUE_ANNOUNCE_LEASE_ORDINALS`; the build rejects zero and values ou
 40-bit wire range. The selected lease is compiled into the board policy. Changing it does
 not alter the reservation record format.
 
+The September 30 [current package](../packages/t114-current.toml) identifies
+source `711816a8124bd58cd8cc314ec4de5009be7df166` and image `t114-native`
+in live status. Its [physical follow-up](../../testing/receipts/firmware-refresh/follow-up/README.md)
+records installation, retained identity/settings sequence, a 1024-byte native
+resource exchange, guarded admission and signed announce ordinals advancing
+across soft resets. Same-image UF2 recovery and physical power-cut acceptance
+remain open. Use the current manifest and recovery instructions for those bytes;
+the versioned commands below and older UI receipts describe earlier artifacts.
+
 The Heltec bootloader's documented path is to double-press reset and copy the
 UF2 onto the `HT-n5262` drive. Serial DFU also accepts the ZIP. The application
 address is `0x26000` for the board's S140 v6 bootloader. The same SoftDevice

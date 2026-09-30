@@ -1,0 +1,6 @@
+tulle/t114 phy online; version=0.0.1; sx1262 online; spi=software; irq=poll; sync=2b reg=24b4; region=US915 freq=906875000 reset=soft crash=0 timebase=inactive; build=711816a8124bd58cd8cc314ec4de5009be7df166; image=t114-native
+identity=loaded slot=B seq=93
+node=599997c8 heap=0/49152 highwater=24
+tulle/t114 phy online; version=0.0.1; sx1262 online; spi=software; irq=poll; sync=2b reg=24b4; region=US915 freq=906875000 reset=soft crash=0 timebase=inactive; build=711816a8124bd58cd8cc314ec4de5009be7df166; image=t114-native
+channel=modem
+heap=0/49152 highwater=24 free=49152

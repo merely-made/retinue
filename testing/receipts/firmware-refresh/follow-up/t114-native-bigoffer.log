@@ -1,0 +1,5 @@
+modem online: COM6, leg=bigoffer
+board announced: 599997c875fe2b1f746a1dceb75ed3ae
+bigoffer: refused as expected (resource publish timed out before receiver request)
+verify: 1024 bytes both ways byte-exact
+LEG DONE bigoffer

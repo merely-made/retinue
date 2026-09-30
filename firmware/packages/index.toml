@@ -1,6 +1,6 @@
 schema = "retinue.package-index/v1"
 publisher = "Merely Made"
-version = "4"
+version = "5"
 
 [[packages]]
 package_id = "retinue.heltec-v4"
@@ -27,19 +27,14 @@ recovery_receipts = []
 
 [[packages]]
 package_id = "retinue.t114"
-release_sequence = 51
-manifest = "t114-v51.toml"
+release_sequence = 52
+manifest = "t114-current.toml"
 firmware_publisher = "Merely Made"
-state = "proven-recipe"
+state = "partial"
 instructions_url = "https://github.com/merely-made/retinue/blob/main/firmware/packages/README.md"
-recovery_url = "https://github.com/merely-made/retinue/blob/main/firmware/packages/t114-v51-recovery.md"
-installer_receipts = [
-  "https://github.com/merely-made/retinue/blob/main/design_docs/2026-08-19_signalman_public_f5_windows_receipt.md",
-]
-recovery_receipts = [
-  "https://github.com/merely-made/retinue/blob/main/design_docs/2026-08-14_signalman_t114_graphical_receipt.md",
-]
-receipt_hosts = ["windows-x86_64"]
+recovery_url = "https://github.com/merely-made/retinue/blob/main/firmware/packages/t114-current-recovery.md"
+installer_receipts = []
+recovery_receipts = []
 
 [[packages]]
 package_id = "meshtastic.heltec-mesh-node-t114"

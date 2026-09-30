@@ -1,0 +1,101 @@
+    Checking typenum v1.20.1
+    Checking cfg-if v1.0.4
+    Checking byteorder v1.5.0
+    Checking critical-section v1.2.0
+    Checking nb v1.1.0
+    Checking cmov v0.5.4
+    Checking ctutils v0.4.2
+    Checking nb v0.1.3
+    Checking hash32 v0.3.1
+    Checking hybrid-array v0.4.13
+    Checking void v1.0.2
+    Checking stable_deref_trait v1.2.1
+    Checking const-oid v0.10.2
+    Checking heapless v0.9.3
+    Checking crypto-common v0.2.2
+    Checking block-buffer v0.12.1
+    Checking embedded-hal v0.2.7
+    Checking digest v0.11.3
+    Checking num-traits v0.2.19
+    Checking embedded-hal v1.0.0
+    Checking embedded-hal-async v1.0.0
+    Checking block-padding v0.4.2
+    Checking futures-core v0.3.33
+    Checking embedded-io v0.7.1
+    Checking inout v0.2.2
+    Checking embedded-io-async v0.7.0
+    Checking zeroize v1.9.0
+    Checking subtle v2.6.1
+    Checking vcell v0.1.3
+    Checking az v1.3.0
+    Checking volatile-register v0.2.2
+    Checking curve25519-dalek v5.0.0
+    Checking bare-metal v0.2.5
+    Checking cipher v0.5.2
+    Checking embassy-time-driver v0.2.2
+    Checking embassy-futures v0.1.2
+    Checking signature v3.0.0
+    Checking futures-sink v0.3.33
+    Checking bitfield v0.13.2
+    Checking rand_core v0.10.1
+    Checking cortex-m v0.7.7
+    Checking embassy-sync v0.8.0
+    Checking ed25519 v3.0.0
+    Checking embassy-time v0.5.1
+    Checking hmac v0.13.0
+    Checking sha2 v0.11.0
+    Checking embedded-io v0.6.1
+    Checking bitflags v1.3.2
+    Checking cpubits v0.1.1
+    Checking aes v0.9.1
+    Checking ed25519-dalek v3.0.0
+    Checking defmt v1.1.1
+    Checking embedded-io-async v0.6.1
+    Checking zerocopy v0.8.55
+    Checking hkdf v0.13.0
+    Checking x25519-dalek v3.0.0
+    Checking cbc v0.2.1
+    Checking embedded-graphics-core v0.4.1 (C:\Users\mark_\Code\repos\retinue\vendor\embedded-graphics-core)
+    Checking float-cmp v0.9.0
+    Checking embedded-storage v0.3.1
+    Checking embassy-executor-timer-queue v0.1.0
+    Checking micromath v2.1.0
+    Checking embedded-graphics v0.8.2 (C:\Users\mark_\Code\repos\retinue\vendor\embedded-graphics)
+    Checking embedded-storage-async v0.4.1
+    Checking cortex-m-rt v0.7.5
+    Checking retinue v0.1.1 (C:\Users\mark_\Code\repos\retinue\crates\retinue)
+    Checking half v2.7.1
+    Checking defmt v0.3.100
+    Checking embassy-usb-driver v0.2.2
+    Checking embassy-hal-internal v0.4.0
+    Checking lora-modulation v0.1.5
+    Checking embassy-net-driver v0.2.0
+    Checking bytemuck v1.25.2
+    Checking bitflags v2.13.1
+    Checking const-default v1.0.0
+    Checking fixed v1.31.0
+    Checking rlsf v0.2.3
+    Checking embassy-net-driver-channel v0.4.0
+    Checking lora-phy v3.0.1 (C:\Users\mark_\Code\repos\retinue\vendor\lora-phy)
+    Checking embassy-embedded-hal v0.6.0
+    Checking nrf-pac v0.4.0
+    Checking embassy-hal-internal v0.5.0
+    Checking thiserror v2.0.19
+    Checking portable-atomic v1.14.0
+    Checking radio-face v0.0.1 (C:\Users\mark_\Code\repos\retinue\crates\radio-face)
+    Checking embassy-time-queue-utils v0.3.2
+    Checking rand_core v0.6.4
+    Checking selvage v0.1.0 (C:\Users\mark_\Code\repos\retinue\crates\selvage)
+    Checking linked_list_allocator v0.10.6
+    Checking rand_core v0.9.5
+    Checking cordyceps v0.3.4
+    Checking embassy-executor v0.10.0
+    Checking embedded-alloc v0.7.0
+    Checking radio-hand v0.0.1 (C:\Users\mark_\Code\repos\retinue\crates\radio-hand)
+    Checking static_cell v2.1.1
+    Checking outrider v0.1.1 (C:\Users\mark_\Code\repos\retinue\crates\outrider)
+    Checking embassy-usb v0.6.0
+    Checking embassy-nrf v0.11.0
+    Checking embedded-hal-bus v0.3.0
+    Checking tulle-t114-phy v0.0.1 (C:\Users\mark_\Code\repos\retinue\firmware\t114-phy)
+    Finished `release` profile [optimized + debuginfo] target(s) in 17.96s

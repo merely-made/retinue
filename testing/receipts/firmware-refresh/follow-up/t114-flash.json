@@ -1,0 +1,38 @@
+{
+  "schema": 4,
+  "package_id": "retinue.t114",
+  "package_parts": [
+    {
+      "kind": "application",
+      "offset": null,
+      "byte_length": 623104,
+      "sha256": "27424c8e634c10fe84a85823990d63ea8c11de23cd008e3ae877896984e6cfc9"
+    }
+  ],
+  "publisher_signature": null,
+  "board": "t114",
+  "board_revision": "2.x",
+  "board_selection_evidence": "owner confirmation from carrier marking",
+  "route": "uf2-mass-storage",
+  "helper": {
+    "program": "linkboy UF2 volume writer",
+    "version": "0.1.0",
+    "platform": null,
+    "binary_sha256": null,
+    "archive_sha256": null,
+    "archive_url": null
+  },
+  "transport": "volume:E:\\",
+  "processor": "nrf52840",
+  "flash_size": 1048576,
+  "bootloader": "adafruit-uf2-0.9.0",
+  "stages": [
+    {
+      "name": "manual-check-required",
+      "detail": "The UF2 volume ejected after Linkboy wrote all 623104 verified package bytes to E:\\t114.uf2; that is the bootloader's transfer acknowledgement. The upstream application check remains required."
+    }
+  ],
+  "result": "manual-check-required",
+  "application": null,
+  "manual_check": "Status must report build=711816a8124bd58cd8cc314ec4de5009be7df166 image=t114-native."
+}

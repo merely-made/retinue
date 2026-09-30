@@ -1,0 +1,3 @@
+modem online: COM6, leg=fuzz
+fuzz: 40 undecodable frames on the air
+Error: "no announce heard"

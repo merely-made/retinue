@@ -1,0 +1,36 @@
+from pathlib import Path
+import re,json,hashlib
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+work=Path(__file__).resolve().parent
+results=[]
+for name in ['first','second-armed']:
+    text=(work/('t114-native-announce-'+name+'.log')).read_text()
+    frames=[bytes.fromhex(s) for s in re.findall(r'^  ([0-9a-f]+)\s*$',text,re.M)]
+    found=[]
+    for frame in frames:
+        if frame[0]&3!=1:continue
+        assert not(frame[0]&0x80)
+        offset=18 if frame[0]&0x40 else 2
+        destination=frame[offset:offset+16]
+        payload=frame[offset+17:]
+        public=payload[:64]
+        name_hash=payload[64:74]
+        blob=payload[74:84]
+        end=116 if frame[0]&0x20 else 84
+        signature=payload[end:end+64]
+        app_data=payload[end+64:]
+        message=destination+payload[:end]+app_data
+        Ed25519PublicKey.from_public_bytes(public[32:]).verify(signature,message)
+        bad=bytearray(message);bad[-1]^=1
+        try: Ed25519PublicKey.from_public_bytes(public[32:]).verify(signature,bytes(bad))
+        except Exception:pass
+        else:raise AssertionError('modified signed message accepted')
+        assert destination.hex()=='599997c875fe2b1f746a1dceb75ed3ae'
+        found.append({'capture':name,'destination':destination.hex(),'identity_public':public.hex(),'identity_hash':hashlib.sha256(public).hexdigest()[:32],'blob':blob.hex(),'timebase':int.from_bytes(blob[5:],'big'),'signature_verified':True,'modified_message_refused':True,'frame_sha256':hashlib.sha256(frame).hexdigest()})
+    assert len(found)==1
+    results.extend(found)
+assert results[0]['identity_public']==results[1]['identity_public']
+assert results[1]['timebase']>results[0]['timebase']
+report={'same_identity':True,'strictly_advancing_after_soft_reset':True,'scope':'two native RF announces across controlled software resets; no power-cut claim','announces':results}
+(work/'t114-native-announce-verification.json').write_text(json.dumps(report,indent=2)+'\n')
+print(json.dumps(report,indent=2))

@@ -1,0 +1,42 @@
+{
+  "started_utc": "2026-09-30T22:19:24.474597+00:00",
+  "passed": false,
+  "baseline": {},
+  "restoration": {},
+  "dut_reset_required": false,
+  "transcript": [],
+  "scope": "three isolated resident cancellations; not full visit acceptance",
+  "mode": "cancel",
+  "runner_sha256": "1c49355b57ac0d0d1afa3f6eca78ce8f2fbceb98197f62ae855c44f4a307c224",
+  "exe_sha256": "2353989b2320c46bb03e5b4fff6fdeb16c74c4980bccaff51bbea2888583642a",
+  "ports": {
+    "COM10": [
+      6421,
+      21023,
+      "TULLE-T114-01"
+    ],
+    "COM6": [
+      12346,
+      4097,
+      "44:1B:F6:6A:FB:28"
+    ],
+    "COM7": [
+      12346,
+      4097,
+      "44:1B:F6:6A:FA:64"
+    ]
+  },
+  "source_sha256": {
+    "Cargo.lock": "58077f379fe26ce69a35b4c03527f01ee606f68ea17a23e607c9f4804e121891",
+    "crates/retinue/Cargo.toml": "15a9ff1f486118992aaf1def44197b8d64edafe99255abc4d9362e6d894ba9af",
+    "crates/retinue/examples/resident_probe.rs": "826e9155d17a2b06b52b2b215e8f2e12454c551254b56e045201cbb3daf4c3c5",
+    "crates/retinue/examples/resident/retinue.rs": "d8499319720aa910997f67f651d9e96791056cbe3f64882e6d51f855a754b73a",
+    "crates/radio-hand/src/resident_wire.rs": "5d072b2d2fca66d3711e67b4323a12c614efe261d2323d44ad8494b0e2d31229",
+    "crates/radio-hand/src/resident_command.rs": "9d1f06781dc0c52489ee154b5de1d5c0f8272f8e502ee0221f5740b991860d2e",
+    "crates/radio-hand/src/instances.rs": "dd91c782a8c09d9c58d3d6951deabf355fe80a330b4ad1732be8405b99170f2b",
+    "firmware/heltec-v4-phy/src/resident.rs": "6390b646966af30ddc75bcfe4de0d84c47392db04112d72653fd677a6474ab28"
+  },
+  "base_revision": "1525278ae58b7e0cb2e720b234f7c425a429a54d",
+  "error": "SerialTimeoutException('Write timeout')",
+  "finished_utc": "2026-09-30T22:19:27.099417+00:00"
+}

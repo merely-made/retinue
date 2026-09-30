@@ -43,7 +43,12 @@ Each crate has its own README with more detail, and here's a generated overview.
 - The [firmware refresh](testing/receipts/firmware-refresh/README.md) installed
   clean-pin modem and resident V4 images with exact live build identities and
   preserved settings. Selected Sennet/Tucket RF traffic passed; the resident
-  cancellation proof timed out. T114's rebuilt image awaits UF2 installation.
+  cancellation proof timed out. The [follow-up](testing/receipts/firmware-refresh/follow-up/README.md)
+  installed T114's native image, retained its identity and settings sequence,
+  passed a 1024-byte exchange, and verified advancing signed announces across
+  soft resets. One isolated resident cancellation passed; the second returned
+  Home and opened a link, but its expected RF proof timed out. T114's same-image
+  recovery retry and complete resident acceptance remain open.
 - Signalman desktop collected observations from identified V4 and T114 boards
   with automatic saving disabled, and keyboard export/reload was verified on
   September 21. Device-switch association clearing is implemented. Clipboard,

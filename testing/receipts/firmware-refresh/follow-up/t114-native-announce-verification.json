@@ -1,0 +1,29 @@
+{
+  "same_identity": true,
+  "strictly_advancing_after_soft_reset": true,
+  "scope": "two native RF announces across controlled software resets; no power-cut claim",
+  "announces": [
+    {
+      "capture": "first",
+      "destination": "599997c875fe2b1f746a1dceb75ed3ae",
+      "identity_public": "7f265a086c457fd7433d2d8b21691da77b251dfd0823e289c8e4dc6ceeaa300a90ed838c65c8f761652e685188edde6a73b4cb1630f1a495b10bb801676f40ec",
+      "identity_hash": "e4b6bdc7fb679bbe68a620335eb00ef6",
+      "blob": "65a617f55d0000020001",
+      "timebase": 131073,
+      "signature_verified": true,
+      "modified_message_refused": true,
+      "frame_sha256": "ed8a759f15e955fb973a3b4be837fe4cf5ff60d4f635b39a13000da78c9f5d83"
+    },
+    {
+      "capture": "second-armed",
+      "destination": "599997c875fe2b1f746a1dceb75ed3ae",
+      "identity_public": "7f265a086c457fd7433d2d8b21691da77b251dfd0823e289c8e4dc6ceeaa300a90ed838c65c8f761652e685188edde6a73b4cb1630f1a495b10bb801676f40ec",
+      "identity_hash": "e4b6bdc7fb679bbe68a620335eb00ef6",
+      "blob": "63b1435ca60000040001",
+      "timebase": 262145,
+      "signature_verified": true,
+      "modified_message_refused": true,
+      "frame_sha256": "0849d1cf51bd8b25c049279d2c5ac62c53e69296a9ede3e2080904c173eb869b"
+    }
+  ]
+}

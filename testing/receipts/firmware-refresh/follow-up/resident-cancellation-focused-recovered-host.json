@@ -1,0 +1,18 @@
+{
+  "dut_reports": [
+    "resident ready\r\n"
+  ],
+  "elapsed_ms": 10025,
+  "error": "resident home announce timed out",
+  "events": [
+    {
+      "kind": "dut_diagnostic",
+      "raw": "resident ready\r\n"
+    }
+  ],
+  "mode": "cancel",
+  "passed": false,
+  "qualified": false,
+  "result": null,
+  "scope": "three isolated resident cancellations, each with an initial signed home proof, missed request while away, and signed home proof after cancellation"
+}

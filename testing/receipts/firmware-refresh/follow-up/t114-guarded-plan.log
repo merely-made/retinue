@@ -1,0 +1,22 @@
+flash plan
+  device: COM10
+  board: T114 revision 2.x
+  package: Retinue for Heltec T114 0.0.1-711816a
+  parts: application at container layout (623104 bytes, sha256 27424c8e634c10fe84a85823990d63ea8c11de23cd008e3ae877896984e6cfc9)
+  route: UF2 mass-storage bootloader
+  helper: linkboy UF2 volume writer 0.1.0
+  write ranges: 0x26000..0x72100
+  preserved ranges: 0xe6000..0xe8000, 0xe8000..0xec000, 0xec000..0x100000
+  state impact: preserved
+  compatibility:
+    board family: T114 [owner selection, checked against running status]
+    board revision: 2.x [owner confirmation from carrier marking]
+    processor: nRF52840 [running Retinue identity; checked against package]
+    flash size: 1048576 bytes [running Retinue identity; checked against package]
+    bootloader: adafruit-uf2-0.9.0 [running Retinue identity; checked against package]
+    native-node persistent state: state=node-timebase-v1 [running status token state=node-timebase-v1]
+    package node-timebase support: schema 1; preserves 0xe8000..0xec000 [package manifest]
+  warnings:
+    none
+  recovery before write: Double-tap reset to enter the stock HT-n5262 UF2 bootloader, select its mounted volume explicitly, and keep the cable attached. Linkboy refuses an existing same-named UF2 file rather than overwriting it.
+  recovery after failure: Double-tap reset again, select the reappeared HT-n5262 volume, and retry this verified UF2 package. The S140 SoftDevice, bootloader, and persisted settings ranges remain outside the application write range.

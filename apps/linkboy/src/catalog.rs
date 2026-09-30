@@ -611,7 +611,7 @@ y/rUw2y8/hOUYjZU71eHp/Wo1KZ40fGy2VJEDl34XMJM+TX48Ss/17u3IvIfbVR1FkZZSNCisQbuQY+b
             package("retinue.heltec-v4-resident").state,
             CatalogState::Partial
         );
-        assert_eq!(package("retinue.t114").state, CatalogState::ProvenRecipe);
+        assert_eq!(package("retinue.t114").state, CatalogState::Partial);
         assert_eq!(
             package("meshtastic.heltec-mesh-node-t114").state,
             CatalogState::Partial

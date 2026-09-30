@@ -448,9 +448,8 @@ visits, three Tucket visits including text/ACKs, and six signed home link proofs
 but its final proof after cancellation timed out. Keep this separate image partial.
 The ordinary image also passed a Windows ROM-loader reinstall and returned the
 same build identity. Other hosts' older receipts do not qualify these new bytes.
-T114's new native image is built but unpublished: its serial loader has appeared,
-and physical double-tap into the stock UF2 volume remains required before its
-state-preserving installation and native-node RF qualification. Historical v51
+At the initial receipt boundary T114's new image awaited the stock UF2 volume.
+The follow-up below records its subsequent installation. Historical v51
 packages and receipts remain unchanged.
 
 The T114 UF2 drive appeared after owner reset. The verified application-only write
@@ -461,3 +460,18 @@ and advanced across controlled soft resets. The full resident run with T114 as
 peer timed out during a Tucket visit, so the host bench now exposes an explicitly
 scoped three-cancellation mode. It reuses the existing cancellation checks and
 peer restoration, without claiming the complete visit suite from that narrow run.
+
+The [follow-up receipt](../testing/receipts/firmware-refresh/follow-up/README.md)
+retains the T114 write, live original settings sequence, positive guarded plan,
+legacy-package refusal and native RF captures. CURRENT.UF2 omitted the settings
+pair, so no byte-identical settings or whole-device-backup claim follows. The
+new catalog release 52 points to these exact bytes and remains partial until a
+same-image recovery retry is exercised.
+
+After V4 serial I/O recovered, the isolated cancellation run passed one complete
+away/cancel/Home/signed-proof/close cycle. The second returned Home and reported
+LinkUp for the request's exact calculated link id, but the peer never observed
+its expected proof. This distinguishes a received request from a proven reply;
+it does not yet locate the loss in firmware TX, RF, or peer RX. The peer was
+restored and the resident V4 explicitly reset to modem afterward. Complete
+resident, fault, memory-high-water and unattended acceptance remain open.

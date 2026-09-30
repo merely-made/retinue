@@ -1,0 +1,31 @@
+{
+  "uf2_bytes": 1908736,
+  "uf2_sha256": "5eb1969e4e6685df997d06ef94b00ddf14fea304d36deb50992c28cfdd349038",
+  "covered_ranges": [
+    [
+      "0x1000",
+      "0xea000"
+    ]
+  ],
+  "persistent_pairs_covered": false,
+  "ranges": {
+    "control": {
+      "start": "0xe6000",
+      "end": "0xe8000",
+      "fully_covered": true,
+      "sha256": "7d2c7ac4888bfd75cd5f56e8d61f69595121183afc81556c876732fd3782c62f"
+    },
+    "announce": {
+      "start": "0xe8000",
+      "end": "0xea000",
+      "fully_covered": true,
+      "sha256": "7d2c7ac4888bfd75cd5f56e8d61f69595121183afc81556c876732fd3782c62f"
+    },
+    "settings": {
+      "start": "0xea000",
+      "end": "0xec000",
+      "fully_covered": false,
+      "sha256": null
+    }
+  }
+}

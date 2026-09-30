@@ -1,0 +1,17 @@
+package retinue.t114
+  name: Retinue for Heltec T114
+  version: 0.0.1-711816a
+  publisher: Merely Made
+  helpers: linkboy UF2 volume writer 0.1.0
+  parts: application firmware/packages\../t114-phy/tulle-t114-phy-current.uf2 at container layout (623104 bytes, sha256 27424c8e634c10fe84a85823990d63ea8c11de23cd008e3ae877896984e6cfc9)
+  targets: T114 2.x
+  routes: UF2 mass-storage bootloader
+  write ranges: 0x26000..0x72100
+  preserved ranges: 0xe6000..0xe8000, 0xe8000..0xec000, 0xec000..0x100000
+  regions: US915, EU868, EU433, ANZ915, JP920
+  channel capabilities: modem, node, rnode
+  state impact: preserved
+  persistent state: schema 1 native-node-guard=true preserved 0xe8000..0xec000
+  license: MPL-2.0
+  source: https://github.com/merely-made/retinue/tree/main/firmware/t114-phy @ 711816a8124bd58cd8cc314ec4de5009be7df166
+  recovery: Double-tap reset to enter the stock HT-n5262 UF2 bootloader, select its mounted volume explicitly, and keep the cable attached. Linkboy refuses an existing same-named UF2 file rather than overwriting it.

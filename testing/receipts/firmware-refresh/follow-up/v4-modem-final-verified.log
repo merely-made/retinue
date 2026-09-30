@@ -1,0 +1,3 @@
+tulle/heltec-v4 phy online; version=0.0.1; sx1262 online; sync=2b reg=24b4; longfast=906875000; build=711816a8124bd58cd8cc314ec4de5009be7df166; image=v4-modem-usb
+identity=loaded slot=B seq=9
+channel=modem

@@ -1,0 +1,61 @@
+from pathlib import Path
+import hashlib, json, shutil, subprocess, tomllib
+
+root = Path(__file__).resolve().parents[3]
+work = Path(__file__).resolve().parent
+receipt = root / 'testing/receipts/firmware-refresh/follow-up'
+selected = []
+for p in sorted(work.iterdir()):
+    if p.suffix not in ('.json', '.log'):
+        continue
+    if p.name.startswith(('t114-', 'resident-cancellation-', 'resident-t114-', 'cancel-v4-')) or p.name in (
+        'resident-com7-loader-recovery.log', 'resident-cancel-build.log',
+        'resident-cancel-formatted-build.log', 'v4-resident-final-verified.log',
+        'v4-modem-final-verified.log', 'resident-cancellation-final-reset.log',
+        'follow-up-linkboy-tests.log', 'follow-up-format.log', 'follow-up-registry.log',
+        'follow-up-catalog.log', 'follow-up-inspect.log'):
+        selected.append(p)
+for p in selected:
+    shutil.copyfile(p, receipt / p.name)
+shutil.copyfile(work/'verify_native_announces.py', receipt/'verify-native-announces.txt')
+shutil.copyfile(Path(__file__), receipt/'seal-follow-up.txt')
+texts = b'\n'.join(p.read_bytes() for p in receipt.iterdir() if p.is_file())
+for p in work.glob('*.resident-private.bin'):
+    material = p.read_bytes()
+    assert len(material) == 185
+    for secret in (material, material[8:40], material[40:72]):
+        assert secret not in texts
+        assert secret.hex().encode() not in texts
+        assert secret.hex().upper().encode() not in texts
+manifest_path = root/'firmware/packages/t114-current.toml'
+doc = tomllib.loads(manifest_path.read_text())
+payload = (manifest_path.parent/doc['payload']['path']).resolve()
+staged = subprocess.check_output(['git', 'show', ':'+payload.relative_to(root).as_posix()], cwd=root)
+assert len(staged) == doc['payload']['byte_length'] == payload.stat().st_size
+assert hashlib.sha256(staged).hexdigest() == doc['payload']['sha256'] == hashlib.sha256(payload.read_bytes()).hexdigest()
+host = json.loads((work/'resident-cancellation-reconnected-host.json').read_text())
+request = bytes.fromhex(host['error'].split('request=')[1])
+link_id = hashlib.sha256(bytes([request[0]&15])+request[2:19]+request[19:83]).hexdigest()[:32]
+assert any(link_id in report and 'LinkUp' in report for report in host['dut_reports'])
+assert sum(event['kind']=='cancellation_visit' for event in host['events']) == 1
+runner = json.loads((work/'resident-cancellation-reconnected.json').read_text())
+assert all(runner['restoration']['peer'][key] for key in ('same_boot', 'same_status', 'same_sync'))
+checks = {
+    'firmware_revision': doc['source_revision'], 'resident_host_revision': '1525278',
+    'software': {'linkboy_library_tests': 82, 'package_fixture_tests': 2,
+                 'format': True, 'registry': True, 'catalogs': True,
+                 'staged_t114_payload_verified': True, 'private_material_excluded': True},
+    'physical': {'t114_installation': True, 'original_live_settings_sequence': 84,
+                 'settings_byte_identical_readback': False, 'complete_loader_backup': False,
+                 'native_guarded_plan': True, 'legacy_armed_refusal': True,
+                 'resource_echo_bytes_both_directions': 1024, 'signed_advancing_soft_reset_announces': True,
+                 'power_cut_acceptance': False, 'same_image_t114_recovery_retry': False,
+                 'isolated_cancellation_cycles_passed': 1, 'isolated_cancellation_gate_passed': False,
+                 'failed_proof_request_accepted_by_dut': link_id,
+                 'resident_complete_acceptance': False, 'peer_restoration': True,
+                 'all_three_final_modem': True}}
+(receipt/'checks.json').write_text(json.dumps(checks, indent=2)+'\n')
+files = {p.name: {'bytes': p.stat().st_size, 'sha256': hashlib.sha256(p.read_bytes()).hexdigest()}
+         for p in sorted(receipt.iterdir()) if p.is_file() and p.name != 'manifest.json'}
+(receipt/'manifest.json').write_text(json.dumps({'schema': 1, 'files': files}, indent=2)+'\n')
+print(json.dumps({'sealed_files': len(files), 'staged_payload_verified': True, 'private_material_excluded': True}))

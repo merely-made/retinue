@@ -1,0 +1,16 @@
+Chip type:         esp32s3 (revision v0.2)
+Crystal frequency: 40 MHz
+Flash size:        16MB
+Features:          WiFi, BLE, Embedded Flash
+MAC address:       44:1b:f6:6a:fa:64
+
+Security Information:
+=====================
+Flags: 0x00000000 (0)
+Key Purposes: [0, 0, 0, 0, 0, 0, 12]
+Chip ID: 9
+API Version: 0
+Secure Boot: Disabled
+Flash Encryption: Disabled
+SPI Boot Crypt Count (SPI_BOOT_CRYPT_CNT): 0x0
+
