@@ -1,0 +1,47 @@
+[package]
+name = "radio-mirror"
+version = "0.0.1"
+edition = "2024"
+rust-version.workspace = true
+license = "MPL-2.0"
+publish = false
+description = "Browser realization of radio-face: RGBA framebuffer, Controller-driven input, wasm exports."
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["json"]
+# JSON documents for LocalStatus and HostSnapshot (see src/input.rs).
+json = ["dep:serde", "dep:serde_json"]
+# Native PNG output for build-time, no-script images.
+png = ["dep:png"]
+
+[dependencies]
+radio-face = { path = "../radio-face" }
+embedded-graphics = { path = "../../vendor/embedded-graphics" }
+serde = { version = "1.0.228", features = ["derive"], optional = true }
+serde_json = { version = "1.0.151", optional = true }
+png = { version = "0.17.16", optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "=0.2.127"
+
+[dev-dependencies]
+png = "0.17.16"
+
+[[example]]
+name = "render_png"
+required-features = ["json", "png"]
+
+[[test]]
+name = "golden"
+required-features = ["json", "png"]
+
+[[test]]
+name = "pages"
+required-features = ["json"]
+
+[[test]]
+name = "input"
+required-features = ["json"]

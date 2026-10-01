@@ -1,0 +1,28 @@
+{
+  "board": "HELTEC V4",
+  "firmware": "PHY V10",
+  "uptime_secs": 14719,
+  "radio": "online",
+  "host": "attached",
+  "power_source": "usb",
+  "battery_percent": 73,
+  "millivolts": 3920,
+  "display_on": true,
+  "sleep": "disabled",
+  "last_wake": "radio",
+  "profile": {
+    "frequency_hz": 906875000,
+    "bandwidth_hz": 250000,
+    "spreading_factor": 11,
+    "coding_rate_denominator": 5,
+    "tx_power_dbm": 17,
+    "sync_word": 43,
+    "name": "LONGFAST"
+  },
+  "tx_frames": 128,
+  "rx_frames": 342,
+  "last_rx": { "frame_len": 243, "rssi_dbm": -97, "snr_tenths_db": 62 },
+  "last_tx": { "sent": { "frame_len": 247 } },
+  "fault": null,
+  "gnss": "absent"
+}

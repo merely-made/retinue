@@ -13,6 +13,7 @@ members = [
     "crates/outrider",
     "crates/radio-face",
     "crates/radio-hand",
+    "crates/radio-mirror",
     "firmware/heltec-v4-phy",
     "firmware/t114-phy",
     "testing/protocol-capacity",
@@ -52,6 +53,7 @@ default-members = [
     "crates/outrider",
     "crates/radio-face",
     "crates/radio-hand",
+    "crates/radio-mirror",
 ]
 
 [workspace.package]

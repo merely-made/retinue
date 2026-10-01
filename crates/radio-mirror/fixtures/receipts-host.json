@@ -1,0 +1,23 @@
+{
+  "valid_for_secs": 15,
+  "personality": "retinue",
+  "detail": "named",
+  "node": {
+    "name": "HERALD",
+    "address_tail": "4c9f03aa77e2bd08",
+    "fingerprint": "4c9f03aa77e21b0d92c4e8f15a36bd08",
+    "role": "NODE",
+    "uptime_secs": 13700
+  },
+  "link_count": 4,
+  "admitted_links": 2,
+  "queue_depth": 3,
+  "ifac": "on",
+  "peers": [
+    { "name": "ESQUIRE", "path": "direct", "age_secs": 120 },
+    { "name": "MARSHAL", "path": "direct", "age_secs": 3600 },
+    { "name": "OUTRIDER", "path": "via", "age_secs": 720 }
+  ],
+  "peer_overflow": 1,
+  "event": { "source": "host", "kind": "delivered", "text": "DIRECT DELIVERED" }
+}
