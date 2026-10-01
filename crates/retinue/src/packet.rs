@@ -214,6 +214,15 @@ impl Packet {
         })
     }
 
+    /// Address this packet to its first relay: header type 2 naming `transport`, the relay's
+    /// identity hash. `None` (the destination is heard directly) leaves it unchanged.
+    pub(crate) fn address_via(&mut self, transport: Option<AddressHash>) {
+        if let Some(transport) = transport {
+            self.header_type = HeaderType::Type2;
+            self.transport = Some(transport);
+        }
+    }
+
     /// The RNS packet hash: `trunc16(SHA256(masked_flags || destination || context ||
     /// payload))`, where `masked_flags` is the low nibble of the flag byte (the high nibble
     /// changes in transit). This is what RNS calls a packet's truncated hash, and it is the

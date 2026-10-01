@@ -2289,10 +2289,7 @@ impl Shared {
             .unwrap()
             .get(&pkt.destination)
             .and_then(|entry| entry.transport);
-        if let Some(t) = via {
-            pkt.header_type = crate::packet::HeaderType::Type2;
-            pkt.transport = Some(t);
-        }
+        pkt.address_via(via);
         let _ = iface;
         pkt
     }

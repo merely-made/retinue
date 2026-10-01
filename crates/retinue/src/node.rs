@@ -499,6 +499,18 @@ impl PauseAssessment {
     }
 }
 
+/// Where a fresh route leaves this node, as [`Node::next_hop`] reports it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NextHop {
+    /// The interface the route was learned on.
+    pub interface: InterfaceId,
+    /// The identity hash of the transport node that relayed the announce, or `None` when the
+    /// destination was heard directly. A request to the destination is addressed to it.
+    pub via: Option<AddressHash>,
+    /// The announce's hop count on arrival: the number of relays between here and there.
+    pub hops: u8,
+}
+
 #[derive(Debug, Clone, Copy)]
 struct Route {
     destination: AddressHash,
@@ -957,6 +969,22 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             .map(|route| (route.interface, route.hops))
     }
 
+    /// A route's next hop, read-only. A route past its TTL is reported as absent but not
+    /// evicted; [`Self::route_to`] and [`Self::poll`] do that.
+    pub fn next_hop(&self, destination: AddressHash, now: u64) -> Option<NextHop> {
+        self.routes
+            .iter()
+            .find(|route| {
+                route.destination == destination
+                    && now.saturating_sub(route.learned) < self.transport.route_ttl
+            })
+            .map(|route| NextHop {
+                interface: route.interface,
+                via: route.transport,
+                hops: route.hops,
+            })
+    }
+
     /// Transport activity and bounded-state pressure since boot.
     pub fn transport_counters(&self) -> TransportCounters {
         self.transport_counters
@@ -1070,6 +1098,10 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
     /// `ephemeral_seed` is caller-supplied, per attempt, for the same reason every other
     /// key here is: no RNG in the protocol layer. Returns `None` if the peer is unknown or
     /// the pending table is full.
+    ///
+    /// A destination learned through a transport node is addressed to it (header type 2),
+    /// as `Endpoint` does, so the relay carries the request on. Only a node whose transport
+    /// policy learns routes has one to use.
     pub fn open_link(
         &mut self,
         destination: AddressHash,
@@ -1082,7 +1114,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             return None;
         }
 
-        let (attempt, request) = PendingLink::open(
+        let (attempt, mut request) = PendingLink::open(
             destination,
             peer,
             ephemeral_seed,
@@ -1091,6 +1123,12 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                 mtu: self.logical_mtu,
             },
         );
+        let via = self
+            .routes
+            .iter()
+            .find(|route| route.destination == destination)
+            .and_then(|route| route.transport);
+        request.address_via(via);
         let _ = self.pending.push(attempt);
 
         let mut actions = Actions::new();
@@ -3255,6 +3293,54 @@ mod tests {
         assert_eq!(relay.pause_assessment().transit_bridges, 0);
         assert!(relay.ingest(IFACE, &late, 6).is_empty());
         assert!(relay.peers().knows(destination.destination()));
+    }
+
+    /// A transit source addresses its own request to the relay that taught it the route, and
+    /// reports that relay as the next hop until the route's TTL passes.
+    #[test]
+    fn open_link_addresses_the_first_relay() {
+        let (_, mut destination) = pair();
+        let transit = |seed, name| {
+            Node::<32, 8, 4, 4>::new(
+                PrivateIdentity::from_secret_bytes(&[seed; 64]),
+                DestinationName::new("retinue", [name]).name_hash(),
+            )
+            .with_transport_config(TransportConfig::transit())
+        };
+        let mut source = transit(0x46, "source");
+        let mut relay = transit(0x47, "relay");
+
+        let announce = destination.announce(&blob([0x78; RAND_HASH_LEN]), None);
+        let relayed = sent(&relay.ingest(IFACE, &announce, 0)).unwrap();
+        source.ingest(IFACE, &relayed, 1);
+        let hop = source.next_hop(destination.destination(), 1).unwrap();
+        assert_eq!(hop.via, Some(relay.identity.hash()));
+        assert_eq!(hop.hops, 1);
+        assert_eq!(
+            relay.next_hop(destination.destination(), 1).unwrap().via,
+            None
+        );
+
+        let request = sent(
+            &source
+                .open_link(destination.destination(), IFACE, &[0x9A; 64])
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(request.header_type, HeaderType::Type2);
+        assert_eq!(request.transport, Some(relay.identity.hash()));
+        let forwarded = sent(&relay.ingest(IFACE, &request, 2)).unwrap();
+        let proof = sent(&destination.ingest(IFACE, &forwarded, 3)).unwrap();
+        let back = sent(&relay.ingest(IFACE, &proof, 4)).unwrap();
+        assert!(link_up(&source.ingest(IFACE, &back, 5)).is_some());
+
+        let expired = 1 + DEFAULT_ROUTE_TTL;
+        assert_eq!(source.next_hop(destination.destination(), expired), None);
+        assert_eq!(
+            source.route_count(),
+            1,
+            "the read-only accessor does not evict"
+        );
     }
 
     #[test]
