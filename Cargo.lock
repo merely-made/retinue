@@ -2233,6 +2233,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "retinue-sim"
+version = "0.0.1"
+dependencies = [
+ "radio-face",
+ "retinue",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "riscv"
 version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
