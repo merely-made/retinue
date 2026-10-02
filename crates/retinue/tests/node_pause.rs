@@ -182,7 +182,7 @@ fn linked_at(seen: u64) -> (TestNode, TestNode, retinue::hash::AddressHash) {
 
 #[test]
 fn established_link_can_pause_and_encrypted_data_survives_resume() {
-    let (a, mut b, id) = linked();
+    let (mut a, mut b, id) = linked();
     let assessment = a.pause_assessment();
     assert!(assessment.earliest_link_expiry.is_some());
     assessment

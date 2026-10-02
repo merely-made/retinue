@@ -632,6 +632,11 @@ pub struct Node<
     /// Recently relayed packet hashes. Bounded and time-limited because a shared radio hears
     /// its own relays; without this, one transport node can keep repeating the same frame.
     seen_transit: BoundedVec<SeenPacket, ROUTES>,
+    /// Hashes of the link data this node most recently sent, oldest first. On a shared
+    /// medium a relay's retransmission of our own packet reaches us under the shared link
+    /// key; its packet hash excludes hops and header type, so it matches what we sent and
+    /// marks the copy as ours rather than the far end's.
+    sent_link_data: BoundedVec<AddressHash, ROUTES>,
     /// When we last announced, and how often to. `None` until the first poll, so a node
     /// announces promptly on boot rather than waiting a full interval.
     last_announce: Option<u64>,
@@ -694,6 +699,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             .expect("nonzero fallback freshness capacity"),
             bridges: BoundedVec::new(),
             seen_transit: BoundedVec::new(),
+            sent_link_data: BoundedVec::new(),
             last_announce: None,
             announce_interval: DEFAULT_ANNOUNCE_INTERVAL,
             links: BoundedVec::new(),
@@ -1191,9 +1197,11 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
 
     /// Send application bytes on an established link.
     ///
-    /// `iv` is caller-supplied and must not repeat for a link's key.
+    /// `iv` is caller-supplied and must not repeat for a link's key. Both ends share that key,
+    /// so this holds across the two of them: the packet's hash is remembered, and a copy heard
+    /// back (a relay's retransmission) is recognised as our own rather than delivered.
     pub fn send(
-        &self,
+        &mut self,
         link_id: AddressHash,
         interface: InterfaceId,
         payload: &[u8],
@@ -1221,9 +1229,19 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         if packet.encoded_len() > budget {
             return None;
         }
+        self.remember_sent_link_data(packet.hash());
         let mut actions = Actions::new();
         actions.push(Action::Send { interface, packet });
         Some(actions)
+    }
+
+    /// Remember a link data packet we sent. At capacity the oldest is forgotten, so a long
+    /// burst can outrun the window; that only lets a late echo through, never drops data.
+    fn remember_sent_link_data(&mut self, hash: AddressHash) {
+        if self.sent_link_data.is_full() {
+            self.sent_link_data.remove(0);
+        }
+        let _ = self.sent_link_data.push(hash);
     }
 
     /// Remove routes and carried-link records that have outlived the policy that admitted
@@ -1731,6 +1749,12 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         else {
             return;
         };
+
+        // Our own packet, heard back from a relay. Not the far end's data, and not evidence
+        // that the far end is alive.
+        if self.sent_link_data.contains(&packet.hash()) {
+            return;
+        }
 
         // Heard from: this is what keeps the slot. Recorded before dispatching, so a
         // resource transfer counts as liveness exactly as a keepalive does.
@@ -2703,7 +2727,7 @@ mod tests {
     /// Data crosses an established link and arrives decrypted.
     #[test]
     fn data_crosses_an_established_link() {
-        let (a, mut b, id) = linked();
+        let (mut a, mut b, id) = linked();
 
         let out = a
             .send(id, IFACE, b"hello over the air", &[7; crate::token::IV_LEN])
@@ -2722,6 +2746,115 @@ mod tests {
             }
             None => panic!("expected decrypted Data"),
         }
+    }
+
+    /// On a shared medium the first relay's retransmission of our own link data reaches us
+    /// too. It decrypts under the shared link key, but it is our own payload and not data
+    /// from the far end, and hearing it is not evidence that the peer is alive. Genuine data
+    /// from the far end, relayed the same way, is still delivered.
+    #[test]
+    fn a_senders_own_data_overheard_from_a_relay_is_not_received() {
+        let (mut source, mut destination) = pair();
+        let mut relay = Node::<32, 8, 4, 4>::new(
+            PrivateIdentity::from_secret_bytes(&[0x44; 64]),
+            DestinationName::new("retinue", ["relay"]).name_hash(),
+        )
+        .with_transport_config(TransportConfig::transit());
+
+        let announce = destination.announce(&blob([0x77; RAND_HASH_LEN]), None);
+        let relayed_announce = sent(&relay.ingest(IFACE, &announce, 0)).unwrap();
+        source.ingest(IFACE, &relayed_announce, 1);
+        let mut request = sent(
+            &source
+                .open_link(destination.destination(), IFACE, &[0x99; 64])
+                .unwrap(),
+        )
+        .unwrap();
+        request.header_type = HeaderType::Type2;
+        request.transport = Some(relay.identity.hash());
+        let forwarded_request = sent(&relay.ingest(IFACE, &request, 2)).unwrap();
+        let proof = sent(&destination.ingest(IFACE, &forwarded_request, 3)).unwrap();
+        let forwarded_proof = sent(&relay.ingest(IFACE, &proof, 4)).unwrap();
+        let id = link_up(&source.ingest(IFACE, &forwarded_proof, 5)).unwrap();
+
+        let data_from = |actions: &Actions<8>| {
+            actions.iter().find_map(|action| match action {
+                Action::Data { link_id, payload } => Some((*link_id, payload.clone())),
+                _ => None,
+            })
+        };
+
+        // The source sends. The relay retransmits, and the source hears the relay.
+        let own = sent(
+            &source
+                .send(id, IFACE, b"from the source", &[0x51; 16])
+                .unwrap(),
+        )
+        .unwrap();
+        let retransmitted = sent(&relay.ingest(IFACE, &own, 6)).expect("the relay carries it on");
+        assert_eq!(retransmitted.hops, 1);
+        assert_eq!(
+            data_from(&source.ingest(IFACE, &retransmitted, 7)),
+            None,
+            "a node must not surface its own payload as received data"
+        );
+        assert_eq!(
+            source.pause_assessment().latest_link_activity,
+            Some(5),
+            "our own echo is not the far end being heard from"
+        );
+
+        // The same retransmission, as the far end hears it, is genuine delivery.
+        assert_eq!(
+            data_from(&destination.ingest(IFACE, &retransmitted, 7)),
+            Some((id, b"from the source".to_vec()))
+        );
+
+        // And data the far end sends, relayed back, still reaches the source.
+        let reply = sent(
+            &destination
+                .send(id, IFACE, b"from the far end", &[0x52; 16])
+                .unwrap(),
+        )
+        .unwrap();
+        let relayed_reply = sent(&relay.ingest(IFACE, &reply, 8)).unwrap();
+        assert_eq!(
+            data_from(&source.ingest(IFACE, &relayed_reply, 9)),
+            Some((id, b"from the far end".to_vec())),
+            "genuine data from the far end is still delivered"
+        );
+        assert_eq!(source.pause_assessment().latest_link_activity, Some(9));
+        assert_eq!(
+            data_from(&destination.ingest(IFACE, &relayed_reply, 9)),
+            None,
+            "the responder does not surface its own relayed reply either"
+        );
+
+        // The filter matches packets, not payloads: the far end sending the very bytes we
+        // sent, under its own IV, is a different packet and is delivered.
+        let same_bytes = sent(
+            &destination
+                .send(id, IFACE, b"from the source", &[0x53; 16])
+                .unwrap(),
+        )
+        .unwrap();
+        let relayed_same_bytes = sent(&relay.ingest(IFACE, &same_bytes, 10)).unwrap();
+        assert_eq!(
+            data_from(&source.ingest(IFACE, &relayed_same_bytes, 11)),
+            Some((id, b"from the source".to_vec())),
+            "equal plaintext from the far end is not mistaken for our own"
+        );
+
+        // The one collision is the far end reusing our IV for our plaintext, which yields our
+        // packet byte for byte. That breaks the shared key's IV rule, and is refused as ours.
+        let iv_reuse = sent(
+            &destination
+                .send(id, IFACE, b"from the source", &[0x51; 16])
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(iv_reuse.hash(), own.hash());
+        assert_eq!(data_from(&source.ingest(IFACE, &iv_reuse, 12)), None);
     }
 
     /// A link request for another destination is ignored by a non-transport node and must
