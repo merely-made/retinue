@@ -16,7 +16,6 @@ use embassy_time::{Delay, Duration, with_timeout};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::{Builder, Config, UsbDevice};
 use embedded_hal_bus::spi::ExclusiveDevice;
-use lora_modulation::{Bandwidth, CodingRate, SpreadingFactor};
 use lora_phy::LoRa;
 use lora_phy::sx126x::{Config as Sx126xConfig, Sx126x, Sx1262, TcxoCtrlVoltage};
 use radio_hand::channel::modem::ModemChannel;
@@ -52,7 +51,7 @@ bind_interrupts!(struct Irqs {
 
 type UsbDriver = Driver<'static, HardwareVbusDetect>;
 
-const TX_POWER_DBM: i32 = 17;
+const TX_POWER_DBM: i32 = board::DEFAULT_TX_POWER_DBM as i32;
 const MAX_RADIO_FRAME: usize = 255;
 const USB_PACKET: usize = 64;
 
@@ -379,15 +378,22 @@ async fn main(spawner: Spawner) {
     let boot_frequency = region
         .profile()
         .map(|p| p.default_frequency_hz)
-        .unwrap_or(906_875_000);
-    let modulation = match lora.create_modulation_params(
-        SpreadingFactor::_11,
-        Bandwidth::_250KHz,
-        CodingRate::_4_5,
-        boot_frequency,
+        .unwrap_or(board::DEFAULT_FREQUENCY_HZ);
+    // One source for the modulation: the same board defaults the link deadline's airtime
+    // allowance is computed from (Ruling 70), so the two cannot drift.
+    let params = match (
+        radio_hand::phy::spreading_factor(board::DEFAULT_SPREADING_FACTOR),
+        radio_hand::phy::bandwidth(board::DEFAULT_BANDWIDTH_HZ),
+        radio_hand::phy::coding_rate(board::DEFAULT_CODING_RATE_DENOMINATOR),
     ) {
-        Ok(params) => params,
-        Err(_) => {
+        (Some(sf), Some(bw), Some(cr)) => lora
+            .create_modulation_params(sf, bw, cr, boot_frequency)
+            .ok(),
+        _ => None,
+    };
+    let modulation = match params {
+        Some(params) => params,
+        None => {
             publish_fault(&mut local_status, 2, "PHY PARAMS");
             host::serve_status_only(class, b"tulle/t114 phy modulation invalid\r\n".as_slice())
                 .await
