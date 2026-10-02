@@ -596,6 +596,23 @@ fn is_resource_context(context: u8) -> bool {
     )
 }
 
+/// Whether a link packet with this context is checked against the sent and received
+/// windows. Resource contexts are not: a transfer has its own part and request bookkeeping,
+/// and a re-sent part legitimately repeats its hash. Keepalives are not: every request on a
+/// link is the same unencrypted byte, so each one repeats the last one's hash.
+pub(crate) fn is_deduplicated_link_context(context: u8) -> bool {
+    !is_resource_context(context) && context != link::CTX_KEEPALIVE
+}
+
+/// Remember a packet hash in a window, forgetting the oldest at capacity. A burst can outrun
+/// the window; that only lets a late copy through, never drops a new packet.
+fn remember_hash<const N: usize>(window: &mut BoundedVec<AddressHash, N>, hash: AddressHash) {
+    if window.is_full() {
+        window.remove(0);
+    }
+    let _ = window.push(hash);
+}
+
 /// An executor-neutral Reticulum node.
 ///
 /// `PEERS` bounds the address book. `ACTIONS` bounds what one call can ask of the shell.
@@ -637,6 +654,10 @@ pub struct Node<
     /// key; its packet hash excludes hops and header type, so it matches what we sent and
     /// marks the copy as ours rather than the far end's.
     sent_link_data: BoundedVec<AddressHash, ROUTES>,
+    /// Hashes of the link packets most recently received from far ends, oldest first. The
+    /// same medium that echoes our packets hands us theirs twice, directly and from a relay,
+    /// under one hash; the second copy is dropped.
+    received_link_data: BoundedVec<AddressHash, ROUTES>,
     /// When we last announced, and how often to. `None` until the first poll, so a node
     /// announces promptly on boot rather than waiting a full interval.
     last_announce: Option<u64>,
@@ -700,6 +721,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             bridges: BoundedVec::new(),
             seen_transit: BoundedVec::new(),
             sent_link_data: BoundedVec::new(),
+            received_link_data: BoundedVec::new(),
             last_announce: None,
             announce_interval: DEFAULT_ANNOUNCE_INTERVAL,
             links: BoundedVec::new(),
@@ -1238,10 +1260,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
     /// Remember a link data packet we sent. At capacity the oldest is forgotten, so a long
     /// burst can outrun the window; that only lets a late echo through, never drops data.
     fn remember_sent_link_data(&mut self, hash: AddressHash) {
-        if self.sent_link_data.is_full() {
-            self.sent_link_data.remove(0);
-        }
-        let _ = self.sent_link_data.push(hash);
+        remember_hash(&mut self.sent_link_data, hash);
     }
 
     /// Remove routes and carried-link records that have outlived the policy that admitted
@@ -1760,6 +1779,16 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         // that the far end is alive.
         if self.sent_link_data.contains(&packet.hash()) {
             return;
+        }
+
+        // The far end's packet heard a second time, directly and from a relay. Dropped
+        // before the liveness stamp, as the echo is: the copy is no newer than the original.
+        if is_deduplicated_link_context(packet.context) {
+            let hash = packet.hash();
+            if self.received_link_data.contains(&hash) {
+                return;
+            }
+            remember_hash(&mut self.received_link_data, hash);
         }
 
         // Heard from: this is what keeps the slot. Recorded before dispatching, so a
@@ -2861,6 +2890,51 @@ mod tests {
         .unwrap();
         assert_eq!(iv_reuse.hash(), own.hash());
         assert_eq!(data_from(&source.ingest(IFACE, &iv_reuse, 12)), None);
+    }
+
+    /// A shared medium hands us the far end's packet more than once: directly, and again
+    /// from a relay with hops+1 and the same hash. The application sees it once, and the
+    /// far end's next packet still arrives.
+    #[test]
+    fn a_far_end_packet_heard_twice_is_received_once() {
+        let (mut a, mut b, id) = linked();
+        let data_from = |actions: &Actions<8>| {
+            actions.iter().find_map(|action| match action {
+                Action::Data { link_id, payload } => Some((*link_id, payload.clone())),
+                _ => None,
+            })
+        };
+
+        let theirs = sent(&b.send(id, IFACE, b"from b", &[0x61; 16]).unwrap()).unwrap();
+        let mut via_relay = theirs.clone();
+        via_relay.hops += 1;
+        assert_eq!(via_relay.hash(), theirs.hash());
+
+        assert_eq!(
+            data_from(&a.ingest(IFACE, &theirs, 1)),
+            Some((id, b"from b".to_vec()))
+        );
+        assert_eq!(
+            data_from(&a.ingest(IFACE, &theirs, 2)),
+            None,
+            "a verbatim duplicate is not delivered again"
+        );
+        assert_eq!(
+            data_from(&a.ingest(IFACE, &via_relay, 3)),
+            None,
+            "the relay's copy is not delivered again"
+        );
+        assert_eq!(
+            a.pause_assessment().latest_link_activity,
+            Some(1),
+            "a copy is no newer evidence of the far end than the original"
+        );
+
+        let next = sent(&b.send(id, IFACE, b"second", &[0x62; 16]).unwrap()).unwrap();
+        assert_eq!(
+            data_from(&a.ingest(IFACE, &next, 4)),
+            Some((id, b"second".to_vec()))
+        );
     }
 
     /// A link request for another destination is ignored by a non-transport node and must
