@@ -33,7 +33,7 @@ phase's tests pass, the gate below passes twice, and both firmwares build.
 | N7 | 46 | A distinct action for an expired link request, handled by radio-hand, its replay encoding, and the firmware | lane L-A |
 | N8 | 50 | A caller-supplied first-hop airtime allowance per interface, wired from each firmware's LoRa profile | lane L-A |
 | N9 | 54 | `open_link(now)` expires stale requests itself | lane L-A |
-| N10 | 51 | `Endpoint` own-echo, including Channel: control first, fix if affected | lane L-B |
+| N10 | 51 | `Endpoint` own-echo, including Channel: control first, fix if affected | merged (`3771f6a` controls, `9b63d99` fix) |
 | N11 | 52 | Received duplicates in `Node` and `Endpoint`: control first, then match RNS | merged (`3771f6a`, `9b63d99`) |
 | N12 | 29, 41 | Publish 0.2.0 (Mark's separate call) and repin mere, coordinated with mere's active session | open |
 
