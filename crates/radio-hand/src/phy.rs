@@ -56,9 +56,49 @@ pub fn coding_rate(value: u8) -> Option<CodingRate> {
     })
 }
 
+/// How long `bits` take at a modulation's nominal bitrate, in milliseconds, rounded up, or
+/// `None` for a setting the SX126x does not have.
+///
+/// The nominal bitrate is `SF × BW / 2^SF × 4 / N` for a coding rate of `4/N`: about
+/// 1,074 bps at LongFast (SF11, 250 kHz, 4/5). It ignores preamble, header and low data
+/// rate optimisation, so it is a throughput figure, not a frame's time on air. A radio
+/// shell passes `retinue::node::FIRST_HOP_ALLOWANCE_BITS` to get the first-hop airtime
+/// allowance a link request's deadline carries (Ruling 50): 3,724 ms at LongFast.
+pub fn nominal_bits_ms(
+    spreading_factor_value: u8,
+    bandwidth_hz: u32,
+    coding_rate_denominator: u8,
+    bits: u64,
+) -> Option<u64> {
+    spreading_factor(spreading_factor_value)?;
+    bandwidth(bandwidth_hz)?;
+    coding_rate(coding_rate_denominator)?;
+    // bits / (SF × BW × 4 / (2^SF × N)) seconds, kept exact in integers.
+    let numerator = u128::from(bits)
+        * 1_000
+        * (1_u128 << spreading_factor_value)
+        * u128::from(coding_rate_denominator);
+    let denominator = 4 * u128::from(spreading_factor_value) * u128::from(bandwidth_hz);
+    u64::try_from(numerator.div_ceil(denominator)).ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nominal_airtime_follows_the_bitrate() {
+        // LongFast: 11 × 250,000 / 2,048 × 4/5 = 1,074.2 bps, so 4,000 bits take 3,723.6 ms.
+        assert_eq!(nominal_bits_ms(11, 250_000, 5, 4_000), Some(3_724));
+        // SF7, 125 kHz, 4/5: 5,468.75 bps, so 4,000 bits take 731.4 ms.
+        assert_eq!(nominal_bits_ms(7, 125_000, 5, 4_000), Some(732));
+        // Exact where the bitrate divides: SF7, 500 kHz, 4/7 is 15,625 bps.
+        assert_eq!(nominal_bits_ms(7, 500_000, 7, 15_625), Some(1_000));
+        assert_eq!(nominal_bits_ms(11, 250_000, 5, 0), Some(0));
+        assert_eq!(nominal_bits_ms(13, 250_000, 5, 4_000), None);
+        assert_eq!(nominal_bits_ms(11, 249_999, 5, 4_000), None);
+        assert_eq!(nominal_bits_ms(11, 250_000, 4, 4_000), None);
+    }
 
     #[test]
     fn every_spreading_factor_the_chip_has_decodes_and_nothing_else_does() {

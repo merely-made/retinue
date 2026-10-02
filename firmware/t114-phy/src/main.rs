@@ -220,16 +220,30 @@ async fn main(spawner: Spawner) {
     }
 
     // The node this board answers as, built from the persisted identity.
-    let node = settings.map(|settings| {
-        retinue::node::Node::<32, 8, 4>::new(
-            retinue::identity::PrivateIdentity::from_secret_bytes(&settings.identity),
-            retinue::destination::DestinationName::new("retinue", ["node"]).name_hash(),
-        )
-        // The native-node personality is this board's standalone mesh participant, so it
-        // carries its bounded transport policy. Modem and RNode remain host-driven and do
-        // not acquire routing state.
-        .with_transport_config(retinue::node::TransportConfig::transit())
-    });
+    let node = settings
+        .map(|settings| {
+            retinue::node::Node::<32, 8, 4>::new(
+                retinue::identity::PrivateIdentity::from_secret_bytes(&settings.identity),
+                retinue::destination::DestinationName::new("retinue", ["node"]).name_hash(),
+            )
+            // The native-node personality is this board's standalone mesh participant, so it
+            // carries its bounded transport policy. Modem and RNode remain host-driven and do
+            // not acquire routing state.
+            .with_transport_config(retinue::node::TransportConfig::transit())
+        })
+        .map(|mut node| {
+            // A link request's deadline covers this radio's own slowness (Ruling 50): the first
+            // hop's airtime allowance, from the modulation the node channel runs on.
+            let allowance = radio_hand::phy::nominal_bits_ms(
+                board::DEFAULT_SPREADING_FACTOR,
+                board::DEFAULT_BANDWIDTH_HZ,
+                board::DEFAULT_CODING_RATE_DENOMINATOR,
+                retinue::node::FIRST_HOP_ALLOWANCE_BITS,
+            )
+            .unwrap_or(0);
+            let _ = node.set_first_hop_airtime(radio_hand::channel::node::RADIO, allowance);
+            node
+        });
     let mut node_line = [0_u8; 64];
     let node_line_len = describe_node(node.as_ref(), &mut node_line);
 

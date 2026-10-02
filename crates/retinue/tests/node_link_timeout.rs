@@ -7,8 +7,9 @@ use retinue::destination::DestinationName;
 use retinue::hash::AddressHash;
 use retinue::identity::PrivateIdentity;
 use retinue::node::{
-    Action, Actions, InterfaceId, InterruptionPermission, LINK_ESTABLISHMENT_TIMEOUT_PER_HOP,
-    LINK_IDLE_TIMEOUT, Node, TransportConfig, link_request_timeout,
+    Action, Actions, AirtimeTableFull, FIRST_HOP_AIRTIME_INTERFACES, FIRST_HOP_ALLOWANCE_BITS,
+    InterfaceId, InterruptionPermission, LINK_ESTABLISHMENT_TIMEOUT_PER_HOP, LINK_IDLE_TIMEOUT,
+    Node, TransportConfig, first_hop_airtime, link_request_timeout,
 };
 
 const IFACE: InterfaceId = 0;
@@ -272,6 +273,76 @@ fn open_link_expires_the_table_without_a_poll() {
         up.iter()
             .any(|action| matches!(action, Action::LinkUp { .. }))
     );
+}
+
+/// Ruling 50: the caller's first-hop airtime allowance moves the deadline by exactly its
+/// amount, only for requests leaving by that interface, and zero gives the base deadline.
+#[test]
+fn the_first_hop_allowance_moves_the_deadline_by_exactly_its_amount() {
+    // 62,500 bps is the bitrate V1 measured RNS against: 12.064 s computed, 12.079 s seen.
+    assert_eq!(first_hop_airtime(62_500), 64);
+    assert_eq!(link_request_timeout(0) + first_hop_airtime(62_500), 12_064);
+    assert_eq!(first_hop_airtime(0), 0, "unbounded, as TCP");
+    assert_eq!(FIRST_HOP_ALLOWANCE_BITS, 4_000);
+
+    const OTHER: InterfaceId = 7;
+    // The deadline a request opened at 0 by `interface` expires at, found by polling.
+    let expiry = |allowances: &[(InterfaceId, u64)], interface: InterfaceId| {
+        let mut sender = node(0x11, "sender");
+        let peer = node(0x22, "peer");
+        sender.ingest(IFACE, &peer.announce(&blob(2), None), 0);
+        for (id, allowance) in allowances {
+            sender.set_first_hop_airtime(*id, *allowance).unwrap();
+        }
+        let request = sent(
+            &sender
+                .open_link(peer.destination(), interface, &[0x31; 64], 0)
+                .unwrap(),
+        );
+        let id = retinue::link::link_id(&request).unwrap();
+        let base = link_request_timeout(0);
+        let mut t = base - 1;
+        loop {
+            if timed_out(&sender.poll(t, IFACE, None)) == vec![id] {
+                return t;
+            }
+            t += 1;
+            assert!(t <= base + 10_000, "never expired");
+        }
+    };
+
+    let base = link_request_timeout(0);
+    assert_eq!(expiry(&[], IFACE), base, "no allowance: today's deadline");
+    assert_eq!(expiry(&[(IFACE, 0)], IFACE), base, "zero: today's deadline");
+    assert_eq!(expiry(&[(IFACE, 64)], IFACE), base + 64);
+    assert_eq!(expiry(&[(IFACE, 3_724)], IFACE), base + 3_724);
+    assert_eq!(
+        expiry(&[(OTHER, 3_724)], IFACE),
+        base,
+        "another interface's"
+    );
+    assert_eq!(expiry(&[(IFACE, 64), (OTHER, 3_724)], OTHER), base + 3_724);
+    assert_eq!(expiry(&[(IFACE, 64), (IFACE, 0)], IFACE), base, "cleared");
+}
+
+#[test]
+fn the_allowance_table_is_bounded_and_says_so() {
+    let mut sender = node(0x11, "sender");
+    for interface in 0..FIRST_HOP_AIRTIME_INTERFACES as InterfaceId {
+        sender.set_first_hop_airtime(interface, 10).unwrap();
+    }
+    let full = FIRST_HOP_AIRTIME_INTERFACES as InterfaceId;
+    assert_eq!(
+        sender.set_first_hop_airtime(full, 10),
+        Err(AirtimeTableFull)
+    );
+    assert_eq!(sender.first_hop_airtime(full), 0);
+    // Updating or clearing a held interface still works, and clearing frees a slot.
+    sender.set_first_hop_airtime(0, 20).unwrap();
+    assert_eq!(sender.first_hop_airtime(0), 20);
+    sender.set_first_hop_airtime(0, 0).unwrap();
+    sender.set_first_hop_airtime(full, 10).unwrap();
+    assert_eq!(sender.first_hop_airtime(full), 10);
 }
 
 /// An unknown destination is refused before anything is expired, so the expiry is not lost

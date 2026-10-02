@@ -32,8 +32,9 @@ use crate::executive::Executive;
 use crate::link::{Flow, HostLink};
 use crate::replay;
 
-/// The radio, as the node numbers its interfaces. One radio, so one number.
-const RADIO: InterfaceId = 0;
+/// The radio, as the node numbers its interfaces. One radio, so one number. A firmware
+/// configuring the node per interface, such as its first-hop airtime, names this one.
+pub const RADIO: InterfaceId = 0;
 
 /// How often the node's own timers are advanced.
 ///

@@ -259,16 +259,51 @@ pub const LINK_ESTABLISHMENT_TIMEOUT_PER_HOP: u64 = 6_000;
 /// [`Node::poll`] drops it, in milliseconds.
 ///
 /// One per-hop allowance for the first hop, plus one for each hop to the destination
-/// (`relays + 1`). This is Prns's composition (`link_establishment_timeout_ms` in
-/// `prns-core/src/routing/timing.rs`, which counts hops as received, so a neighbour is one)
-/// without its bitrate-derived first-hop airtime, which a `Node` does not know. A neighbour,
-/// or a destination with no route, gets 12 s; two relays get 24 s.
+/// (`relays + 1`). A neighbour, or a destination with no route, gets 12 s; two relays get
+/// 24 s. This is the base deadline: [`Node::open_link`] adds the outgoing interface's
+/// [`Node::first_hop_airtime`], zero unless the caller set one.
+///
+/// RNS 1.5.4 was observed to wait 12.001, 18.001, 24.001 and 30.001 s at zero to three
+/// relays on an unbounded TCP interface, sending the request once and never retrying
+/// (`testing/receipts/rns-1.5.4-link-echo-corroboration`, Q1).
 ///
 /// Without a deadline, requests nobody answers hold their pending slots for good: at the
 /// board's four, four lost requests refuse every later `open_link`.
 pub const fn link_request_timeout(relays: u8) -> u64 {
     LINK_ESTABLISHMENT_TIMEOUT_PER_HOP * (relays as u64 + 2)
 }
+
+/// The bits a first hop is allowed airtime for: one 500-byte Reticulum MTU.
+///
+/// RNS 1.5.4's first-hop extra was observed as `500 × 8 / bitrate` seconds: 12.079 s at
+/// 62,500 bps against 12.001 s on unbounded TCP, and 24.071 s at two relays (the receipt
+/// above, Q1). [`first_hop_airtime`] turns it into milliseconds for a known bitrate.
+pub const FIRST_HOP_ALLOWANCE_BITS: u64 = 500 * 8;
+
+/// The first-hop airtime allowance at `bitrate` bits per second, in milliseconds, rounded
+/// up: 64 ms at 62,500 bps. Zero for a bitrate of zero, meaning unbounded, as TCP is.
+pub const fn first_hop_airtime(bitrate: u64) -> u64 {
+    if bitrate == 0 {
+        0
+    } else {
+        (FIRST_HOP_ALLOWANCE_BITS * 1_000).div_ceil(bitrate)
+    }
+}
+
+/// How many interfaces can carry a first-hop airtime allowance at once.
+pub const FIRST_HOP_AIRTIME_INTERFACES: usize = 4;
+
+/// [`Node::set_first_hop_airtime`] refused a new interface: every slot holds another one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AirtimeTableFull;
+
+impl core::fmt::Display for AirtimeTableFull {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("first-hop airtime table full")
+    }
+}
+
+impl core::error::Error for AirtimeTableFull {}
 
 /// How long a learned transport route is usable, in the caller's tick unit.
 ///
@@ -657,6 +692,9 @@ pub struct Node<
     links: BoundedVec<(Link, Packet, u64), LINKS>,
     /// Links we opened, awaiting the peer's proof, each with the time it expires unanswered.
     pending: BoundedVec<(PendingLink, u64), LINKS>,
+    /// Per-interface first-hop airtime allowances, added to a request's deadline. An
+    /// interface with no entry gets none.
+    first_hop_airtime: BoundedVec<(InterfaceId, u64), FIRST_HOP_AIRTIME_INTERFACES>,
     /// Inbound resource transfers, at most one per link.
     receivers: BoundedVec<(AddressHash, ResourceReceiver, u64), LINKS>,
     /// Outbound resource transfers, at most one per link.
@@ -710,6 +748,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             announce_interval: DEFAULT_ANNOUNCE_INTERVAL,
             links: BoundedVec::new(),
             pending: BoundedVec::new(),
+            first_hop_airtime: BoundedVec::new(),
             receivers: BoundedVec::new(),
             senders: BoundedVec::new(),
             iv_counter: 0,
@@ -1065,6 +1104,42 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         report
     }
 
+    /// The first-hop airtime allowance a link request leaving by `interface` adds to its
+    /// deadline, in milliseconds. Zero unless [`Self::set_first_hop_airtime`] set one.
+    pub fn first_hop_airtime(&self, interface: InterfaceId) -> u64 {
+        self.first_hop_airtime
+            .iter()
+            .find(|(id, _)| *id == interface)
+            .map_or(0, |(_, allowance)| *allowance)
+    }
+
+    /// Set the first-hop airtime allowance for requests leaving by `interface`, in
+    /// milliseconds; [`first_hop_airtime`] computes one from a bitrate. A radio shell sets
+    /// it from its modulation, and an unbounded link such as TCP leaves it at zero. Zero
+    /// clears the entry. Requests already pending keep the deadline they were given.
+    pub fn set_first_hop_airtime(
+        &mut self,
+        interface: InterfaceId,
+        allowance: u64,
+    ) -> Result<(), AirtimeTableFull> {
+        let existing = self
+            .first_hop_airtime
+            .iter()
+            .position(|(id, _)| *id == interface);
+        match (existing, allowance) {
+            (Some(index), 0) => {
+                self.first_hop_airtime.swap_remove(index);
+            }
+            (Some(index), _) => self.first_hop_airtime[index].1 = allowance,
+            (None, 0) => {}
+            (None, _) => self
+                .first_hop_airtime
+                .push((interface, allowance))
+                .map_err(|_| AirtimeTableFull)?,
+        }
+        Ok(())
+    }
+
     /// Drop link requests unanswered at their deadline, returning their link ids.
     fn expire_link_requests(&mut self, now: u64) -> BoundedVec<AddressHash, LINKS> {
         let mut expired_ids = BoundedVec::new();
@@ -1172,7 +1247,8 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
     /// not it has been evicted yet; the request then goes out as header type 1.
     ///
     /// The request is not retried. If no proof arrives by `now` plus
-    /// [`link_request_timeout`] of the route's relay count (zero with no route), the first
+    /// [`link_request_timeout`] of the route's relay count (zero with no route) plus
+    /// `interface`'s [`Self::first_hop_airtime`], the first
     /// [`Node::poll`] at or after that deadline drops it and reports
     /// [`Action::LinkRequestTimedOut`] with its link id, which `link::link_id` reads from the
     /// request. A later proof is ignored.
@@ -1211,7 +1287,9 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         );
         let hop = self.next_hop(destination, now);
         request.address_via(hop.and_then(|hop| hop.via));
-        let deadline = now.saturating_add(link_request_timeout(hop.map_or(0, |hop| hop.hops)));
+        let deadline = now
+            .saturating_add(link_request_timeout(hop.map_or(0, |hop| hop.hops)))
+            .saturating_add(self.first_hop_airtime(interface));
         let _ = self.pending.push((attempt, deadline));
 
         actions.push(Action::Send {

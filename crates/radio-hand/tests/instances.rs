@@ -618,6 +618,35 @@ fn protected_startup_refuses_existing_pending_link_at_identical_mtu() {
     assert_eq!(RetinueCarrier::default().configure_node(&mut node), Ok(()));
 }
 
+/// Ruling 50 in the resident runtime: the Retinue profile's modulation sets the node's
+/// first-hop airtime allowance on the instance's interface. A request already pending when
+/// the runtime is built keeps its deadline (see the Ruling 46 test below).
+#[test]
+fn the_retinue_profile_sets_the_first_hop_allowance() {
+    let mut node = Node::<8, 4, 1, 4>::new(
+        PrivateIdentity::from_secret_bytes(&[1; 64]),
+        DestinationName::new("retinue", ["resident"]).name_hash(),
+    );
+    let peer = Node::<8, 4, 1, 4>::new(
+        PrivateIdentity::from_secret_bytes(&[9; 64]),
+        DestinationName::new("retinue", ["peer"]).name_hash(),
+    );
+    let blob = retinue::announce::AnnounceBlob::mint([1; 5], 1).unwrap();
+    node.ingest(0, &peer.announce(&blob, None), 0);
+    assert_eq!(node.first_hop_airtime(retinue::instance::INTERFACE), 0);
+    let runtime = runtime_from(node, 2, 20, Default::default());
+    // LongFast: SF11, 250 kHz, 4/5, about 1,074 bps.
+    let allowance = runtime
+        .retinue()
+        .node()
+        .first_hop_airtime(retinue::instance::INTERFACE);
+    assert_eq!(allowance, 3_724);
+    assert_eq!(
+        Some(allowance),
+        radio_hand::phy::nominal_bits_ms(11, 250_000, 5, retinue::node::FIRST_HOP_ALLOWANCE_BITS)
+    );
+}
+
 /// Ruling 46 in the resident runtime: the runtime's own expiry pass reconciles the node
 /// before polling it, so an unanswered request surfaces in `RetinueExpired.pending_links`,
 /// apart from established `links`. It was dropped from the report before.
