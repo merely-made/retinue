@@ -30,9 +30,9 @@ phase's tests pass, the gate below passes twice, and both firmwares build.
 | N4 | 28, 45 | A node drops link data it sent itself when a relay echoes it back (`send(&mut self)`) | merged (`e2f82d3`) |
 | N5 | 28 | A node drops an echo of its own announce before touching any state | merged (`d131367`) |
 | N6 | 43 | `Endpoint` admission clocks become `tokio::time::Instant`; the ingress burst test runs on a paused clock | merged (`0093694`) |
-| N7 | 46 | A distinct action for an expired link request, handled by radio-hand, its replay encoding, and the firmware | lane L-A |
-| N8 | 50 | A caller-supplied first-hop airtime allowance per interface, wired from each firmware's LoRa profile | lane L-A |
-| N9 | 54 | `open_link(now)` expires stale requests itself | lane L-A |
+| N7 | 46 | A distinct action for an expired link request, handled by radio-hand, its replay encoding, and the firmware | merged (`59b71e0`) |
+| N8 | 50 | A caller-supplied first-hop airtime allowance per interface, wired from each firmware's LoRa profile | merged (`81d029d`) |
+| N9 | 54 | `open_link(now)` expires stale requests itself | merged (`246dfa8`) |
 | N10 | 51 | `Endpoint` own-echo, including Channel: control first, fix if affected | merged (`3771f6a` controls, `9b63d99` fix) |
 | N11 | 52 | Received duplicates in `Node` and `Endpoint`: control first, then match RNS | merged (`3771f6a`, `9b63d99`) |
 | N13 | 65 | `reliable.rs` `on_identify` refuses to replace a set peer or adopt its own identity, with a control | lane L-C |
@@ -165,3 +165,17 @@ were taken from their reads, were discarded without being merged
   windows, `Node` a received window, and one shared rule decides which link
   contexts are covered. The gate on the integration branch is 418/0 for the
   host crates. Five forks go to Mark.
+- 2026-10-02: L-A merged (0b5995a).
+  - Rulings 46, 50, and 54 are N7-N9. Ruling 55 adds a `link_request_expired`
+    trace event: the warm trace's three lost sends expire at 200,000,
+    380,000, and 560,000 ms. Ruling 56 makes garage a leaf; both stories are
+    unchanged, and only garage's own forwards drop.
+  - `b79481e` gates `node_link_timeout` on `alloc`. C1 had introduced that
+    `--no-default-features` failure. `request_string_map` fails the same
+    way on `main` and is a separate, pre-existing issue.
+  - Weave auto-resolved 5 entities. Every line L-A and L-B added is present;
+    lines from earlier lanes that are missing are deliberate rewrites, absent
+    from the later lane's own tip too.
+  - The gate passed twice: host 425/0 and radio-hand 236/0, with clippy and
+    fmt clean. T114, V4, and V4 `resident-protocols` all build.
+  - L-A's seven forks go to Mark.
