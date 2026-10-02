@@ -53,6 +53,93 @@ impl<C: PixelColor> Theme<C> {
     }
 }
 
+/// What a run of drawn text is on its screen, for the text projection.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TextRole {
+    /// A screen's title, or the boot banner.
+    Title,
+    /// The header's right-hand state, e.g. `RAD OK`.
+    Status,
+    /// A field's label; its value follows.
+    Label,
+    Value,
+    /// A list, menu or body line.
+    Line,
+    /// The highlighted menu item.
+    Selected,
+    /// A centred message or the fault banner.
+    Notice,
+    /// The bottom ticker.
+    Ticker,
+}
+
+/// The drawing calls a screen is made of. Pixels and the text projection are
+/// two implementations, so they cannot disagree about what a page shows.
+pub(crate) trait Painter {
+    type Color: PixelColor + Copy;
+    type Error;
+
+    fn clear(&mut self, color: Self::Color) -> Result<(), Self::Error>;
+    /// `visible` is already clipped to the space it is drawn in.
+    fn text(
+        &mut self,
+        role: TextRole,
+        position: Point,
+        visible: &str,
+        font: &'static MonoFont<'static>,
+        color: Self::Color,
+        background: Option<Self::Color>,
+    ) -> Result<(), Self::Error>;
+    fn fill(&mut self, area: Rectangle, color: Self::Color) -> Result<(), Self::Error>;
+    /// A one-pixel line.
+    fn line(&mut self, line: Line, color: Self::Color) -> Result<(), Self::Error>;
+}
+
+/// Paints onto any `DrawTarget`.
+struct Pixels<'a, D>(&'a mut D);
+
+impl<D> Painter for Pixels<'_, D>
+where
+    D: DrawTarget,
+    D::Color: PixelColor + Copy,
+{
+    type Color = D::Color;
+    type Error = D::Error;
+
+    fn clear(&mut self, color: D::Color) -> Result<(), D::Error> {
+        self.0.clear(color)
+    }
+
+    fn text(
+        &mut self,
+        _role: TextRole,
+        position: Point,
+        visible: &str,
+        font: &'static MonoFont<'static>,
+        color: D::Color,
+        background: Option<D::Color>,
+    ) -> Result<(), D::Error> {
+        let builder = MonoTextStyleBuilder::new().font(font).text_color(color);
+        let style = if let Some(background) = background {
+            builder.background_color(background).build()
+        } else {
+            builder.build()
+        };
+        EgText::with_baseline(visible, position, style, Baseline::Top).draw(self.0)?;
+        Ok(())
+    }
+
+    fn fill(&mut self, area: Rectangle, color: D::Color) -> Result<(), D::Error> {
+        area.into_styled(PrimitiveStyle::with_fill(color))
+            .draw(self.0)
+    }
+
+    fn line(&mut self, line: Line, color: D::Color) -> Result<(), D::Error> {
+        line.into_styled(PrimitiveStyle::with_stroke(color, 1))
+            .draw(self.0)
+    }
+}
+
 struct Layout {
     width: i32,
     height: i32,
@@ -130,6 +217,22 @@ where
     D: DrawTarget,
     D::Color: PixelColor + Copy,
 {
+    paint(&mut Pixels(target), surface, theme, screen, local, host)
+}
+
+/// Every screen is painted through [`Painter`], so the pixels and the text
+/// projection come from the same calls.
+pub(crate) fn paint<P>(
+    target: &mut P,
+    surface: Surface,
+    theme: Theme<P::Color>,
+    screen: Screen,
+    local: &LocalStatus,
+    host: Option<&HostSnapshot>,
+) -> Result<(), P::Error>
+where
+    P: Painter,
+{
     let layout = Layout::new(surface);
     target.clear(theme.background)?;
 
@@ -146,17 +249,16 @@ where
     }
 }
 
-fn render_page<D>(
-    target: &mut D,
+fn render_page<P>(
+    target: &mut P,
     layout: &Layout,
-    theme: Theme<D::Color>,
+    theme: Theme<P::Color>,
     page: Page,
     local: &LocalStatus,
     host: Option<&HostSnapshot>,
-) -> Result<(), D::Error>
+) -> Result<(), P::Error>
 where
-    D: DrawTarget,
-    D::Color: PixelColor + Copy,
+    P: Painter,
 {
     match page {
         Page::Status => render_status(target, layout, theme, local),
@@ -169,15 +271,14 @@ where
     }
 }
 
-fn render_status<D>(
-    target: &mut D,
+fn render_status<P>(
+    target: &mut P,
     layout: &Layout,
-    theme: Theme<D::Color>,
+    theme: Theme<P::Color>,
     local: &LocalStatus,
-) -> Result<(), D::Error>
+) -> Result<(), P::Error>
 where
-    D: DrawTarget,
-    D::Color: PixelColor + Copy,
+    P: Painter,
 {
     header(target, layout, theme, "STATUS", radio_label(local.radio))?;
     field(
@@ -205,15 +306,14 @@ where
     ticker(target, layout, theme, "LOCAL MODEM TRUTH")
 }
 
-fn render_power<D>(
-    target: &mut D,
+fn render_power<P>(
+    target: &mut P,
     layout: &Layout,
-    theme: Theme<D::Color>,
+    theme: Theme<P::Color>,
     local: &LocalStatus,
-) -> Result<(), D::Error>
+) -> Result<(), P::Error>
 where
-    D: DrawTarget,
-    D::Color: PixelColor + Copy,
+    P: Painter,
 {
     header(
         target,
@@ -276,15 +376,14 @@ where
     ticker(target, layout, theme, wake.as_str())
 }
 
-fn render_radio<D>(
-    target: &mut D,
+fn render_radio<P>(
+    target: &mut P,
     layout: &Layout,
-    theme: Theme<D::Color>,
+    theme: Theme<P::Color>,
     local: &LocalStatus,
-) -> Result<(), D::Error>
+) -> Result<(), P::Error>
 where
-    D: DrawTarget,
-    D::Color: PixelColor + Copy,
+    P: Painter,
 {
     header(target, layout, theme, "RADIO", radio_label(local.radio))?;
     let mut frequency = Text::<24>::empty();
@@ -350,16 +449,15 @@ where
     )
 }
 
-fn render_traffic<D>(
-    target: &mut D,
+fn render_traffic<P>(
+    target: &mut P,
     layout: &Layout,
-    theme: Theme<D::Color>,
+    theme: Theme<P::Color>,
     local: &LocalStatus,
     host: Option<&HostSnapshot>,
-) -> Result<(), D::Error>
+) -> Result<(), P::Error>
 where
-    D: DrawTarget,
-    D::Color: PixelColor + Copy,
+    P: Painter,
 {
     header(target, layout, theme, "TRAFFIC", radio_label(local.radio))?;
     let mut counts = Text::<24>::empty();
@@ -407,15 +505,14 @@ where
     ticker_event(target, layout, theme, local, host)
 }
 
-fn render_identity<D>(
-    target: &mut D,
+fn render_identity<P>(
+    target: &mut P,
     layout: &Layout,
-    theme: Theme<D::Color>,
+    theme: Theme<P::Color>,
     host: Option<&HostSnapshot>,
-) -> Result<(), D::Error>
+) -> Result<(), P::Error>
 where
-    D: DrawTarget,
-    D::Color: PixelColor + Copy,
+    P: Painter,
 {
     header(target, layout, theme, "IDENTITY", "HOST")?;
     let Some(node) = host.and_then(HostSnapshot::named_node) else {
@@ -452,16 +549,15 @@ where
     ticker(target, layout, theme, "HOST-SUPPLIED NODE TRUTH")
 }
 
-fn render_links<D>(
-    target: &mut D,
+fn render_links<P>(
+    target: &mut P,
     layout: &Layout,
-    theme: Theme<D::Color>,
+    theme: Theme<P::Color>,
     local: &LocalStatus,
     host: Option<&HostSnapshot>,
-) -> Result<(), D::Error>
+) -> Result<(), P::Error>
 where
-    D: DrawTarget,
-    D::Color: PixelColor + Copy,
+    P: Painter,
 {
     header(target, layout, theme, "LINKS", "HOST")?;
     let Some(host) = host else {
@@ -478,15 +574,14 @@ where
     ticker_event(target, layout, theme, local, Some(host))
 }
 
-fn render_peers<D>(
-    target: &mut D,
+fn render_peers<P>(
+    target: &mut P,
     layout: &Layout,
-    theme: Theme<D::Color>,
+    theme: Theme<P::Color>,
     host: Option<&HostSnapshot>,
-) -> Result<(), D::Error>
+) -> Result<(), P::Error>
 where
-    D: DrawTarget,
-    D::Color: PixelColor + Copy,
+    P: Painter,
 {
     header(target, layout, theme, "PEERS", "HOST")?;
     let Some(host) = host else {
@@ -503,6 +598,7 @@ where
         format_age(&mut line, peer.age_secs);
         draw_fit(
             target,
+            TextRole::Line,
             Point::new(1, layout.body_y + row as i32 * layout.list_step),
             layout.width - 2,
             line.as_str(),
@@ -523,19 +619,19 @@ where
     ticker(target, layout, theme, footer.as_str())
 }
 
-fn render_boot<D>(
-    target: &mut D,
+fn render_boot<P>(
+    target: &mut P,
     layout: &Layout,
-    theme: Theme<D::Color>,
+    theme: Theme<P::Color>,
     local: &LocalStatus,
-) -> Result<(), D::Error>
+) -> Result<(), P::Error>
 where
-    D: DrawTarget,
-    D::Color: PixelColor + Copy,
+    P: Painter,
 {
     let title_y = if layout.height == 64 { 8 } else { 18 };
     draw_fit(
         target,
+        TextRole::Title,
         Point::new(0, title_y),
         layout.width,
         "RETINUE",
@@ -552,6 +648,7 @@ where
     );
     draw_fit(
         target,
+        TextRole::Line,
         Point::new(0, title_y + layout.label_to_value + 12),
         layout.width,
         board.as_str(),
@@ -561,6 +658,7 @@ where
     )?;
     draw_fit(
         target,
+        TextRole::Line,
         Point::new(0, title_y + layout.label_to_value + 24),
         layout.width,
         "DISPLAY OK / RADIO ...",
@@ -570,17 +668,16 @@ where
     )
 }
 
-fn render_menu<D>(
-    target: &mut D,
+fn render_menu<P>(
+    target: &mut P,
     layout: &Layout,
-    theme: Theme<D::Color>,
+    theme: Theme<P::Color>,
     selected: MenuItem,
     selected_index: u8,
     host: Option<&HostSnapshot>,
-) -> Result<(), D::Error>
+) -> Result<(), P::Error>
 where
-    D: DrawTarget,
-    D::Color: PixelColor + Copy,
+    P: Painter,
 {
     header(target, layout, theme, "MENU", "LOCAL")?;
     let (items, len) = menu_items(host);
@@ -597,15 +694,21 @@ where
         let y = layout.body_y + i32::from(visible_row) * layout.menu_step;
         let is_selected = item == selected && index == selected_index;
         if is_selected {
-            Rectangle::new(
-                Point::new(0, y - 1),
-                Size::new(layout.width as u32, layout.menu_step as u32),
-            )
-            .into_styled(PrimitiveStyle::with_fill(theme.foreground))
-            .draw(target)?;
+            target.fill(
+                Rectangle::new(
+                    Point::new(0, y - 1),
+                    Size::new(layout.width as u32, layout.menu_step as u32),
+                ),
+                theme.foreground,
+            )?;
         }
         draw_fit(
             target,
+            if is_selected {
+                TextRole::Selected
+            } else {
+                TextRole::Line
+            },
             Point::new(2, y),
             layout.width - 4,
             menu_label(item),
@@ -621,15 +724,14 @@ where
     ticker(target, layout, theme, "MOVE / SELECT / BACK")
 }
 
-fn render_verify<D>(
-    target: &mut D,
+fn render_verify<P>(
+    target: &mut P,
     layout: &Layout,
-    theme: Theme<D::Color>,
+    theme: Theme<P::Color>,
     host: Option<&HostSnapshot>,
-) -> Result<(), D::Error>
+) -> Result<(), P::Error>
 where
-    D: DrawTarget,
-    D::Color: PixelColor + Copy,
+    P: Painter,
 {
     header(target, layout, theme, "VERIFY", "HOST")?;
     let Some(node) = host.and_then(HostSnapshot::named_node) else {
@@ -647,6 +749,7 @@ where
     let step = if layout.height == 64 { 14 } else { 24 };
     draw_fit(
         target,
+        TextRole::Line,
         Point::new(2, layout.body_y + 2),
         layout.width - 4,
         first.as_str(),
@@ -656,6 +759,7 @@ where
     )?;
     draw_fit(
         target,
+        TextRole::Line,
         Point::new(2, layout.body_y + 2 + step),
         layout.width - 4,
         second.as_str(),
@@ -666,15 +770,14 @@ where
     ticker(target, layout, theme, "COMPARE IN PERSON")
 }
 
-fn render_fault<D>(
-    target: &mut D,
+fn render_fault<P>(
+    target: &mut P,
     layout: &Layout,
-    theme: Theme<D::Color>,
+    theme: Theme<P::Color>,
     local: &LocalStatus,
-) -> Result<(), D::Error>
+) -> Result<(), P::Error>
 where
-    D: DrawTarget,
-    D::Color: PixelColor + Copy,
+    P: Painter,
 {
     let code = local.fault.map(|fault| fault.code).unwrap_or(0);
     let mut right = Text::<8>::empty();
@@ -686,14 +789,16 @@ where
         .map(|fault| fault.message.as_str())
         .unwrap_or("UNKNOWN");
     let banner_height = if layout.height == 64 { 17_i32 } else { 28_i32 };
-    Rectangle::new(
-        Point::new(0, layout.body_y),
-        Size::new(layout.width as u32, banner_height as u32),
-    )
-    .into_styled(PrimitiveStyle::with_fill(theme.foreground))
-    .draw(target)?;
+    target.fill(
+        Rectangle::new(
+            Point::new(0, layout.body_y),
+            Size::new(layout.width as u32, banner_height as u32),
+        ),
+        theme.foreground,
+    )?;
     draw_fit(
         target,
+        TextRole::Notice,
         Point::new(2, layout.body_y + 3),
         layout.width - 4,
         message,
@@ -703,6 +808,7 @@ where
     )?;
     draw_fit(
         target,
+        TextRole::Line,
         Point::new(2, layout.body_y + banner_height + 4),
         layout.width - 4,
         "SEE HOST LOG",
@@ -713,33 +819,32 @@ where
     ticker(target, layout, theme, "LOCAL RADIO FAULT")
 }
 
-fn render_display_off<D>(
-    target: &mut D,
+fn render_display_off<P>(
+    target: &mut P,
     layout: &Layout,
-    theme: Theme<D::Color>,
-) -> Result<(), D::Error>
+    theme: Theme<P::Color>,
+) -> Result<(), P::Error>
 where
-    D: DrawTarget,
-    D::Color: PixelColor + Copy,
+    P: Painter,
 {
     header(target, layout, theme, "DISPLAY OFF", "LOCAL")?;
     centered(target, layout, theme, "KEY TO WAKE")?;
     ticker(target, layout, theme, "CPU SLEEP IS SEPARATE")
 }
 
-fn header<D>(
-    target: &mut D,
+fn header<P>(
+    target: &mut P,
     layout: &Layout,
-    theme: Theme<D::Color>,
+    theme: Theme<P::Color>,
     title: &str,
     right: &str,
-) -> Result<(), D::Error>
+) -> Result<(), P::Error>
 where
-    D: DrawTarget,
-    D::Color: PixelColor + Copy,
+    P: Painter,
 {
     draw_fit(
         target,
+        TextRole::Title,
         Point::new(1, 1),
         layout.width * 2 / 3,
         title,
@@ -750,6 +855,7 @@ where
     let right_width = text_width(right, layout.header_font).min(layout.width / 2);
     draw_fit(
         target,
+        TextRole::Status,
         Point::new(layout.width - right_width - 1, 1),
         right_width,
         right,
@@ -757,27 +863,27 @@ where
         theme.muted,
         None,
     )?;
-    Line::new(
-        Point::new(0, layout.header_divider_y),
-        Point::new(layout.width - 1, layout.header_divider_y),
-    )
-    .into_styled(PrimitiveStyle::with_stroke(theme.foreground, 1))
-    .draw(target)?;
+    target.line(
+        Line::new(
+            Point::new(0, layout.header_divider_y),
+            Point::new(layout.width - 1, layout.header_divider_y),
+        ),
+        theme.foreground,
+    )?;
     Ok(())
 }
 
-fn field<D>(
-    target: &mut D,
+fn field<P>(
+    target: &mut P,
     layout: &Layout,
-    theme: Theme<D::Color>,
+    theme: Theme<P::Color>,
     column: i32,
     row: i32,
     label: &str,
     value: &str,
-) -> Result<(), D::Error>
+) -> Result<(), P::Error>
 where
-    D: DrawTarget,
-    D::Color: PixelColor + Copy,
+    P: Painter,
 {
     let x = column * layout.column_width + 1;
     let y = if row == 0 {
@@ -788,6 +894,7 @@ where
     let width = layout.column_width - 3;
     draw_fit(
         target,
+        TextRole::Label,
         Point::new(x, y),
         width,
         label,
@@ -797,6 +904,7 @@ where
     )?;
     draw_fit(
         target,
+        TextRole::Value,
         Point::new(x, y + layout.label_to_value),
         width,
         value,
@@ -806,24 +914,25 @@ where
     )
 }
 
-fn ticker<D>(
-    target: &mut D,
+fn ticker<P>(
+    target: &mut P,
     layout: &Layout,
-    theme: Theme<D::Color>,
+    theme: Theme<P::Color>,
     value: &str,
-) -> Result<(), D::Error>
+) -> Result<(), P::Error>
 where
-    D: DrawTarget,
-    D::Color: PixelColor + Copy,
+    P: Painter,
 {
-    Line::new(
-        Point::new(0, layout.ticker_divider_y),
-        Point::new(layout.width - 1, layout.ticker_divider_y),
-    )
-    .into_styled(PrimitiveStyle::with_stroke(theme.muted, 1))
-    .draw(target)?;
+    target.line(
+        Line::new(
+            Point::new(0, layout.ticker_divider_y),
+            Point::new(layout.width - 1, layout.ticker_divider_y),
+        ),
+        theme.muted,
+    )?;
     draw_fit(
         target,
+        TextRole::Ticker,
         Point::new(1, layout.ticker_y),
         layout.width - 2,
         value,
@@ -833,16 +942,15 @@ where
     )
 }
 
-fn ticker_event<D>(
-    target: &mut D,
+fn ticker_event<P>(
+    target: &mut P,
     layout: &Layout,
-    theme: Theme<D::Color>,
+    theme: Theme<P::Color>,
     local: &LocalStatus,
     host: Option<&HostSnapshot>,
-) -> Result<(), D::Error>
+) -> Result<(), P::Error>
 where
-    D: DrawTarget,
-    D::Color: PixelColor + Copy,
+    P: Painter,
 {
     if let Some(event) = host.and_then(|snapshot| snapshot.event.as_ref()) {
         let mut text = Text::<32>::empty();
@@ -862,19 +970,19 @@ where
     }
 }
 
-fn centered<D>(
-    target: &mut D,
+fn centered<P>(
+    target: &mut P,
     layout: &Layout,
-    theme: Theme<D::Color>,
+    theme: Theme<P::Color>,
     value: &str,
-) -> Result<(), D::Error>
+) -> Result<(), P::Error>
 where
-    D: DrawTarget,
-    D::Color: PixelColor + Copy,
+    P: Painter,
 {
     let width = text_width(value, layout.value_font).min(layout.width);
     draw_fit(
         target,
+        TextRole::Notice,
         Point::new(
             (layout.width - width) / 2,
             layout.body_y + (layout.ticker_divider_y - layout.body_y) / 2,
@@ -887,18 +995,19 @@ where
     )
 }
 
-fn draw_fit<D>(
-    target: &mut D,
+#[allow(clippy::too_many_arguments)]
+fn draw_fit<P>(
+    target: &mut P,
+    role: TextRole,
     position: Point,
     width: i32,
     value: &str,
     font: &'static MonoFont<'static>,
-    color: D::Color,
-    background: Option<D::Color>,
-) -> Result<(), D::Error>
+    color: P::Color,
+    background: Option<P::Color>,
+) -> Result<(), P::Error>
 where
-    D: DrawTarget,
-    D::Color: PixelColor + Copy,
+    P: Painter,
 {
     if width <= 0 {
         return Ok(());
@@ -906,14 +1015,7 @@ where
     let character_width = font.character_size.width as usize;
     let max_characters = (width as usize) / character_width;
     let visible = &value[..value.len().min(max_characters)];
-    let builder = MonoTextStyleBuilder::new().font(font).text_color(color);
-    let style = if let Some(background) = background {
-        builder.background_color(background).build()
-    } else {
-        builder.build()
-    };
-    EgText::with_baseline(visible, position, style, Baseline::Top).draw(target)?;
-    Ok(())
+    target.text(role, position, visible, font, color, background)
 }
 
 fn text_width(value: &str, font: &MonoFont<'_>) -> i32 {
@@ -1330,6 +1432,222 @@ mod tests {
                 7_929_273_586_648_350_406,
                 15_393_597_127_465_717_303,
                 6_764_923_977_634_548_512,
+            ]
+        );
+    }
+
+    /// Every drawing call, kept so a screen can be replayed without `Pixels`.
+    #[cfg(feature = "text")]
+    enum Op {
+        Clear(Rgb888),
+        Text {
+            role: TextRole,
+            position: Point,
+            visible: std::string::String,
+            font: &'static MonoFont<'static>,
+            color: Rgb888,
+            background: Option<Rgb888>,
+        },
+        Fill(Rectangle, Rgb888),
+        Line(Line, Rgb888),
+    }
+
+    #[cfg(feature = "text")]
+    struct Recorder(Vec<Op>);
+
+    #[cfg(feature = "text")]
+    impl Painter for Recorder {
+        type Color = Rgb888;
+        type Error = core::convert::Infallible;
+
+        fn clear(&mut self, color: Rgb888) -> Result<(), Self::Error> {
+            self.0.push(Op::Clear(color));
+            Ok(())
+        }
+
+        fn text(
+            &mut self,
+            role: TextRole,
+            position: Point,
+            visible: &str,
+            font: &'static MonoFont<'static>,
+            color: Rgb888,
+            background: Option<Rgb888>,
+        ) -> Result<(), Self::Error> {
+            self.0.push(Op::Text {
+                role,
+                position,
+                visible: visible.into(),
+                font,
+                color,
+                background,
+            });
+            Ok(())
+        }
+
+        fn fill(&mut self, area: Rectangle, color: Rgb888) -> Result<(), Self::Error> {
+            self.0.push(Op::Fill(area, color));
+            Ok(())
+        }
+
+        fn line(&mut self, line: Line, color: Rgb888) -> Result<(), Self::Error> {
+            self.0.push(Op::Line(line, color));
+            Ok(())
+        }
+    }
+
+    /// Boot, every page, every menu position, verify, fault and display off.
+    #[cfg(feature = "text")]
+    fn every_screen(host: Option<&HostSnapshot>) -> Vec<Screen> {
+        let mut screens = vec![Screen::Boot];
+        for page in [
+            Page::Status,
+            Page::Power,
+            Page::Radio,
+            Page::Traffic,
+            Page::Identity,
+            Page::Links,
+            Page::Peers,
+        ] {
+            screens.push(Screen::Page(page));
+        }
+        let (items, len) = menu_items(host);
+        for index in 0..len {
+            screens.push(Screen::Menu {
+                selected: items[usize::from(index)],
+                selected_index: index,
+            });
+        }
+        screens.extend([Screen::Verify, Screen::Fault, Screen::DisplayOff]);
+        screens
+    }
+
+    /// The projection's strings, drawn where the renderer draws its text,
+    /// reproduce the rendered frame exactly. A drawn run the projection lacks,
+    /// a row it adds, or a string that differs from the drawn one fails.
+    #[cfg(feature = "text")]
+    #[test]
+    fn text_rows_are_what_the_pixels_show() {
+        let (local, host) = fixture();
+        let mut faulted = local;
+        faulted.fault = Some(Fault {
+            code: 1,
+            message: Text::from_truncated("SX1262 INIT FAILED"),
+        });
+        let cases = [(local, Some(&host)), (local, None), (faulted, Some(&host))];
+        let mut checked = 0;
+        for surface in [Surface::Oled128x64, Surface::Tft240x135] {
+            for (local, host) in cases {
+                for screen in every_screen(host) {
+                    let mut drawn = Canvas::new(surface.size());
+                    render(&mut drawn, surface, theme(), screen, &local, host).unwrap();
+                    let rows = crate::text::render_text(surface, screen, &local, host);
+                    assert!(!rows.is_empty(), "{surface:?} {screen:?} has no text");
+
+                    let mut recorder = Recorder(Vec::new());
+                    paint(&mut recorder, surface, theme(), screen, &local, host).unwrap();
+                    let mut replay = Canvas::new(surface.size());
+                    let mut texts = rows.iter();
+                    for op in &recorder.0 {
+                        match op {
+                            Op::Clear(color) => replay.clear(*color).unwrap(),
+                            Op::Fill(area, color) => area
+                                .into_styled(PrimitiveStyle::with_fill(*color))
+                                .draw(&mut replay)
+                                .unwrap(),
+                            Op::Line(line, color) => line
+                                .into_styled(PrimitiveStyle::with_stroke(*color, 1))
+                                .draw(&mut replay)
+                                .unwrap(),
+                            Op::Text {
+                                role,
+                                position,
+                                visible,
+                                font,
+                                color,
+                                background,
+                            } => {
+                                if visible.is_empty() {
+                                    continue;
+                                }
+                                let row = texts.next().unwrap_or_else(|| {
+                                    panic!(
+                                        "{surface:?} {screen:?}: {visible:?} drawn, not projected"
+                                    )
+                                });
+                                assert_eq!(row.role, *role, "{surface:?} {screen:?}");
+                                let mut style =
+                                    MonoTextStyleBuilder::new().font(font).text_color(*color);
+                                if let Some(background) = background {
+                                    style = style.background_color(*background);
+                                }
+                                EgText::with_baseline(
+                                    &row.text,
+                                    *position,
+                                    style.build(),
+                                    Baseline::Top,
+                                )
+                                .draw(&mut replay)
+                                .unwrap();
+                            }
+                        }
+                    }
+                    assert!(
+                        texts.next().is_none(),
+                        "{surface:?} {screen:?}: a projected row nothing drew"
+                    );
+                    assert!(
+                        drawn.pixels == replay.pixels,
+                        "{surface:?} {screen:?}: the text rows disagree with the pixels"
+                    );
+                    checked += 1;
+                }
+            }
+        }
+        // 2 surfaces x (17 + 16 + 17) screens.
+        assert_eq!(checked, 100);
+    }
+
+    #[cfg(feature = "text")]
+    #[test]
+    fn readable_lines_join_labels_and_mark_the_selection() {
+        let (local, host) = fixture();
+        let status = crate::text::render_lines(
+            Surface::Oled128x64,
+            Screen::Page(Page::Status),
+            &local,
+            Some(&host),
+        );
+        let menu = crate::text::render_lines(
+            Surface::Tft240x135,
+            Screen::Menu {
+                selected: MenuItem::Verify,
+                selected_index: 2,
+            },
+            &local,
+            Some(&host),
+        );
+        assert_eq!(
+            status,
+            [
+                "STATUS, RAD OK",
+                "BOARD: HELTEC V4",
+                "FIRMWARE: PHY V10",
+                "HOST: ATTACHED",
+                "UPTIME: 4H 5M",
+                "LOCAL MODEM TRUTH",
+            ]
+        );
+        assert_eq!(
+            menu,
+            [
+                "MENU, LOCAL",
+                "BRIGHTNESS",
+                "STATUS DETAIL",
+                "VERIFY (SELECTED)",
+                "DISPLAY OFF",
+                "REBOOT",
+                "MOVE / SELECT / BACK",
             ]
         );
     }

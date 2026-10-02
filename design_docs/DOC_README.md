@@ -212,6 +212,8 @@ stream. `selvage` — clean-room LoRa PHY profiles shared by host and firmware.
 `sennet` — clean-room Meshtastic-compatible mesh protocol. `tucket` — MeshCore
 interop. `tulle` — the shared radio interface layer beneath retinue, sennet and
 tucket. `radio-face` — firmware crate rendering bounded on-device UI status.
+`radio-mirror` — unpublished browser realization of radio-face: RGBA
+framebuffer, the firmware's `Controller`, wasm exports.
 `radio-hand` — board-agnostic firmware crate that owns the shared board
 executive, radio work, and durable control decisions. Retinue is its RNS
 adapter/router, not the executive. Firmware slot activation remains Linkboy
@@ -301,6 +303,7 @@ provisioning and physical acceptance. Total decoder peak allocation remains unme
 | [Magnetic pocket-node plan](2026-09-07_magnetic_pocket_node_plan.md) | PN0–PN8. Autonomous NFC-only and optional-Bluetooth nodes, LC0/AT0 attachment, durable custody, M4/iPhone probe, receiver-only charging, RF mechanics, and conditional phone-charging bridge. |
 | [Hardware-family plan](2026-09-07_radio_hand_hardware_family_plan.md) | HW0–HW8. `radio-hand` platform admission, powered-edge and solar nodes, energy-aware work, multi-radio ownership, adjacent bearer/protocol admission, and exact-SKU qualification. |
 | [On-device UI plan](2026-07-28_on_device_ui_implementation_plan.md) | U0–U5, all closed. |
+| [radio-mirror plan](2026-10-01_radio_mirror_plan.md) | M1: radio-face in the browser (mer3ly S8). Built on a lane branch; forks F1–F8 open. |
 | [On-device UI direction](2026-07-25_on_device_ui.md) | PANEL×LEDGER face, accepted direction. |
 | [Mesh household](2026-07-20_mesh_household_tulle_tucket_sennet.md) | Crate topology and naming authority. **Its "no code exists yet" status line is false** — all three crates exist. |
 | [Heltec RNode and embedded Rust](2026-07-19_heltec_rnode_and_embedded_rust.md) | Donor, licensing and architecture record. |

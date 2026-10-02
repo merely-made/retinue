@@ -6,6 +6,11 @@ rust-version.workspace = true
 license = "MPL-2.0"
 publish = false
 
+[features]
+# Text projection of each screen (`text` module), for screen readers. Needs
+# `alloc`; off by default so firmware images do not carry it.
+text = []
+
 [dependencies]
 embedded-graphics = { path = "../../vendor/embedded-graphics" }
 

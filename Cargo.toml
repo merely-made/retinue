@@ -13,6 +13,7 @@ members = [
     "crates/outrider",
     "crates/radio-face",
     "crates/radio-hand",
+    "crates/radio-mirror",
     "crates/retinue-sim",
     "firmware/heltec-v4-phy",
     "firmware/t114-phy",
@@ -53,6 +54,7 @@ default-members = [
     "crates/outrider",
     "crates/radio-face",
     "crates/radio-hand",
+    "crates/radio-mirror",
     "crates/retinue-sim",
 ]
 
