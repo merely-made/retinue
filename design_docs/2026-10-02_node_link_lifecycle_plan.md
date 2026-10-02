@@ -34,7 +34,7 @@ phase's tests pass, the gate below passes twice, and both firmwares build.
 | N8 | 50 | A caller-supplied first-hop airtime allowance per interface, wired from each firmware's LoRa profile | lane L-A |
 | N9 | 54 | `open_link(now)` expires stale requests itself | lane L-A |
 | N10 | 51 | `Endpoint` own-echo, including Channel: control first, fix if affected | lane L-B |
-| N11 | 52 | Received duplicates in `Node` and `Endpoint`: control first, then match RNS | lane L-B |
+| N11 | 52 | Received duplicates in `Node` and `Endpoint`: control first, then match RNS | merged (`3771f6a`, `9b63d99`) |
 | N12 | 29, 41 | Publish 0.2.0 (Mark's separate call) and repin mere, coordinated with mere's active session | open |
 
 **The gate**, run with `--locked`:
@@ -150,3 +150,15 @@ were taken from their reads, were discarded without being merged
   `site-canvas-integration` merges S7, R1's clean commits, C1-C4, R3, and V1:
   412 + 235 tests, 0 failed, twice; clippy and fmt clean; both firmwares
   build. Lanes L-A (N7-N9) and L-B (N10-N11) open.
+- 2026-10-02: L-B merged (f62c50f). Its controls failed at `3771f6a`, which the
+  coordinator re-ran:
+  - `Endpoint` surfaced its own echoed link data and its own echoed Channel
+    message. The Channel case is the defect V1 saw in RNS 1.5.4.
+  - Both `Node` and `Endpoint` delivered a far-end duplicate twice.
+  - Channel duplicates were already dropped by sequence, so that control
+    passed and serves as a positive control.
+
+  At `9b63d99` everything passes. `Endpoint` gained sent and received
+  windows, `Node` a received window, and one shared rule decides which link
+  contexts are covered. The gate on the integration branch is 418/0 for the
+  host crates. Five forks go to Mark.
