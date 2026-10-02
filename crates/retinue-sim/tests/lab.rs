@@ -80,6 +80,32 @@ fn cold_cut_routes_through_church_and_water() {
     assert!(!shortcut_used, "nothing crosses the cut edge");
 }
 
+/// Fire is a leaf: in both traces it relays nothing, yet every send names a first relay.
+#[test]
+fn the_leaf_sender_forwards_nothing_and_still_addresses_its_relay() {
+    for scenario in [scenarios::cold(), scenarios::warm()] {
+        let trace = run(&scenario).unwrap();
+        let fire = trace.nodes.iter().find(|node| node.name == "fire").unwrap();
+        assert!(!fire.transit);
+        assert!(!trace.events.iter().any(|event| matches!(
+            event,
+            Event::Transmit { node, origin: Origin::Forward, .. } if node == "fire"
+        )));
+        assert!(
+            trace
+                .events
+                .iter()
+                .filter_map(|event| match event {
+                    Event::Send { via, .. } => Some(via),
+                    _ => None,
+                })
+                .all(Option::is_some),
+            "{}",
+            scenario.name
+        );
+    }
+}
+
 #[test]
 fn warm_cut_loses_sends_until_the_next_announce_then_reroutes() {
     let scenario = scenarios::warm();

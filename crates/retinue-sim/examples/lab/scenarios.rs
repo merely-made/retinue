@@ -2,6 +2,10 @@
 //!
 //! fire–church, church–water, water–ridge, water–garage, and fire–water (the shortcut).
 //! A message goes from fire to garage.
+//!
+//! Fire, the sender, is a leaf: it relays nothing. Its two neighbours hear each other, so no
+//! path is shorter through fire, and relaying would only add its rebroadcasts to the air.
+//! It still learns routes and addresses its first relay, as every `Node` does.
 
 use retinue_sim::{Cut, Edge, NodeSpec, Scenario, Send, Timing, Topology};
 
@@ -15,7 +19,7 @@ pub fn topology() -> Topology {
             .into_iter()
             .map(|name| NodeSpec {
                 name: name.into(),
-                transit: true,
+                transit: name != "fire",
             })
             .collect(),
         edges: vec![

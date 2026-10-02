@@ -6,7 +6,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NodeSpec {
     pub name: String,
-    /// Run with [`retinue::node::TransportConfig::transit`]: relay, and learn routes.
+    /// Run with [`retinue::node::TransportConfig::transit`]: relay announces and packets.
+    /// Every node learns routes either way.
     pub transit: bool,
 }
 
