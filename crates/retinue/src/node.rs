@@ -2772,7 +2772,7 @@ mod tests {
         source.ingest(IFACE, &relayed_announce, 1);
         let mut request = sent(
             &source
-                .open_link(destination.destination(), IFACE, &[0x99; 64])
+                .open_link(destination.destination(), IFACE, &[0x99; 64], 1)
                 .unwrap(),
         )
         .unwrap();
