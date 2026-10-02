@@ -26,6 +26,14 @@ pub mod desktop {
     /// Sized for a fast link with a deep window and several retransmit
     /// generations outstanding at once.
     pub const SENT_HASHES: usize = 1024;
+
+    /// Hashes of our own recent link packets, so a relay's echo of one is recognised as
+    /// ours rather than the far end's. Shared across every link an endpoint holds.
+    pub const OWN_ECHO_HASHES: usize = 1024;
+
+    /// Hashes of the far end's recent link packets, so a copy heard twice, directly and
+    /// from a relay, is delivered once. Shared across every link an endpoint holds.
+    pub const DUPLICATE_HASHES: usize = 1024;
 }
 
 /// Sizes for the T114 profile: one link, a shallow window, and no room to be
@@ -37,6 +45,16 @@ pub mod small {
     /// here: an unrecorded packet simply retransmits, so this trades a little
     /// airtime under heavy loss for a hard memory bound.
     pub const SENT_HASHES: usize = 32;
+
+    /// Hashes of our own recent link data, so a relay's echo is recognised as ours.
+    ///
+    /// Fixed rather than following a table size: overflow forgets the oldest, which only
+    /// lets a late echo through, never drops new data.
+    pub const OWN_ECHO_HASHES: usize = 16;
+
+    /// Hashes of the far end's recent link packets, so a relayed copy is delivered once.
+    /// Overflow forgets the oldest, which only lets a late copy through.
+    pub const DUPLICATE_HASHES: usize = 16;
 }
 
 /// The bounded types at the [`small`] profile, so a board never writes the positional

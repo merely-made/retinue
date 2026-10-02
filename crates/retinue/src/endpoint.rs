@@ -183,10 +183,6 @@ const MAX_HOPS: u8 = 128;
 /// How many recent announce packet-hashes to remember for de-duplication.
 const SEEN_ANNOUNCES: usize = 4096;
 
-/// How many link packet hashes each direction of [`LinkPacketMemory`] keeps. The same bound
-/// the reliable channel gives its sent-hash table on the desktop profile.
-const LINK_PACKET_MEMORY: usize = crate::capacity::desktop::SENT_HASHES;
-
 /// Recent link packet hashes, both ways, across every link this endpoint holds.
 ///
 /// On a shared medium a relay's retransmission of our own link packet reaches us under the
@@ -202,8 +198,8 @@ struct LinkPacketMemory {
 impl LinkPacketMemory {
     fn new() -> Self {
         Self {
-            sent: HashWindow::new(LINK_PACKET_MEMORY),
-            received: HashWindow::new(LINK_PACKET_MEMORY),
+            sent: HashWindow::new(crate::capacity::desktop::OWN_ECHO_HASHES),
+            received: HashWindow::new(crate::capacity::desktop::DUPLICATE_HASHES),
         }
     }
 
