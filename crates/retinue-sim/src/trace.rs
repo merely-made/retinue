@@ -99,6 +99,17 @@ pub enum Event {
         effects: Vec<Effect>,
         state: NodeState,
     },
+    /// A link request this node opened got no proof by its deadline, and its `Node` dropped
+    /// it (`Action::LinkRequestTimedOut`), from a poll or from inside `open_link`.
+    LinkRequestExpired {
+        t: u64,
+        node: String,
+        /// The request's link id.
+        link: String,
+        /// The send the request was opened for.
+        message: Option<u32>,
+        state: NodeState,
+    },
     /// A message's payload reached its destination's application.
     Delivered {
         t: u64,

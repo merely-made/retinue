@@ -298,6 +298,13 @@ impl<'a, const P: usize, const A: usize, const L: usize, const R: usize> Sim<'a,
             });
             return Ok(());
         };
+        // Requests `open_link` dropped as overdue happened first, so they are recorded
+        // before the send that freed their slots.
+        let actions = self.checked(t, from, actions)?;
+        let (expired, actions): (Vec<_>, Vec<_>) = actions
+            .into_iter()
+            .partition(|action| matches!(action, Action::LinkRequestTimedOut { .. }));
+        self.perform_list(t, from, expired, None)?;
         let request = actions.iter().find_map(|action| match action {
             Action::Send { packet, .. } => Some(packet.clone()),
             _ => None,
@@ -317,7 +324,7 @@ impl<'a, const P: usize, const A: usize, const L: usize, const R: usize> Sim<'a,
             via,
             hops: hop.map(|hop| hop.hops),
         });
-        self.perform(t, from, actions, None)
+        self.perform_list(t, from, actions, None)
     }
 
     fn on_deliver(&mut self, t: u64, frame: u32, n: usize) -> Result<(), SimError> {
@@ -330,6 +337,17 @@ impl<'a, const P: usize, const A: usize, const L: usize, const R: usize> Sim<'a,
         self.perform(t, n, actions, Some((frame, packet.hash())))
     }
 
+    /// One call's actions, refused if its `ACTIONS` bound overflowed.
+    fn checked(&self, t: u64, n: usize, actions: Actions<A>) -> Result<Vec<Action>, SimError> {
+        if actions.overflowed() != 0 {
+            return Err(SimError::ActionsOverflowed {
+                node: self.nodes[n].name.clone(),
+                t,
+            });
+        }
+        Ok(actions.into_iter().collect())
+    }
+
     /// Carry out one call's actions. `heard` is the frame that produced them, if any.
     fn perform(
         &mut self,
@@ -338,12 +356,17 @@ impl<'a, const P: usize, const A: usize, const L: usize, const R: usize> Sim<'a,
         actions: Actions<A>,
         heard: Option<(u32, AddressHash)>,
     ) -> Result<(), SimError> {
-        if actions.overflowed() != 0 {
-            return Err(SimError::ActionsOverflowed {
-                node: self.nodes[n].name.clone(),
-                t,
-            });
-        }
+        let actions = self.checked(t, n, actions)?;
+        self.perform_list(t, n, actions, heard)
+    }
+
+    fn perform_list(
+        &mut self,
+        t: u64,
+        n: usize,
+        actions: Vec<Action>,
+        heard: Option<(u32, AddressHash)>,
+    ) -> Result<(), SimError> {
         let mut effects = Vec::new();
         let mut sends = Vec::new();
         let mut links_up = Vec::new();
@@ -368,8 +391,16 @@ impl<'a, const P: usize, const A: usize, const L: usize, const R: usize> Sim<'a,
                     });
                 }
                 // As the channel node notes it (`radio_hand::channel::node::LINK_UNANSWERED`).
-                Action::LinkRequestTimedOut { .. } => {
+                Action::LinkRequestTimedOut { link_id } => {
                     self.note(n, FaceEventKind::Failed, "link unanswered");
+                    let state = self.state(t, n);
+                    self.events.push(Event::LinkRequestExpired {
+                        t,
+                        node: self.nodes[n].name.clone(),
+                        link: link_id.to_string(),
+                        message: self.message_on(link_id),
+                        state,
+                    });
                 }
                 Action::Data { link_id, payload } => {
                     let message = self.message_on(link_id);

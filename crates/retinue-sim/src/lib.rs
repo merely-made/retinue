@@ -27,10 +27,10 @@
 //! the payload goes out with `Node::send`; it is delivered when the destination's node
 //! returns it as `Action::Data`. A send whose link never comes up is undelivered and is not
 //! retried. Its sender's `Node` drops the request at its deadline
-//! (`retinue::node::link_request_timeout`), freeing the pending slot. Poll actions are not
-//! events, so the expiry shows in the sender's next state: `pending_links` falls and the
-//! face reads "link unanswered", a `failed` event, where an established link ending reads
-//! "link down".
+//! (`retinue::node::link_request_timeout`), at the first poll or `open_link` at or after
+//! it, freeing the pending slot. That is a `link_request_expired` event: `pending_links`
+//! falls and the face reads "link unanswered", a `failed` event, where an established link
+//! ending reads "link down".
 //!
 //! # The trace, schema `retinue-sim.route-trace/v1`
 //!
@@ -53,15 +53,20 @@
 //!   relayed). `cause` names the received frame for the last two. `heard_by` and `blocked`
 //!   split the sender's neighbours by the cuts.
 //! - `receive`: a node heard a frame; `effects` are the non-send actions its node returned.
+//! - `link_request_expired`: a link request the node opened got no proof by its deadline
+//!   and was dropped, with its `link` id and the `message` it was opened for. It comes from
+//!   a poll, or from `open_link` ahead of the `send` whose slot it freed. The medium has no
+//!   airtime, so the deadline carries no first-hop allowance.
 //! - `delivered`: a payload reached its destination, with the forwarding path of its data
 //!   frame, sender first.
 //!
-//! `transmit` and `receive` carry the acting node's [`NodeState`] after the event. A
-//! consumer drawing a node's face at step *i* uses that node's latest state at or before
-//! *i*. Its fields map onto radio-face's TRAFFIC page and ticker as the Retinue channel
-//! node fills them; [`NodeState`] gives the mapping.
+//! `transmit`, `receive` and `link_request_expired` carry the acting node's [`NodeState`]
+//! after the event. A consumer drawing a node's face at step *i* uses that node's latest
+//! state at or before *i*. Its fields map onto radio-face's TRAFFIC page and ticker as the
+//! Retinue channel node fills them; [`NodeState`] gives the mapping.
 //!
-//! A change that would break a reader of v1 takes a new schema id.
+//! A change that would break a reader of v1 takes a new schema id. `link_request_expired`
+//! joined v1 on 2026-10-02 (Ruling 55), before any consumer of the schema existed.
 
 pub mod scenario;
 pub mod sim;
