@@ -1101,12 +1101,14 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
     ///
     /// A destination learned through a transport node is addressed to it (header type 2),
     /// as `Endpoint` does, so the relay carries the request on. Every node learns routes,
-    /// whatever its transport policy.
+    /// whatever its transport policy. A route past its TTL at `now` is not used, whether or
+    /// not it has been evicted yet; the request then goes out as header type 1.
     pub fn open_link(
         &mut self,
         destination: AddressHash,
         interface: InterfaceId,
         ephemeral_seed: &[u8; 64],
+        now: u64,
     ) -> Option<Actions<ACTIONS>> {
         let peer = self.book.resolve(destination)?.identity;
         if self.pending.is_full() {
@@ -1123,11 +1125,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                 mtu: self.logical_mtu,
             },
         );
-        let via = self
-            .routes
-            .iter()
-            .find(|route| route.destination == destination)
-            .and_then(|route| route.transport);
+        let via = self.next_hop(destination, now).and_then(|hop| hop.via);
         request.address_via(via);
         let _ = self.pending.push(attempt);
 
@@ -2031,7 +2029,7 @@ mod tests {
         a.set_logical_mtu(247).unwrap();
         b.set_logical_mtu(239).unwrap();
         a.ingest(IFACE, &b.announce(&blob([2; RAND_HASH_LEN]), None), 0);
-        let request = sent(&a.open_link(b.destination(), IFACE, &[0x31; 64]).unwrap()).unwrap();
+        let request = sent(&a.open_link(b.destination(), IFACE, &[0x31; 64], 0).unwrap()).unwrap();
         assert!(
             a.has_active_sessions(),
             "pending negotiation retains session state"
@@ -2079,7 +2077,7 @@ mod tests {
         source.ingest(IFACE, &announce, 0);
         let mut request = sent(
             &source
-                .open_link(destination.destination(), IFACE, &[0x55; 64])
+                .open_link(destination.destination(), IFACE, &[0x55; 64], 0)
                 .unwrap(),
         )
         .unwrap();
@@ -2124,7 +2122,7 @@ mod tests {
     fn linked() -> (Node<32, 8, 4>, Node<32, 8, 4>, AddressHash) {
         let (mut a, mut b) = pair();
         a.ingest(IFACE, &b.announce(&blob([2; RAND_HASH_LEN]), None), 0);
-        let request = sent(&a.open_link(b.destination(), IFACE, &[0x31; 64]).unwrap()).unwrap();
+        let request = sent(&a.open_link(b.destination(), IFACE, &[0x31; 64], 0).unwrap()).unwrap();
         let proof = sent(&b.ingest(IFACE, &request, 0)).unwrap();
         let id = link_up(&a.ingest(IFACE, &proof, 0)).expect("link did not come up");
         (a, b, id)
@@ -2134,7 +2132,11 @@ mod tests {
     fn pause_assessment_rejects_a_clock_before_retained_link_activity() {
         let (mut a, mut b) = pair();
         a.ingest(IFACE, &b.announce(&blob([2; RAND_HASH_LEN]), None), 1_000);
-        let request = sent(&a.open_link(b.destination(), IFACE, &[0x31; 64]).unwrap()).unwrap();
+        let request = sent(
+            &a.open_link(b.destination(), IFACE, &[0x31; 64], 1_000)
+                .unwrap(),
+        )
+        .unwrap();
         let proof = sent(&b.ingest(IFACE, &request, 1_000)).unwrap();
         a.ingest(IFACE, &proof, 1_000);
 
@@ -2583,7 +2585,7 @@ mod tests {
         a.ingest(IFACE, &b.announce(&blob([2; RAND_HASH_LEN]), None), 0);
 
         let opened = a
-            .open_link(b.destination(), IFACE, &[0x31; 64])
+            .open_link(b.destination(), IFACE, &[0x31; 64], 0)
             .expect("b is known, so a link can be opened");
         let request = sent(&opened).expect("a link request goes out");
 
@@ -2636,7 +2638,7 @@ mod tests {
     fn a_retransmitted_request_is_answered_with_the_same_proof() {
         let (mut a, mut b) = pair();
         a.ingest(IFACE, &b.announce(&blob([2; RAND_HASH_LEN]), None), 0);
-        let request = sent(&a.open_link(b.destination(), IFACE, &[0x31; 64]).unwrap()).unwrap();
+        let request = sent(&a.open_link(b.destination(), IFACE, &[0x31; 64], 0).unwrap()).unwrap();
 
         let first = sent(&b.ingest(IFACE, &request, 0)).expect("first proof");
         let second = sent(&b.ingest(IFACE, &request, 0)).expect("second proof");
@@ -2675,7 +2677,7 @@ mod tests {
     fn a_link_request_for_another_destination_is_ignored() {
         let (mut a, b) = pair();
         a.ingest(IFACE, &b.announce(&blob([2; RAND_HASH_LEN]), None), 0);
-        let request = sent(&a.open_link(b.destination(), IFACE, &[0x31; 64]).unwrap()).unwrap();
+        let request = sent(&a.open_link(b.destination(), IFACE, &[0x31; 64], 0).unwrap()).unwrap();
 
         let mut c = Node::<32, 8, 4>::new(
             PrivateIdentity::from_secret_bytes(&[0xCC; 64]),
@@ -2723,7 +2725,7 @@ mod tests {
 
         let r1 = sent(
             &first
-                .open_link(server.destination(), IFACE, &[0x31; 64])
+                .open_link(server.destination(), IFACE, &[0x31; 64], 0)
                 .unwrap(),
         )
         .unwrap();
@@ -2735,7 +2737,7 @@ mod tests {
 
         let r2 = sent(
             &second
-                .open_link(server.destination(), IFACE, &[0x41; 64])
+                .open_link(server.destination(), IFACE, &[0x41; 64], 0)
                 .unwrap(),
         )
         .unwrap();
@@ -3248,7 +3250,7 @@ mod tests {
 
         let mut request = sent(
             &source
-                .open_link(destination.destination(), IFACE, &[0x99; 64])
+                .open_link(destination.destination(), IFACE, &[0x99; 64], 1)
                 .expect("the announced destination is linkable"),
         )
         .unwrap();
@@ -3324,7 +3326,7 @@ mod tests {
 
         let request = sent(
             &source
-                .open_link(destination.destination(), IFACE, &[0x9A; 64])
+                .open_link(destination.destination(), IFACE, &[0x9A; 64], 1)
                 .unwrap(),
         )
         .unwrap();
@@ -3342,6 +3344,45 @@ mod tests {
             1,
             "the read-only accessor does not evict"
         );
+    }
+
+    /// `open_link` reads the route's TTL at its own `now`: one tick before expiry it addresses
+    /// the relay, and at expiry it does not, though nothing has evicted the route yet.
+    #[test]
+    fn open_link_does_not_address_via_an_expired_unevicted_route() {
+        let (mut source, destination) = pair();
+        let mut relay = Node::<32, 8, 4, 4>::new(
+            PrivateIdentity::from_secret_bytes(&[0x4A; 64]),
+            DestinationName::new("retinue", ["relay"]).name_hash(),
+        )
+        .with_transport_config(TransportConfig::transit());
+        let announce = destination.announce(&blob([0x7A; RAND_HASH_LEN]), None);
+        let learned = 1;
+        source.ingest(
+            IFACE,
+            &sent(&relay.ingest(IFACE, &announce, 0)).unwrap(),
+            learned,
+        );
+        let expiry = learned + DEFAULT_ROUTE_TTL;
+
+        let fresh = sent(
+            &source
+                .open_link(destination.destination(), IFACE, &[0x9C; 64], expiry - 1)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(fresh.header_type, HeaderType::Type2);
+        assert_eq!(fresh.transport, Some(relay.identity.hash()));
+
+        let stale = sent(
+            &source
+                .open_link(destination.destination(), IFACE, &[0x9D; 64], expiry)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(source.route_count(), 1, "the expired route is not evicted");
+        assert_eq!(stale.header_type, HeaderType::Type1);
+        assert_eq!(stale.transport, None);
     }
 
     /// A leaf learns routes without relaying: it addresses its first relay and reaches a
@@ -3371,7 +3412,7 @@ mod tests {
 
         let request = sent(
             &source
-                .open_link(destination.destination(), IFACE, &[0x9B; 64])
+                .open_link(destination.destination(), IFACE, &[0x9B; 64], 2)
                 .unwrap(),
         )
         .unwrap();

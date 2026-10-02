@@ -205,7 +205,7 @@ pub fn workload() -> Residents {
     let request = sends(
         state
             .retinue
-            .open_link(peer.destination(), 0, &[3; 64])
+            .open_link(peer.destination(), 0, &[3; 64], 2)
             .unwrap(),
     )
     .remove(0);

@@ -222,7 +222,12 @@ impl Sessions {
             return Err("RF announce not admitted".into());
         }
         let opening = dut
-            .open_link(peer.destination(), 0, &random()?)
+            .open_link(
+                peer.destination(),
+                0,
+                &random()?,
+                epoch.elapsed().as_millis() as u64,
+            )
             .ok_or("node refused link request")?;
         let assessment = dut.pause_assessment();
         let now = epoch.elapsed().as_millis() as u64;
@@ -617,7 +622,7 @@ impl Sessions {
 
         let opening = self
             .dut
-            .open_link(self.peer.destination(), 0, &random()?)
+            .open_link(self.peer.destination(), 0, &random()?, self.now()?)
             .ok_or("retained DUT identity could not reopen its known peer")?;
         let request = wire(
             dut_radio,

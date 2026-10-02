@@ -62,7 +62,7 @@ fn payload_budgets_refuse_oversized_work_without_losing_the_link() {
     peer.ingest(IFACE, &small.announce(&blob, None), 0);
     let request = sent(
         &peer
-            .open_link(small.destination(), IFACE, &[0x31; 64])
+            .open_link(small.destination(), IFACE, &[0x31; 64], 0)
             .unwrap(),
     );
     let proof = sent(&small.ingest(IFACE, &request, 0));
@@ -100,7 +100,7 @@ fn configured_resource_part_limit_refuses_offer() {
     peer.ingest(IFACE, &small.announce(&blob, None), 0);
     let request = sent(
         &peer
-            .open_link(small.destination(), IFACE, &[0x31; 64])
+            .open_link(small.destination(), IFACE, &[0x31; 64], 0)
             .unwrap(),
     );
     let proof = sent(&small.ingest(IFACE, &request, 0));
@@ -171,7 +171,10 @@ fn linked_at(seen: u64) -> (TestNode, TestNode, retinue::hash::AddressHash) {
         None,
     );
     a.ingest(IFACE, &announce, seen);
-    let request = sent(&a.open_link(b.destination(), IFACE, &[0x31; 64]).unwrap());
+    let request = sent(
+        &a.open_link(b.destination(), IFACE, &[0x31; 64], seen)
+            .unwrap(),
+    );
     let proof = sent(&b.ingest(IFACE, &request, seen));
     let id = link_up(&a.ingest(IFACE, &proof, seen));
     (a, b, id)
@@ -228,7 +231,7 @@ fn pending_handshake_blocks_then_clears_after_proof() {
         ),
         0,
     );
-    let request = sent(&a.open_link(b.destination(), IFACE, &[0x52; 64]).unwrap());
+    let request = sent(&a.open_link(b.destination(), IFACE, &[0x52; 64], 0).unwrap());
     let assessment = a.pause_assessment();
     assert_eq!(assessment.pending_handshakes, 1);
     assert!(matches!(
@@ -428,7 +431,7 @@ fn forced_interruption_reports_and_clears_pending_link() {
         ),
         0,
     );
-    let request = sent(&a.open_link(b.destination(), IFACE, &[0x61; 64]).unwrap());
+    let request = sent(&a.open_link(b.destination(), IFACE, &[0x61; 64], 0).unwrap());
     let mut calls = 0;
     let report = a
         .force_interrupt(InterruptionPermission::AllowSessionLoss, || {
@@ -456,7 +459,7 @@ fn forced_interruption_closes_link_and_allows_fresh_handshake() {
             .iter()
             .any(|action| matches!(action, Action::LinkDown { link_id } if *link_id == id))
     );
-    let request = sent(&a.open_link(b.destination(), IFACE, &[0x72; 64]).unwrap());
+    let request = sent(&a.open_link(b.destination(), IFACE, &[0x72; 64], 1).unwrap());
     let proof = sent(&b.ingest(IFACE, &request, 2));
     let new_id = link_up(&a.ingest(IFACE, &proof, 3));
     assert_ne!(new_id, id, "fresh handshake must use a new link identity");
@@ -513,7 +516,12 @@ fn forced_report_uses_its_own_capacity_for_multiple_links() {
         );
         let request = sent(
             &center
-                .open_link(peer.destination(), IFACE, &[index as u8 + 40; 64])
+                .open_link(
+                    peer.destination(),
+                    IFACE,
+                    &[index as u8 + 40; 64],
+                    index as u64,
+                )
                 .unwrap(),
         );
         let proof = sent(&peer.ingest(IFACE, &request, index as u64));

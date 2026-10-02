@@ -149,7 +149,7 @@ impl<const P: usize, const A: usize, const L: usize, const R: usize> Instance<P,
         seed: &[u8; 64],
     ) -> Result<Option<Actions<A>>, InstanceError> {
         self.active(now)?;
-        let result = self.node.open_link(to, 0, seed);
+        let result = self.node.open_link(to, 0, seed, now);
         self.last_now = now;
         Ok(result)
     }
@@ -209,7 +209,7 @@ mod tests {
             &b.announce(&AnnounceBlob::from_wire([2; RAND_HASH_LEN]), None),
             now,
         );
-        let request = sent(&a.open_link(b.destination(), 0, &[0x31; 64]).unwrap());
+        let request = sent(&a.open_link(b.destination(), 0, &[0x31; 64], now).unwrap());
         let proof = sent(&b.ingest(0, &request, now));
         let actions = a.ingest(0, &proof, now);
         let id = actions

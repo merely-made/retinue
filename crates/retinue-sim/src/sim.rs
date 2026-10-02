@@ -283,7 +283,7 @@ impl<'a, const P: usize, const A: usize, const L: usize, const R: usize> Sim<'a,
         let seed = derive64(b"retinue-sim/link-seed", &node.name, node.draws);
         let hop = node.node.next_hop(destination, t);
         let message = i as u32;
-        let Some(actions) = node.node.open_link(destination, RADIO, &seed) else {
+        let Some(actions) = node.node.open_link(destination, RADIO, &seed, t) else {
             let reason = if node.node.peers().knows(destination) {
                 Refusal::PendingFull
             } else {

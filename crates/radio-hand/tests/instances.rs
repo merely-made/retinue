@@ -336,7 +336,7 @@ fn linked_runtime() -> (
     let announce = peer.announce(&blob, None);
     runtime.ingest(1, &announce.encode()).unwrap();
     let request = sent(
-        peer.open_link(runtime.retinue().node().destination(), 0, &[8; 64])
+        peer.open_link(runtime.retinue().node().destination(), 0, &[8; 64], 1)
             .unwrap(),
     );
     runtime.ingest(2, &request.encode()).unwrap();
@@ -599,7 +599,7 @@ fn protected_startup_refuses_existing_pending_link_at_identical_mtu() {
     );
     let blob = retinue::announce::AnnounceBlob::mint([1; 5], 1).unwrap();
     node.ingest(0, &peer.announce(&blob, None), 0);
-    node.open_link(peer.destination(), 0, &[8; 64]).unwrap();
+    node.open_link(peer.destination(), 0, &[8; 64], 0).unwrap();
     let protected =
         RetinueCarrier::protected(retinue::ifac::Ifac::new(Some("pending"), None, 8).unwrap());
     assert_eq!(
