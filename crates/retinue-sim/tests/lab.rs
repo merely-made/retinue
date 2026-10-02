@@ -80,17 +80,46 @@ fn cold_cut_routes_through_church_and_water() {
     assert!(!shortcut_used, "nothing crosses the cut edge");
 }
 
-/// Fire is a leaf: in both traces it relays nothing, yet every send names a first relay.
+/// Fire and garage are leaves, ridge, church and water relay (Ruling 56). In both traces the
+/// leaves forward nothing, every relay forwards something, and every send names a first
+/// relay.
 #[test]
 fn the_leaf_sender_forwards_nothing_and_still_addresses_its_relay() {
     for scenario in [scenarios::cold(), scenarios::warm()] {
         let trace = run(&scenario).unwrap();
-        let fire = trace.nodes.iter().find(|node| node.name == "fire").unwrap();
-        assert!(!fire.transit);
-        assert!(!trace.events.iter().any(|event| matches!(
-            event,
-            Event::Transmit { node, origin: Origin::Forward, .. } if node == "fire"
-        )));
+        let transit: Vec<(&str, bool)> = trace
+            .nodes
+            .iter()
+            .map(|node| (node.name.as_str(), node.transit))
+            .collect();
+        assert_eq!(
+            transit,
+            [
+                ("fire", false),
+                ("church", true),
+                ("water", true),
+                ("ridge", true),
+                ("garage", false)
+            ]
+        );
+        let forwarded = |name: &str| {
+            trace.events.iter().any(|event| {
+                matches!(
+                    event,
+                    Event::Transmit { node, origin: Origin::Forward, .. } if node == name
+                )
+            })
+        };
+        assert!(
+            !forwarded("fire") && !forwarded("garage"),
+            "{}",
+            scenario.name
+        );
+        assert!(
+            forwarded("church") && forwarded("water") && forwarded("ridge"),
+            "{}",
+            scenario.name
+        );
         assert!(
             trace
                 .events
