@@ -1100,8 +1100,8 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
     /// the pending table is full.
     ///
     /// A destination learned through a transport node is addressed to it (header type 2),
-    /// as `Endpoint` does, so the relay carries the request on. Only a node whose transport
-    /// policy learns routes has one to use.
+    /// as `Endpoint` does, so the relay carries the request on. Every node learns routes,
+    /// whatever its transport policy.
     pub fn open_link(
         &mut self,
         destination: AddressHash,
@@ -1566,15 +1566,16 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                         .evicted_freshness_blobs
                         .saturating_add(u16::from(record.evicted_blob.is_some()));
 
-                    if self.transport.relay_announces || self.transport.relay_packets {
-                        self.learn_route(
-                            announce.destination,
-                            interface,
-                            packet.hops,
-                            packet.transport,
-                            now,
-                        );
-                    }
+                    // Every node learns routes, as `Endpoint` learns paths whatever its
+                    // policy: a leaf needs one to address its first relay. Only the
+                    // transport policy decides whether this node forwards.
+                    self.learn_route(
+                        announce.destination,
+                        interface,
+                        packet.hops,
+                        packet.transport,
+                        now,
+                    );
                     actions.push(Action::Learned {
                         destination: announce.destination,
                     });
@@ -3340,6 +3341,65 @@ mod tests {
             source.route_count(),
             1,
             "the read-only accessor does not evict"
+        );
+    }
+
+    /// A leaf learns routes without relaying: it addresses its first relay and reaches a
+    /// destination two relays away, yet carries nothing for anyone else.
+    #[test]
+    fn non_transit_sender_addresses_its_first_relay_and_forwards_nothing() {
+        let (mut source, mut destination) = pair();
+        assert_eq!(source.transport_config(), TransportConfig::none());
+        let transit = |seed, name| {
+            Node::<32, 8, 4, 4>::new(
+                PrivateIdentity::from_secret_bytes(&[seed; 64]),
+                DestinationName::new("retinue", [name]).name_hash(),
+            )
+            .with_transport_config(TransportConfig::transit())
+        };
+        // source - near - far - destination
+        let mut near = transit(0x48, "near");
+        let mut far = transit(0x49, "far");
+
+        let announce = destination.announce(&blob([0x79; RAND_HASH_LEN]), None);
+        let via_far = sent(&far.ingest(IFACE, &announce, 0)).unwrap();
+        let via_near = sent(&near.ingest(IFACE, &via_far, 1)).unwrap();
+        let heard = source.ingest(IFACE, &via_near, 2);
+        assert!(sent(&heard).is_none(), "a leaf does not re-broadcast");
+        let hop = source.next_hop(destination.destination(), 2).unwrap();
+        assert_eq!((hop.via, hop.hops), (Some(near.identity.hash()), 2));
+
+        let request = sent(
+            &source
+                .open_link(destination.destination(), IFACE, &[0x9B; 64])
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(request.header_type, HeaderType::Type2);
+        assert_eq!(request.transport, Some(near.identity.hash()));
+        let at_far = sent(&near.ingest(IFACE, &request, 3)).unwrap();
+        assert_eq!(at_far.transport, Some(far.identity.hash()));
+        let at_destination = sent(&far.ingest(IFACE, &at_far, 4)).unwrap();
+        let proof = sent(&destination.ingest(IFACE, &at_destination, 5)).unwrap();
+        let proof = sent(&far.ingest(IFACE, &proof, 6)).unwrap();
+        let proof = sent(&near.ingest(IFACE, &proof, 7)).unwrap();
+        let id = link_up(&source.ingest(IFACE, &proof, 8)).expect("the link comes up");
+
+        let data = sent(&source.send(id, IFACE, b"two relays", &[0xB1; 16]).unwrap()).unwrap();
+        let data = sent(&near.ingest(IFACE, &data, 9)).unwrap();
+        let data = sent(&far.ingest(IFACE, &data, 10)).unwrap();
+        assert!(destination.ingest(IFACE, &data, 11).iter().any(
+            |action| matches!(action, Action::Data { payload, .. } if payload == b"two relays")
+        ));
+
+        // A request naming the leaf as its transport, for a destination it has a route to.
+        let mut through_source = request.clone();
+        through_source.transport = Some(source.identity.hash());
+        assert!(sent(&source.ingest(IFACE, &through_source, 12)).is_none());
+        let counters = source.transport_counters();
+        assert_eq!(
+            (counters.forwarded_announces, counters.forwarded_packets),
+            (0, 0)
         );
     }
 
