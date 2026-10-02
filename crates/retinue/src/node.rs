@@ -2863,6 +2863,46 @@ mod tests {
         assert_eq!(data_from(&source.ingest(IFACE, &iv_reuse, 12)), None);
     }
 
+    /// A shared medium hands us the far end's packet more than once: directly, and again
+    /// from a relay with hops+1 and the same hash. The application sees it once, and the
+    /// far end's next packet still arrives.
+    #[test]
+    fn a_far_end_packet_heard_twice_is_received_once() {
+        let (mut a, mut b, id) = linked();
+        let data_from = |actions: &Actions<8>| {
+            actions.iter().find_map(|action| match action {
+                Action::Data { link_id, payload } => Some((*link_id, payload.clone())),
+                _ => None,
+            })
+        };
+
+        let theirs = sent(&b.send(id, IFACE, b"from b", &[0x61; 16]).unwrap()).unwrap();
+        let mut via_relay = theirs.clone();
+        via_relay.hops += 1;
+        assert_eq!(via_relay.hash(), theirs.hash());
+
+        assert_eq!(
+            data_from(&a.ingest(IFACE, &theirs, 1)),
+            Some((id, b"from b".to_vec()))
+        );
+        assert_eq!(
+            data_from(&a.ingest(IFACE, &theirs, 2)),
+            None,
+            "a verbatim duplicate is not delivered again"
+        );
+        assert_eq!(
+            data_from(&a.ingest(IFACE, &via_relay, 3)),
+            None,
+            "the relay's copy is not delivered again"
+        );
+
+        let next = sent(&b.send(id, IFACE, b"second", &[0x62; 16]).unwrap()).unwrap();
+        assert_eq!(
+            data_from(&a.ingest(IFACE, &next, 4)),
+            Some((id, b"second".to_vec()))
+        );
+    }
+
     /// A link request for another destination is ignored by a non-transport node and must
     /// never be answered as if its destination were local.
     #[test]
