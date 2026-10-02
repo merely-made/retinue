@@ -35,6 +35,9 @@ phase's tests pass, the gate below passes twice, and both firmwares build.
 | N9 | 54 | `open_link(now)` expires stale requests itself | lane L-A |
 | N10 | 51 | `Endpoint` own-echo, including Channel: control first, fix if affected | merged (`3771f6a` controls, `9b63d99` fix) |
 | N11 | 52 | Received duplicates in `Node` and `Endpoint`: control first, then match RNS | merged (`3771f6a`, `9b63d99`) |
+| N13 | 65 | `reliable.rs` `on_identify` refuses to replace a set peer or adopt its own identity, with a control | lane L-C |
+| N14 | 66 | Own-echo and duplicate windows get dedicated per-profile capacity constants | lane L-C |
+| N15 | 67 | Own-echo drops and duplicate drops are counted separately in `Node` and `Endpoint` | lane L-C |
 | N12 | 29, 41 | Publish 0.2.0 (Mark's separate call) and repin mere, coordinated with mere's active session | open |
 
 **The gate**, run with `--locked`:
