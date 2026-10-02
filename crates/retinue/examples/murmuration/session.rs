@@ -682,9 +682,19 @@ impl Sessions {
         for direction in 0..2 {
             let payload = format!("{label}:{direction}:retained-link").into_bytes();
             let (from, to, from_radio, to_radio) = if direction == 0 {
-                (&self.dut, &mut self.peer, &mut *dut_radio, &mut *peer_radio)
+                (
+                    &mut self.dut,
+                    &mut self.peer,
+                    &mut *dut_radio,
+                    &mut *peer_radio,
+                )
             } else {
-                (&self.peer, &mut self.dut, &mut *peer_radio, &mut *dut_radio)
+                (
+                    &mut self.peer,
+                    &mut self.dut,
+                    &mut *peer_radio,
+                    &mut *dut_radio,
+                )
             };
             let queued = from
                 .send(self.link, 0, &payload, &random()?)
