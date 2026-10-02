@@ -367,6 +367,10 @@ impl<'a, const P: usize, const A: usize, const L: usize, const R: usize> Sim<'a,
                         link: link_id.to_string(),
                     });
                 }
+                // As the channel node notes it (`radio_hand::channel::node::LINK_UNANSWERED`).
+                Action::LinkRequestTimedOut { .. } => {
+                    self.note(n, FaceEventKind::Failed, "link unanswered");
+                }
                 Action::Data { link_id, payload } => {
                     let message = self.message_on(link_id);
                     effects.push(Effect::Data {

@@ -316,7 +316,9 @@ fn pump_resource(
                         received.push(data);
                         sender_busy_when_received |= a.transfer_active(id);
                     }
-                    Action::LinkUp { .. } | Action::LinkDown { .. } => {
+                    Action::LinkUp { .. }
+                    | Action::LinkDown { .. }
+                    | Action::LinkRequestTimedOut { .. } => {
                         panic!("link lifecycle action during established resource")
                     }
                     Action::Learned { .. } | Action::Data { .. } => {

@@ -36,6 +36,20 @@ fn runtime_with_carrier_mtu(
     carrier: radio_hand::retinue_carrier::RetinueCarrier,
     mtu: u32,
 ) -> Runtime {
+    let mut node = Node::<8, 4, 1, 4>::new(
+        PrivateIdentity::from_secret_bytes(&[1; 64]),
+        DestinationName::new("retinue", ["resident"]).name_hash(),
+    );
+    node.set_logical_mtu(mtu).unwrap();
+    runtime_from(node, tx_budget_ms, frame_ttl_ms, carrier)
+}
+
+fn runtime_from(
+    node: Node<8, 4, 1, 4>,
+    tx_budget_ms: u64,
+    frame_ttl_ms: u64,
+    carrier: radio_hand::retinue_carrier::RetinueCarrier,
+) -> Runtime {
     let ids = [RETINUE, SENNET, TUCKET];
     let config = Config {
         controller: ControllerConfig {
@@ -52,11 +66,6 @@ fn runtime_with_carrier_mtu(
         tx_budget_ms,
         frame_ttl_ms,
     };
-    let mut node = Node::<8, 4, 1, 4>::new(
-        PrivateIdentity::from_secret_bytes(&[1; 64]),
-        DestinationName::new("retinue", ["resident"]).name_hash(),
-    );
-    node.set_logical_mtu(mtu).unwrap();
     let channel = Channel {
         hash: 8,
         key: ChannelKey::Aes128([2; 16]),
@@ -607,6 +616,62 @@ fn protected_startup_refuses_existing_pending_link_at_identical_mtu() {
         Err(LogicalMtuError::SessionsActive)
     );
     assert_eq!(RetinueCarrier::default().configure_node(&mut node), Ok(()));
+}
+
+/// Ruling 46 in the resident runtime: the runtime's own expiry pass reconciles the node
+/// before polling it, so an unanswered request surfaces in `RetinueExpired.pending_links`,
+/// apart from established `links`. It was dropped from the report before.
+#[test]
+fn an_unanswered_request_is_reported_apart_from_lost_links() {
+    let mut node = Node::<8, 4, 1, 4>::new(
+        PrivateIdentity::from_secret_bytes(&[1; 64]),
+        DestinationName::new("retinue", ["resident"]).name_hash(),
+    );
+    let peer = Node::<8, 4, 1, 4>::new(
+        PrivateIdentity::from_secret_bytes(&[9; 64]),
+        DestinationName::new("retinue", ["peer"]).name_hash(),
+    );
+    let blob = retinue::announce::AnnounceBlob::mint([1; 5], 1).unwrap();
+    node.ingest(0, &peer.announce(&blob, None), 0);
+    let request = sent(node.open_link(peer.destination(), 0, &[8; 64], 0).unwrap());
+    let id = retinue::link::link_id(&request).unwrap();
+    let mut runtime = runtime_from(node, 2, 20, Default::default());
+    let deadline = retinue::node::link_request_timeout(0);
+    let expired = |report: &radio_hand::instances::Report| {
+        report
+            .events
+            .iter()
+            .filter_map(|event| match event {
+                Event::RetinueExpired(r) => Some((r.pending_links.to_vec(), r.links.len())),
+                _ => None,
+            })
+            .collect::<std::vec::Vec<_>>()
+    };
+
+    let before = runtime.poll(deadline - 1, None).unwrap();
+    assert!(
+        expired(&before).is_empty(),
+        "control: nothing expires early"
+    );
+    assert_eq!(
+        runtime
+            .retinue()
+            .node()
+            .pause_assessment()
+            .pending_handshakes,
+        1
+    );
+
+    let at = runtime.poll(deadline, None).unwrap();
+    assert_eq!(expired(&at), vec![(vec![id], 0)]);
+    assert_eq!(
+        runtime
+            .retinue()
+            .node()
+            .pause_assessment()
+            .pending_handshakes,
+        0
+    );
 }
 
 #[test]

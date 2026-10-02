@@ -367,6 +367,7 @@ impl Runtime {
         self.tucket_lost(now, t)?;
         let r = self.retinue.advance(now)?;
         if !r.links.is_empty()
+            || !r.pending_links.is_empty()
             || !r.inbound_resources.is_empty()
             || !r.outbound_resources.is_empty()
         {
@@ -631,6 +632,7 @@ impl Runtime {
             RETINUE => {
                 let r = self.retinue.resume(now)?;
                 if !r.links.is_empty()
+                    || !r.pending_links.is_empty()
                     || !r.inbound_resources.is_empty()
                     || !r.outbound_resources.is_empty()
                 {

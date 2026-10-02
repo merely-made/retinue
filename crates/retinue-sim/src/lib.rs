@@ -29,7 +29,8 @@
 //! retried. Its sender's `Node` drops the request at its deadline
 //! (`retinue::node::link_request_timeout`), freeing the pending slot. Poll actions are not
 //! events, so the expiry shows in the sender's next state: `pending_links` falls and the
-//! face reads "link down".
+//! face reads "link unanswered", a `failed` event, where an established link ending reads
+//! "link down".
 //!
 //! # The trace, schema `retinue-sim.route-trace/v1`
 //!

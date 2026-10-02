@@ -60,10 +60,16 @@ pub enum Action {
     Learned { destination: AddressHash },
     /// A link is established, in either direction. The shell may now carry data on it.
     LinkUp { link_id: AddressHash },
-    /// A link ended, because the peer closed it or the node dropped it. Also reported for a
-    /// link request this node opened that went unanswered past its deadline (see
-    /// [`link_request_timeout`]); that link never came up.
+    /// An established link ended, because the peer closed it or the node dropped it.
     LinkDown { link_id: AddressHash },
+    /// A link request this node opened got no proof by its deadline (see
+    /// [`link_request_timeout`]) and was dropped. That link never came up, so this is not a
+    /// [`Action::LinkDown`]. The id is the one `link::link_id` reads from the request.
+    ///
+    /// Stricter than RNS 1.5.4, which reports the same TIMEOUT reason for a request that was
+    /// never answered and for an established link later lost
+    /// (`testing/receipts/rns-1.5.4-link-echo-corroboration`, Q1).
+    LinkRequestTimedOut { link_id: AddressHash },
     /// Application bytes arrived on a link, already decrypted.
     Data {
         link_id: AddressHash,
@@ -1158,8 +1164,9 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
     ///
     /// The request is not retried. If no proof arrives by `now` plus
     /// [`link_request_timeout`] of the route's relay count (zero with no route), the first
-    /// [`Node::poll`] at or after that deadline drops it and reports `Action::LinkDown` with
-    /// its link id, which `link::link_id` reads from the request. A later proof is ignored.
+    /// [`Node::poll`] at or after that deadline drops it and reports
+    /// [`Action::LinkRequestTimedOut`] with its link id, which `link::link_id` reads from the
+    /// request. A later proof is ignored.
     pub fn open_link(
         &mut self,
         destination: AddressHash,
@@ -1939,10 +1946,13 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
 
         // Ordinary expiry also releases resource buffers and tells the caller.
         // A resident caller can call expire_sessions first to retain its full
-        // resource-loss report, then poll without emitting duplicate LinkDowns.
+        // resource-loss report, then poll without emitting duplicate reports.
         let expired = self.expire_sessions(now);
-        for link_id in expired.links.into_iter().chain(expired.pending_links) {
+        for link_id in expired.links {
             actions.push(Action::LinkDown { link_id });
+        }
+        for link_id in expired.pending_links {
+            actions.push(Action::LinkRequestTimedOut { link_id });
         }
 
         if self.announce_due(now)

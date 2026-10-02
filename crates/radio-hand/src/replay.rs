@@ -67,6 +67,7 @@ pub const ACTION_LINK_UP: u8 = 0x03;
 pub const ACTION_LINK_DOWN: u8 = 0x04;
 pub const ACTION_DATA: u8 = 0x05;
 pub const ACTION_RESOURCE: u8 = 0x06;
+pub const ACTION_LINK_REQUEST_TIMED_OUT: u8 = 0x07;
 
 /// Encode a set of actions.
 ///
@@ -79,7 +80,11 @@ pub const ACTION_RESOURCE: u8 = 0x06;
 /// LinkDown  0x04 | link [16]
 /// Data      0x05 | link [16] | len u16le | payload
 /// Resource  0x06 | link [16] | len u16le | data
+/// LinkRequestTimedOut  0x07 | link [16]
 /// ```
+///
+/// `0x07` was added without a version bump: no earlier tag or layout changed, so every
+/// committed expectation still holds, and a board too old to know it disagrees visibly.
 ///
 /// Order is preserved, because the order a shell is asked to do things in is part of what
 /// the two sides must agree on: a proof emitted before its data is not the same behaviour as
@@ -109,6 +114,10 @@ pub fn encode_actions<const N: usize>(actions: &Actions<N>) -> Vec<u8> {
             }
             Action::LinkDown { link_id } => {
                 out.push(ACTION_LINK_DOWN);
+                push_hash(&mut out, link_id);
+            }
+            Action::LinkRequestTimedOut { link_id } => {
+                out.push(ACTION_LINK_REQUEST_TIMED_OUT);
                 push_hash(&mut out, link_id);
             }
             Action::Data { link_id, payload } => {
@@ -218,6 +227,32 @@ mod tests {
     fn a_non_hex_digit_is_refused() {
         let mut out = [0_u8; 4];
         assert_eq!(from_hex(b"ab!f", &mut out), None);
+    }
+
+    /// An expired, unanswered link request encodes under its own tag, not `LinkDown`'s.
+    #[test]
+    fn a_timed_out_request_has_its_own_tag() {
+        use retinue::announce::AnnounceBlob;
+        let mut node = replay_node::<32, 8, 4>();
+        let peer = Node::<32, 8, 4>::new(
+            PrivateIdentity::from_secret_bytes(&[0x22; 64]),
+            DestinationName::new("retinue", ["peer"]).name_hash(),
+        );
+        let blob = AnnounceBlob::from_wire([2; retinue::announce::RAND_HASH_LEN]);
+        node.ingest(0, &peer.announce(&blob, None), 0);
+        let opened = node
+            .open_link(peer.destination(), 0, &[0x31; 64], 0)
+            .unwrap();
+        let Some(Action::Send { packet, .. }) = opened.iter().next() else {
+            panic!("a request");
+        };
+        let id = retinue::link::link_id(packet).unwrap();
+
+        let deadline = retinue::node::link_request_timeout(0);
+        let encoded = encode_actions(&node.poll(deadline, 0, None));
+        let mut expected = alloc::vec![VERSION, 1, 0, 0, ACTION_LINK_REQUEST_TIMED_OUT];
+        expected.extend_from_slice(id.as_slice());
+        assert_eq!(encoded, expected);
     }
 
     /// A replay node is the same node wherever it is built. If this value moves, every
