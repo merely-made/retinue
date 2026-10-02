@@ -60,7 +60,9 @@ pub enum Action {
     Learned { destination: AddressHash },
     /// A link is established, in either direction. The shell may now carry data on it.
     LinkUp { link_id: AddressHash },
-    /// A link ended, because the peer closed it or the node dropped it.
+    /// A link ended, because the peer closed it or the node dropped it. Also reported for a
+    /// link request this node opened that went unanswered past its deadline (see
+    /// [`link_request_timeout`]); that link never came up.
     LinkDown { link_id: AddressHash },
     /// Application bytes arrived on a link, already decrypted.
     Data {
@@ -241,6 +243,27 @@ pub const RESOURCE_RETRY_INTERVAL: u64 = 12_000;
 /// back within one visit.
 pub const LINK_IDLE_TIMEOUT: u64 = 900_000;
 
+/// How long a link request waits for its proof, per hop to the destination, in milliseconds.
+///
+/// Reticulum's `Link.ESTABLISHMENT_TIMEOUT_PER_HOP`, 6 s (the manual, as recorded in the wire
+/// format reference, section 2.5). [`link_request_timeout`] composes it.
+pub const LINK_ESTABLISHMENT_TIMEOUT_PER_HOP: u64 = 6_000;
+
+/// How long a link request to a destination `relays` relays away waits for its proof before
+/// [`Node::poll`] drops it, in milliseconds.
+///
+/// One per-hop allowance for the first hop, plus one for each hop to the destination
+/// (`relays + 1`). This is Prns's composition (`link_establishment_timeout_ms` in
+/// `prns-core/src/routing/timing.rs`, which counts hops as received, so a neighbour is one)
+/// without its bitrate-derived first-hop airtime, which a `Node` does not know. A neighbour,
+/// or a destination with no route, gets 12 s; two relays get 24 s.
+///
+/// Without a deadline, requests nobody answers hold their pending slots for good: at the
+/// board's four, four lost requests refuse every later `open_link`.
+pub const fn link_request_timeout(relays: u8) -> u64 {
+    LINK_ESTABLISHMENT_TIMEOUT_PER_HOP * (relays as u64 + 2)
+}
+
 /// How long a learned transport route is usable, in the caller's tick unit.
 ///
 /// A board that hears a peer once must not retain that route forever. Thirty minutes leaves
@@ -389,7 +412,8 @@ pub struct TransportCounters {
 /// [`Action`] before changing the radio personality.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PauseAssessment {
-    /// Link requests awaiting a proof. They have no local retry deadline.
+    /// Link requests awaiting a proof. They are not retried, and expire at their deadline
+    /// (see [`link_request_timeout`]).
     pub pending_handshakes: usize,
     /// Inbound resource reassemblies that still need radio traffic.
     pub inbound_resources: usize,
@@ -436,6 +460,8 @@ pub struct SessionLossNotPermitted;
 #[derive(Debug, Default)]
 pub struct SessionExpiryReport<const LINKS: usize> {
     pub links: BoundedVec<AddressHash, LINKS>,
+    /// Link requests this node opened that went unanswered past their deadline.
+    pub pending_links: BoundedVec<AddressHash, LINKS>,
     pub inbound_resources: BoundedVec<AddressHash, LINKS>,
     pub outbound_resources: BoundedVec<AddressHash, LINKS>,
 }
@@ -618,8 +644,8 @@ pub struct Node<
     /// different keys for what the initiator thinks is one link.
     /// Established links, each with the time its peer was last heard from.
     links: BoundedVec<(Link, Packet, u64), LINKS>,
-    /// Links we opened, awaiting the peer's proof.
-    pending: BoundedVec<PendingLink, LINKS>,
+    /// Links we opened, awaiting the peer's proof, each with the time it expires unanswered.
+    pending: BoundedVec<(PendingLink, u64), LINKS>,
     /// Inbound resource transfers, at most one per link.
     receivers: BoundedVec<(AddressHash, ResourceReceiver, u64), LINKS>,
     /// Outbound resource transfers, at most one per link.
@@ -633,6 +659,8 @@ pub struct Node<
     /// Slots reclaimed from peers that went silent. Distinguishes a busy node from one
     /// whose peers keep vanishing, which need different answers.
     expired_links: u16,
+    /// Link requests dropped unanswered at their deadline.
+    expired_link_requests: u16,
     /// Announces refused because the address book was full. The book keeps serving every
     /// peer it already knows; this says how many new ones were turned away.
     refused_peers: u16,
@@ -675,6 +703,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             iv_counter: 0,
             refused_links: 0,
             expired_links: 0,
+            expired_link_requests: 0,
             refused_peers: 0,
             refused_offers: 0,
             transport_counters: TransportCounters::default(),
@@ -891,7 +920,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                 .push(link.close_packet(&iv()))
                 .expect("link bound");
         }
-        for pending in &self.pending {
+        for (pending, _) in &self.pending {
             report
                 .pending_links
                 .push(pending.link_id())
@@ -992,10 +1021,20 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
 
     /// Reconcile session expiry after an absence without generating radio work.
     /// Associated resource state is removed with its link, including orphaned
-    /// entries left by earlier maintenance. Pending handshakes have no Node-owned
-    /// timeout; a caller must account for them through explicit interruption.
+    /// entries left by earlier maintenance. A link request unanswered at its
+    /// deadline is dropped and reported in `pending_links`.
     pub fn expire_sessions(&mut self, now: u64) -> SessionExpiryReport<LINKS> {
         let mut report = SessionExpiryReport::default();
+        self.pending.retain(|(attempt, deadline)| {
+            let expired = now >= *deadline;
+            if expired {
+                let _ = report.pending_links.push(attempt.link_id());
+            }
+            !expired
+        });
+        self.expired_link_requests = self
+            .expired_link_requests
+            .saturating_add(report.pending_links.len() as u16);
         self.links.retain(|(link, _, seen)| {
             let expired = now.saturating_sub(*seen) >= LINK_IDLE_TIMEOUT;
             if expired {
@@ -1039,6 +1078,13 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
     /// two want different answers, and before expiry existed they were the same silence.
     pub fn expired_links(&self) -> u16 {
         self.expired_links
+    }
+
+    /// Link requests this node opened that were dropped unanswered at their deadline.
+    ///
+    /// Climbing while [`Node::refused_links`] stays at zero is a lossy path, not a busy node.
+    pub fn expired_link_requests(&self) -> u16 {
+        self.expired_link_requests
     }
 
     /// Announces turned away by a full address book. See [`Node::refused_links`] for the
@@ -1103,6 +1149,11 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
     /// as `Endpoint` does, so the relay carries the request on. Every node learns routes,
     /// whatever its transport policy. A route past its TTL at `now` is not used, whether or
     /// not it has been evicted yet; the request then goes out as header type 1.
+    ///
+    /// The request is not retried. If no proof arrives by `now` plus
+    /// [`link_request_timeout`] of the route's relay count (zero with no route), the first
+    /// [`Node::poll`] at or after that deadline drops it and reports `Action::LinkDown` with
+    /// its link id, which `link::link_id` reads from the request. A later proof is ignored.
     pub fn open_link(
         &mut self,
         destination: AddressHash,
@@ -1125,9 +1176,10 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                 mtu: self.logical_mtu,
             },
         );
-        let via = self.next_hop(destination, now).and_then(|hop| hop.via);
-        request.address_via(via);
-        let _ = self.pending.push(attempt);
+        let hop = self.next_hop(destination, now);
+        request.address_via(hop.and_then(|hop| hop.via));
+        let deadline = now.saturating_add(link_request_timeout(hop.map_or(0, |hop| hop.hops)));
+        let _ = self.pending.push((attempt, deadline));
 
         let mut actions = Actions::new();
         actions.push(Action::Send {
@@ -1644,11 +1696,11 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         let Some(index) = self
             .pending
             .iter()
-            .position(|attempt| attempt.prove(packet).is_ok())
+            .position(|(attempt, _)| attempt.prove(packet).is_ok())
         else {
             return;
         };
-        let attempt = self.pending.swap_remove(index);
+        let (attempt, _) = self.pending.swap_remove(index);
         let Ok(link) = attempt.prove(packet) else {
             return;
         };
@@ -1858,7 +1910,8 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         // Ordinary expiry also releases resource buffers and tells the caller.
         // A resident caller can call expire_sessions first to retain its full
         // resource-loss report, then poll without emitting duplicate LinkDowns.
-        for link_id in self.expire_sessions(now).links {
+        let expired = self.expire_sessions(now);
+        for link_id in expired.links.into_iter().chain(expired.pending_links) {
             actions.push(Action::LinkDown { link_id });
         }
 
