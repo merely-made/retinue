@@ -1,0 +1,22 @@
+{"case": "q1_unanswered_r0_rep0", "relays": 0, "initiator_bitrate": null, "hops_to": 1, "path_hops": 1, "rns_establishment_timeout_s": 12.000399999999999, "observed_wait_s": 12.001, "teardown_reason": 1, "status": 4, "activated_at": null, "established_cb_fired": false, "linkrequest_frames_on_wire": 1, "linkrequest_frame_times_rel_s": [0.001], "proof_frames_to_A": 0}
+{"case": "q1_unanswered_r1_rep0", "relays": 1, "initiator_bitrate": null, "hops_to": 2, "path_hops": 2, "rns_establishment_timeout_s": 18.0004, "observed_wait_s": 18.001, "teardown_reason": 1, "status": 4, "activated_at": null, "established_cb_fired": false, "linkrequest_frames_on_wire": 1, "linkrequest_frame_times_rel_s": [0.001], "proof_frames_to_A": 0}
+{"case": "q1_unanswered_r2_rep0", "relays": 2, "initiator_bitrate": null, "hops_to": 3, "path_hops": 3, "rns_establishment_timeout_s": 24.0004, "observed_wait_s": 24.001, "teardown_reason": 1, "status": 4, "activated_at": null, "established_cb_fired": false, "linkrequest_frames_on_wire": 1, "linkrequest_frame_times_rel_s": [0.001], "proof_frames_to_A": 0}
+{"case": "q1_unanswered_r3_rep0", "relays": 3, "initiator_bitrate": null, "hops_to": 4, "path_hops": 4, "rns_establishment_timeout_s": 30.0004, "observed_wait_s": 30.001, "teardown_reason": 1, "status": 4, "activated_at": null, "established_cb_fired": false, "linkrequest_frames_on_wire": 1, "linkrequest_frame_times_rel_s": [0.001], "proof_frames_to_A": 0}
+{"case": "q1_unanswered_r0_rep1", "relays": 0, "initiator_bitrate": null, "hops_to": 1, "path_hops": 1, "rns_establishment_timeout_s": 12.000399999999999, "observed_wait_s": 12.001, "teardown_reason": 1, "status": 4, "activated_at": null, "established_cb_fired": false, "linkrequest_frames_on_wire": 1, "linkrequest_frame_times_rel_s": [0.001], "proof_frames_to_A": 0}
+{"case": "q1_unanswered_r1_rep1", "relays": 1, "initiator_bitrate": null, "hops_to": 2, "path_hops": 2, "rns_establishment_timeout_s": 18.0004, "observed_wait_s": 18.002, "teardown_reason": 1, "status": 4, "activated_at": null, "established_cb_fired": false, "linkrequest_frames_on_wire": 1, "linkrequest_frame_times_rel_s": [0.003], "proof_frames_to_A": 0}
+{"case": "q1_unanswered_r2_rep1", "relays": 2, "initiator_bitrate": null, "hops_to": 3, "path_hops": 3, "rns_establishment_timeout_s": 24.0004, "observed_wait_s": 24.001, "teardown_reason": 1, "status": 4, "activated_at": null, "established_cb_fired": false, "linkrequest_frames_on_wire": 1, "linkrequest_frame_times_rel_s": [0.021], "proof_frames_to_A": 0}
+{"case": "q1_unanswered_r3_rep1", "relays": 3, "initiator_bitrate": null, "hops_to": 4, "path_hops": 4, "rns_establishment_timeout_s": 30.0004, "observed_wait_s": 30.024, "teardown_reason": 1, "status": 4, "activated_at": null, "established_cb_fired": false, "linkrequest_frames_on_wire": 1, "linkrequest_frame_times_rel_s": [0.001], "proof_frames_to_A": 0}
+Traceback (most recent call last):
+  File "C:\Users\mark_\Code\repos\retinue\.claude\worktrees\agent-a4ae0abdf47210736\testing\receipts\rns-1.5.4-link-echo-corroboration\q1_link_timeout.py", line 120, in <module>
+    main()
+    ~~~~^^
+  File "C:\Users\mark_\Code\repos\retinue\.claude\worktrees\agent-a4ae0abdf47210736\testing\receipts\rns-1.5.4-link-echo-corroboration\q1_link_timeout.py", line 112, in main
+    r = unanswered(f"q1_unanswered_r{n}_bitrate1000", n, bitrate=1000); print(json.dumps(r), flush=True); results.append(r)
+  File "C:\Users\mark_\Code\repos\retinue\.claude\worktrees\agent-a4ae0abdf47210736\testing\receipts\rns-1.5.4-link-echo-corroboration\q1_link_timeout.py", line 43, in unanswered
+    A, B, rel, P, dest, path = build(run, relays, accept_links=False, bitrate=bitrate)
+                               ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\mark_\Code\repos\retinue\.claude\worktrees\agent-a4ae0abdf47210736\testing\receipts\rns-1.5.4-link-echo-corroboration\q1_link_timeout.py", line 36, in build
+    path = A.wait("path", timeout=70)
+  File "C:\Users\mark_\Code\repos\retinue\.claude\worktrees\agent-a4ae0abdf47210736\testing\receipts\rns-1.5.4-link-echo-corroboration\harness.py", line 175, in wait
+    raise TimeoutError(f"{self.name}: no {ev} within {timeout}s")
+TimeoutError: A: no path within 70s
