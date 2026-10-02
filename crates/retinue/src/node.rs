@@ -2630,6 +2630,78 @@ mod tests {
         }
     }
 
+    /// On a shared medium the first relay's retransmission of our own link data reaches us
+    /// too. It decrypts under the shared link key, but it is our own payload and not data
+    /// from the far end, and hearing it is not evidence that the peer is alive. Genuine data
+    /// from the far end, relayed the same way, is still delivered.
+    #[test]
+    fn a_senders_own_data_overheard_from_a_relay_is_not_received() {
+        let (mut source, mut destination) = pair();
+        let mut relay = Node::<32, 8, 4, 4>::new(
+            PrivateIdentity::from_secret_bytes(&[0x44; 64]),
+            DestinationName::new("retinue", ["relay"]).name_hash(),
+        )
+        .with_transport_config(TransportConfig::transit());
+
+        let announce = destination.announce(&blob([0x77; RAND_HASH_LEN]), None);
+        let relayed_announce = sent(&relay.ingest(IFACE, &announce, 0)).unwrap();
+        source.ingest(IFACE, &relayed_announce, 1);
+        let mut request = sent(
+            &source
+                .open_link(destination.destination(), IFACE, &[0x99; 64])
+                .unwrap(),
+        )
+        .unwrap();
+        request.header_type = HeaderType::Type2;
+        request.transport = Some(relay.identity.hash());
+        let forwarded_request = sent(&relay.ingest(IFACE, &request, 2)).unwrap();
+        let proof = sent(&destination.ingest(IFACE, &forwarded_request, 3)).unwrap();
+        let forwarded_proof = sent(&relay.ingest(IFACE, &proof, 4)).unwrap();
+        let id = link_up(&source.ingest(IFACE, &forwarded_proof, 5)).unwrap();
+
+        let data_from = |actions: &Actions<8>| {
+            actions.iter().find_map(|action| match action {
+                Action::Data { link_id, payload } => Some((*link_id, payload.clone())),
+                _ => None,
+            })
+        };
+
+        // The source sends. The relay retransmits, and the source hears the relay.
+        let own = sent(
+            &source
+                .send(id, IFACE, b"from the source", &[0x51; 16])
+                .unwrap(),
+        )
+        .unwrap();
+        let retransmitted = sent(&relay.ingest(IFACE, &own, 6)).expect("the relay carries it on");
+        assert_eq!(retransmitted.hops, 1);
+        assert_eq!(
+            data_from(&source.ingest(IFACE, &retransmitted, 7)),
+            None,
+            "a node must not surface its own payload as received data"
+        );
+
+        // The same retransmission, as the far end hears it, is genuine delivery.
+        assert_eq!(
+            data_from(&destination.ingest(IFACE, &retransmitted, 7)),
+            Some((id, b"from the source".to_vec()))
+        );
+
+        // And data the far end sends, relayed back, still reaches the source.
+        let reply = sent(
+            &destination
+                .send(id, IFACE, b"from the far end", &[0x52; 16])
+                .unwrap(),
+        )
+        .unwrap();
+        let relayed_reply = sent(&relay.ingest(IFACE, &reply, 8)).unwrap();
+        assert_eq!(
+            data_from(&source.ingest(IFACE, &relayed_reply, 9)),
+            Some((id, b"from the far end".to_vec())),
+            "genuine data from the far end is still delivered"
+        );
+    }
+
     /// A link request for another destination is ignored by a non-transport node and must
     /// never be answered as if its destination were local.
     #[test]
