@@ -596,6 +596,23 @@ fn is_resource_context(context: u8) -> bool {
     )
 }
 
+/// Whether a link packet with this context is checked against the sent and received
+/// windows. Resource contexts are not: a transfer has its own part and request bookkeeping,
+/// and a re-sent part legitimately repeats its hash. Keepalives are not: every request on a
+/// link is the same unencrypted byte, so each one repeats the last one's hash.
+pub(crate) fn is_deduplicated_link_context(context: u8) -> bool {
+    !is_resource_context(context) && context != link::CTX_KEEPALIVE
+}
+
+/// Remember a packet hash in a window, forgetting the oldest at capacity. A burst can outrun
+/// the window; that only lets a late copy through, never drops a new packet.
+fn remember_hash<const N: usize>(window: &mut BoundedVec<AddressHash, N>, hash: AddressHash) {
+    if window.is_full() {
+        window.remove(0);
+    }
+    let _ = window.push(hash);
+}
+
 /// An executor-neutral Reticulum node.
 ///
 /// `PEERS` bounds the address book. `ACTIONS` bounds what one call can ask of the shell.
@@ -637,6 +654,10 @@ pub struct Node<
     /// key; its packet hash excludes hops and header type, so it matches what we sent and
     /// marks the copy as ours rather than the far end's.
     sent_link_data: BoundedVec<AddressHash, ROUTES>,
+    /// Hashes of the link packets most recently received from far ends, oldest first. The
+    /// same medium that echoes our packets hands us theirs twice, directly and from a relay,
+    /// under one hash; the second copy is dropped.
+    received_link_data: BoundedVec<AddressHash, ROUTES>,
     /// When we last announced, and how often to. `None` until the first poll, so a node
     /// announces promptly on boot rather than waiting a full interval.
     last_announce: Option<u64>,
@@ -700,6 +721,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             bridges: BoundedVec::new(),
             seen_transit: BoundedVec::new(),
             sent_link_data: BoundedVec::new(),
+            received_link_data: BoundedVec::new(),
             last_announce: None,
             announce_interval: DEFAULT_ANNOUNCE_INTERVAL,
             links: BoundedVec::new(),
@@ -1238,10 +1260,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
     /// Remember a link data packet we sent. At capacity the oldest is forgotten, so a long
     /// burst can outrun the window; that only lets a late echo through, never drops data.
     fn remember_sent_link_data(&mut self, hash: AddressHash) {
-        if self.sent_link_data.is_full() {
-            self.sent_link_data.remove(0);
-        }
-        let _ = self.sent_link_data.push(hash);
+        remember_hash(&mut self.sent_link_data, hash);
     }
 
     /// Remove routes and carried-link records that have outlived the policy that admitted
@@ -1760,6 +1779,16 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         // that the far end is alive.
         if self.sent_link_data.contains(&packet.hash()) {
             return;
+        }
+
+        // The far end's packet heard a second time, directly and from a relay. Dropped
+        // before the liveness stamp, as the echo is: the copy is no newer than the original.
+        if is_deduplicated_link_context(packet.context) {
+            let hash = packet.hash();
+            if self.received_link_data.contains(&hash) {
+                return;
+            }
+            remember_hash(&mut self.received_link_data, hash);
         }
 
         // Heard from: this is what keeps the slot. Recorded before dispatching, so a
@@ -2894,6 +2923,11 @@ mod tests {
             data_from(&a.ingest(IFACE, &via_relay, 3)),
             None,
             "the relay's copy is not delivered again"
+        );
+        assert_eq!(
+            a.pause_assessment().latest_link_activity,
+            Some(1),
+            "a copy is no newer evidence of the far end than the original"
         );
 
         let next = sent(&b.send(id, IFACE, b"second", &[0x62; 16]).unwrap()).unwrap();

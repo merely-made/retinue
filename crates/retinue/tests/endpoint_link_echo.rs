@@ -30,6 +30,8 @@ const CTX_DATA: u8 = 0x00;
 struct Wire {
     /// Delivers into A, as if heard on A's interface.
     into_a: InterfaceSink,
+    /// Delivers into B.
+    into_b: InterfaceSink,
     /// Every packet A transmitted, after it was delivered to B.
     from_a: mpsc::UnboundedReceiver<Packet>,
     /// Every packet B transmitted, after it was delivered to A.
@@ -41,10 +43,11 @@ fn wire(a: &Endpoint, b: &Endpoint) -> Wire {
     let (b_out, into_b) = b.attach_interface().split();
     let (a_copies, from_a) = mpsc::unbounded_channel();
     let (b_copies, from_b) = mpsc::unbounded_channel();
-    tokio::spawn(tap(a_out, into_b, a_copies));
+    tokio::spawn(tap(a_out, into_b.clone(), a_copies));
     tokio::spawn(tap(b_out, into_a.clone(), b_copies));
     Wire {
         into_a,
+        into_b,
         from_a,
         from_b,
     }
@@ -169,6 +172,17 @@ async fn own_link_data_echoed_by_a_relay_is_not_received() {
         "from B",
         "A must not surface its own payload as received data"
     );
+
+    // The memory matches packets, not payloads: the far end sending the bytes A sent, under
+    // its own IV, is a different packet and is delivered.
+    write(&mut b_stream, b"from A").await;
+    assert_eq!(read_n(&mut a_stream, 6).await, "from A");
+
+    // The responder is covered the same way.
+    let reply = next_on_link(&mut w.from_b, link, CTX_DATA).await;
+    assert!(w.into_b.deliver(relayed(&reply)));
+    write(&mut a_stream, b"next A").await;
+    assert_eq!(read_n(&mut b_stream, 6).await, "next A");
 }
 
 /// Ruling 51 (b): A's own Channel message, played back by a relay, is not delivered to A,
@@ -189,6 +203,14 @@ async fn own_channel_message_echoed_by_a_relay_is_not_received() {
         "from B",
         "A must not take its own sequence 0 for the far end's, nor lose the far end's"
     );
+
+    // A late copy, after B has proved the original, is still A's own. Both directions then
+    // carry on at sequence 1.
+    assert!(w.into_a.deliver(relayed(&own)));
+    write(&mut a_stream, b"next A").await;
+    assert_eq!(read_n(&mut b_stream, 6).await, "next A");
+    write(&mut b_stream, b"next B").await;
+    assert_eq!(read_n(&mut a_stream, 6).await, "next B");
 }
 
 /// Ruling 52: the far end's link data heard twice more, verbatim and via a relay, reaches

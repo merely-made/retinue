@@ -183,6 +183,89 @@ const MAX_HOPS: u8 = 128;
 /// How many recent announce packet-hashes to remember for de-duplication.
 const SEEN_ANNOUNCES: usize = 4096;
 
+/// How many link packet hashes each direction of [`LinkPacketMemory`] keeps. The same bound
+/// the reliable channel gives its sent-hash table on the desktop profile.
+const LINK_PACKET_MEMORY: usize = crate::capacity::desktop::SENT_HASHES;
+
+/// Recent link packet hashes, both ways, across every link this endpoint holds.
+///
+/// On a shared medium a relay's retransmission of our own link packet reaches us under the
+/// shared link key, with hops+1 and the same hash: `sent` marks it as ours rather than the
+/// far end's. That covers Channel too, where taking our own sequence for the far end's would
+/// also drop the far end's real one as a repeat. The same medium hands us the far end's packet
+/// twice, directly and from a relay: `received` delivers it once.
+struct LinkPacketMemory {
+    sent: HashWindow,
+    received: HashWindow,
+}
+
+impl LinkPacketMemory {
+    fn new() -> Self {
+        Self {
+            sent: HashWindow::new(LINK_PACKET_MEMORY),
+            received: HashWindow::new(LINK_PACKET_MEMORY),
+        }
+    }
+
+    /// Note a link packet we transmit.
+    fn note_sent(&mut self, pkt: &Packet) {
+        if is_remembered_link_packet(pkt) {
+            self.sent.insert(pkt.hash());
+        }
+    }
+
+    /// Whether an inbound packet on one of our links is new: neither ours nor a repeat.
+    fn admit(&mut self, pkt: &Packet) -> bool {
+        if !is_remembered_link_packet(pkt) {
+            return true;
+        }
+        let hash = pkt.hash();
+        !self.sent.contains(&hash) && self.received.insert(hash)
+    }
+}
+
+fn is_remembered_link_packet(pkt: &Packet) -> bool {
+    pkt.packet_type == PacketType::Data
+        && pkt.destination_type == DestinationType::Link
+        && crate::node::is_deduplicated_link_context(pkt.context)
+}
+
+/// A bounded set of packet hashes that forgets the oldest first. A burst can outrun it; that
+/// only lets a late copy through, never drops a new packet.
+struct HashWindow {
+    set: HashSet<AddressHash>,
+    order: VecDeque<AddressHash>,
+    capacity: usize,
+}
+
+impl HashWindow {
+    fn new(capacity: usize) -> Self {
+        Self {
+            set: HashSet::with_capacity(capacity),
+            order: VecDeque::with_capacity(capacity),
+            capacity,
+        }
+    }
+
+    fn contains(&self, hash: &AddressHash) -> bool {
+        self.set.contains(hash)
+    }
+
+    /// Record a hash; false if it was already there.
+    fn insert(&mut self, hash: AddressHash) -> bool {
+        if !self.set.insert(hash) {
+            return false;
+        }
+        self.order.push_back(hash);
+        if self.order.len() > self.capacity
+            && let Some(oldest) = self.order.pop_front()
+        {
+            self.set.remove(&oldest);
+        }
+        true
+    }
+}
+
 /// Host-owned policy for receive-side announce freshness.
 ///
 /// This is deliberately independent of the packet-loop cache: it bounds durable receiver
@@ -1939,6 +2022,8 @@ struct Shared {
     /// Recently-seen announce packet hashes, for de-duplication (a ring of the last
     /// [`SEEN_ANNOUNCES`]).
     seen_announces: Mutex<(HashSet<AddressHash>, VecDeque<AddressHash>)>,
+    /// Our own link packets heard back, and the far end's heard twice. See [`LinkPacketMemory`].
+    link_packets: Mutex<LinkPacketMemory>,
     /// Bounded freshness admission. Its lock spans the complete announce-effect bundle.
     announce_freshness: Mutex<AnnounceFreshnessState>,
     announce_freshness_started: tokio::time::Instant,
@@ -2228,6 +2313,10 @@ impl Shared {
     }
 
     fn try_send_on_class(&self, iface: InterfaceId, pkt: Packet, class: TrafficClass) -> bool {
+        // Carried traffic is someone else's, and its copies coming back are theirs to judge.
+        if class != TrafficClass::Transit {
+            self.link_packets.lock().unwrap().note_sent(&pkt);
+        }
         let addressed = self.address_for(iface, pkt);
         if let Some(i) = self
             .interfaces
@@ -2580,6 +2669,7 @@ impl Endpoint {
             inbound_link_proofs: Mutex::new(HashMap::new()),
             path_table: Mutex::new(HashMap::new()),
             seen_announces: Mutex::new((HashSet::new(), VecDeque::new())),
+            link_packets: Mutex::new(LinkPacketMemory::new()),
             announce_freshness: Mutex::new(AnnounceFreshnessState::new(freshness_policy)?),
             announce_freshness_started: tokio::time::Instant::now(),
             route_ttl_ms: AtomicU64::new(freshness_policy.route_ttl_ticks()),
@@ -4422,6 +4512,12 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                     None => (None, None),
                 }
             };
+            // On one of our links, our own packet heard back or the far end's heard twice
+            // is not new traffic, whichever discipline the link uses.
+            if (raw.is_some() || best.is_some()) && !shared.link_packets.lock().unwrap().admit(&pkt)
+            {
+                return;
+            }
             if let Some(packets) = raw {
                 // The reliable or resource driver owns this packet; hand it over raw.
                 let _ = packets.send(pkt);
@@ -5269,6 +5365,45 @@ mod tests {
         assert_eq!(emitted_timebase(&first_again), 701);
         assert_eq!(emitted_timebase(&path_response_again), 701);
         assert_eq!(path_response.context, crate::path::CTX_PATH_RESPONSE);
+    }
+
+    /// The link packet memory holds its bound, forgets oldest first, and leaves alone the
+    /// contexts whose repeats are legitimate: every keepalive request shares one hash, and a
+    /// re-sent resource part repeats its own.
+    #[test]
+    fn link_packet_memory_is_bounded_and_skips_keepalives_and_resources() {
+        let mut window = HashWindow::new(2);
+        let [a, b, c] = [1u8, 2, 3].map(|n| AddressHash::from_bytes([n; 16]));
+        assert!(window.insert(a) && window.insert(b) && !window.insert(a));
+        assert!(window.insert(c));
+        assert_eq!(window.order.len(), 2);
+        assert!(!window.contains(&a), "the oldest is forgotten first");
+        assert!(window.contains(&b) && window.contains(&c));
+
+        let link_packet = |context| Packet {
+            ifac: false,
+            header_type: crate::packet::HeaderType::Type1,
+            context_flag: false,
+            propagation: crate::packet::Propagation::Broadcast,
+            destination_type: DestinationType::Link,
+            packet_type: PacketType::Data,
+            hops: 0,
+            transport: None,
+            destination: AddressHash::from_bytes([9; 16]),
+            context,
+            payload: vec![link::KEEPALIVE_REQUEST],
+        };
+        let mut memory = LinkPacketMemory::new();
+        for context in [link::CTX_KEEPALIVE, link::CTX_RESOURCE] {
+            let packet = link_packet(context);
+            memory.note_sent(&packet);
+            assert!(memory.admit(&packet) && memory.admit(&packet));
+        }
+        let data = link_packet(0);
+        assert!(memory.admit(&data) && !memory.admit(&data));
+        let channel = link_packet(CTX_CHANNEL);
+        memory.note_sent(&channel);
+        assert!(!memory.admit(&channel), "our own Channel packet is ours");
     }
 
     #[test]
