@@ -183,10 +183,6 @@ const MAX_HOPS: u8 = 128;
 /// How many recent announce packet-hashes to remember for de-duplication.
 const SEEN_ANNOUNCES: usize = 4096;
 
-/// How many link packet hashes each direction of [`LinkPacketMemory`] keeps. The same bound
-/// the reliable channel gives its sent-hash table on the desktop profile.
-const LINK_PACKET_MEMORY: usize = crate::capacity::desktop::SENT_HASHES;
-
 /// Recent link packet hashes, both ways, across every link this endpoint holds.
 ///
 /// On a shared medium a relay's retransmission of our own link packet reaches us under the
@@ -202,8 +198,8 @@ struct LinkPacketMemory {
 impl LinkPacketMemory {
     fn new() -> Self {
         Self {
-            sent: HashWindow::new(LINK_PACKET_MEMORY),
-            received: HashWindow::new(LINK_PACKET_MEMORY),
+            sent: HashWindow::new(crate::capacity::desktop::OWN_ECHO_HASHES),
+            received: HashWindow::new(crate::capacity::desktop::DUPLICATE_HASHES),
         }
     }
 
@@ -214,14 +210,28 @@ impl LinkPacketMemory {
         }
     }
 
-    /// Whether an inbound packet on one of our links is new: neither ours nor a repeat.
-    fn admit(&mut self, pkt: &Packet) -> bool {
+    /// Whether an inbound packet on one of our links is new, our own, or a repeat.
+    fn admit(&mut self, pkt: &Packet) -> LinkPacketAdmission {
         if !is_remembered_link_packet(pkt) {
-            return true;
+            return LinkPacketAdmission::New;
         }
         let hash = pkt.hash();
-        !self.sent.contains(&hash) && self.received.insert(hash)
+        if self.sent.contains(&hash) {
+            LinkPacketAdmission::OwnEcho
+        } else if self.received.insert(hash) {
+            LinkPacketAdmission::New
+        } else {
+            LinkPacketAdmission::Duplicate
+        }
     }
+}
+
+/// What [`LinkPacketMemory::admit`] made of an inbound link packet.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LinkPacketAdmission {
+    New,
+    OwnEcho,
+    Duplicate,
 }
 
 fn is_remembered_link_packet(pkt: &Packet) -> bool {
@@ -1323,6 +1333,11 @@ pub struct RoutingCounters {
     pub freshness_rows_evicted: u64,
     /// Per-destination freshness blobs evicted to retain the configured bounded history.
     pub freshness_blobs_evicted: u64,
+    /// Our own link packets heard back from a relay, and dropped as ours.
+    pub own_echo_dropped: u64,
+    /// Far-end link packets heard again, directly or from a relay, and dropped as copies.
+    /// A reliable initiator's IDENTIFY re-sends land here once the first has arrived.
+    pub duplicate_dropped: u64,
 }
 
 /// The live counter cells behind [`RoutingCounters`].
@@ -1343,6 +1358,8 @@ struct RoutingStats {
     freshness_blobs_expired: AtomicU64,
     freshness_rows_evicted: AtomicU64,
     freshness_blobs_evicted: AtomicU64,
+    own_echo_dropped: AtomicU64,
+    duplicate_dropped: AtomicU64,
 }
 
 impl RoutingStats {
@@ -1363,6 +1380,8 @@ impl RoutingStats {
             freshness_blobs_expired: self.freshness_blobs_expired.load(Ordering::Relaxed),
             freshness_rows_evicted: self.freshness_rows_evicted.load(Ordering::Relaxed),
             freshness_blobs_evicted: self.freshness_blobs_evicted.load(Ordering::Relaxed),
+            own_echo_dropped: self.own_echo_dropped.load(Ordering::Relaxed),
+            duplicate_dropped: self.duplicate_dropped.load(Ordering::Relaxed),
         }
     }
 }
@@ -4514,9 +4533,17 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
             };
             // On one of our links, our own packet heard back or the far end's heard twice
             // is not new traffic, whichever discipline the link uses.
-            if (raw.is_some() || best.is_some()) && !shared.link_packets.lock().unwrap().admit(&pkt)
-            {
-                return;
+            if raw.is_some() || best.is_some() {
+                let admission = shared.link_packets.lock().unwrap().admit(&pkt);
+                let dropped = match admission {
+                    LinkPacketAdmission::New => None,
+                    LinkPacketAdmission::OwnEcho => Some(&shared.routing_stats.own_echo_dropped),
+                    LinkPacketAdmission::Duplicate => Some(&shared.routing_stats.duplicate_dropped),
+                };
+                if let Some(counter) = dropped {
+                    counter.fetch_add(1, Ordering::Relaxed);
+                    return;
+                }
             }
             if let Some(packets) = raw {
                 // The reliable or resource driver owns this packet; hand it over raw.
@@ -5397,13 +5424,19 @@ mod tests {
         for context in [link::CTX_KEEPALIVE, link::CTX_RESOURCE] {
             let packet = link_packet(context);
             memory.note_sent(&packet);
-            assert!(memory.admit(&packet) && memory.admit(&packet));
+            assert_eq!(memory.admit(&packet), LinkPacketAdmission::New);
+            assert_eq!(memory.admit(&packet), LinkPacketAdmission::New);
         }
         let data = link_packet(0);
-        assert!(memory.admit(&data) && !memory.admit(&data));
+        assert_eq!(memory.admit(&data), LinkPacketAdmission::New);
+        assert_eq!(memory.admit(&data), LinkPacketAdmission::Duplicate);
         let channel = link_packet(CTX_CHANNEL);
         memory.note_sent(&channel);
-        assert!(!memory.admit(&channel), "our own Channel packet is ours");
+        assert_eq!(
+            memory.admit(&channel),
+            LinkPacketAdmission::OwnEcho,
+            "our own Channel packet is ours"
+        );
     }
 
     #[test]

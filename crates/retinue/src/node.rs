@@ -410,7 +410,8 @@ impl Default for TransportConfig {
     }
 }
 
-/// What the bounded transport and freshness tables have done since this node started.
+/// What the bounded transport, freshness, and link-packet tables have done since this node
+/// started.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct TransportCounters {
     /// Verified announces re-broadcast for another destination.
@@ -441,6 +442,10 @@ pub struct TransportCounters {
     pub evicted_freshness_rows: u16,
     /// Accepted announce blobs evicted from per-destination history under the configured capacity.
     pub evicted_freshness_blobs: u16,
+    /// Our own link data heard back from a relay, and dropped as ours.
+    pub own_echo_dropped: u16,
+    /// Far-end link packets heard again, directly or from a relay, and dropped as copies.
+    pub duplicate_dropped: u16,
 }
 
 /// Side-effect-free local state relevant to pausing this node's radio.
@@ -691,12 +696,14 @@ pub struct Node<
     /// Hashes of the link data this node most recently sent, oldest first. On a shared
     /// medium a relay's retransmission of our own packet reaches us under the shared link
     /// key; its packet hash excludes hops and header type, so it matches what we sent and
-    /// marks the copy as ours rather than the far end's.
-    sent_link_data: BoundedVec<AddressHash, ROUTES>,
+    /// marks the copy as ours rather than the far end's. Sized by
+    /// [`capacity::small::OWN_ECHO_HASHES`](crate::capacity::small::OWN_ECHO_HASHES).
+    sent_link_data: BoundedVec<AddressHash, { crate::capacity::small::OWN_ECHO_HASHES }>,
     /// Hashes of the link packets most recently received from far ends, oldest first. The
     /// same medium that echoes our packets hands us theirs twice, directly and from a relay,
-    /// under one hash; the second copy is dropped.
-    received_link_data: BoundedVec<AddressHash, ROUTES>,
+    /// under one hash; the second copy is dropped. Sized by
+    /// [`capacity::small::DUPLICATE_HASHES`](crate::capacity::small::DUPLICATE_HASHES).
+    received_link_data: BoundedVec<AddressHash, { crate::capacity::small::DUPLICATE_HASHES }>,
     /// When we last announced, and how often to. `None` until the first poll, so a node
     /// announces promptly on boot rather than waiting a full interval.
     last_announce: Option<u64>,
@@ -1880,6 +1887,8 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         // Our own packet, heard back from a relay. Not the far end's data, and not evidence
         // that the far end is alive.
         if self.sent_link_data.contains(&packet.hash()) {
+            self.transport_counters.own_echo_dropped =
+                self.transport_counters.own_echo_dropped.saturating_add(1);
             return;
         }
 
@@ -1888,6 +1897,8 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         if is_deduplicated_link_context(packet.context) {
             let hash = packet.hash();
             if self.received_link_data.contains(&hash) {
+                self.transport_counters.duplicate_dropped =
+                    self.transport_counters.duplicate_dropped.saturating_add(1);
                 return;
             }
             remember_hash(&mut self.received_link_data, hash);
@@ -3040,6 +3051,105 @@ mod tests {
             data_from(&a.ingest(IFACE, &next, 4)),
             Some((id, b"second".to_vec()))
         );
+    }
+
+    /// The own-echo and duplicate windows hold their own bounds, not the route table's: a
+    /// node with four routes still knows its sixteenth-latest packet, and forgets the oldest
+    /// only past the small profile's constant.
+    #[test]
+    fn link_packet_windows_follow_their_own_constants_not_routes() {
+        use crate::capacity::small::{DUPLICATE_HASHES, OWN_ECHO_HASHES};
+        let node = |seed, name| {
+            Node::<32, 8, 4, 4>::new(
+                PrivateIdentity::from_secret_bytes(&[seed; 64]),
+                DestinationName::new("retinue", [name]).name_hash(),
+            )
+        };
+        let (mut a, mut b) = (node(0x11, "a"), node(0x22, "b"));
+        a.ingest(IFACE, &b.announce(&blob([2; RAND_HASH_LEN]), None), 0);
+        let request = sent(&a.open_link(b.destination(), IFACE, &[0x31; 64], 0).unwrap()).unwrap();
+        let proof = sent(&b.ingest(IFACE, &request, 0)).unwrap();
+        let id = link_up(&a.ingest(IFACE, &proof, 0)).unwrap();
+        let delivered = |actions: &Actions<8>| {
+            actions
+                .iter()
+                .any(|action| matches!(action, Action::Data { .. }))
+        };
+        let relayed = |packet: &Packet| {
+            let mut copy = packet.clone();
+            copy.hops += 1;
+            copy
+        };
+
+        let ours: Vec<Packet> = (0..=OWN_ECHO_HASHES as u8)
+            .map(|i| sent(&a.send(id, IFACE, b"ours", &[i; 16]).unwrap()).unwrap())
+            .collect();
+        assert!(
+            !delivered(&a.ingest(IFACE, &relayed(&ours[1]), 1)),
+            "an echo deeper than ROUTES is still ours"
+        );
+        assert!(
+            delivered(&a.ingest(IFACE, &relayed(&ours[0]), 1)),
+            "past the bound the oldest is forgotten"
+        );
+
+        let theirs: Vec<Packet> = (0..=DUPLICATE_HASHES as u8)
+            .map(|i| sent(&b.send(id, IFACE, b"theirs", &[0x80 + i; 16]).unwrap()).unwrap())
+            .collect();
+        for packet in &theirs {
+            assert!(delivered(&a.ingest(IFACE, packet, 2)));
+        }
+        assert!(
+            !delivered(&a.ingest(IFACE, &relayed(&theirs[1]), 3)),
+            "a copy deeper than ROUTES is still a copy"
+        );
+        assert!(
+            delivered(&a.ingest(IFACE, &relayed(&theirs[0]), 3)),
+            "past the bound the oldest is forgotten"
+        );
+    }
+
+    /// Each dropped own echo and each dropped copy counts once, in its own counter, and a
+    /// delivered packet counts in neither.
+    #[test]
+    fn own_echo_and_duplicate_drops_are_counted_separately() {
+        let (mut a, mut b, id) = linked();
+        let delivered = |actions: &Actions<8>| {
+            actions
+                .iter()
+                .any(|action| matches!(action, Action::Data { .. }))
+        };
+        let counts = |node: &Node<32, 8, 4>| {
+            let c = node.transport_counters();
+            (c.own_echo_dropped, c.duplicate_dropped)
+        };
+        let relayed = |packet: &Packet| {
+            let mut copy = packet.clone();
+            copy.hops += 1;
+            copy
+        };
+        assert_eq!(counts(&a), (0, 0));
+
+        let ours = sent(&a.send(id, IFACE, b"ours", &[0x71; 16]).unwrap()).unwrap();
+        assert!(delivered(&b.ingest(IFACE, &ours, 1)));
+        assert_eq!(counts(&b), (0, 0), "a delivered packet is not counted");
+        assert!(!delivered(&a.ingest(IFACE, &relayed(&ours), 1)));
+        assert_eq!(counts(&a), (1, 0));
+        assert!(!delivered(&a.ingest(IFACE, &relayed(&ours), 2)));
+        assert_eq!(counts(&a), (2, 0), "each echo counts once");
+
+        let theirs = sent(&b.send(id, IFACE, b"theirs", &[0x72; 16]).unwrap()).unwrap();
+        assert!(delivered(&a.ingest(IFACE, &theirs, 3)));
+        assert_eq!(counts(&a), (2, 0), "a delivered packet is not counted");
+        assert!(!delivered(&a.ingest(IFACE, &theirs, 4)));
+        assert_eq!(counts(&a), (2, 1));
+        assert!(!delivered(&a.ingest(IFACE, &relayed(&theirs), 5)));
+        assert_eq!(counts(&a), (2, 2), "each copy counts once");
+
+        let next = sent(&b.send(id, IFACE, b"next", &[0x73; 16]).unwrap()).unwrap();
+        assert!(delivered(&a.ingest(IFACE, &next, 6)));
+        assert_eq!(counts(&a), (2, 2));
+        assert_eq!(counts(&b), (0, 0));
     }
 
     /// A link request for another destination is ignored by a non-transport node and must
