@@ -1466,6 +1466,12 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
 
         match packet.packet_type {
             PacketType::Announce => {
+                // A relay rebroadcasting our own announce echoes it back to us. We are not
+                // our own peer, and the echo carries nothing new: drop it before it costs a
+                // signature check or touches the peer, freshness or route state.
+                if packet.destination == self.destination() {
+                    return actions;
+                }
                 // `Announce::decode` verifies the signature and that the destination hash
                 // matches the announced identity, so an entry can only come from an
                 // announce whose maths checked out. The invalid fixtures are the proof.
@@ -3255,6 +3261,42 @@ mod tests {
         assert_eq!(relay.pause_assessment().transit_bridges, 0);
         assert!(relay.ingest(IFACE, &late, 6).is_empty());
         assert!(relay.peers().knows(destination.destination()));
+    }
+
+    /// A relay rebroadcasts a node's own announce, so the node hears itself. The echo must not
+    /// make the node its own peer: a five-node mesh reported five peers per node instead of four,
+    /// and that count reaches the device's PEERS and STATUS pages. Genuine peers still learn the
+    /// announce, and the relay still rebroadcasts it for them.
+    #[test]
+    fn own_announce_echoed_by_a_relay_is_not_a_peer() {
+        let (mut a, mut b) = pair();
+        let mut relay = Node::<32, 8, 4, 4>::new(
+            PrivateIdentity::from_secret_bytes(&[0x46; 64]),
+            DestinationName::new("retinue", ["relay"]).name_hash(),
+        )
+        .with_transport_config(TransportConfig::transit());
+
+        let announce = a.announce(&blob([0x31; RAND_HASH_LEN]), None);
+        let echo = sent(&relay.ingest(IFACE, &announce, 0))
+            .expect("the relay still rebroadcasts the announce for others");
+        assert_eq!(relay.transport_counters().forwarded_announces, 1);
+
+        let heard = a.ingest(IFACE, &echo, 1);
+        assert_eq!(a.peers().len(), 0, "a node is not its own peer");
+        assert!(!a.peers().knows(a.destination()));
+        assert!(
+            heard.is_empty(),
+            "the echo of our own announce does nothing"
+        );
+        assert_eq!(a.route_count(), 0, "no route to ourselves is learned");
+
+        b.ingest(IFACE, &echo, 1);
+        assert!(
+            b.peers().knows(a.destination()),
+            "a genuine peer is learned"
+        );
+        assert_eq!(b.peers().len(), 1);
+        assert!(relay.peers().knows(a.destination()));
     }
 
     #[test]
