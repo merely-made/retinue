@@ -13,8 +13,8 @@ use embedded_graphics::{
     pixelcolor::BinaryColor,
 };
 use radio_face::{
-    Action, Controller, DetailPolicy, Fault, HostSnapshot, InputEvent, InputProfile, LocalStatus,
-    NodeSummary, RadioState, Screen, Surface, Text, Theme, WakeSource, render,
+    Action, BoardState, Controller, DetailPolicy, Fault, HostSnapshot, InputEvent, InputProfile,
+    LocalStatus, NodeSummary, RadioState, Screen, Surface, Text, Theme, WakeSource, render,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -244,6 +244,93 @@ impl PreLift {
     }
 }
 
+/// The firmware loops after the lift: the same branches over [`BoardState`].
+struct PostLift {
+    surface: Surface,
+    face: BoardState<u64>,
+    panel_on: bool,
+}
+
+impl PostLift {
+    fn new(surface: Surface, initial: LocalStatus) -> Self {
+        Self {
+            surface,
+            face: BoardState::new(InputProfile::OneButton, initial),
+            panel_on: true,
+        }
+    }
+
+    fn tick(&mut self, now: u64) {
+        self.face
+            .set_uptime((now / 1000).min(u64::from(u32::MAX)) as u32);
+        self.face
+            .expire_host(|at| ((now - at) / 1000).min(u64::from(u32::MAX)) as u32);
+    }
+
+    fn step(&mut self, event: Event, now: u64) -> Step {
+        let mut drawn = None;
+        let mut action = None;
+        match event {
+            Event::Status(status) => {
+                self.face.set_local(status);
+                self.tick(now);
+                if self.face.local().fault.is_some() {
+                    self.panel_on = true;
+                    drawn = Some(self.face.screen());
+                } else if self.face.controller().display_on() {
+                    drawn = Some(self.face.screen());
+                } else {
+                    self.panel_on = false;
+                }
+            }
+            Event::Press(input) => {
+                self.tick(now);
+                let handled = self.face.press(input);
+                action = Some(handled);
+                match handled {
+                    Action::DisplayWoke => self.panel_on = true,
+                    Action::DisplayTurnedOff => {
+                        drawn = Some(Screen::DisplayOff);
+                        if self.face.local().fault.is_none() {
+                            self.panel_on = false;
+                        }
+                    }
+                    _ => {}
+                }
+                if handled != Action::DisplayTurnedOff && self.face.panel_lit() {
+                    drawn = Some(self.face.screen());
+                }
+            }
+            Event::Host(snapshot) => {
+                self.face.set_host(snapshot, now);
+                if self.face.panel_lit() {
+                    drawn = Some(self.face.screen());
+                }
+            }
+            Event::Tick => {
+                self.tick(now);
+                if self.face.local().fault.is_some() {
+                    self.panel_on = true;
+                    drawn = Some(self.face.screen());
+                } else if self.face.controller().display_on() {
+                    drawn = Some(self.face.screen());
+                }
+            }
+        }
+        let local = self.face.local();
+        Step {
+            drawn,
+            action,
+            panel_on: self.panel_on,
+            display_on: local.display_on,
+            last_wake: local.last_wake,
+            host: self.face.host().is_some(),
+            uptime_secs: local.uptime_secs,
+            digest: drawn.map(|screen| draw(self.surface, screen, local, self.face.host())),
+        }
+    }
+}
+
 fn status() -> LocalStatus {
     LocalStatus {
         board: Text::from_truncated("HELTEC V4"),
@@ -324,6 +411,27 @@ fn run_pre_lift(surface: Surface) -> Vec<Step> {
         .collect()
 }
 
+fn run_post_lift(surface: Surface) -> Vec<Step> {
+    let mut board = PostLift::new(surface, status());
+    script()
+        .into_iter()
+        .map(|(now, event)| board.step(event, now))
+        .collect()
+}
+
+fn pinned(v4: &[Step], t114: &[Step]) {
+    let lines: Vec<String> = v4.iter().map(Step::line).collect();
+    assert_eq!(lines, EXPECTED, "V4 screen and state sequence");
+    let t114_lines: Vec<String> = t114.iter().map(Step::line).collect();
+    assert_eq!(t114_lines, EXPECTED, "T114 screen and state sequence");
+    let digests: Vec<_> = v4
+        .iter()
+        .zip(t114)
+        .map(|(a, b)| (a.digest, b.digest))
+        .collect();
+    assert_eq!(digests, EXPECTED_DIGESTS, "frames (V4, T114)");
+}
+
 /// State and screen per step, the same on both boards.
 const EXPECTED: &[&str] = &[
     "drawn=Page(Status) action=- panel=on display_on=true wake=Radio host=none up=0",
@@ -396,16 +504,17 @@ const EXPECTED_DIGESTS: &[(Option<u64>, Option<u64>)] = &[
 
 #[test]
 fn pre_lift_sequence_is_pinned() {
-    let v4 = run_pre_lift(Surface::Oled128x64);
-    let t114 = run_pre_lift(Surface::Tft240x135);
-    let lines: Vec<String> = v4.iter().map(Step::line).collect();
-    assert_eq!(lines, EXPECTED);
-    let t114_lines: Vec<String> = t114.iter().map(Step::line).collect();
-    assert_eq!(t114_lines, EXPECTED);
-    let digests: Vec<_> = v4
-        .iter()
-        .zip(&t114)
-        .map(|(a, b)| (a.digest, b.digest))
-        .collect();
-    assert_eq!(digests, EXPECTED_DIGESTS);
+    pinned(
+        &run_pre_lift(Surface::Oled128x64),
+        &run_pre_lift(Surface::Tft240x135),
+    );
+}
+
+#[test]
+fn board_state_reproduces_the_pre_lift_sequence() {
+    let v4 = run_post_lift(Surface::Oled128x64);
+    let t114 = run_post_lift(Surface::Tft240x135);
+    assert_eq!(v4, run_pre_lift(Surface::Oled128x64));
+    assert_eq!(t114, run_pre_lift(Surface::Tft240x135));
+    pinned(&v4, &t114);
 }

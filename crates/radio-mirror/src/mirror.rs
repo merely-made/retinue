@@ -3,8 +3,8 @@
 
 use embedded_graphics::pixelcolor::{Rgb888, RgbColor};
 use radio_face::{
-    Action, Button, Controller, HostSnapshot, InputEvent, InputProfile, LedIntent, LedSignal,
-    LocalStatus, PressClassifier, Screen, Surface, Theme, WakeSource, led_intent, render,
+    Action, BoardState, Button, Controller, HostSnapshot, InputEvent, InputProfile, LedIntent,
+    LedSignal, LocalStatus, PressClassifier, Screen, Surface, Theme, led_intent, render,
 };
 
 use crate::framebuffer::RgbaFramebuffer;
@@ -86,34 +86,23 @@ fn draw(
     }
 }
 
-/// One simulated radio. Page logic is the firmware's `Controller`; the few
-/// lines of board glue it needs mirror the firmware `ui.rs` loops.
+/// One simulated radio. Page logic is the firmware's `Controller`, and the
+/// board glue around it is radio-face's `BoardState`, as on the boards.
 pub struct Mirror {
     surface: Surface,
-    profile: InputProfile,
     theme: Theme<Rgb888>,
-    controller: Controller,
+    face: BoardState<()>,
     classifier: PressClassifier,
-    local: LocalStatus,
-    host: Option<HostSnapshot>,
     frame: RgbaFramebuffer<Rgb888>,
 }
 
 impl Mirror {
     pub fn new(surface: Surface, profile: InputProfile) -> Self {
-        let controller = Controller::default();
-        let local = LocalStatus {
-            display_on: controller.display_on(),
-            ..LocalStatus::default()
-        };
         Self {
             surface,
-            profile,
             theme: mono_theme(),
-            controller,
+            face: BoardState::new(profile, LocalStatus::default()),
             classifier: PressClassifier::default(),
-            local,
-            host: None,
             frame: RgbaFramebuffer::new(surface.size()),
         }
     }
@@ -123,11 +112,11 @@ impl Mirror {
     }
 
     pub const fn profile(&self) -> InputProfile {
-        self.profile
+        self.face.profile()
     }
 
     pub fn set_profile(&mut self, profile: InputProfile) {
-        self.profile = profile;
+        self.face.set_profile(profile);
     }
 
     pub fn set_theme(&mut self, theme: Theme<Rgb888>) {
@@ -135,48 +124,41 @@ impl Mirror {
     }
 
     pub const fn controller(&self) -> &Controller {
-        &self.controller
+        self.face.controller()
     }
 
     pub const fn local(&self) -> &LocalStatus {
-        &self.local
+        self.face.local()
     }
 
     pub fn host(&self) -> Option<&HostSnapshot> {
-        self.host.as_ref()
+        self.face.host()
     }
 
     /// Replaces local status. `display_on` stays the controller's, as on the boards.
     pub fn set_local(&mut self, local: LocalStatus) {
-        self.local = local;
-        self.local.display_on = self.controller.display_on();
+        self.face.set_local(local);
     }
 
     pub fn set_host(&mut self, host: Option<HostSnapshot>) {
-        self.host = host;
+        match host {
+            Some(snapshot) => self.face.set_host(snapshot, ()),
+            None => self.face.clear_host(),
+        }
     }
 
-    /// Drops the snapshot once `elapsed_secs` exceeds its validity, as the boards do.
+    /// Drops the snapshot once `elapsed_secs` reaches its validity, as the boards do.
     pub fn age_host(&mut self, elapsed_secs: u32) -> bool {
-        let expired = self.host.is_some_and(|host| !host.is_fresh(elapsed_secs));
-        if expired {
-            self.host = None;
-        }
-        expired
+        self.face.expire_host(|()| elapsed_secs)
     }
 
     pub fn screen(&self) -> Screen {
-        self.controller.screen(&self.local, self.host.as_ref())
+        self.face.screen()
     }
 
     /// A classified press, handled exactly as the firmware handles it.
     pub fn press(&mut self, event: InputEvent) -> Action {
-        self.local.last_wake = WakeSource::Button;
-        let action = self
-            .controller
-            .handle(self.profile, event, &self.local, self.host.as_ref());
-        self.local.display_on = self.controller.display_on();
-        action
+        self.face.press(event)
     }
 
     /// A raw button edge, classified by the firmware's `PressClassifier`.
@@ -191,12 +173,12 @@ impl Mirror {
     }
 
     pub fn led(&self, signal: LedSignal) -> LedIntent {
-        led_intent(&self.local, signal)
+        led_intent(self.face.local(), signal)
     }
 
     /// Whether the panel is lit: on, or forced on by a fault.
     pub fn panel_lit(&self) -> bool {
-        self.controller.display_on() || self.local.fault.is_some()
+        self.face.panel_lit()
     }
 
     /// Renders the current screen and returns its RGBA bytes.
@@ -212,8 +194,8 @@ impl Mirror {
             self.surface,
             self.theme,
             screen,
-            &self.local,
-            self.host.as_ref(),
+            self.face.local(),
+            self.face.host(),
         );
         self.frame.as_rgba()
     }

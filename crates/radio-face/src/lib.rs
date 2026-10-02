@@ -10,11 +10,13 @@
 #[cfg(test)]
 extern crate std;
 
+pub mod board;
 pub mod controller;
 pub mod render;
 pub mod status;
 pub mod wire;
 
+pub use board::BoardState;
 pub use controller::{
     Action, Button, CHORD_PRESS_MS, Controller, InputEvent, InputProfile, LONG_PRESS_MS, LedIntent,
     LedSignal, MenuItem, Page, PressClassifier, Screen, led_intent,
