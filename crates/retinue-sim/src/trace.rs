@@ -23,9 +23,9 @@ pub struct Trace {
 }
 
 impl Trace {
-    /// The canonical serialization: pretty JSON, fields in declaration order.
+    /// The canonical serialization: compact JSON, fields in declaration order.
     pub fn to_json(&self) -> String {
-        serde_json::to_string_pretty(self).expect("trace types serialize")
+        serde_json::to_string(self).expect("trace types serialize")
     }
 
     pub fn from_json(json: &str) -> serde_json::Result<Self> {

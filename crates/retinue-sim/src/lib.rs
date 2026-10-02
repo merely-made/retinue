@@ -30,7 +30,7 @@
 //!
 //! # The trace, schema `retinue-sim.route-trace/v1`
 //!
-//! [`Trace::to_json`] is the canonical form: pretty JSON, fields in declaration order,
+//! [`Trace::to_json`] is the canonical form: compact JSON, fields in declaration order,
 //! hashes in lowercase hex, times in simulated milliseconds. The top level is
 //!
 //! - `schema`: [`SCHEMA`];
