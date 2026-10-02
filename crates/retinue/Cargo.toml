@@ -52,7 +52,7 @@ x25519-dalek = { version = "3", features = ["static_secrets"] }
 hex = "0.4.3"
 radio-face = { path = "../radio-face" }
 sennet = { path = "../sennet" }
-tokio = { version = "1", features = ["net", "io-util", "rt-multi-thread", "macros", "time"] }
+tokio = { version = "1", features = ["net", "io-util", "rt-multi-thread", "macros", "time", "test-util"] }
 serde = "1.0.228"
 serde_json = "1.0.150"
 getrandom = "0.2"

@@ -1941,14 +1941,14 @@ struct Shared {
     seen_announces: Mutex<(HashSet<AddressHash>, VecDeque<AddressHash>)>,
     /// Bounded freshness admission. Its lock spans the complete announce-effect bundle.
     announce_freshness: Mutex<AnnounceFreshnessState>,
-    announce_freshness_started: Instant,
+    announce_freshness_started: tokio::time::Instant,
     /// Route expiry follows the host freshness policy without needing to acquire the freshness
     /// bundle lock during ordinary packet routing.
     route_ttl_ms: AtomicU64,
     /// The bounded interface and destination announce-admission state machines. Their clock
     /// is relative to this endpoint so the verdicts are deterministic under a supplied time.
     announce_admission: Mutex<AnnounceAdmission>,
-    announce_admission_started: Instant,
+    announce_admission_started: tokio::time::Instant,
     /// Verified unknown-route announces held until their ingress burst has subsided.
     held_announces: Mutex<VecDeque<HeldAnnounce>>,
     /// At most one release task runs for each interface, however many announces it is holding.
@@ -2581,12 +2581,12 @@ impl Endpoint {
             path_table: Mutex::new(HashMap::new()),
             seen_announces: Mutex::new((HashSet::new(), VecDeque::new())),
             announce_freshness: Mutex::new(AnnounceFreshnessState::new(freshness_policy)?),
-            announce_freshness_started: Instant::now(),
+            announce_freshness_started: tokio::time::Instant::now(),
             route_ttl_ms: AtomicU64::new(freshness_policy.route_ttl_ticks()),
             announce_admission: Mutex::new(
                 AnnounceAdmission::new(AnnounceIngressPolicy::default()),
             ),
-            announce_admission_started: Instant::now(),
+            announce_admission_started: tokio::time::Instant::now(),
             held_announces: Mutex::new(VecDeque::new()),
             held_release_tasks: Mutex::new(HashSet::new()),
             held_release_wake: tokio::sync::Notify::new(),

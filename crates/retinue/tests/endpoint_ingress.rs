@@ -239,7 +239,11 @@ async fn outbound_stream_reports_its_interface() {
 /// A verified multi-destination burst on one bearer is bounded and released later; another
 /// bearer remains admissible, and a repeat destination is learned locally but not relayed.
 /// This is a host ingress receipt, not a radio-airtime or firmware-memory measurement.
-#[tokio::test]
+///
+/// The runtime clock is paused: the admission state machine reads `tokio::time::Instant`, so
+/// every `sleep` below advances virtual time exactly and the burst spacing (1 ms against a
+/// 20 ms interface period) is the same on every OS, whatever the host timer granularity.
+#[tokio::test(start_paused = true)]
 async fn announce_ingress_burst_is_bounded_attributed_and_does_not_silence_a_neighbor() {
     let hub = Endpoint::new(PrivateIdentity::from_secret_bytes(&[71u8; 64]));
     hub.enable_routing();
@@ -281,7 +285,7 @@ async fn announce_ingress_burst_is_bounded_attributed_and_does_not_silence_a_nei
         burst_destinations.push(destination);
         assert!(noisy_sink.deliver(packet));
         // The state machine measures frequency rather than packet-loop iterations. Advancing
-        // the scheduler here gives every verified arrival a distinct monotonic observation.
+        // the paused clock gives every verified arrival a distinct, exactly 1 ms apart, observation.
         tokio::time::sleep(Duration::from_millis(1)).await;
     }
 
