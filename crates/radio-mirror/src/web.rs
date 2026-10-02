@@ -162,6 +162,24 @@ impl RadioMirror {
         Ok(Clamped(self.inner.render_screen(screen).to_vec()))
     }
 
+    /// Renders the current screen and puts it into `context` at (`x`, `y`),
+    /// one canvas pixel per panel pixel. Feature `canvas`.
+    #[cfg(feature = "canvas")]
+    pub fn draw(
+        &mut self,
+        context: &web_sys::CanvasRenderingContext2d,
+        x: f64,
+        y: f64,
+    ) -> Result<(), JsValue> {
+        let size = self.inner.surface().size();
+        let image = web_sys::ImageData::new_with_u8_clamped_array_and_sh(
+            Clamped(self.inner.render()),
+            size.width,
+            size.height,
+        )?;
+        context.put_image_data(&image, x, y)
+    }
+
     /// What the current screen says, one line per row (`\n`-separated), for an
     /// `aria-live` region or `alt`. The rows are the ones the pixels draw.
     pub fn text(&self) -> String {

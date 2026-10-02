@@ -16,6 +16,9 @@ default = ["json"]
 json = ["dep:serde", "dep:serde_json"]
 # Native PNG output for build-time, no-script images.
 png = ["dep:png"]
+# wasm32: `RadioMirror.draw(context, x, y)` onto a CanvasRenderingContext2D.
+# Brings in web-sys; `rgba()` and `new ImageData(...)` need nothing extra.
+canvas = ["dep:web-sys"]
 
 [dependencies]
 radio-face = { path = "../radio-face", features = ["text"] }
@@ -26,6 +29,11 @@ png = { version = "0.17.16", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "=0.2.127"
+# The release built against wasm-bindgen =0.2.127.
+web-sys = { version = "=0.3.104", optional = true, features = [
+    "CanvasRenderingContext2d",
+    "ImageData",
+] }
 
 [dev-dependencies]
 png = "0.17.16"
