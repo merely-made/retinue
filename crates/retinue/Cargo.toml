@@ -191,6 +191,10 @@ name = "node_pause"
 required-features = ["alloc"]
 
 [[test]]
+name = "node_link_timeout"
+required-features = ["alloc"]
+
+[[test]]
 name = "flood_desk"
 required-features = ["alloc"]
 
