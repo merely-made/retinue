@@ -2038,6 +2038,13 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec;
+
+    use super::*;
+    use crate::announce::RAND_HASH_LEN;
+    use crate::destination::DestinationName;
+    use crate::identity::PrivateIdentity;
+
     const IFACE: InterfaceId = 0;
 
     fn fixture(name: &str) -> Packet {
