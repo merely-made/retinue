@@ -371,7 +371,8 @@ impl Default for TransportConfig {
     }
 }
 
-/// What the bounded transport and freshness tables have done since this node started.
+/// What the bounded transport, freshness, and link-packet tables have done since this node
+/// started.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct TransportCounters {
     /// Verified announces re-broadcast for another destination.
@@ -402,6 +403,10 @@ pub struct TransportCounters {
     pub evicted_freshness_rows: u16,
     /// Accepted announce blobs evicted from per-destination history under the configured capacity.
     pub evicted_freshness_blobs: u16,
+    /// Our own link data heard back from a relay, and dropped as ours.
+    pub own_echo_dropped: u16,
+    /// Far-end link packets heard again, directly or from a relay, and dropped as copies.
+    pub duplicate_dropped: u16,
 }
 
 /// Side-effect-free local state relevant to pausing this node's radio.
@@ -1780,6 +1785,8 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         // Our own packet, heard back from a relay. Not the far end's data, and not evidence
         // that the far end is alive.
         if self.sent_link_data.contains(&packet.hash()) {
+            self.transport_counters.own_echo_dropped =
+                self.transport_counters.own_echo_dropped.saturating_add(1);
             return;
         }
 
@@ -1788,6 +1795,8 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         if is_deduplicated_link_context(packet.context) {
             let hash = packet.hash();
             if self.received_link_data.contains(&hash) {
+                self.transport_counters.duplicate_dropped =
+                    self.transport_counters.duplicate_dropped.saturating_add(1);
                 return;
             }
             remember_hash(&mut self.received_link_data, hash);
@@ -2993,6 +3002,49 @@ mod tests {
             delivered(&a.ingest(IFACE, &relayed(&theirs[0]), 3)),
             "past the bound the oldest is forgotten"
         );
+    }
+
+    /// Each dropped own echo and each dropped copy counts once, in its own counter, and a
+    /// delivered packet counts in neither.
+    #[test]
+    fn own_echo_and_duplicate_drops_are_counted_separately() {
+        let (mut a, mut b, id) = linked();
+        let delivered = |actions: &Actions<8>| {
+            actions
+                .iter()
+                .any(|action| matches!(action, Action::Data { .. }))
+        };
+        let counts = |node: &Node<32, 8, 4>| {
+            let c = node.transport_counters();
+            (c.own_echo_dropped, c.duplicate_dropped)
+        };
+        let relayed = |packet: &Packet| {
+            let mut copy = packet.clone();
+            copy.hops += 1;
+            copy
+        };
+        assert_eq!(counts(&a), (0, 0));
+
+        let ours = sent(&a.send(id, IFACE, b"ours", &[0x71; 16]).unwrap()).unwrap();
+        assert!(delivered(&b.ingest(IFACE, &ours, 1)));
+        assert_eq!(counts(&b), (0, 0), "a delivered packet is not counted");
+        assert!(!delivered(&a.ingest(IFACE, &relayed(&ours), 1)));
+        assert_eq!(counts(&a), (1, 0));
+        assert!(!delivered(&a.ingest(IFACE, &relayed(&ours), 2)));
+        assert_eq!(counts(&a), (2, 0), "each echo counts once");
+
+        let theirs = sent(&b.send(id, IFACE, b"theirs", &[0x72; 16]).unwrap()).unwrap();
+        assert!(delivered(&a.ingest(IFACE, &theirs, 3)));
+        assert_eq!(counts(&a), (2, 0), "a delivered packet is not counted");
+        assert!(!delivered(&a.ingest(IFACE, &theirs, 4)));
+        assert_eq!(counts(&a), (2, 1));
+        assert!(!delivered(&a.ingest(IFACE, &relayed(&theirs), 5)));
+        assert_eq!(counts(&a), (2, 2), "each copy counts once");
+
+        let next = sent(&b.send(id, IFACE, b"next", &[0x73; 16]).unwrap()).unwrap();
+        assert!(delivered(&a.ingest(IFACE, &next, 6)));
+        assert_eq!(counts(&a), (2, 2));
+        assert_eq!(counts(&b), (0, 0));
     }
 
     /// A link request for another destination is ignored by a non-transport node and must

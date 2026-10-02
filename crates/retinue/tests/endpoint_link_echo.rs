@@ -105,6 +105,14 @@ async fn read_n(stream: &mut LinkStream, n: usize) -> String {
     String::from_utf8_lossy(&buf).into_owned()
 }
 
+/// `(own_echo_dropped, duplicate_dropped)`. Read after a later packet has reached the
+/// application: one router task handles an interface's packets in order, so every packet
+/// injected before it has been judged.
+fn drops(endpoint: &Endpoint) -> (u64, u64) {
+    let counters = endpoint.routing_counters();
+    (counters.own_echo_dropped, counters.duplicate_dropped)
+}
+
 async fn write(stream: &mut LinkStream, bytes: &[u8]) {
     stream.write_all(bytes).await.unwrap();
     stream.flush().await.unwrap();
@@ -158,7 +166,7 @@ async fn reliable() -> (Endpoint, Endpoint, Wire, LinkStream, LinkStream) {
 /// the far end's data after it still arrives.
 #[tokio::test]
 async fn own_link_data_echoed_by_a_relay_is_not_received() {
-    let (_a, _b, mut w, mut a_stream, mut b_stream) = best_effort().await;
+    let (a, b, mut w, mut a_stream, mut b_stream) = best_effort().await;
     let link = a_stream.link_id();
 
     write(&mut a_stream, b"from A").await;
@@ -172,24 +180,29 @@ async fn own_link_data_echoed_by_a_relay_is_not_received() {
         "from B",
         "A must not surface its own payload as received data"
     );
+    assert_eq!(drops(&a), (1, 0), "the echo counts once, as A's own");
+    assert_eq!(drops(&b), (0, 0), "B's delivered packet is not counted");
 
     // The memory matches packets, not payloads: the far end sending the bytes A sent, under
     // its own IV, is a different packet and is delivered.
     write(&mut b_stream, b"from A").await;
     assert_eq!(read_n(&mut a_stream, 6).await, "from A");
+    assert_eq!(drops(&a), (1, 0), "a delivered packet is not counted");
 
     // The responder is covered the same way.
     let reply = next_on_link(&mut w.from_b, link, CTX_DATA).await;
     assert!(w.into_b.deliver(relayed(&reply)));
     write(&mut a_stream, b"next A").await;
     assert_eq!(read_n(&mut b_stream, 6).await, "next A");
+    assert_eq!(drops(&b), (1, 0));
+    assert_eq!(drops(&a), (1, 0));
 }
 
 /// Ruling 51 (b): A's own Channel message, played back by a relay, is not delivered to A,
 /// and the far end's Channel sequence 0, which arrives after the echo, still is.
 #[tokio::test]
 async fn own_channel_message_echoed_by_a_relay_is_not_received() {
-    let (_a, _b, mut w, mut a_stream, mut b_stream) = reliable().await;
+    let (a, b, mut w, mut a_stream, mut b_stream) = reliable().await;
     let link = a_stream.link_id();
 
     write(&mut a_stream, b"from A").await;
@@ -203,6 +216,7 @@ async fn own_channel_message_echoed_by_a_relay_is_not_received() {
         "from B",
         "A must not take its own sequence 0 for the far end's, nor lose the far end's"
     );
+    assert_eq!(drops(&a), (1, 0), "the echo counts once, as A's own");
 
     // A late copy, after B has proved the original, is still A's own. Both directions then
     // carry on at sequence 1.
@@ -211,13 +225,16 @@ async fn own_channel_message_echoed_by_a_relay_is_not_received() {
     assert_eq!(read_n(&mut b_stream, 6).await, "next A");
     write(&mut b_stream, b"next B").await;
     assert_eq!(read_n(&mut a_stream, 6).await, "next B");
+    assert_eq!(drops(&a), (2, 0), "the late copy counts once more");
+    // B's duplicate count is A's IDENTIFY re-sends, which depend on timing.
+    assert_eq!(drops(&b).0, 0, "B's delivered packets are not counted");
 }
 
 /// Ruling 52: the far end's link data heard twice more, verbatim and via a relay, reaches
 /// the application once.
 #[tokio::test]
 async fn far_end_link_data_heard_twice_is_received_once() {
-    let (_a, _b, mut w, mut a_stream, mut b_stream) = best_effort().await;
+    let (a, b, mut w, mut a_stream, mut b_stream) = best_effort().await;
     let link = a_stream.link_id();
 
     write(&mut b_stream, b"from B").await;
@@ -231,13 +248,15 @@ async fn far_end_link_data_heard_twice_is_received_once() {
         "from Bsecond",
         "each far-end packet reaches the application once"
     );
+    assert_eq!(drops(&a), (0, 2), "each copy counts once, as a duplicate");
+    assert_eq!(drops(&b), (0, 0), "A's delivered packets are not counted");
 }
 
 /// Ruling 52, Channel: the far end's Channel message heard twice more, verbatim and via a
 /// relay, reaches the application once.
 #[tokio::test]
 async fn far_end_channel_message_heard_twice_is_received_once() {
-    let (_a, _b, mut w, mut a_stream, mut b_stream) = reliable().await;
+    let (a, b, mut w, mut a_stream, mut b_stream) = reliable().await;
     let link = a_stream.link_id();
 
     write(&mut b_stream, b"from B").await;
@@ -251,4 +270,8 @@ async fn far_end_channel_message_heard_twice_is_received_once() {
         "from Bsecond",
         "each far-end Channel message reaches the application once"
     );
+    assert_eq!(drops(&a), (0, 2), "each copy counts once, as a duplicate");
+    // B's duplicate count is A's IDENTIFY re-sends, which depend on timing; see the
+    // reliable link's IDENTIFY_MAX_SENDS. Its own-echo count is exact.
+    assert_eq!(drops(&b).0, 0, "A's delivered packets are not counted");
 }
