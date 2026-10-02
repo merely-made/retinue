@@ -3,9 +3,9 @@
 #[path = "../examples/lab/scenarios.rs"]
 mod scenarios;
 
-use retinue::node::DEFAULT_ROUTE_TTL;
-use retinue_sim::trace::{Event, FaceEventKind, Origin, PacketKind};
-use retinue_sim::{NodeState, SCHEMA, Trace, run};
+use retinue::node::{DEFAULT_ROUTE_TTL, link_request_timeout};
+use retinue_sim::trace::{Event, FaceEventKind, Origin, PacketKind, Refusal};
+use retinue_sim::{NodeState, SCHEMA, Send, Trace, run};
 
 fn path(names: &[&str]) -> Vec<String> {
     names.iter().map(|name| (*name).to_owned()).collect()
@@ -204,4 +204,55 @@ fn node_states_fill_the_traffic_page_and_ticker() {
         }
     }
     assert!(checked > 100);
+}
+
+/// S7's wedge, end to end. Four sends lost behind the cut fill fire's four pending slots, and
+/// a fifth inside their deadline is refused. After the deadline the slots are free, so the
+/// send after the reroute goes out and is delivered, where before Ruling 28 it was refused.
+#[test]
+fn lost_requests_expire_so_the_send_after_the_reroute_is_not_refused() {
+    let mut scenario = scenarios::warm();
+    let send = |at: u64, n: u32| Send {
+        at,
+        from: "fire".into(),
+        to: "garage".into(),
+        payload: format!("message {n}"),
+    };
+    // Fire's route to garage is via water, one relay, until the 600 s announce.
+    let deadline = link_request_timeout(1);
+    scenario.sends = vec![
+        send(10_000, 1),
+        send(180_000, 2),
+        send(181_000, 3),
+        send(182_000, 4),
+        send(183_000, 5),
+        send(184_000, 6),
+        send(720_000, 7),
+    ];
+    assert!(184_000 < 180_000 + deadline);
+    let trace = run(&scenario).unwrap();
+
+    let refused: Vec<(u32, Refusal)> = trace
+        .events
+        .iter()
+        .filter_map(|event| match event {
+            Event::SendRefused {
+                message, reason, ..
+            } => Some((*message, *reason)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        refused,
+        vec![(5, Refusal::PendingFull)],
+        "only the send inside the lost requests' deadline is refused"
+    );
+    for lost in &trace.messages[1..5] {
+        assert!(lost.delivered.is_none(), "message {} is lost", lost.id);
+    }
+    let last = trace.messages[6]
+        .delivered
+        .as_ref()
+        .expect("the send after the reroute is delivered");
+    assert_eq!(last.path, path(&["fire", "church", "water", "garage"]));
 }

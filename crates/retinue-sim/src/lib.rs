@@ -25,8 +25,11 @@
 //! A [`Send`] opens a link from its sender to its destination with `Node::open_link`, which
 //! addresses the request to the route's first relay. When the link comes up at the sender,
 //! the payload goes out with `Node::send`; it is delivered when the destination's node
-//! returns it as `Action::Data`. A send whose link never comes up is undelivered: the trace
-//! does not invent a timeout.
+//! returns it as `Action::Data`. A send whose link never comes up is undelivered and is not
+//! retried. Its sender's `Node` drops the request at its deadline
+//! (`retinue::node::link_request_timeout`), freeing the pending slot. Poll actions are not
+//! events, so the expiry shows in the sender's next state: `pending_links` falls and the
+//! face reads "link down".
 //!
 //! # The trace, schema `retinue-sim.route-trace/v1`
 //!
