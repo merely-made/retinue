@@ -225,3 +225,70 @@ fn an_established_link_that_ends_is_still_link_down() {
     assert!(timed_out(&expired).is_empty());
     assert_eq!(sender.expired_link_requests(), 0);
 }
+
+/// Ruling 54: `open_link` drops expired requests itself, so a caller that has not polled is
+/// not refused for a table full of requests past their deadline. The expiries come back
+/// first, as `poll` would have reported them, and a later poll repeats none of them.
+#[test]
+fn open_link_expires_the_table_without_a_poll() {
+    let mut sender = node(0x11, "sender");
+    let mut peer = node(0x22, "peer");
+    sender.ingest(IFACE, &peer.announce(&blob(2), None), 0);
+    let to = peer.destination();
+    let lost: Vec<_> = (0..4)
+        .map(|i| lose_a_request(&mut sender, to, 0x31 + i, 0))
+        .collect();
+    let deadline = link_request_timeout(0);
+
+    // Control: one tick short of the deadline the full table still refuses, and drops none.
+    assert!(
+        sender
+            .open_link(to, IFACE, &[0x40; 64], deadline - 1)
+            .is_none()
+    );
+    assert_eq!(sender.refused_links(), 1);
+    assert_eq!(sender.pause_assessment().pending_handshakes, 4);
+
+    // At the deadline, with no poll in between, the request goes out.
+    let opened = sender
+        .open_link(to, IFACE, &[0x41; 64], deadline)
+        .expect("expired requests no longer hold the table");
+    assert_eq!(timed_out(&opened), lost);
+    assert!(links_down(&opened).is_empty());
+    let kinds: Vec<_> = opened
+        .iter()
+        .map(|action| matches!(action, Action::Send { .. }))
+        .collect();
+    assert_eq!(kinds, [false, false, false, false, true], "expiries first");
+    assert_eq!(sender.refused_links(), 1, "not refused this time");
+    assert_eq!(sender.expired_link_requests(), 4);
+    assert_eq!(sender.pause_assessment().pending_handshakes, 1);
+
+    // Nothing is reported twice, and the new request is a working one.
+    assert!(timed_out(&sender.poll(deadline, IFACE, None)).is_empty());
+    let proof = sent(&peer.ingest(IFACE, &sent(&opened), deadline));
+    let up = sender.ingest(IFACE, &proof, deadline);
+    assert!(
+        up.iter()
+            .any(|action| matches!(action, Action::LinkUp { .. }))
+    );
+}
+
+/// An unknown destination is refused before anything is expired, so the expiry is not lost
+/// with the refusal: the next poll still reports it.
+#[test]
+fn a_refused_open_link_does_not_swallow_an_expiry() {
+    let mut sender = node(0x11, "sender");
+    let peer = node(0x22, "peer");
+    sender.ingest(IFACE, &peer.announce(&blob(2), None), 0);
+    let id = lose_a_request(&mut sender, peer.destination(), 0x31, 0);
+    let deadline = link_request_timeout(0);
+    let stranger = node(0x33, "stranger").destination();
+
+    assert!(
+        sender
+            .open_link(stranger, IFACE, &[0x41; 64], deadline)
+            .is_none()
+    );
+    assert_eq!(timed_out(&sender.poll(deadline, IFACE, None)), vec![id]);
+}

@@ -1036,17 +1036,10 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
     /// entries left by earlier maintenance. A link request unanswered at its
     /// deadline is dropped and reported in `pending_links`.
     pub fn expire_sessions(&mut self, now: u64) -> SessionExpiryReport<LINKS> {
-        let mut report = SessionExpiryReport::default();
-        self.pending.retain(|(attempt, deadline)| {
-            let expired = now >= *deadline;
-            if expired {
-                let _ = report.pending_links.push(attempt.link_id());
-            }
-            !expired
-        });
-        self.expired_link_requests = self
-            .expired_link_requests
-            .saturating_add(report.pending_links.len() as u16);
+        let mut report = SessionExpiryReport {
+            pending_links: self.expire_link_requests(now),
+            ..Default::default()
+        };
         self.links.retain(|(link, _, seen)| {
             let expired = now.saturating_sub(*seen) >= LINK_IDLE_TIMEOUT;
             if expired {
@@ -1070,6 +1063,22 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             keep
         });
         report
+    }
+
+    /// Drop link requests unanswered at their deadline, returning their link ids.
+    fn expire_link_requests(&mut self, now: u64) -> BoundedVec<AddressHash, LINKS> {
+        let mut expired_ids = BoundedVec::new();
+        self.pending.retain(|(attempt, deadline)| {
+            let expired = now >= *deadline;
+            if expired {
+                let _ = expired_ids.push(attempt.link_id());
+            }
+            !expired
+        });
+        self.expired_link_requests = self
+            .expired_link_requests
+            .saturating_add(expired_ids.len() as u16);
+        expired_ids
     }
 
     /// Whether a link with this id is established.
@@ -1167,6 +1176,11 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
     /// [`Node::poll`] at or after that deadline drops it and reports
     /// [`Action::LinkRequestTimedOut`] with its link id, which `link::link_id` reads from the
     /// request. A later proof is ignored.
+    ///
+    /// Requests already past their deadline at `now` are dropped first, so a full table is
+    /// never refused only because the caller has not polled. Each is reported as
+    /// [`Action::LinkRequestTimedOut`] ahead of the new request's send, exactly as `poll`
+    /// would have. A refusal (unknown peer, or a table full of live requests) drops nothing.
     pub fn open_link(
         &mut self,
         destination: AddressHash,
@@ -1175,7 +1189,13 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         now: u64,
     ) -> Option<Actions<ACTIONS>> {
         let peer = self.book.resolve(destination)?.identity;
+        let mut actions = Actions::new();
+        for link_id in self.expire_link_requests(now) {
+            actions.push(Action::LinkRequestTimedOut { link_id });
+        }
         if self.pending.is_full() {
+            // Only live requests remain: had any expired, its slot would now be free.
+            debug_assert!(actions.is_empty());
             self.refused_links = self.refused_links.saturating_add(1);
             return None;
         }
@@ -1194,7 +1214,6 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         let deadline = now.saturating_add(link_request_timeout(hop.map_or(0, |hop| hop.hops)));
         let _ = self.pending.push((attempt, deadline));
 
-        let mut actions = Actions::new();
         actions.push(Action::Send {
             interface,
             packet: request,
