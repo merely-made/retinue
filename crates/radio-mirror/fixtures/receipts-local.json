@@ -1,4 +1,5 @@
 {
+  "schema": "radio-mirror.local/v1",
   "board": "HELTEC V4",
   "firmware": "PHY V10",
   "uptime_secs": 14719,

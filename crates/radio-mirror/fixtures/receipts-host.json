@@ -1,4 +1,5 @@
 {
+  "schema": "radio-mirror.host/v1",
   "valid_for_secs": 15,
   "personality": "retinue",
   "detail": "named",

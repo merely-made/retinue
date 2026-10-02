@@ -1,8 +1,12 @@
 //! JSON documents for `LocalStatus` and `HostSnapshot`.
 //!
-//! The definitions below are serde *remote* mirrors of radio-face's types, so a
+//! Each document names its version in a required `schema` field,
+//! [`LOCAL_SCHEMA`] or [`HOST_SCHEMA`]; any other value is refused.
+//!
+//! The definitions below mirror radio-face's types field for field (serde
+//! *remote* derives, and exhaustive conversions for the two documents), so a
 //! field added to or removed from radio-face fails this crate's build rather
-//! than drifting silently. Every field is optional and defaults as in
+//! than drifting silently. Every other field is optional and defaults as in
 //! radio-face; unknown fields are refused. Text must fit and be ASCII.
 //! A host document is passed through radio-face's own wire codec, so the mirror
 //! only shows what a real radio could be told.
@@ -35,19 +39,47 @@ impl fmt::Display for InputError {
 
 impl core::error::Error for InputError {}
 
+/// The `schema` of a local status document.
+pub const LOCAL_SCHEMA: &str = "radio-mirror.local/v1";
+/// The `schema` of a host snapshot document.
+pub const HOST_SCHEMA: &str = "radio-mirror.host/v1";
+
 pub fn local_from_json(json: &str) -> Result<LocalStatus, InputError> {
     let mut deserializer = serde_json::Deserializer::from_str(json);
-    let local = LocalStatusDef::deserialize(&mut deserializer).map_err(json_error)?;
+    let local = LocalDocument::deserialize(&mut deserializer).map_err(json_error)?;
     deserializer.end().map_err(json_error)?;
-    Ok(local)
+    Ok(local.into())
 }
 
 /// Parses a host document and passes it through `encode_snapshot`/`decode_snapshot`.
 pub fn host_from_json(json: &str) -> Result<HostSnapshot, InputError> {
     let mut deserializer = serde_json::Deserializer::from_str(json);
-    let host = HostSnapshotDef::deserialize(&mut deserializer).map_err(json_error)?;
+    let host = HostDocument::deserialize(&mut deserializer).map_err(json_error)?;
     deserializer.end().map_err(json_error)?;
-    through_wire(&host)
+    through_wire(&host.into())
+}
+
+fn schema<'de, D>(deserializer: D, expected: &'static str) -> Result<(), D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let found = String::deserialize(deserializer)
+        .map_err(|error| D::Error::custom(format!("schema: {error}")))?;
+    if found == expected {
+        Ok(())
+    } else {
+        Err(D::Error::custom(format!(
+            "schema {found:?} is not supported (expected {expected:?})"
+        )))
+    }
+}
+
+fn local_schema<'de, D: Deserializer<'de>>(deserializer: D) -> Result<(), D::Error> {
+    schema(deserializer, LOCAL_SCHEMA)
+}
+
+fn host_schema<'de, D: Deserializer<'de>>(deserializer: D) -> Result<(), D::Error> {
+    schema(deserializer, HOST_SCHEMA)
 }
 
 pub fn through_wire(host: &HostSnapshot) -> Result<HostSnapshot, InputError> {
@@ -205,9 +237,13 @@ struct FaultDef {
     message: Text<24>,
 }
 
+/// A `LocalStatus` with its `schema`. Not a remote derive, since the document
+/// has a field the type lacks; the exhaustive conversion below keeps the pin.
 #[derive(Deserialize)]
-#[serde(remote = "LocalStatus", deny_unknown_fields)]
-struct LocalStatusDef {
+#[serde(deny_unknown_fields)]
+struct LocalDocument {
+    #[serde(deserialize_with = "local_schema")]
+    schema: (),
     #[serde(default, deserialize_with = "text")]
     board: Text<16>,
     #[serde(default, deserialize_with = "text")]
@@ -244,6 +280,52 @@ struct LocalStatusDef {
     fault: Option<Fault>,
     #[serde(default, with = "GnssStateDef")]
     gnss: GnssState,
+}
+
+impl From<LocalDocument> for LocalStatus {
+    fn from(document: LocalDocument) -> Self {
+        let LocalDocument {
+            schema: (),
+            board,
+            firmware,
+            uptime_secs,
+            radio,
+            host,
+            power_source,
+            battery_percent,
+            millivolts,
+            display_on,
+            sleep,
+            last_wake,
+            profile,
+            tx_frames,
+            rx_frames,
+            last_rx,
+            last_tx,
+            fault,
+            gnss,
+        } = document;
+        Self {
+            board,
+            firmware,
+            uptime_secs,
+            radio,
+            host,
+            power_source,
+            battery_percent,
+            millivolts,
+            display_on,
+            sleep,
+            last_wake,
+            profile,
+            tx_frames,
+            rx_frames,
+            last_rx,
+            last_tx,
+            fault,
+            gnss,
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -287,9 +369,12 @@ fn default_validity() -> u16 {
     HostSnapshot::default().valid_for_secs
 }
 
+/// A `HostSnapshot` with its `schema`, as [`LocalDocument`].
 #[derive(Deserialize)]
-#[serde(remote = "HostSnapshot", deny_unknown_fields)]
-struct HostSnapshotDef {
+#[serde(deny_unknown_fields)]
+struct HostDocument {
+    #[serde(deserialize_with = "host_schema")]
+    schema: (),
     #[serde(default = "default_validity")]
     valid_for_secs: u16,
     #[serde(default, with = "PersonalityDef")]
@@ -314,50 +399,118 @@ struct HostSnapshotDef {
     event: Option<UiEvent>,
 }
 
+impl From<HostDocument> for HostSnapshot {
+    fn from(document: HostDocument) -> Self {
+        let HostDocument {
+            schema: (),
+            valid_for_secs,
+            personality,
+            detail,
+            node,
+            link_count,
+            admitted_links,
+            queue_depth,
+            ifac,
+            peers,
+            peer_overflow,
+            event,
+        } = document;
+        Self {
+            valid_for_secs,
+            personality,
+            detail,
+            node,
+            link_count,
+            admitted_links,
+            queue_depth,
+            ifac,
+            peers,
+            peer_overflow,
+            event,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// A document with the current schema and `rest` (`,"field":value...`).
+    fn local(rest: &str) -> String {
+        format!(r#"{{"schema":"{LOCAL_SCHEMA}"{rest}}}"#)
+    }
+
+    fn host(rest: &str) -> String {
+        format!(r#"{{"schema":"{HOST_SCHEMA}"{rest}}}"#)
+    }
+
+    #[test]
+    fn documents_without_the_current_schema_are_refused() {
+        for json in [
+            "{}".into(),
+            r#"{"schema":"radio-mirror.local/v2"}"#.into(),
+            format!(r#"{{"schema":"{HOST_SCHEMA}"}}"#),
+            r#"{"schema":1}"#.into(),
+        ] {
+            let error = local_from_json(&json).unwrap_err();
+            assert!(
+                matches!(&error, InputError::Json(message) if message.contains("schema")),
+                "{json}: {error}"
+            );
+        }
+        for json in [
+            "{}".into(),
+            r#"{"schema":"radio-mirror.host/v0"}"#.into(),
+            format!(r#"{{"schema":"{LOCAL_SCHEMA}"}}"#),
+        ] {
+            let error = host_from_json(&json).unwrap_err();
+            assert!(
+                matches!(&error, InputError::Json(message) if message.contains("schema")),
+                "{json}: {error}"
+            );
+        }
+    }
+
     #[test]
     fn empty_documents_are_radio_face_defaults() {
-        assert_eq!(local_from_json("{}").unwrap(), LocalStatus::default());
-        assert_eq!(host_from_json("{}").unwrap(), HostSnapshot::default());
+        assert_eq!(local_from_json(&local("")).unwrap(), LocalStatus::default());
+        assert_eq!(host_from_json(&host("")).unwrap(), HostSnapshot::default());
     }
 
     #[test]
     fn unknown_fields_and_long_text_are_refused() {
         assert!(matches!(
-            local_from_json(r#"{"route":"x"}"#),
+            local_from_json(&local(r#","route":"x""#)),
             Err(InputError::Json(_))
         ));
         assert!(matches!(
-            local_from_json(r#"{"board":"A BOARD NAME TOO LONG"}"#),
+            local_from_json(&local(r#","board":"A BOARD NAME TOO LONG""#)),
             Err(InputError::Json(_))
         ));
         assert!(matches!(
-            host_from_json(r#"{"peers":[{},{},{},{}]}"#),
+            host_from_json(&host(r#","peers":[{},{},{},{}]"#)),
             Err(InputError::Json(_))
         ));
     }
 
     #[test]
     fn host_documents_obey_the_wire_privacy_rule() {
-        let named_under_minimal = r#"{"detail":"minimal","node":{"name":"HERALD"}}"#;
+        let named_under_minimal = host(r#","detail":"minimal","node":{"name":"HERALD"}"#);
         assert_eq!(
-            host_from_json(named_under_minimal),
+            host_from_json(&named_under_minimal),
             Err(InputError::Wire(WireError::PrivacyViolation))
         );
         assert_eq!(
-            host_from_json(r#"{"valid_for_secs":0}"#),
+            host_from_json(&host(r#","valid_for_secs":0"#)),
             Err(InputError::Wire(WireError::InvalidValidity(0)))
         );
     }
 
     #[test]
     fn tagged_values_parse() {
-        let local = local_from_json(
-            r#"{"last_tx":{"sent":{"frame_len":247}},"gnss":"no-fix","radio":"online"}"#,
-        )
+        let local = local_from_json(&local(
+            r#","last_tx":{"sent":{"frame_len":247}},"gnss":"no-fix","radio":"online""#,
+        ))
         .unwrap();
         assert_eq!(local.last_tx, TxResult::Sent { frame_len: 247 });
         assert_eq!(local.gnss, GnssState::NoFix);
