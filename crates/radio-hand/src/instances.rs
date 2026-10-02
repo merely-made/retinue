@@ -168,6 +168,21 @@ impl Runtime {
         carrier
             .configure_node(&mut node)
             .map_err(Error::CarrierConfiguration)?;
+        // The Retinue personality's modulation sets its first-hop airtime allowance
+        // (Ruling 50), so a link request's deadline covers the radio's own slowness.
+        let profile = config
+            .profiles
+            .get(usize::from(RETINUE.0))
+            .ok_or(Error::Configuration)?;
+        let allowance = crate::phy::nominal_bits_ms(
+            profile.spreading_factor,
+            profile.bandwidth_hz,
+            profile.coding_rate_denominator,
+            retinue::node::FIRST_HOP_ALLOWANCE_BITS,
+        )
+        .ok_or(Error::Configuration)?;
+        node.set_first_hop_airtime(retinue::instance::INTERFACE, allowance)
+            .map_err(|_| Error::Configuration)?;
         let ids = [RETINUE, SENNET, TUCKET];
         if !ids.contains(&config.controller.home)
             || config.tx_budget_ms == 0
@@ -367,6 +382,7 @@ impl Runtime {
         self.tucket_lost(now, t)?;
         let r = self.retinue.advance(now)?;
         if !r.links.is_empty()
+            || !r.pending_links.is_empty()
             || !r.inbound_resources.is_empty()
             || !r.outbound_resources.is_empty()
         {
@@ -631,6 +647,7 @@ impl Runtime {
             RETINUE => {
                 let r = self.retinue.resume(now)?;
                 if !r.links.is_empty()
+                    || !r.pending_links.is_empty()
                     || !r.inbound_resources.is_empty()
                     || !r.outbound_resources.is_empty()
                 {

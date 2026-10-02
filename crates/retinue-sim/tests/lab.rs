@@ -80,17 +80,46 @@ fn cold_cut_routes_through_church_and_water() {
     assert!(!shortcut_used, "nothing crosses the cut edge");
 }
 
-/// Fire is a leaf: in both traces it relays nothing, yet every send names a first relay.
+/// Fire and garage are leaves, ridge, church and water relay (Ruling 56). In both traces the
+/// leaves forward nothing, every relay forwards something, and every send names a first
+/// relay.
 #[test]
 fn the_leaf_sender_forwards_nothing_and_still_addresses_its_relay() {
     for scenario in [scenarios::cold(), scenarios::warm()] {
         let trace = run(&scenario).unwrap();
-        let fire = trace.nodes.iter().find(|node| node.name == "fire").unwrap();
-        assert!(!fire.transit);
-        assert!(!trace.events.iter().any(|event| matches!(
-            event,
-            Event::Transmit { node, origin: Origin::Forward, .. } if node == "fire"
-        )));
+        let transit: Vec<(&str, bool)> = trace
+            .nodes
+            .iter()
+            .map(|node| (node.name.as_str(), node.transit))
+            .collect();
+        assert_eq!(
+            transit,
+            [
+                ("fire", false),
+                ("church", true),
+                ("water", true),
+                ("ridge", true),
+                ("garage", false)
+            ]
+        );
+        let forwarded = |name: &str| {
+            trace.events.iter().any(|event| {
+                matches!(
+                    event,
+                    Event::Transmit { node, origin: Origin::Forward, .. } if node == name
+                )
+            })
+        };
+        assert!(
+            !forwarded("fire") && !forwarded("garage"),
+            "{}",
+            scenario.name
+        );
+        assert!(
+            forwarded("church") && forwarded("water") && forwarded("ridge"),
+            "{}",
+            scenario.name
+        );
         assert!(
             trace
                 .events
@@ -187,7 +216,9 @@ fn node_states_fill_the_traffic_page_and_ticker() {
     for scenario in [scenarios::cold(), scenarios::warm()] {
         for event in run(&scenario).unwrap().events {
             let state: NodeState = match event {
-                Event::Transmit { state, .. } | Event::Receive { state, .. } => state,
+                Event::Transmit { state, .. }
+                | Event::Receive { state, .. }
+                | Event::LinkRequestExpired { state, .. } => state,
                 _ => continue,
             };
             let local = radio_face::LocalStatus {
@@ -281,4 +312,125 @@ fn lost_requests_expire_so_the_send_after_the_reroute_is_not_refused() {
         .as_ref()
         .expect("the send after the reroute is delivered");
     assert_eq!(last.path, path(&["fire", "church", "water", "garage"]));
+}
+
+/// The trace's `link_request_expired` events, as (index, time, node, message).
+fn expiries(trace: &Trace) -> Vec<(usize, u64, String, Option<u32>)> {
+    trace
+        .events
+        .iter()
+        .enumerate()
+        .filter_map(|(i, event)| match event {
+            Event::LinkRequestExpired {
+                t, node, message, ..
+            } => Some((i, *t, node.clone(), *message)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Ruling 55: each lost warm send's request expires at the first poll at or after its
+/// deadline, one relay away, and the event carries fire's state with the face line.
+/// Nothing expires in the cold trace, where the one send is delivered.
+#[test]
+fn warm_lost_requests_expire_at_their_deadlines() {
+    assert!(expiries(&run(&scenarios::cold()).unwrap()).is_empty());
+
+    let scenario = scenarios::warm();
+    let trace = run(&scenario).unwrap();
+    let poll = scenario.timing.poll_interval;
+    let expected: Vec<(u64, String, Option<u32>)> = trace.messages[1..4]
+        .iter()
+        .map(|lost| {
+            let deadline = lost.sent_at + link_request_timeout(1);
+            (
+                deadline.div_ceil(poll) * poll,
+                "fire".to_owned(),
+                Some(lost.id),
+            )
+        })
+        .collect();
+    let got: Vec<_> = expiries(&trace)
+        .into_iter()
+        .map(|(_, t, node, message)| (t, node, message))
+        .collect();
+    assert_eq!(got, expected);
+    assert_eq!(
+        got.iter().map(|(t, ..)| *t).collect::<Vec<_>>(),
+        [200_000, 380_000, 560_000]
+    );
+    for event in &trace.events {
+        if let Event::LinkRequestExpired {
+            link,
+            state,
+            message,
+            ..
+        } = event
+        {
+            assert_eq!(
+                Some(link),
+                trace.messages[message.unwrap() as usize].link.as_ref()
+            );
+            assert_eq!(state.pending_links, 0);
+            let face = state.event.as_ref().unwrap();
+            assert_eq!(
+                (face.kind, face.text.as_str()),
+                (FaceEventKind::Failed, "link unanswered")
+            );
+        }
+    }
+}
+
+/// Ruling 54 through the trace: a send at a deadline, before that tick's poll, expires the
+/// overdue requests inside `open_link`. They are recorded ahead of the send that freed their
+/// slots; one not yet due waits for a later poll.
+#[test]
+fn open_link_expiries_precede_the_send_that_freed_them() {
+    let mut scenario = scenarios::warm();
+    let send = |at: u64, n: u32| Send {
+        at,
+        from: "fire".into(),
+        to: "garage".into(),
+        payload: format!("message {n}"),
+    };
+    let deadline = link_request_timeout(1);
+    scenario.sends = vec![
+        send(10_000, 1),
+        send(180_000, 2),
+        send(181_000, 3),
+        send(182_000, 4),
+        send(183_000, 5),
+        send(180_000 + 20_000, 6),
+    ];
+    // Three deadlines fall at or before 200 s; the fourth, 201 s, does not.
+    assert_eq!(182_000 + deadline, 200_000);
+    let trace = run(&scenario).unwrap();
+
+    let send_6 = trace
+        .events
+        .iter()
+        .position(|event| matches!(event, Event::Send { message: 5, .. }))
+        .expect("the sixth send goes out");
+    let got = expiries(&trace);
+    let at_send: Vec<_> = got.iter().filter(|(_, t, ..)| *t == 200_000).collect();
+    assert_eq!(
+        at_send.iter().map(|(.., m)| *m).collect::<Vec<_>>(),
+        [Some(1), Some(2), Some(3)]
+    );
+    assert!(at_send.iter().all(|(i, ..)| *i < send_6));
+    assert!(
+        !trace
+            .events
+            .iter()
+            .any(|event| matches!(event, Event::SendRefused { .. }))
+    );
+    // The fourth expires at the next poll after its own deadline, and the sixth send, lost
+    // behind the cut like the others, at the poll after its own.
+    assert_eq!(
+        got.iter()
+            .filter(|(_, t, ..)| *t != 200_000)
+            .map(|(_, t, _, m)| (*t, *m))
+            .collect::<Vec<_>>(),
+        [(205_000, Some(4)), (220_000, Some(5))]
+    );
 }

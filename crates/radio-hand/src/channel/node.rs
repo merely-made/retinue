@@ -32,8 +32,9 @@ use crate::executive::Executive;
 use crate::link::{Flow, HostLink};
 use crate::replay;
 
-/// The radio, as the node numbers its interfaces. One radio, so one number.
-const RADIO: InterfaceId = 0;
+/// The radio, as the node numbers its interfaces. One radio, so one number. A firmware
+/// configuring the node per interface, such as its first-hop airtime, names this one.
+pub const RADIO: InterfaceId = 0;
 
 /// How often the node's own timers are advanced.
 ///
@@ -62,6 +63,9 @@ const MAX_LINE: usize = 2 * selvage::MAX_RADIO_FRAME_LEN + 40;
 /// wrong moment. Backing off instead keeps trying forever, at a cost that decays to a CAD
 /// check every couple of minutes — cheap enough for a board whose radio is truly dead.
 const ANNOUNCE_RETRY_MAX_BEATS: u8 = 32;
+
+/// The face's event line for a link request that expired unanswered (Ruling 46).
+pub const LINK_UNANSWERED: &str = "link unanswered";
 
 /// Startup configuration refused before any channel state is retained.
 #[derive(Debug)]
@@ -265,6 +269,11 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
                 }
                 Action::LinkDown { .. } => {
                     self.note_event(EventKind::Info, "link down");
+                }
+                // A request this node opened got no answer. Not a link going down: none
+                // came up. An existing event kind, so the face needs no new state.
+                Action::LinkRequestTimedOut { .. } => {
+                    self.note_event(EventKind::Failed, LINK_UNANSWERED);
                 }
                 Action::Data { .. } => {}
             }
