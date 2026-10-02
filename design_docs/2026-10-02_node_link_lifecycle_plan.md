@@ -35,9 +35,9 @@ phase's tests pass, the gate below passes twice, and both firmwares build.
 | N9 | 54 | `open_link(now)` expires stale requests itself | merged (`246dfa8`) |
 | N10 | 51 | `Endpoint` own-echo, including Channel: control first, fix if affected | merged (`3771f6a` controls, `9b63d99` fix) |
 | N11 | 52 | Received duplicates in `Node` and `Endpoint`: control first, then match RNS | merged (`3771f6a`, `9b63d99`) |
-| N13 | 65 | `reliable.rs` `on_identify` refuses to replace a set peer or adopt its own identity, with a control | lane L-C |
-| N14 | 66 | Own-echo and duplicate windows get dedicated per-profile capacity constants | lane L-C |
-| N15 | 67 | Own-echo drops and duplicate drops are counted separately in `Node` and `Endpoint` | lane L-C |
+| N13 | 65 | `reliable.rs` `on_identify` refuses to replace a set peer or adopt its own identity, with a control | merged (`de9e244` control, `30210a2` guard) |
+| N14 | 66 | Own-echo and duplicate windows get dedicated per-profile capacity constants | merged (`788be35`) |
+| N15 | 67 | Own-echo drops and duplicate drops are counted separately in `Node` and `Endpoint` | merged (`46922f8`) |
 | N12 | 29, 41 | Publish 0.2.0 (Mark's separate call) and repin mere, coordinated with mere's active session | open |
 
 **The gate**, run with `--locked`:
@@ -179,3 +179,18 @@ were taken from their reads, were discarded without being merged
   - The gate passed twice: host 425/0 and radio-hand 236/0, with clippy and
     fmt clean. T114, V4, and V4 `resident-protocols` all build.
   - L-A's seven forks go to Mark.
+- 2026-10-02: L-C merged.
+  - Its IDENTIFY control failed at `de9e244`, re-run by the coordinator: an
+    echoed own IDENTIFY became the peer, `(true, false, false)`. It passes
+    at `30210a2`.
+  - Window constants: `OWN_ECHO_HASHES` and `DUPLICATE_HASHES` are 1024 on
+    `desktop` and 16 on `small`.
+  - Counters: `own_echo_dropped` and `duplicate_dropped` on `Node`'s
+    `TransportCounters` and `Endpoint`'s `RoutingCounters`.
+  - Weave auto-resolved 6 entities. Every L-B line absent after the merge is
+    also absent at L-C's tip, as deliberate rewrites under Rulings 66-67, so
+    nothing was lost.
+  - Gate, run twice: host 429/0, radio-hand 236/0, and 264/0 with `replay` and
+    `instances`. Clippy and fmt are clean; retinue checks with `alloc` only.
+- 2026-10-02 (3b20342): T114's radio is configured from `board::DEFAULT_*`
+  (Ruling 70). The values are unchanged and T114 builds clean.
