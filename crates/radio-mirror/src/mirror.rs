@@ -5,7 +5,10 @@ use embedded_graphics::pixelcolor::{Rgb888, RgbColor};
 use radio_face::{
     Action, BoardState, Button, Controller, HostSnapshot, InputEvent, InputProfile, LedIntent,
     LedSignal, LocalStatus, PressClassifier, Screen, Surface, Theme, led_intent, render,
+    render_lines,
 };
+
+use alloc::{string::String, vec::Vec};
 
 use crate::framebuffer::RgbaFramebuffer;
 
@@ -198,6 +201,17 @@ impl Mirror {
             self.face.host(),
         );
         self.frame.as_rgba()
+    }
+
+    /// What the current screen says, one readable line per row, for a screen
+    /// reader or alt text. Same rows as the pixels (radio-face's text projection).
+    pub fn text(&self) -> Vec<String> {
+        self.text_for(self.screen())
+    }
+
+    /// What a given screen says with this device's state.
+    pub fn text_for(&self, screen: Screen) -> Vec<String> {
+        render_lines(self.surface, screen, self.face.local(), self.face.host())
     }
 
     pub const fn frame(&self) -> &RgbaFramebuffer<Rgb888> {

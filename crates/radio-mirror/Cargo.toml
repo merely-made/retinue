@@ -18,7 +18,7 @@ json = ["dep:serde", "dep:serde_json"]
 png = ["dep:png"]
 
 [dependencies]
-radio-face = { path = "../radio-face" }
+radio-face = { path = "../radio-face", features = ["text"] }
 embedded-graphics = { path = "../../vendor/embedded-graphics" }
 serde = { version = "1.0.228", features = ["derive"], optional = true }
 serde_json = { version = "1.0.151", optional = true }

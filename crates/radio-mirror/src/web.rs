@@ -161,6 +161,18 @@ impl RadioMirror {
         let screen = names::screen(screen).map_err(js)?;
         Ok(Clamped(self.inner.render_screen(screen).to_vec()))
     }
+
+    /// What the current screen says, one line per row (`\n`-separated), for an
+    /// `aria-live` region or `alt`. The rows are the ones the pixels draw.
+    pub fn text(&self) -> String {
+        self.inner.text().join("\n")
+    }
+
+    /// What a named screen says with this radio's state.
+    pub fn text_for(&self, screen: &str) -> Result<String, JsError> {
+        let screen = names::screen(screen).map_err(js)?;
+        Ok(self.inner.text_for(screen).join("\n"))
+    }
 }
 
 /// Stateless render of one screen from JSON documents.
@@ -184,4 +196,21 @@ pub fn render_screen(
         host.as_ref(),
     );
     Ok(Clamped(frame.into_rgba()))
+}
+
+/// Stateless text of one screen from JSON documents: the alt text for
+/// [`render_screen`]'s pixels.
+#[cfg(feature = "json")]
+#[wasm_bindgen]
+pub fn screen_text(
+    surface: &str,
+    screen: &str,
+    local_json: &str,
+    host_json: Option<String>,
+) -> Result<String, JsError> {
+    let surface = names::surface(surface).map_err(js)?;
+    let local = crate::input::local_from_json(local_json).map_err(js)?;
+    let host = host_from(host_json)?;
+    let screen = names::screen(screen).map_err(js)?;
+    Ok(radio_face::render_lines(surface, screen, &local, host.as_ref()).join("\n"))
 }

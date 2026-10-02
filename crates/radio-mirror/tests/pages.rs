@@ -202,3 +202,26 @@ fn traffic_ticker_shows_each_event_from_node_state() {
         assert_eq!(tickers.len(), 14);
     }
 }
+
+#[test]
+fn text_follows_the_screen_and_the_board_glue() {
+    let (local, host) = fixtures();
+    let mut mirror = Mirror::new(Surface::Tft240x135, InputProfile::OneButton);
+    mirror.set_local(local);
+    mirror.set_host(Some(host));
+    assert_eq!(mirror.text()[0], "STATUS, RAD OK");
+    mirror.press(InputEvent::AShort);
+    let power = mirror.text();
+    assert_eq!(
+        power,
+        radio_face::render_lines(
+            Surface::Tft240x135,
+            Screen::Page(Page::Power),
+            mirror.local(),
+            mirror.host(),
+        )
+    );
+    assert_eq!(power.first().map(String::as_str), Some("POWER, USB"));
+    assert_eq!(power.last().map(String::as_str), Some("WAKE BUTTON"));
+    assert_eq!(mirror.text_for(Screen::Boot)[0], "RETINUE");
+}
