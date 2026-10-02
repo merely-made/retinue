@@ -800,4 +800,37 @@ mod tests {
         assert!(server.on_proof(&proof, 2), "proof accepted after identify");
         assert!(server.send_idle(), "the server's packet is now released");
     }
+
+    /// A shared medium hands the initiator its own IDENTIFY back from a relay. It decrypts
+    /// under the shared link key and carries a valid signature, so the channel must refuse it
+    /// on its own account: here the router's filter is bypassed and the packet is fed straight
+    /// in. Adopting it would make the initiator its own peer, and every proof the real peer
+    /// sends would then fail to verify.
+    #[test]
+    fn an_echoed_own_identify_does_not_become_the_peer() {
+        let (mut client, mut server) = pair();
+        let client_id = PrivateIdentity::from_secret_bytes(&[0x11; 64]);
+        let server_hash = server.prover.public().hash();
+
+        let mut echo = client.link.identify_packet(&client_id, &[0x07; IV_LEN]);
+        echo.hops += 1;
+        let adopted = client.on_identify(&echo);
+        let peer_after = client.peer().map(|p| p.hash());
+
+        assert_eq!(client.write(b"after the echo"), b"after the echo".len());
+        let mut ivc = 0u64;
+        let sent = client.poll_transmit(0, counting_iv(&mut ivc));
+        let proof = server
+            .on_data_packet(&sent[0])
+            .expect("the server proves the client's packet");
+        let proof_accepted = client.on_proof(&proof, 1);
+
+        assert_eq!(
+            (adopted, peer_after == Some(server_hash), proof_accepted),
+            (false, true, true),
+            "(echo adopted, peer is still the server, server's proof accepted); \
+             peer after the echo: {peer_after:?}, client is {:?}",
+            client_id.public().hash()
+        );
+    }
 }
