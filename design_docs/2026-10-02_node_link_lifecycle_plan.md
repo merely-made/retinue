@@ -38,6 +38,11 @@ phase's tests pass, the gate below passes twice, and both firmwares build.
 | N13 | 65 | `reliable.rs` `on_identify` refuses to replace a set peer or adopt its own identity, with a control | merged (`de9e244` control, `30210a2` guard) |
 | N14 | 66 | Own-echo and duplicate windows get dedicated per-profile capacity constants | merged (`788be35`) |
 | N15 | 67 | Own-echo drops and duplicate drops are counted separately in `Node` and `Endpoint` | merged (`46922f8`) |
+| N16 | 72 | Each IDENTIFY re-send is encrypted under a fresh IV, so re-sends are new packets | lane L-D |
+| N17 | 74 | radio-hand's resident `Runtime` emits `LinkRequestTimedOut` like the channel node | lane L-D |
+| N18 | 76 | An expiry found by `open_link` carries the node's state at expiry, before the new request | lane L-D |
+| N19 | 77 | `request_string_map` is gated on its required features; `--no-default-features` CI is green | lane L-D |
+| N20 | 78 | The protocol-capacity receipt is regenerated on the 0.2.0 tree | lane L-D |
 | N12 | 29, 41 | Publish 0.2.0 (Mark's separate call) and repin mere, coordinated with mere's active session | open |
 
 **The gate**, run with `--locked`:
