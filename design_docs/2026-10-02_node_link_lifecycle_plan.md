@@ -52,7 +52,7 @@ phase's tests pass, the gate below passes twice, and both firmwares build.
 | N18 | 76 | An expiry found by `open_link` carries the node's state at expiry, before the new request | merged (`83bda43`) |
 | N19 | 77 | `request_string_map` is gated on its required features; `--no-default-features` CI is green | merged (`a6d089d`) |
 | N20 | 78 | The protocol-capacity receipt is regenerated on the 0.2.0 tree | merged (`85e2f4d`) |
-| N12 | 29, 41 | Publish 0.2.0 (Mark's separate call) and repin mere, coordinated with mere's active session | open |
+| N12 | 29, 41 | Publish 0.2.0 (Mark's separate call) and repin mere, coordinated with mere's active session | done 2026-10-03 (see Progress) |
 
 **The gate**, run with `--locked`:
 - `cargo test -p retinue -p retinue-sim -p radio-face -p radio-mirror --all-features --no-fail-fast`;
@@ -271,3 +271,16 @@ were taken from their reads, were discarded without being merged
   pins, plus djinn's knot-site moved to `ea3e99e` with its `retinue` feature on,
   leaving one Retinue in mere's graph. It is pending the conatus session's
   check.
+- 2026-10-03: N12 done.
+  - Published to crates.io: retinue 0.2.0, outrider 0.2.0, seneschal 0.1.0,
+    and postilion 0.2.0, all confirmed listed.
+  - postilion could publish only after `seneschal` was extracted from
+    radio-hand (`d940cfd`, mer3ly Rulings 91-102). The extraction keeps
+    radio-hand's `control` paths through re-exports and the wire anchors
+    byte-identical, and the flash audit now fails on a scan path that matches
+    nothing.
+  - CI run 37142423826 was green on `d940cfd`, with `msrv` covering
+    seneschal.
+  - Downstream repins have landed: mere (`f62581c7`, via the conatus
+    session), knot-editor `ea3e99e`, and turnstone `74a4689`. The oracle is
+    pinned to RNS 1.5.6 and LXMF 1.2.0 (`3e1d6a9`).
