@@ -253,6 +253,17 @@ The semantic wire contract belongs in the `no_std`, allocation-free
 envelope. Extract a neutral crate only if a real non-Retinue consumer proves
 the current dependency boundary wrong.
 
+*Amended 2026-10-03 (mer3ly site-canvas plan, Rulings 91-97):* postilion's
+publishability is now a sufficient trigger. postilion depends on radio-hand, which
+cannot publish because of its vendored `lora-phy`, so postilion 0.2.0 could not
+reach crates.io. Mark ruled to extract anyway, as `seneschal`. It holds `control`
+minus `runtime`, plus `store` and `region`, behind a `retinue` feature that does
+not enable `alloc`. `runtime`, `admission`, and `position_disclosure` stay in
+radio-hand, which re-exports seneschal so every `radio_hand::control` path
+still resolves. The wire anchors (`radio-hand-semantic-tag-v2`, `RHC0`, `RHD1`,
+`RHS0`, and the claim domain) keep their bytes. The text above is kept as
+written.
+
 ### Carrier adapters
 
 - **USB:** the existing HostLink/session shape carries framed control messages.
