@@ -9,7 +9,7 @@ use std::io;
 use std::path::Path;
 use std::time::Duration;
 
-use radio_hand::control::{
+use seneschal::control::{
     CONTROL_STATUS_FRAME_LEN, CONTROL_STATUS_FRAME_TAG, CONTROL_STATUS_NONCE_LEN,
     CONTROL_STATUS_REQUEST_FRAME_LEN, ControlStatusAuthority, ControlStatusError,
     ControlStatusEvidence, ControlStatusRequestV1, ControlStatusV1, NodeId,
@@ -109,7 +109,7 @@ pub fn validate_diagnostic_status(
             status.pending(),
         ));
     }
-    if status.boot() != radio_hand::control::ControlStatusBootFact::KnownGoodApplied {
+    if status.boot() != seneschal::control::ControlStatusBootFact::KnownGoodApplied {
         return Err(ControlStatusValidationError::BootFact);
     }
     Ok(status)
@@ -220,8 +220,8 @@ mod tests {
     use super::*;
 
     fn status(node: NodeId) -> ControlStatusV1 {
-        let mut bytes = [0_u8; radio_hand::control::CONTROL_STATUS_V1_LEN];
-        bytes[0] = radio_hand::control::CONTROL_STATUS_VERSION;
+        let mut bytes = [0_u8; seneschal::control::CONTROL_STATUS_V1_LEN];
+        bytes[0] = seneschal::control::CONTROL_STATUS_VERSION;
         bytes[1] = 0;
         bytes[2] = 0;
         bytes[3] = 1;

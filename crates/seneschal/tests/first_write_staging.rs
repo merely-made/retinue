@@ -1,6 +1,6 @@
 use ed25519_dalek::SigningKey;
 use heapless::Vec;
-use radio_hand::control::{
+use seneschal::control::{
     BoardRecoveryFacts, ConfigGeneration, DurableConfig, DurableState, FirstWriteBoot,
     FirstWriteError, FirstWriteLoadError, ManagementCarrier, ManagementCarrierSet, NodeId,
     OwnerClaim, OwnerGrant, PublicConfigurationV1, RecoveryClause, RecoveryPathFacts,
@@ -8,7 +8,7 @@ use radio_hand::control::{
     encode_first_write_state, load_first_write_state, next_first_write_record, next_record,
     validate_first_write_state,
 };
-use radio_hand::region::Region;
+use seneschal::region::Region;
 
 const PAGE: usize = 4096;
 
@@ -70,7 +70,7 @@ fn initial_state() -> DurableState {
 
 fn staged_page(state: &DurableState) -> [u8; PAGE] {
     let blank = [0xff; PAGE];
-    let mut body = [0; radio_hand::control::MAX_DURABLE_BODY];
+    let mut body = [0; seneschal::control::MAX_DURABLE_BODY];
     let mut page = [0xff; PAGE];
     next_first_write_record(
         &blank,
@@ -87,7 +87,7 @@ fn staged_page(state: &DurableState) -> [u8; PAGE] {
 
 fn control_page(state: &DurableState) -> [u8; PAGE] {
     let blank = [0xff; PAGE];
-    let mut body = [0; radio_hand::control::MAX_DURABLE_BODY];
+    let mut body = [0; seneschal::control::MAX_DURABLE_BODY];
     let mut page = [0xff; PAGE];
     next_record(&blank, &blank, state, &mut body, &mut page).unwrap();
     page
@@ -114,7 +114,7 @@ fn later_control_state() -> DurableState {
         NodeId([0x10; 16]),
         Vec::from_slice(&[OwnerGrant::from_public_identity(
             owner_identity(0x31),
-            radio_hand::control::ControllerRole::Owner,
+            seneschal::control::ControllerRole::Owner,
         )])
         .unwrap(),
         ConfigGeneration(1),
@@ -131,7 +131,7 @@ fn later_control_state() -> DurableState {
 #[test]
 fn canonical_initial_state_round_trips_through_staging_and_rhd1() {
     let state = initial_state();
-    let mut body = [0; radio_hand::control::MAX_DURABLE_BODY];
+    let mut body = [0; seneschal::control::MAX_DURABLE_BODY];
     let len = encode_first_write_state(&state, NodeId([0x10; 16]), &facts(), &mut body).unwrap();
     assert_eq!(decode_durable(&body[..len]).unwrap(), state);
 
@@ -266,7 +266,7 @@ fn pending_state_must_match_this_node_and_current_recovery_facts() {
 fn write_helpers_reject_foreign_or_unrecoverable_state() {
     let state = initial_state();
     let blank = [0xff; PAGE];
-    let mut body = [0; radio_hand::control::MAX_DURABLE_BODY];
+    let mut body = [0; seneschal::control::MAX_DURABLE_BODY];
     let mut page = [0xff; PAGE];
     let unavailable_usb = BoardRecoveryFacts::new(
         Vec::from_slice(&[

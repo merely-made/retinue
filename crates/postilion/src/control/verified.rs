@@ -17,15 +17,15 @@ use std::io;
 use std::path::Path;
 use std::time::Duration;
 
-use radio_hand::control::{
+use retinue::hash::AddressHash;
+use retinue::identity::PrivateIdentity;
+use seneschal::control::{
     COMMIT_TOKEN_LEN, CONTROL_RESPONSE_FRAME_TAG, ChangeId, CommitArguments, ConfigGeneration,
     ControlFrameError, ControlStatusAuthority, ControlStatusError, ControlStatusV1,
     MAX_CONTROL_COMMAND_FRAME_LEN, MAX_CONTROL_RESPONSE_FRAME_LEN, NodeId, Operation,
     ProvisionalApplyArguments, PublicConfigurationV1, Refusal, Request, Response, ResponseBody,
     RevertArguments, TransactionId, decode_response_frame, encode_command_frame,
 };
-use retinue::hash::AddressHash;
-use retinue::identity::PrivateIdentity;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use super::sign_request;
@@ -447,14 +447,14 @@ where
 mod tests {
     use super::*;
     use heapless::Vec;
-    use radio_hand::control::{
+    use seneschal::control::{
         BoardRecoveryFacts, ControllerRole, DurableConfig, DurableState, FirstWriteStatus,
         ManagementCarrier, ManagementCarrierSet, OwnerGrant, PairEvidence, PublicConfigurationV1,
         RecoveryClause, RecoveryPathFacts, RecoveryPolicy, ReticulumTransportPolicy,
         decode_command_frame, decode_verified_command, encode_response_frame,
         restore_control_verifier,
     };
-    use radio_hand::region::Region;
+    use seneschal::region::Region;
 
     const NODE: NodeId = NodeId([0x5a; 16]);
 
@@ -529,7 +529,7 @@ mod tests {
                 inbound.request().transaction,
             )
         };
-        let mut bytes = [0_u8; radio_hand::control::CONTROL_STATUS_V1_LEN];
+        let mut bytes = [0_u8; seneschal::control::CONTROL_STATUS_V1_LEN];
         status.encode(&mut bytes).unwrap();
         Response {
             node: NODE,
@@ -658,7 +658,7 @@ mod tests {
         frame: &[u8],
         token: [u8; COMMIT_TOKEN_LEN],
     ) -> Response {
-        use radio_hand::control::{ChangeId, PreparedCommit, SemanticTagKey};
+        use seneschal::control::{ChangeId, SemanticTagKey};
         let mut verifier = restore_control_verifier(state).unwrap();
         let command = decode_command_frame(frame).unwrap();
         let verified = verifier.verify(command).unwrap();
@@ -700,20 +700,15 @@ mod tests {
             }
             Operation::Commit => {
                 let arguments = CommitArguments::decode(&request.arguments).unwrap();
-                let prepared = PreparedCommit {
-                    change: arguments.change,
-                    candidate_generation: arguments.candidate_generation,
-                    commit_token: arguments.commit_token,
-                };
                 state
                     .commit(
                         NODE,
                         inbound.verified_controller(),
                         request,
                         &key,
-                        prepared.change,
-                        prepared.candidate_generation,
-                        prepared.commit_token,
+                        arguments.change,
+                        arguments.candidate_generation,
+                        arguments.commit_token,
                         2_000,
                     )
                     .unwrap()

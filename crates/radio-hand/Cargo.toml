@@ -23,12 +23,12 @@ replay = ["dep:retinue", "retinue/alloc"]
 # The WN1 bridge from Retinue's verified outer authority into the radio-free control grammar.
 # Carrier implementations opt in explicitly; ordinary board-control users do not link Retinue.
 # Deliberately without `retinue/alloc`: the verifier is Retinue's allocation-free floor, and
-# this is how the core-only V4 image links it without gaining a heap.
-control-retinue = ["dep:retinue"]
+# this is how the core-only V4 image links it without gaining a heap. The bridge itself is
+# `seneschal`'s; the runtime here still names Retinue's verified command directly.
+control-retinue = ["dep:retinue", "seneschal/retinue"]
 instances = ["dep:retinue", "retinue/alloc", "dep:sennet", "dep:tucket"]
 
 [dependencies]
-ed25519-dalek = { version = "3", default-features = false }
 heapless = "0.9"
 hmac = "0.13"
 lora-modulation = "0.1.5"
@@ -38,6 +38,7 @@ embassy-time = { version = "0.5.1", optional = true }
 radio-face = { path = "../radio-face" }
 retinue = { path = "../retinue", default-features = false, optional = true }
 selvage = { path = "../selvage" }
+seneschal = { path = "../seneschal" }
 sennet = { path = "../sennet", default-features = false, optional = true }
 tucket = { path = "../tucket", default-features = false, optional = true }
 sha2 = { version = "0.11", default-features = false }
@@ -45,6 +46,9 @@ sha2 = { version = "0.11", default-features = false }
 [dev-dependencies]
 futures = { version = "0.3", default-features = false, features = ["executor"] }
 retinue = { path = "../retinue", default-features = false, features = ["alloc"] }
+# Tests mint controller authority only through a verified Retinue command, so they need the
+# bridge even when `control-retinue` is off.
+seneschal = { path = "../seneschal", features = ["retinue"] }
 # Reads the RNode oracle capture. The fixture lives with `tulle`, which holds the other half
 # of the same conversation; a third copy is a copy that can drift.
 serde_json = "1.0.151"
@@ -52,10 +56,6 @@ serde_json = "1.0.151"
 [[test]]
 name = "replay_corpus"
 required-features = ["replay"]
-
-[[test]]
-name = "retinue_command"
-required-features = ["control-retinue"]
 
 [[test]]
 name = "instances"

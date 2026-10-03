@@ -1,8 +1,8 @@
 use ed25519_dalek::SigningKey;
-use radio_hand::control::{
+use retinue::identity::Identity;
+use seneschal::control::{
     PublicIdentityError, RETINUE_PUBLIC_IDENTITY_LEN, validate_retinue_public_identity,
 };
-use retinue::identity::Identity;
 
 const RAW_CORPUS_CASES: usize = 256;
 const CANONICAL_CORPUS_CASES: usize = 64;

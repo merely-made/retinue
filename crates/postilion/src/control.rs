@@ -2,13 +2,13 @@
 //!
 //! Postilion owns carriage orchestration; the signed command envelope remains
 //! [`retinue::command`], and the bounded semantic payload remains
-//! [`radio_hand::control`]. The WN0 helpers below deliberately have no carrier or UI state;
+//! [`seneschal::control`]. The WN0 helpers below deliberately have no carrier or UI state;
 //! [`first_owner`] separately owns its bounded physical-presence USB adapter.
 
-use radio_hand::control::{self, Request, Response};
 use retinue::command::{Command, TargetClass};
 use retinue::hash::AddressHash;
 use retinue::identity::PrivateIdentity;
+use seneschal::control::{self, Request, Response};
 
 /// The local, physical-presence first-owner carrier and controller flow.
 pub mod first_owner;
@@ -81,8 +81,8 @@ pub fn decode_response_payload(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use radio_hand::control::{self, ConfigGeneration, Operation, TransactionId};
     use retinue::command::{Refusal, Verifier};
+    use seneschal::control::{self, ConfigGeneration, Operation, TransactionId};
 
     fn identity(byte: u8) -> PrivateIdentity {
         PrivateIdentity::from_secret_bytes(&[byte; 64])

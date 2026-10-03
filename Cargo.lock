@@ -1963,9 +1963,9 @@ dependencies = [
  "getrandom 0.3.4",
  "heapless 0.9.3",
  "outrider",
- "radio-hand",
  "retinue",
  "selvage",
+ "seneschal",
  "serial2-tokio",
  "thiserror",
  "tokio",
@@ -2035,7 +2035,6 @@ dependencies = [
 name = "radio-hand"
 version = "0.0.1"
 dependencies = [
- "ed25519-dalek",
  "embassy-futures",
  "embassy-time",
  "futures",
@@ -2046,6 +2045,7 @@ dependencies = [
  "radio-face",
  "retinue",
  "selvage",
+ "seneschal",
  "sennet",
  "serde_json",
  "sha2 0.11.0",
@@ -2311,6 +2311,18 @@ name = "semver-parser"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "388a1df253eca08550bef6c72392cfe7c30914bf41df5269b68cbd6ff8f570a3"
+
+[[package]]
+name = "seneschal"
+version = "0.1.0"
+dependencies = [
+ "ed25519-dalek",
+ "heapless 0.9.3",
+ "hmac 0.13.0",
+ "retinue",
+ "selvage",
+ "sha2 0.11.0",
+]
 
 [[package]]
 name = "sennet"

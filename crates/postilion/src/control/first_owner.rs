@@ -9,7 +9,8 @@ use std::io;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use radio_hand::control::{
+use retinue::identity::PrivateIdentity;
+use seneschal::control::{
     AbandonResponse, CLAIM_PROOF_LEN, CLAIM_REQUEST_LEN, ClaimRequest, ClaimResponse,
     FirstOwnerRequest, FirstOwnerResponse, FirstOwnerWireError, FirstWriteActions,
     FirstWriteEligibility, FirstWriteStatus, INSPECT_RESPONSE_LEN, ManagementCarrier,
@@ -17,8 +18,7 @@ use radio_hand::control::{
     RecoveryClause, RecoveryPolicy, RecoveryPolicyError, ResumeResponse, ReticulumTransportPolicy,
     claim_proof_transcript,
 };
-use radio_hand::region::Region;
-use retinue::identity::PrivateIdentity;
+use seneschal::region::Region;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tulle::PhyProfile;
 use tulle::kiss;
@@ -86,7 +86,7 @@ pub fn v4_usb_claim_plan(region: Region, phy: PhyProfile) -> Result<ClaimPlan, V
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum V4UsbPlanError {
     #[error("invalid V4 public configuration: {0:?}")]
-    Configuration(radio_hand::control::PublicConfigurationError),
+    Configuration(seneschal::control::PublicConfigurationError),
     #[error("invalid V4 USB recovery policy: {0:?}")]
     Recovery(RecoveryPolicyError),
 }
@@ -542,7 +542,7 @@ fn response_kind(response: &FirstOwnerResponse) -> u8 {
 mod tests {
     use std::collections::VecDeque;
 
-    use radio_hand::control::{ClaimChallenge, PairEvidence};
+    use seneschal::control::{ClaimChallenge, PairEvidence};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     use super::*;

@@ -7,7 +7,7 @@ use core::fmt::Write;
 use heapless::String;
 use heapless::Vec;
 
-use super::model::*;
+use super::*;
 
 #[derive(Clone, PartialEq, Eq)]
 struct RequestIdentity {
@@ -75,7 +75,7 @@ impl<const N: usize> RequestAdmission<N> {
         current_generation: ConfigGeneration,
         request: &Request,
     ) -> Admission {
-        let identity = RequestIdentity::from_request(controller.0, request);
+        let identity = RequestIdentity::from_request(controller.controller_id(), request);
         for entry in self.entries.iter().flatten() {
             if entry.controller == identity.controller && entry.transaction == identity.transaction
             {
@@ -108,6 +108,7 @@ impl<const N: usize> Default for RequestAdmission<N> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use retinue::identity::PrivateIdentity;
     fn request(operation: Operation, tx: u8) -> Request {
         Request {
             transaction: TransactionId([tx; ID_LEN]),
@@ -118,7 +119,9 @@ mod tests {
         }
     }
     fn verified(byte: u8) -> VerifiedController {
-        VerifiedController::from_verified_key(ControllerId([byte; ID_LEN]))
+        super::super::test_authority::verified_controller(&PrivateIdentity::from_secret_bytes(
+            &[byte; 64],
+        ))
     }
     #[test]
     fn idempotence_is_scoped_by_verified_controller_and_read_only_requests_ignore_cas() {
