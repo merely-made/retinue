@@ -34,8 +34,8 @@ COMBINED_REPLY = b"retinue-combined-reply"
 
 
 def main() -> int:
-    if RNS.__version__ != "1.5.4":
-        raise RuntimeError(f"expected stock RNS 1.5.4, got {RNS.__version__}")
+    if RNS.__version__ != "1.5.6":
+        raise RuntimeError(f"expected stock RNS 1.5.6, got {RNS.__version__}")
     print(f"RNS {RNS.__version__}", flush=True)
     default_target = r"C:\t\cargo-targets\retinue" if os.name == "nt" else str(REPO.parent.parent / "target")
     target = Path(os.environ.get("CARGO_TARGET_DIR", default_target))

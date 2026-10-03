@@ -1,0 +1,142 @@
+[
+ {
+  "case": "q1_unanswered_r0_rep0",
+  "relays": 0,
+  "initiator_bitrate": null,
+  "hops_to": 1,
+  "path_hops": 1,
+  "rns_establishment_timeout_s": 12.000399999999999,
+  "observed_wait_s": 12.001,
+  "teardown_reason": 1,
+  "status": 4,
+  "activated_at": null,
+  "established_cb_fired": false,
+  "linkrequest_frames_on_wire": 1,
+  "linkrequest_frame_times_rel_s": [
+   0.001
+  ],
+  "proof_frames_to_A": 0
+ },
+ {
+  "case": "q1_unanswered_r1_rep0",
+  "relays": 1,
+  "initiator_bitrate": null,
+  "hops_to": 2,
+  "path_hops": 2,
+  "rns_establishment_timeout_s": 18.0004,
+  "observed_wait_s": 18.001,
+  "teardown_reason": 1,
+  "status": 4,
+  "activated_at": null,
+  "established_cb_fired": false,
+  "linkrequest_frames_on_wire": 1,
+  "linkrequest_frame_times_rel_s": [
+   0.001
+  ],
+  "proof_frames_to_A": 0
+ },
+ {
+  "case": "q1_unanswered_r2_rep0",
+  "relays": 2,
+  "initiator_bitrate": null,
+  "hops_to": 3,
+  "path_hops": 3,
+  "rns_establishment_timeout_s": 24.0004,
+  "observed_wait_s": 24.001,
+  "teardown_reason": 1,
+  "status": 4,
+  "activated_at": null,
+  "established_cb_fired": false,
+  "linkrequest_frames_on_wire": 1,
+  "linkrequest_frame_times_rel_s": [
+   0.001
+  ],
+  "proof_frames_to_A": 0
+ },
+ {
+  "case": "q1_unanswered_r3_rep0",
+  "relays": 3,
+  "initiator_bitrate": null,
+  "hops_to": 4,
+  "path_hops": 4,
+  "rns_establishment_timeout_s": 30.0004,
+  "observed_wait_s": 30.001,
+  "teardown_reason": 1,
+  "status": 4,
+  "activated_at": null,
+  "established_cb_fired": false,
+  "linkrequest_frames_on_wire": 1,
+  "linkrequest_frame_times_rel_s": [
+   0.001
+  ],
+  "proof_frames_to_A": 0
+ },
+ {
+  "case": "q1_unanswered_r0_bitrate62500",
+  "relays": 0,
+  "initiator_bitrate": 62500,
+  "hops_to": 1,
+  "path_hops": 1,
+  "rns_establishment_timeout_s": 12.064,
+  "observed_wait_s": 12.066,
+  "teardown_reason": 1,
+  "status": 4,
+  "activated_at": null,
+  "established_cb_fired": false,
+  "linkrequest_frames_on_wire": 1,
+  "linkrequest_frame_times_rel_s": [
+   0.005
+  ],
+  "proof_frames_to_A": 0
+ },
+ {
+  "case": "q1_unanswered_r2_bitrate62500",
+  "relays": 2,
+  "initiator_bitrate": 62500,
+  "hops_to": 3,
+  "path_hops": 3,
+  "rns_establishment_timeout_s": 24.064,
+  "observed_wait_s": 24.065,
+  "teardown_reason": 1,
+  "status": 4,
+  "activated_at": null,
+  "established_cb_fired": false,
+  "linkrequest_frames_on_wire": 1,
+  "linkrequest_frame_times_rel_s": [
+   0.001
+  ],
+  "proof_frames_to_A": 0
+ },
+ {
+  "case": "q1_controls_r1",
+  "relays": 1,
+  "established_after_s": 0.021,
+  "remote_close": {
+   "teardown_reason": 3,
+   "status": 4,
+   "activated_at_set": true
+  },
+  "silent_loss": {
+   "teardown_reason": 1,
+   "status": 4,
+   "activated_at_set": true,
+   "closed_after_kill_s": 14.029
+  }
+ },
+ {
+  "case": "q1_controls_r3",
+  "relays": 3,
+  "established_after_s": 0.022,
+  "remote_close": {
+   "teardown_reason": 3,
+   "status": 4,
+   "activated_at_set": true
+  },
+  "silent_loss": {
+   "teardown_reason": 1,
+   "status": 4,
+   "activated_at_set": true,
+   "closed_after_kill_s": 14.0
+  }
+ }
+]

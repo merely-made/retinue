@@ -1,0 +1,20 @@
+RNS 1.5.6
+
+  [retinue] LISTENING 59699
+RNS /echo responder 7fc94acdb1cc63c3b03792fdf39ce7de
+waiting...
+
+  RNS: saw retinue /svc e1237a470055d8710780e13063b114b2, linking to request it
+  [retinue] SENT_REQUEST id=e86443f4c0a53ef3919d58412cc58733
+  RNS /echo handler: data=b'ping-from-retinue'
+  [retinue] RECV_RESPONSE data=rns-echo:ping-from-retinue id_match=true
+  [retinue] ANSWERED_REQUEST
+  [retinue] DONE d1=true d2=true
+  RNS: got retinue's response: b'retinue-echo:hi-retinue'
+[2026-10-03 09:32:17] [Warning]  The socket for TCPInterface[retinue/127.0.0.1:59699] was closed, attempting to reconnect...
+
+====================================================================
+retinue -> RNS request (matched):  PASS  data=rns-echo:ping-from-retinue
+RNS -> retinue request answered:   PASS  (RNS got b'retinue-echo:hi-retinue')
+====================================================================
+R3 REQUEST/RESPONSE INTEROP: PASS

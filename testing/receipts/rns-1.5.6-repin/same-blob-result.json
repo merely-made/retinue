@@ -1,0 +1,836 @@
+{
+  "all_measurements_valid": true,
+  "calibration": {
+    "transport-depth-2": {
+      "forwarded": {
+        "blob_hex": "50382d4330000000000a",
+        "context": 0,
+        "destination_hash": "616e10a881fb1be124751bdb4c3326bd",
+        "header_type": 2,
+        "hops": 2,
+        "raw_hex": "5102e6a79fd46a68343711fdb3992c7fb943616e10a881fb1be124751bdb4c3326bd00a8fd56cbca13577c24914cc4c13308b7d7f3e20bd39c55a4e636984655be343884f6da8c37b5f343568b185a20c63b5bf011a3d60ee805bb9e151371ea1d55554a1992ac4f157cc05c6a50382d4330000000000a1322da0462eb7b7007edb9211ee3bcf7dc0273545ab347f4545884fe76259dd0ea86aa1d02dbe5de942bcc47bc95824d56befeedda193a30a008d839ab665008",
+        "sha256": "50796bbb3238b6a9e2270a08604514fe14cdac5bf5c373744c0aa5e11419910f",
+        "signature_valid": true,
+        "transport_id_hex": "e6a79fd46a68343711fdb3992c7fb943"
+      },
+      "transport_depth": 2
+    },
+    "transport-depth-3": {
+      "forwarded": {
+        "blob_hex": "50382d4330000000000a",
+        "context": 0,
+        "destination_hash": "0c12b3078ca082a997e8f7436e6479df",
+        "header_type": 2,
+        "hops": 3,
+        "raw_hex": "5103af7df0f84ee034e0b1ffd36678f032640c12b3078ca082a997e8f7436e6479df00a8fd56cbca13577c24914cc4c13308b7d7f3e20bd39c55a4e636984655be343884f6da8c37b5f343568b185a20c63b5bf011a3d60ee805bb9e151371ea1d5555c2e60ef8872e08b5d32450382d4330000000000a6f8419ee8ad31923cfc256ad00f16a5ff632304045d7543dfffd121e17e85ed8cf16ad85975d4426205e428351b8d82f2a4b5b01b7e5b66b95333add82fbcc02",
+        "sha256": "ba2bb2511296006b7c10508de54825b336879794f195d81ee3ce2629bab13c94",
+        "signature_valid": true,
+        "transport_id_hex": "af7df0f84ee034e0b1ffd36678f03264"
+      },
+      "transport_depth": 3
+    },
+    "transport-depth-4": {
+      "forwarded": {
+        "blob_hex": "50382d4330000000000a",
+        "context": 0,
+        "destination_hash": "7761cc2502a2d91750dbba558ff6f7f4",
+        "header_type": 2,
+        "hops": 4,
+        "raw_hex": "5104b4f296dc41f089cf796dd16a39d77e147761cc2502a2d91750dbba558ff6f7f400a8fd56cbca13577c24914cc4c13308b7d7f3e20bd39c55a4e636984655be343884f6da8c37b5f343568b185a20c63b5bf011a3d60ee805bb9e151371ea1d5555d2c93e311d1fb26938e750382d4330000000000a45b46cebe79efd79b7e712dac96390c9849c27bff2a63d317e74e07833e5a1dd7266d63483589aa16c97e188aa6df03d694f86867ac151d9aed9de6d64578a00",
+        "sha256": "ff3e7ec32e9e0f05647f73a0591f2e98b9d11e4465fbb931bd6569ce4f4c893f",
+        "signature_valid": true,
+        "transport_id_hex": "b4f296dc41f089cf796dd16a39d77e14"
+      },
+      "transport_depth": 4
+    }
+  },
+  "captures": {
+    "candidate_by_hop_relation": {
+      "better": {
+        "receiver-to-transport.bin": {
+          "bytes": 761,
+          "sha256": "a68a2acfe0e354e485fb49b1612e20643326324595c6dc2155ee888c2f02bb17"
+        },
+        "relay_port": 63896,
+        "transport-to-receiver.bin": {
+          "bytes": 1298,
+          "sha256": "2e1d72c862ee72cffe74f5c32aec514b647f0dcf88407c3f24cf696bf9790c98"
+        }
+      },
+      "equal": {
+        "receiver-to-transport.bin": {
+          "bytes": 759,
+          "sha256": "f80600226ce70e1bed867adc2eda71934ae4ce79412a4faf5156439d7ed4ed2c"
+        },
+        "relay_port": 63897,
+        "transport-to-receiver.bin": {
+          "bytes": 1305,
+          "sha256": "47b45073676420064600bc5899847aaca8ba038d8eac6489c2145b94bf3df1a4"
+        }
+      },
+      "worse": {
+        "receiver-to-transport.bin": {
+          "bytes": 760,
+          "sha256": "f3e3e8691ade30e278dc739fe523ed36ff5b9a7666acb3201f5632047d9396cd"
+        },
+        "relay_port": 63898,
+        "transport-to-receiver.bin": {
+          "bytes": 1305,
+          "sha256": "e879c25edf4610e34fbf840c2d6624e41363bb5b0ad29f27e1be9ecb040c59a9"
+        }
+      }
+    },
+    "incumbent": {
+      "connection_count": 3,
+      "receiver-to-transport.bin": {
+        "bytes": 2095,
+        "sha256": "164f9f784ede2a009d48ace2b022a234a9cd2569f0cd178d615b720a15c072d3"
+      },
+      "relay_port": 65179,
+      "transport-to-receiver.bin": {
+        "bytes": 1678,
+        "sha256": "faf2404dc84bda1267f80365392b52445bcb9c54e394dbb83ba9fe74ef661d5e"
+      }
+    },
+    "path_cache": [],
+    "pre_receiver_drain": {
+      "better": {
+        "bytes": 0,
+        "elapsed_seconds": 3.125978500000201,
+        "forwarded_announce_count": 0,
+        "hdlc_frame_count": 0,
+        "path": "C:\\Users\\mark_\\Code\\repos\\retinue\\validation\\results\\rns-1.5.6-repin\\same-blob\\candidate-better-chain-node-2\\pre-receiver-drain.bin",
+        "quiet_seconds": 3.0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "equal": {
+        "bytes": 0,
+        "elapsed_seconds": 3.1544997999444604,
+        "forwarded_announce_count": 0,
+        "hdlc_frame_count": 0,
+        "path": "C:\\Users\\mark_\\Code\\repos\\retinue\\validation\\results\\rns-1.5.6-repin\\same-blob\\candidate-equal-chain-node-3\\pre-receiver-drain.bin",
+        "quiet_seconds": 3.0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "worse": {
+        "bytes": 0,
+        "elapsed_seconds": 3.1516745999688283,
+        "forwarded_announce_count": 0,
+        "hdlc_frame_count": 0,
+        "path": "C:\\Users\\mark_\\Code\\repos\\retinue\\validation\\results\\rns-1.5.6-repin\\same-blob\\candidate-worse-chain-node-4\\pre-receiver-drain.bin",
+        "quiet_seconds": 3.0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    }
+  },
+  "cell_count": 6,
+  "cells": [
+    {
+      "after": {
+        "destination_hash": "fc556595c9fbf016cabe3b6c7b2a22f0",
+        "entry": [
+          "fc556595c9fbf016cabe3b6c7b2a22f0",
+          1791035313.6917002,
+          "3c0b9772294374310b32db682d717d6d",
+          4,
+          1791640113.6917002,
+          [
+            "50382d41300000000064"
+          ],
+          "2c09afe2684f684998f63294947419f7ebc94948d30f458ecd0ecce476ebef6c",
+          "d7b07e9ee6b2a17d182ad9495d92a4cca9ee26cff49df1777e0028234653ea32"
+        ],
+        "random_blob_count": 1,
+        "random_blobs": [
+          "50382d41300000000064"
+        ]
+      },
+      "before_loaded_expiry_perturbation": {
+        "destination_hash": "fc556595c9fbf016cabe3b6c7b2a22f0",
+        "entry": [
+          "fc556595c9fbf016cabe3b6c7b2a22f0",
+          1791035313.6917002,
+          "3c0b9772294374310b32db682d717d6d",
+          4,
+          1791640113.6917002,
+          [
+            "50382d41300000000064"
+          ],
+          "2c09afe2684f684998f63294947419f7ebc94948d30f458ecd0ecce476ebef6c",
+          "d7b07e9ee6b2a17d182ad9495d92a4cca9ee26cff49df1777e0028234653ea32"
+        ],
+        "random_blob_count": 1,
+        "random_blobs": [
+          "50382d41300000000064"
+        ]
+      },
+      "blob_relation": "same",
+      "candidate_blob_hex": "50382d41300000000064",
+      "caveat": "persistent packet-hash list moved aside before receiver reload",
+      "cell": {
+        "aspect": "route-freshness-06",
+        "cell_id": "live-ordinary-equal-same-better",
+        "context": "ordinary",
+        "hop_relation": "better",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "live",
+        "time_relation": "equal"
+      },
+      "conflicting_forwarded_frames": [],
+      "destination_hash": "fc556595c9fbf016cabe3b6c7b2a22f0",
+      "incumbent_blob_hex": "50382d41300000000064",
+      "matching_forwarded_frames": [
+        {
+          "blob_hex": "50382d41300000000064",
+          "context": 0,
+          "destination_hash": "fc556595c9fbf016cabe3b6c7b2a22f0",
+          "header_type": 2,
+          "hops": 2,
+          "raw_hex": "5102e6a79fd46a68343711fdb3992c7fb943fc556595c9fbf016cabe3b6c7b2a22f000a8fd56cbca13577c24914cc4c13308b7d7f3e20bd39c55a4e636984655be343884f6da8c37b5f343568b185a20c63b5bf011a3d60ee805bb9e151371ea1d55555259badaa0fd1df3c9e750382d41300000000064042c637bbabd78efd1039718d0a96af656237ca7e28fc009ea96a19c244e18b281a9bb5a0d6b955cf6633fedc25f8ff799974400408db65676824a2a2be41001",
+          "sha256": "dc42c1246e085471c1679f4c7c1e0bdcc13c169ebfb6f75c19731000e227c9aa",
+          "signature_valid": true,
+          "transport_id_hex": "e6a79fd46a68343711fdb3992c7fb943"
+        },
+        {
+          "blob_hex": "50382d41300000000064",
+          "context": 0,
+          "destination_hash": "fc556595c9fbf016cabe3b6c7b2a22f0",
+          "header_type": 2,
+          "hops": 2,
+          "raw_hex": "5102e6a79fd46a68343711fdb3992c7fb943fc556595c9fbf016cabe3b6c7b2a22f000a8fd56cbca13577c24914cc4c13308b7d7f3e20bd39c55a4e636984655be343884f6da8c37b5f343568b185a20c63b5bf011a3d60ee805bb9e151371ea1d55555259badaa0fd1df3c9e750382d41300000000064042c637bbabd78efd1039718d0a96af656237ca7e28fc009ea96a19c244e18b281a9bb5a0d6b955cf6633fedc25f8ff799974400408db65676824a2a2be41001",
+          "sha256": "dc42c1246e085471c1679f4c7c1e0bdcc13c169ebfb6f75c19731000e227c9aa",
+          "signature_valid": true,
+          "transport_id_hex": "e6a79fd46a68343711fdb3992c7fb943"
+        }
+      ],
+      "new_blob_admitted": false,
+      "observable_admission": false,
+      "observed_hop_relation": "better",
+      "outcome": "no-observable-admission",
+      "pre_candidate": {
+        "destination_hash": "fc556595c9fbf016cabe3b6c7b2a22f0",
+        "entry": [
+          "fc556595c9fbf016cabe3b6c7b2a22f0",
+          1791035313.6917002,
+          "3c0b9772294374310b32db682d717d6d",
+          4,
+          1791640113.6917002,
+          [
+            "50382d41300000000064"
+          ],
+          "2c09afe2684f684998f63294947419f7ebc94948d30f458ecd0ecce476ebef6c",
+          "d7b07e9ee6b2a17d182ad9495d92a4cca9ee26cff49df1777e0028234653ea32"
+        ],
+        "random_blob_count": 1,
+        "random_blobs": [
+          "50382d41300000000064"
+        ]
+      },
+      "same_blob_route_transition": false,
+      "valid_measurement": true
+    },
+    {
+      "after": {
+        "destination_hash": "fa565773f86d84d1c99fb8357c075bb9",
+        "entry": [
+          "fa565773f86d84d1c99fb8357c075bb9",
+          1791035315.7061017,
+          "3c0b9772294374310b32db682d717d6d",
+          4,
+          1791640115.7061017,
+          [
+            "50382d41300000000064"
+          ],
+          "2c09afe2684f684998f63294947419f7ebc94948d30f458ecd0ecce476ebef6c",
+          "4b8b4787e09f75b4af267a26e457965a55bd08f1762a6e8bead4e45bdf37a2c0"
+        ],
+        "random_blob_count": 1,
+        "random_blobs": [
+          "50382d41300000000064"
+        ]
+      },
+      "before_loaded_expiry_perturbation": {
+        "destination_hash": "fa565773f86d84d1c99fb8357c075bb9",
+        "entry": [
+          "fa565773f86d84d1c99fb8357c075bb9",
+          1791035315.7061017,
+          "3c0b9772294374310b32db682d717d6d",
+          4,
+          1791640115.7061017,
+          [
+            "50382d41300000000064"
+          ],
+          "2c09afe2684f684998f63294947419f7ebc94948d30f458ecd0ecce476ebef6c",
+          "4b8b4787e09f75b4af267a26e457965a55bd08f1762a6e8bead4e45bdf37a2c0"
+        ],
+        "random_blob_count": 1,
+        "random_blobs": [
+          "50382d41300000000064"
+        ]
+      },
+      "blob_relation": "same",
+      "candidate_blob_hex": "50382d41300000000064",
+      "caveat": "persistent packet-hash list moved aside before receiver reload",
+      "cell": {
+        "aspect": "route-freshness-07",
+        "cell_id": "live-ordinary-equal-same-equal",
+        "context": "ordinary",
+        "hop_relation": "equal",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "live",
+        "time_relation": "equal"
+      },
+      "conflicting_forwarded_frames": [],
+      "destination_hash": "fa565773f86d84d1c99fb8357c075bb9",
+      "incumbent_blob_hex": "50382d41300000000064",
+      "matching_forwarded_frames": [
+        {
+          "blob_hex": "50382d41300000000064",
+          "context": 0,
+          "destination_hash": "fa565773f86d84d1c99fb8357c075bb9",
+          "header_type": 2,
+          "hops": 3,
+          "raw_hex": "5103af7df0f84ee034e0b1ffd36678f03264fa565773f86d84d1c99fb8357c075bb900a8fd56cbca13577c24914cc4c13308b7d7f3e20bd39c55a4e636984655be343884f6da8c37b5f343568b185a20c63b5bf011a3d60ee805bb9e151371ea1d55554835c93bbc56f8f801ef50382d4130000000006426ddfd4f032fc983639001401649d05965bacbb1a4a31f062167f970cb8faa3882f75157eb996a4cb651207260b56dc52dd3db644218b028634b583640d03f0d",
+          "sha256": "41e85f5c6b3c6bccc0552dc487890924c0f9c2f90be74fb3069afe739c997a7a",
+          "signature_valid": true,
+          "transport_id_hex": "af7df0f84ee034e0b1ffd36678f03264"
+        },
+        {
+          "blob_hex": "50382d41300000000064",
+          "context": 0,
+          "destination_hash": "fa565773f86d84d1c99fb8357c075bb9",
+          "header_type": 2,
+          "hops": 3,
+          "raw_hex": "5103af7df0f84ee034e0b1ffd36678f03264fa565773f86d84d1c99fb8357c075bb900a8fd56cbca13577c24914cc4c13308b7d7f3e20bd39c55a4e636984655be343884f6da8c37b5f343568b185a20c63b5bf011a3d60ee805bb9e151371ea1d55554835c93bbc56f8f801ef50382d4130000000006426ddfd4f032fc983639001401649d05965bacbb1a4a31f062167f970cb8faa3882f75157eb996a4cb651207260b56dc52dd3db644218b028634b583640d03f0d",
+          "sha256": "41e85f5c6b3c6bccc0552dc487890924c0f9c2f90be74fb3069afe739c997a7a",
+          "signature_valid": true,
+          "transport_id_hex": "af7df0f84ee034e0b1ffd36678f03264"
+        }
+      ],
+      "new_blob_admitted": false,
+      "observable_admission": false,
+      "observed_hop_relation": "equal",
+      "outcome": "no-observable-admission",
+      "pre_candidate": {
+        "destination_hash": "fa565773f86d84d1c99fb8357c075bb9",
+        "entry": [
+          "fa565773f86d84d1c99fb8357c075bb9",
+          1791035315.7061017,
+          "3c0b9772294374310b32db682d717d6d",
+          4,
+          1791640115.7061017,
+          [
+            "50382d41300000000064"
+          ],
+          "2c09afe2684f684998f63294947419f7ebc94948d30f458ecd0ecce476ebef6c",
+          "4b8b4787e09f75b4af267a26e457965a55bd08f1762a6e8bead4e45bdf37a2c0"
+        ],
+        "random_blob_count": 1,
+        "random_blobs": [
+          "50382d41300000000064"
+        ]
+      },
+      "same_blob_route_transition": false,
+      "valid_measurement": true
+    },
+    {
+      "after": {
+        "destination_hash": "0b35e2caa880a7100f3858865a345a6b",
+        "entry": [
+          "0b35e2caa880a7100f3858865a345a6b",
+          1791035316.707903,
+          "3c0b9772294374310b32db682d717d6d",
+          4,
+          1791640116.707903,
+          [
+            "50382d41300000000064"
+          ],
+          "2c09afe2684f684998f63294947419f7ebc94948d30f458ecd0ecce476ebef6c",
+          "07d543bc36295ddb6b9c74c9bb7d41079f8e4458798a571e172361a43e831666"
+        ],
+        "random_blob_count": 1,
+        "random_blobs": [
+          "50382d41300000000064"
+        ]
+      },
+      "before_loaded_expiry_perturbation": {
+        "destination_hash": "0b35e2caa880a7100f3858865a345a6b",
+        "entry": [
+          "0b35e2caa880a7100f3858865a345a6b",
+          1791035316.707903,
+          "3c0b9772294374310b32db682d717d6d",
+          4,
+          1791640116.707903,
+          [
+            "50382d41300000000064"
+          ],
+          "2c09afe2684f684998f63294947419f7ebc94948d30f458ecd0ecce476ebef6c",
+          "07d543bc36295ddb6b9c74c9bb7d41079f8e4458798a571e172361a43e831666"
+        ],
+        "random_blob_count": 1,
+        "random_blobs": [
+          "50382d41300000000064"
+        ]
+      },
+      "blob_relation": "same",
+      "candidate_blob_hex": "50382d41300000000064",
+      "caveat": "persistent packet-hash list moved aside before receiver reload",
+      "cell": {
+        "aspect": "route-freshness-08",
+        "cell_id": "live-ordinary-equal-same-worse",
+        "context": "ordinary",
+        "hop_relation": "worse",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "live",
+        "time_relation": "equal"
+      },
+      "conflicting_forwarded_frames": [],
+      "destination_hash": "0b35e2caa880a7100f3858865a345a6b",
+      "incumbent_blob_hex": "50382d41300000000064",
+      "matching_forwarded_frames": [
+        {
+          "blob_hex": "50382d41300000000064",
+          "context": 0,
+          "destination_hash": "0b35e2caa880a7100f3858865a345a6b",
+          "header_type": 2,
+          "hops": 4,
+          "raw_hex": "5104b4f296dc41f089cf796dd16a39d77e140b35e2caa880a7100f3858865a345a6b00a8fd56cbca13577c24914cc4c13308b7d7f3e20bd39c55a4e636984655be343884f6da8c37b5f343568b185a20c63b5bf011a3d60ee805bb9e151371ea1d55554fa5da5be28ee98daa6850382d41300000000064bc6d3d454e34d974658374bb3f5d8e766209a997d315c860abc8c6c01b86eece9d7e8336d379aca96dcdd1304d56a294c780492131f119c383f13c9384a85d00",
+          "sha256": "385d338062efee7314d62f085c4617ad5757c1133dca1562bcb060f49080814b",
+          "signature_valid": true,
+          "transport_id_hex": "b4f296dc41f089cf796dd16a39d77e14"
+        },
+        {
+          "blob_hex": "50382d41300000000064",
+          "context": 0,
+          "destination_hash": "0b35e2caa880a7100f3858865a345a6b",
+          "header_type": 2,
+          "hops": 4,
+          "raw_hex": "5104b4f296dc41f089cf796dd16a39d77e140b35e2caa880a7100f3858865a345a6b00a8fd56cbca13577c24914cc4c13308b7d7f3e20bd39c55a4e636984655be343884f6da8c37b5f343568b185a20c63b5bf011a3d60ee805bb9e151371ea1d55554fa5da5be28ee98daa6850382d41300000000064bc6d3d454e34d974658374bb3f5d8e766209a997d315c860abc8c6c01b86eece9d7e8336d379aca96dcdd1304d56a294c780492131f119c383f13c9384a85d00",
+          "sha256": "385d338062efee7314d62f085c4617ad5757c1133dca1562bcb060f49080814b",
+          "signature_valid": true,
+          "transport_id_hex": "b4f296dc41f089cf796dd16a39d77e14"
+        }
+      ],
+      "new_blob_admitted": false,
+      "observable_admission": false,
+      "observed_hop_relation": "worse",
+      "outcome": "no-observable-admission",
+      "pre_candidate": {
+        "destination_hash": "0b35e2caa880a7100f3858865a345a6b",
+        "entry": [
+          "0b35e2caa880a7100f3858865a345a6b",
+          1791035316.707903,
+          "3c0b9772294374310b32db682d717d6d",
+          4,
+          1791640116.707903,
+          [
+            "50382d41300000000064"
+          ],
+          "2c09afe2684f684998f63294947419f7ebc94948d30f458ecd0ecce476ebef6c",
+          "07d543bc36295ddb6b9c74c9bb7d41079f8e4458798a571e172361a43e831666"
+        ],
+        "random_blob_count": 1,
+        "random_blobs": [
+          "50382d41300000000064"
+        ]
+      },
+      "same_blob_route_transition": false,
+      "valid_measurement": true
+    },
+    {
+      "after": {
+        "destination_hash": "0d4c40f1ec39104f2775536be0091feb",
+        "entry": [
+          "0d4c40f1ec39104f2775536be0091feb",
+          1791035317.7097945,
+          "3c0b9772294374310b32db682d717d6d",
+          4,
+          1791035259.920608,
+          [
+            "50382d41300000000064"
+          ],
+          "2c09afe2684f684998f63294947419f7ebc94948d30f458ecd0ecce476ebef6c",
+          "4bf85c6bbca58691fc5b863d524d5da713c8a04514cd576632c2f9f738b7ece3"
+        ],
+        "random_blob_count": 1,
+        "random_blobs": [
+          "50382d41300000000064"
+        ]
+      },
+      "before_loaded_expiry_perturbation": {
+        "destination_hash": "0d4c40f1ec39104f2775536be0091feb",
+        "entry": [
+          "0d4c40f1ec39104f2775536be0091feb",
+          1791035317.7097945,
+          "3c0b9772294374310b32db682d717d6d",
+          4,
+          1791640117.7097945,
+          [
+            "50382d41300000000064"
+          ],
+          "2c09afe2684f684998f63294947419f7ebc94948d30f458ecd0ecce476ebef6c",
+          "4bf85c6bbca58691fc5b863d524d5da713c8a04514cd576632c2f9f738b7ece3"
+        ],
+        "random_blob_count": 1,
+        "random_blobs": [
+          "50382d41300000000064"
+        ]
+      },
+      "blob_relation": "same",
+      "candidate_blob_hex": "50382d41300000000064",
+      "caveat": "persistent packet-hash list moved aside before receiver reload",
+      "cell": {
+        "aspect": "route-freshness-42",
+        "cell_id": "loaded-expired-state-ordinary-equal-same-better",
+        "context": "ordinary",
+        "hop_relation": "better",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "loaded-expired-state",
+        "time_relation": "equal"
+      },
+      "conflicting_forwarded_frames": [],
+      "destination_hash": "0d4c40f1ec39104f2775536be0091feb",
+      "incumbent_blob_hex": "50382d41300000000064",
+      "matching_forwarded_frames": [
+        {
+          "blob_hex": "50382d41300000000064",
+          "context": 0,
+          "destination_hash": "0d4c40f1ec39104f2775536be0091feb",
+          "header_type": 2,
+          "hops": 2,
+          "raw_hex": "5102e6a79fd46a68343711fdb3992c7fb9430d4c40f1ec39104f2775536be0091feb00a8fd56cbca13577c24914cc4c13308b7d7f3e20bd39c55a4e636984655be343884f6da8c37b5f343568b185a20c63b5bf011a3d60ee805bb9e151371ea1d5555ef69b26d700228193f8450382d413000000000648d57e776b20e299e12bf4be504452659b1d56661482293c27b2708d8d2335f2f619b7e8e72d5df49023c643f843bef71d7f398e7b4921b69558238c1e8997504",
+          "sha256": "da5c79dd9cd12bd2eba3ff49c797faded9ebcf9174aae9cfb2ee185b831895ff",
+          "signature_valid": true,
+          "transport_id_hex": "e6a79fd46a68343711fdb3992c7fb943"
+        },
+        {
+          "blob_hex": "50382d41300000000064",
+          "context": 0,
+          "destination_hash": "0d4c40f1ec39104f2775536be0091feb",
+          "header_type": 2,
+          "hops": 2,
+          "raw_hex": "5102e6a79fd46a68343711fdb3992c7fb9430d4c40f1ec39104f2775536be0091feb00a8fd56cbca13577c24914cc4c13308b7d7f3e20bd39c55a4e636984655be343884f6da8c37b5f343568b185a20c63b5bf011a3d60ee805bb9e151371ea1d5555ef69b26d700228193f8450382d413000000000648d57e776b20e299e12bf4be504452659b1d56661482293c27b2708d8d2335f2f619b7e8e72d5df49023c643f843bef71d7f398e7b4921b69558238c1e8997504",
+          "sha256": "da5c79dd9cd12bd2eba3ff49c797faded9ebcf9174aae9cfb2ee185b831895ff",
+          "signature_valid": true,
+          "transport_id_hex": "e6a79fd46a68343711fdb3992c7fb943"
+        }
+      ],
+      "new_blob_admitted": false,
+      "observable_admission": false,
+      "observed_hop_relation": "better",
+      "outcome": "no-observable-admission",
+      "pre_candidate": {
+        "destination_hash": "0d4c40f1ec39104f2775536be0091feb",
+        "entry": [
+          "0d4c40f1ec39104f2775536be0091feb",
+          1791035317.7097945,
+          "3c0b9772294374310b32db682d717d6d",
+          4,
+          1791035259.920608,
+          [
+            "50382d41300000000064"
+          ],
+          "2c09afe2684f684998f63294947419f7ebc94948d30f458ecd0ecce476ebef6c",
+          "4bf85c6bbca58691fc5b863d524d5da713c8a04514cd576632c2f9f738b7ece3"
+        ],
+        "random_blob_count": 1,
+        "random_blobs": [
+          "50382d41300000000064"
+        ]
+      },
+      "same_blob_route_transition": false,
+      "valid_measurement": true
+    },
+    {
+      "after": {
+        "destination_hash": "10f914880b7bc3d9644cbb422b2d3d56",
+        "entry": [
+          "10f914880b7bc3d9644cbb422b2d3d56",
+          1791035318.712289,
+          "3c0b9772294374310b32db682d717d6d",
+          4,
+          1791035259.920608,
+          [
+            "50382d41300000000064"
+          ],
+          "2c09afe2684f684998f63294947419f7ebc94948d30f458ecd0ecce476ebef6c",
+          "0dccc96dc3e923d5bc2ac67e9f439b302303fc4995ce6ddd4a8e7fa19b04483c"
+        ],
+        "random_blob_count": 1,
+        "random_blobs": [
+          "50382d41300000000064"
+        ]
+      },
+      "before_loaded_expiry_perturbation": {
+        "destination_hash": "10f914880b7bc3d9644cbb422b2d3d56",
+        "entry": [
+          "10f914880b7bc3d9644cbb422b2d3d56",
+          1791035318.712289,
+          "3c0b9772294374310b32db682d717d6d",
+          4,
+          1791640118.712289,
+          [
+            "50382d41300000000064"
+          ],
+          "2c09afe2684f684998f63294947419f7ebc94948d30f458ecd0ecce476ebef6c",
+          "0dccc96dc3e923d5bc2ac67e9f439b302303fc4995ce6ddd4a8e7fa19b04483c"
+        ],
+        "random_blob_count": 1,
+        "random_blobs": [
+          "50382d41300000000064"
+        ]
+      },
+      "blob_relation": "same",
+      "candidate_blob_hex": "50382d41300000000064",
+      "caveat": "persistent packet-hash list moved aside before receiver reload",
+      "cell": {
+        "aspect": "route-freshness-43",
+        "cell_id": "loaded-expired-state-ordinary-equal-same-equal",
+        "context": "ordinary",
+        "hop_relation": "equal",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "loaded-expired-state",
+        "time_relation": "equal"
+      },
+      "conflicting_forwarded_frames": [],
+      "destination_hash": "10f914880b7bc3d9644cbb422b2d3d56",
+      "incumbent_blob_hex": "50382d41300000000064",
+      "matching_forwarded_frames": [
+        {
+          "blob_hex": "50382d41300000000064",
+          "context": 0,
+          "destination_hash": "10f914880b7bc3d9644cbb422b2d3d56",
+          "header_type": 2,
+          "hops": 3,
+          "raw_hex": "5103af7df0f84ee034e0b1ffd36678f0326410f914880b7bc3d9644cbb422b2d3d5600a8fd56cbca13577c24914cc4c13308b7d7f3e20bd39c55a4e636984655be343884f6da8c37b5f343568b185a20c63b5bf011a3d60ee805bb9e151371ea1d5555e6fb66ef8cfc9bbdd79a50382d413000000000648ad7ca3e96b65a9e3af574fd173ae4001972f4e178b5a709bb7470c7e27f95b20860d5a800532003297d5d1c7fdfffecd9ea2b95bf2a84c49aa28f40611b3003",
+          "sha256": "438b3f51125266edcac7bf4e3336b4b66837e30880ab2694e0e92b985c665e95",
+          "signature_valid": true,
+          "transport_id_hex": "af7df0f84ee034e0b1ffd36678f03264"
+        },
+        {
+          "blob_hex": "50382d41300000000064",
+          "context": 0,
+          "destination_hash": "10f914880b7bc3d9644cbb422b2d3d56",
+          "header_type": 2,
+          "hops": 3,
+          "raw_hex": "5103af7df0f84ee034e0b1ffd36678f0326410f914880b7bc3d9644cbb422b2d3d5600a8fd56cbca13577c24914cc4c13308b7d7f3e20bd39c55a4e636984655be343884f6da8c37b5f343568b185a20c63b5bf011a3d60ee805bb9e151371ea1d5555e6fb66ef8cfc9bbdd79a50382d413000000000648ad7ca3e96b65a9e3af574fd173ae4001972f4e178b5a709bb7470c7e27f95b20860d5a800532003297d5d1c7fdfffecd9ea2b95bf2a84c49aa28f40611b3003",
+          "sha256": "438b3f51125266edcac7bf4e3336b4b66837e30880ab2694e0e92b985c665e95",
+          "signature_valid": true,
+          "transport_id_hex": "af7df0f84ee034e0b1ffd36678f03264"
+        }
+      ],
+      "new_blob_admitted": false,
+      "observable_admission": false,
+      "observed_hop_relation": "equal",
+      "outcome": "no-observable-admission",
+      "pre_candidate": {
+        "destination_hash": "10f914880b7bc3d9644cbb422b2d3d56",
+        "entry": [
+          "10f914880b7bc3d9644cbb422b2d3d56",
+          1791035318.712289,
+          "3c0b9772294374310b32db682d717d6d",
+          4,
+          1791035259.920608,
+          [
+            "50382d41300000000064"
+          ],
+          "2c09afe2684f684998f63294947419f7ebc94948d30f458ecd0ecce476ebef6c",
+          "0dccc96dc3e923d5bc2ac67e9f439b302303fc4995ce6ddd4a8e7fa19b04483c"
+        ],
+        "random_blob_count": 1,
+        "random_blobs": [
+          "50382d41300000000064"
+        ]
+      },
+      "same_blob_route_transition": false,
+      "valid_measurement": true
+    },
+    {
+      "after": {
+        "destination_hash": "3d2ec4edcc71424a0f519a7497980d9d",
+        "entry": [
+          "3d2ec4edcc71424a0f519a7497980d9d",
+          1791035319.7141125,
+          "3c0b9772294374310b32db682d717d6d",
+          4,
+          1791035259.920608,
+          [
+            "50382d41300000000064"
+          ],
+          "2c09afe2684f684998f63294947419f7ebc94948d30f458ecd0ecce476ebef6c",
+          "6ddc0fee64f2a85b66fbe64fdfc64eeb41b7097521f301c948a42028e122049f"
+        ],
+        "random_blob_count": 1,
+        "random_blobs": [
+          "50382d41300000000064"
+        ]
+      },
+      "before_loaded_expiry_perturbation": {
+        "destination_hash": "3d2ec4edcc71424a0f519a7497980d9d",
+        "entry": [
+          "3d2ec4edcc71424a0f519a7497980d9d",
+          1791035319.7141125,
+          "3c0b9772294374310b32db682d717d6d",
+          4,
+          1791640119.7141125,
+          [
+            "50382d41300000000064"
+          ],
+          "2c09afe2684f684998f63294947419f7ebc94948d30f458ecd0ecce476ebef6c",
+          "6ddc0fee64f2a85b66fbe64fdfc64eeb41b7097521f301c948a42028e122049f"
+        ],
+        "random_blob_count": 1,
+        "random_blobs": [
+          "50382d41300000000064"
+        ]
+      },
+      "blob_relation": "same",
+      "candidate_blob_hex": "50382d41300000000064",
+      "caveat": "persistent packet-hash list moved aside before receiver reload",
+      "cell": {
+        "aspect": "route-freshness-44",
+        "cell_id": "loaded-expired-state-ordinary-equal-same-worse",
+        "context": "ordinary",
+        "hop_relation": "worse",
+        "incumbent_nonce_hex": "50382d4130",
+        "incumbent_timebase": 100,
+        "nonce_relation": "same",
+        "route_state": "loaded-expired-state",
+        "time_relation": "equal"
+      },
+      "conflicting_forwarded_frames": [],
+      "destination_hash": "3d2ec4edcc71424a0f519a7497980d9d",
+      "incumbent_blob_hex": "50382d41300000000064",
+      "matching_forwarded_frames": [
+        {
+          "blob_hex": "50382d41300000000064",
+          "context": 0,
+          "destination_hash": "3d2ec4edcc71424a0f519a7497980d9d",
+          "header_type": 2,
+          "hops": 4,
+          "raw_hex": "5104b4f296dc41f089cf796dd16a39d77e143d2ec4edcc71424a0f519a7497980d9d00a8fd56cbca13577c24914cc4c13308b7d7f3e20bd39c55a4e636984655be343884f6da8c37b5f343568b185a20c63b5bf011a3d60ee805bb9e151371ea1d5555c36500f6ade9bdaf22de50382d41300000000064fac7577431c204ba0e48172ddbde319bfafae0c44ab1b4683398cdb0e4d59153f3e39053355bbe3bd30ef47f5c1dc2d74f658daceed56d74a23818c2efddef07",
+          "sha256": "db5bfcaf75290a9a72aff6a43f587d1281ab67a209e615590c572aecc75da9c4",
+          "signature_valid": true,
+          "transport_id_hex": "b4f296dc41f089cf796dd16a39d77e14"
+        },
+        {
+          "blob_hex": "50382d41300000000064",
+          "context": 0,
+          "destination_hash": "3d2ec4edcc71424a0f519a7497980d9d",
+          "header_type": 2,
+          "hops": 4,
+          "raw_hex": "5104b4f296dc41f089cf796dd16a39d77e143d2ec4edcc71424a0f519a7497980d9d00a8fd56cbca13577c24914cc4c13308b7d7f3e20bd39c55a4e636984655be343884f6da8c37b5f343568b185a20c63b5bf011a3d60ee805bb9e151371ea1d5555c36500f6ade9bdaf22de50382d41300000000064fac7577431c204ba0e48172ddbde319bfafae0c44ab1b4683398cdb0e4d59153f3e39053355bbe3bd30ef47f5c1dc2d74f658daceed56d74a23818c2efddef07",
+          "sha256": "db5bfcaf75290a9a72aff6a43f587d1281ab67a209e615590c572aecc75da9c4",
+          "signature_valid": true,
+          "transport_id_hex": "b4f296dc41f089cf796dd16a39d77e14"
+        }
+      ],
+      "new_blob_admitted": false,
+      "observable_admission": false,
+      "observed_hop_relation": "worse",
+      "outcome": "no-observable-admission",
+      "pre_candidate": {
+        "destination_hash": "3d2ec4edcc71424a0f519a7497980d9d",
+        "entry": [
+          "3d2ec4edcc71424a0f519a7497980d9d",
+          1791035319.7141125,
+          "3c0b9772294374310b32db682d717d6d",
+          4,
+          1791035259.920608,
+          [
+            "50382d41300000000064"
+          ],
+          "2c09afe2684f684998f63294947419f7ebc94948d30f458ecd0ecce476ebef6c",
+          "6ddc0fee64f2a85b66fbe64fdfc64eeb41b7097521f301c948a42028e122049f"
+        ],
+        "random_blob_count": 1,
+        "random_blobs": [
+          "50382d41300000000064"
+        ]
+      },
+      "same_blob_route_transition": false,
+      "valid_measurement": true
+    }
+  ],
+  "expiry": {
+    "classification": "loaded-expired-state perturbation; not natural elapsed expiry",
+    "destinations": [
+      "0d4c40f1ec39104f2775536be0091feb",
+      "10f914880b7bc3d9644cbb422b2d3d56",
+      "3d2ec4edcc71424a0f519a7497980d9d"
+    ],
+    "differing_byte_offsets": [
+      462,
+      463,
+      464,
+      465,
+      466,
+      467,
+      599,
+      600,
+      601,
+      602,
+      603,
+      604,
+      736,
+      737,
+      738,
+      739,
+      740,
+      741
+    ],
+    "modified_sha256": "8d1d04fe0ba1bf6a307edb848e83888d7a223257a79b1f9ed3c0b2198ba2210e",
+    "original_sha256": "5f1009222c4975299ca3270ac96b35848f396cf3a112205eb4ead252816ea131",
+    "past_unix_seconds": 1791035259.920608
+  },
+  "invalid_cells": [],
+  "packet_hash_perturbation": {
+    "classification": "loaded packet-hash-list pruning; destination table preserved",
+    "destination_table_sha256": "5f1009222c4975299ca3270ac96b35848f396cf3a112205eb4ead252816ea131",
+    "incumbent_packet_hash_count": 6,
+    "original_bytes": 224,
+    "original_hash_count": 7,
+    "original_incumbent_packet_hashes": [
+      "07d543bc36295ddb6b9c74c9bb7d41079f8e4458798a571e172361a43e831666",
+      "0dccc96dc3e923d5bc2ac67e9f439b302303fc4995ce6ddd4a8e7fa19b04483c",
+      "4b8b4787e09f75b4af267a26e457965a55bd08f1762a6e8bead4e45bdf37a2c0",
+      "4bf85c6bbca58691fc5b863d524d5da713c8a04514cd576632c2f9f738b7ece3",
+      "6ddc0fee64f2a85b66fbe64fdfc64eeb41b7097521f301c948a42028e122049f",
+      "d7b07e9ee6b2a17d182ad9495d92a4cca9ee26cff49df1777e0028234653ea32"
+    ],
+    "original_sha256": "a5041716767642d8659242269c3926531d8f20faeb74845a66ac2c12483d62b2",
+    "pre_candidate_bytes": 32,
+    "pre_candidate_hash_count": 1,
+    "pre_candidate_path": "packet-hash-perturbation\\packet_hashlist.pre-candidate.raw",
+    "pre_candidate_sha256": "7f07dc8a8b0f189e5c263e0100449b987ae7929f8f0d6fbf6d94858aea6330bd",
+    "preserved_path": "packet-hash-perturbation\\packet_hashlist.before.raw",
+    "surviving_incumbent_packet_hashes": []
+  },
+  "probe": "P8 stock-RNS forwarded announce route/freshness matrix",
+  "profile": "same-blob-diagnostic",
+  "rns_source_read": false,
+  "rns_version": "1.5.6",
+  "scope": {
+    "candidate_chain_per_hop_relation": true,
+    "distinct_destination_per_cell": true,
+    "loaded_expired_state_measured": true,
+    "natural_elapsed_expiry_measured": false,
+    "same_blob_packet_hash_diagnostic_run": true,
+    "shared_receiver_across_cells": true
+  },
+  "topology": {
+    "incumbent": "source Type-1 -> three stock RNS transports -> recorded Type-2 -> persistent stock RNS receiver",
+    "ordinary_candidate": "source Type-1 -> measured two/three/four-transport chain -> recorded Type-2 -> persistent receiver",
+    "path_response_candidate": "candidate traverses and is cached by its measured chain before receiver connects; public request_path -> real context-0x0b Type-2 -> persistent receiver"
+  }
+}

@@ -124,7 +124,7 @@ command = ["cargo", "build", "-p", "outrider", "--no-default-features", "--targe
 id = "retinue-rns-live-oracle"
 tier = "local"
 command = ["python3", "-u", "crates/retinue/oracle/run_live.py"]
-asset_globs = ["crates/retinue/oracle/*.py", "testing/receipts/rns-1.5.4-repin/run.py"]
+asset_globs = ["crates/retinue/oracle/*.py", "testing/receipts/rns-1.5.4-repin/run.py", "testing/receipts/rns-1.5.6-repin/run.py"]
 
 [[suite]]
 id = "rns-154-corroboration-q1-link-timeout"

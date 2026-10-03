@@ -1,0 +1,19 @@
+LXMF 1.2.0 / RNS 1.5.6
+  [outrider] LISTENING 56244
+  [outrider] PROPAGATION_DESTINATION 2e22b506afe4e6d9b95111d4966dc5ef
+[2026-10-03 09:40:06] [Verbose]  Bringing up system interfaces...
+[2026-10-03 09:40:06] [Verbose]  System interfaces are ready
+[2026-10-03 09:40:06] [Verbose]  Configuration loaded from C:\Users\mark_\AppData\Local\Temp\outrider-propagation-server-6zjdlf98\rns/config
+[2026-10-03 09:40:06] [Verbose]  Destinations file does not exist, no known destinations loaded
+[2026-10-03 09:40:06] [Verbose]  No valid Transport Identity in storage, creating...
+[2026-10-03 09:40:06] [Verbose]  Identity keys created for <9d3d7ec4052d15147c59f68a988eafc9>
+[2026-10-03 09:40:06] [Verbose]  Identity keys created for <d5792acc63a3ccfc8b7ab6b37b67af7e>
+[2026-10-03 09:40:06] [Verbose]  Initialized ephemeral transport identity <d5792acc63a3ccfc8b7ab6b37b67af7e>
+[2026-10-03 09:40:10] [Warning]  Running stamp generation on win32, work limited to single CPU core. This will be slower than ideal.
+  [outrider] SERVER_STORED inserted=1 rejected=0 entries=1 bytes=240
+  [outrider] SERVER_SERVED offered=1 served=1 acknowledged=0
+[2026-10-03 09:40:14] [Warning]  The socket for TCPInterface[outrider/127.0.0.1:56244] was closed, attempting to reconnect...
+stock submitted to Outrider: PASS
+stock fetched from Outrider: PASS
+stock decoded title/body/id: PASS
+OUTRIDER_PROPAGATION_SERVER: PASS

@@ -1,0 +1,8 @@
+RNS 1.5.6
+Traceback (most recent call last):
+  File "C:\Users\mark_\Code\repos\retinue\crates\retinue\oracle\interop_reliable_stream.py", line 269, in <module>
+    raise SystemExit(main() if sys.argv[1:] == ["--peer"] else supervise())
+                     ~~~~^^
+  File "C:\Users\mark_\Code\repos\retinue\crates\retinue\oracle\interop_reliable_stream.py", line 45, in main
+    raise FileNotFoundError(f"build the reliable_stream_oracle example first: {binary}")
+FileNotFoundError: build the reliable_stream_oracle example first: C:\t\cargo-targets\retinue\debug\examples\reliable_stream_oracle.exe

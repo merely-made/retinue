@@ -1,0 +1,22 @@
+RNS 1.5.6
+
+  [retinue] LISTENING 61100
+waiting...
+
+  [retinue] SENDING 259 parts
+  [retinue] SENT_ADV
+  [retinue] SENT_HMU
+  [retinue] SENT_HMU
+  [retinue] SENT_HMU
+  [retinue] PROOF_VERIFIED
+  [retinue] DONE
+[2026-10-03 09:41:55] [Warning]  The socket for TCPInterface[retinue/127.0.0.1:61100] was closed, attempting to reconnect...
+  RNS: concluded status=6 len=120000
+
+====================================================================
+RNS received retinue's 120000-byte resource intact: PASS
+sender emitted HMU:                     PASS
+RNS concluded COMPLETE:                 PASS
+retinue verified RNS's proof:           PASS
+====================================================================
+R4 WINDOWED RESOURCE SEND INTEROP: PASS

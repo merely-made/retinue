@@ -1,0 +1,153 @@
+{
+  "baseline_commit": "f149dea318bebcbc15daa6be98819ed2b64607df",
+  "rns": "1.5.6",
+  "lxmf": "1.2.0",
+  "lane": "live",
+  "started_utc": "2026-10-03T13:25:41.161586+00:00",
+  "gates": [
+    {
+      "name": "interop_r1.py",
+      "command": [
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\.venv\\Scripts\\python.exe",
+        "-u",
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\interop_r1.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 23.814
+    },
+    {
+      "name": "interop_ifac.py",
+      "command": [
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\.venv\\Scripts\\python.exe",
+        "-u",
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\interop_ifac.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 8.612
+    },
+    {
+      "name": "interop_r2.py",
+      "command": [
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\.venv\\Scripts\\python.exe",
+        "-u",
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\interop_r2.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 7.67
+    },
+    {
+      "name": "interop_link.py",
+      "command": [
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\.venv\\Scripts\\python.exe",
+        "-u",
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\interop_link.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 13.924
+    },
+    {
+      "name": "interop_link_responder.py",
+      "command": [
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\.venv\\Scripts\\python.exe",
+        "-u",
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\interop_link_responder.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 10.055
+    },
+    {
+      "name": "interop_reqresp.py",
+      "command": [
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\.venv\\Scripts\\python.exe",
+        "-u",
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\interop_reqresp.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 5.906
+    },
+    {
+      "name": "interop_endpoint_stream.py",
+      "command": [
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\.venv\\Scripts\\python.exe",
+        "-u",
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\interop_endpoint_stream.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 18.316
+    },
+    {
+      "name": "interop_reliable_stream.py",
+      "command": [
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\.venv\\Scripts\\python.exe",
+        "-u",
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\interop_reliable_stream.py"
+      ],
+      "returncode": 1,
+      "timed_out": false,
+      "elapsed_seconds": 1.16
+    },
+    {
+      "name": "interop_resource_recv.py",
+      "command": [
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\.venv\\Scripts\\python.exe",
+        "-u",
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\interop_resource_recv.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 8.832
+    },
+    {
+      "name": "interop_resource_send.py",
+      "command": [
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\.venv\\Scripts\\python.exe",
+        "-u",
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\interop_resource_send.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 12.742
+    },
+    {
+      "name": "interop_send_large.py",
+      "command": [
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\.venv\\Scripts\\python.exe",
+        "-u",
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\interop_send_large.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 22.258
+    },
+    {
+      "name": "interop_send_multiseg.py",
+      "command": [
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\.venv\\Scripts\\python.exe",
+        "-u",
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\interop_send_multiseg.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 6.797
+    },
+    {
+      "name": "interop_transport_node.py",
+      "command": [
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\.venv\\Scripts\\python.exe",
+        "-u",
+        "C:\\Users\\mark_\\Code\\repos\\retinue\\crates\\retinue\\oracle\\interop_transport_node.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 10.381
+    }
+  ],
+  "all_passed": false
+}

@@ -1,0 +1,11 @@
+RNS 1.5.6
+  [retinue] LISTENING 55418
+  [retinue] ACCEPTED 127.0.0.1:55419
+  [retinue] SENT_IFAC_ANNOUNCE e7b3245b980efa4834aaad1f73f8ecd3
+  [retinue] SKIPPED non-announce packet type Data
+  [retinue] RECV_IFAC_ANNOUNCE 2c0e43e6d00e15ee3cc221623c4fb8be
+  [retinue] VALIDATED_RNS_IFAC_ANNOUNCE
+retinue -> RNS IFAC: PASS
+RNS -> retinue IFAC: PASS
+IFAC INTEROP: PASS
+[2026-10-03 09:36:57] [Warning]  The socket for TCPInterface[retinue-ifac/127.0.0.1:55418] was closed, attempting to reconnect...

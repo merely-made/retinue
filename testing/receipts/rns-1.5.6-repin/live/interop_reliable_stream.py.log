@@ -1,0 +1,7 @@
+Traceback (most recent call last):
+  File "C:\Users\mark_\Code\repos\retinue\crates\retinue\oracle\interop_reliable_stream.py", line 269, in <module>
+    raise SystemExit(main() if sys.argv[1:] == ["--peer"] else supervise())
+                     ~~~~^^
+  File "C:\Users\mark_\Code\repos\retinue\crates\retinue\oracle\interop_reliable_stream.py", line 38, in main
+    raise RuntimeError(f"expected stock RNS 1.5.4, got {RNS.__version__}")
+RuntimeError: expected stock RNS 1.5.4, got 1.5.6

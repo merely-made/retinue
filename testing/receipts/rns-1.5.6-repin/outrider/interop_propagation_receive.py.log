@@ -1,0 +1,26 @@
+LXMF 1.2.0 / RNS 1.5.6
+  [outrider] LISTENING 59925
+[2026-10-03 09:39:40] [Verbose]  Bringing up system interfaces...
+[2026-10-03 09:39:40] [Verbose]  System interfaces are ready
+[2026-10-03 09:39:40] [Verbose]  Configuration loaded from C:\Users\mark_\AppData\Local\Temp\outrider-propagation-receive-km031jxq\client-rns/config
+[2026-10-03 09:39:40] [Verbose]  Destinations file does not exist, no known destinations loaded
+[2026-10-03 09:39:40] [Verbose]  No valid Transport Identity in storage, creating...
+[2026-10-03 09:39:40] [Verbose]  Identity keys created for <5bf17724f26abf012ab0a513ca3633ab>
+[2026-10-03 09:39:40] [Verbose]  Identity keys created for <689a746bce08ae1c88939401f63b6754>
+[2026-10-03 09:39:40] [Verbose]  Initialized ephemeral transport identity <689a746bce08ae1c88939401f63b6754>
+  [outrider] STOCK_PROPAGATION_ANNOUNCE f5a2d60343e38574ccf1acf8d9028d64 cost=13
+  stock: learned propagation node f5a2d60343e38574ccf1acf8d9028d64
+  [outrider] SUBMISSION_MODE Data
+  [outrider] MESSAGE_ID 43582edd8546333f8e44702c5821feeabfe3470ab7917bc4e1628834f339f3d7
+  [outrider] TRANSIENT_ID ab598143ed4735683a94c077efd07cab550cc638416d010aa0d8dcc570e2082f
+  [outrider] STAMP_VALUE 14
+  [outrider] SUBMITTED 92cb41da21772140000091c501101446d28e56d0ac299b0ebdd1eb3266de04f5f29162c31a8defa18e6e742224ee806fc1718a278be859ba5620402b8f3a41414141414141414141414141414141faf6e16b377d801285f7216f921fa476520a976df51ad0006fbacdcb18f50aaaef9c5eca94edaabb2632ef4c0bbd7fe56258d0c0f279b0caeeceeac17bfe361caf1e748fc1fa14029b4240014fb381b0b6fd3518bcdc94aa3cdd6c49d17e89cd4b0ad649c11a451cfccfc5160dece395bde6a33f0141654dc0928169584c03a7b94293907ce2d2eb161ccbb078d608ca79cd2fd2c673fbb9950dd5813e68fedf6fa6ce7709d52b72b724eb5b494119aa00000000000000000000000000000000000000000000000000000000000008f5
+  stock: fetch requested None
+  stock: fetched 43582edd8546333f8e44702c5821feeabfe3470ab7917bc4e1628834f339f3d7
+Outrider submitted message: PASS
+stock fetched message: PASS
+stock decoded title/body: PASS
+stock agreed on message id: PASS
+OUTRIDER_TO_STOCK_PROPAGATION: PASS
+[2026-10-03 09:40:01] [Warning]  An interface error occurred for TCPInterface[outrider/127.0.0.1:59925], the contained exception was: [WinError 10054] An existing connection was forcibly closed by the remote host
+[2026-10-03 09:40:01] [Warning]  Attempting to reconnect...

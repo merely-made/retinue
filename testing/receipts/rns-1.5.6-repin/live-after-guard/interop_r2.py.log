@@ -1,0 +1,23 @@
+RNS 1.5.6
+
+  [retinue] LISTENING 64872
+RNS transport node hosting target 130b59cbdb461beba304aa0a8d907e9a
+  [retinue] TARGET 130b59cbdb461beba304aa0a8d907e9a
+  [retinue] ANNOUNCED_SELF 7671b973b2f7d21d5cc9dba551791557
+  [retinue] SENT_PATH_REQUEST for 130b59cbdb461beba304aa0a8d907e9a
+  [retinue] INGESTED 130b59cbdb461beba304aa0a8d907e9a (book size 1)
+  [retinue] RESOLVED_TARGET identity=856f0a1ada5f65506e18448690532e21
+  [retinue] INGESTED 130b59cbdb461beba304aa0a8d907e9a (book size 1)
+  [retinue] INGESTED 7671b973b2f7d21d5cc9dba551791557 (book size 2)
+  [retinue] INGESTED 130b59cbdb461beba304aa0a8d907e9a (book size 2)
+  [retinue] RE_ANNOUNCED[2026-10-03 09:29:14] [Warning]  The socket for TCPInterface[retinue/127.0.0.1:64872] was closed, attempting to reconnect...
+
+  [retinue] DONE resolved=true
+
+====================================================================
+retinue announced itself:       PASS
+retinue re-announced (cadence): PASS
+retinue sent a path request:    PASS
+retinue resolved the target:    PASS
+====================================================================
+R2 INTEROP: PASS

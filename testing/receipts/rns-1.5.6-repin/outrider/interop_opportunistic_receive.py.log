@@ -1,0 +1,20 @@
+LXMF 1.2.0 / RNS 1.5.6
+  [outrider] LISTENING 59891
+[2026-10-03 09:39:30] [Verbose]  Bringing up system interfaces...
+[2026-10-03 09:39:30] [Verbose]  System interfaces are ready
+[2026-10-03 09:39:30] [Verbose]  Configuration loaded from C:\Users\mark_\AppData\Local\Temp\outrider-opportunistic-receive-hbw__a2a/config
+[2026-10-03 09:39:30] [Verbose]  Destinations file does not exist, no known destinations loaded
+[2026-10-03 09:39:30] [Verbose]  No valid Transport Identity in storage, creating...
+[2026-10-03 09:39:30] [Verbose]  Identity keys created for <0849d82d323e7afaf054c2ff5223bd15>
+[2026-10-03 09:39:30] [Verbose]  Identity keys created for <5465dbfbedd35ceb2b471c84a0e8a628>
+[2026-10-03 09:39:30] [Verbose]  Initialized ephemeral transport identity <5465dbfbedd35ceb2b471c84a0e8a628>
+  [outrider] STOCK_ANNOUNCE 8f77e37e8a1c8904553a29095a6dcadd 93c41c53746f636b204f70706f7274756e6973746963205265636569766572c09100
+  [outrider] MESSAGE_ID 3ab78c866429cddf2ce72c2d3b69515586a05e35f68b073eb38066ecd5915138
+  [outrider] RATCHET d61e5609841e737f7e72
+  [outrider] QUEUED 1
+[2026-10-03 09:39:30] [Warning]  The socket for TCPInterface[outrider/127.0.0.1:59891] was closed, attempting to reconnect...
+  stock: received 3ab78c866429cddf2ce72c2d3b69515586a05e35f68b073eb38066ecd5915138
+stock delivery callback fired: PASS
+stock decoded title/body: PASS
+stock agreed on message id: PASS
+OUTRIDER_TO_STOCK_OPPORTUNISTIC: PASS

@@ -1,0 +1,11 @@
+RNS 1.5.6
+  [retinue] LISTENING 54037
+  [retinue] ACCEPTED 127.0.0.1:54038
+  [retinue] SENT_IFAC_ANNOUNCE e7b3245b980efa4834aaad1f73f8ecd3
+[2026-10-03 09:38:02] [Warning]  An interface error occurred for TCPInterface[retinue-ifac/127.0.0.1:54037], the contained exception was: 'TCPClientInterface' object has no attribute 'ifac_size'
+[2026-10-03 09:38:02] [Warning]  Attempting to reconnect...
+  [retinue] IO_ERROR peer closed the connection
+retinue -> RNS IFAC: FAIL
+RNS -> retinue IFAC: FAIL
+IFAC INTEROP: FAIL
+[2026-10-03 09:38:21] [Notice]   Error while shutting down socket for TCPInterface[retinue-ifac/127.0.0.1:54037]: [WinError 10057] A request to send or receive data was disallowed because the socket is not connected and (when sending on a datagram socket using a sendto call) no address was supplied
