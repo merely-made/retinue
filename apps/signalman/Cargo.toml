@@ -43,9 +43,9 @@ comms = ["dep:comms"]
 comms = { package = "mere-comms", git = "https://github.com/merely-made/mere.git", rev = "ab067f1ea33e43cf97428616822d740de2561459", optional = true }
 hex = "0.4"
 linkboy = { version = "0.1.0", path = "../linkboy" }
-outrider = { version = "0.1.1", path = "../../crates/outrider", features = ["voice"] }
+outrider = { version = "0.2.0", path = "../../crates/outrider", features = ["voice"] }
 pipit = "0.2"
-postilion = { version = "0.1.0", path = "../../crates/postilion" }
+postilion = { version = "0.2.0", path = "../../crates/postilion" }
 quick-xml = "0.39.4"
 radio-hand = { version = "0.0.1", path = "../../crates/radio-hand" }
 retinue = { version = "0.2.0", path = "../../crates/retinue", features = ["tulle-radio"] }
