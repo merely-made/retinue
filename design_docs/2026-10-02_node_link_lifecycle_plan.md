@@ -101,6 +101,29 @@ The source review and black-box observation agree.
 
 Before trusting a weave merge of `node.rs`, check that it compiles its tests.
 
+**2026-10-03, facts for N12** (publishing and repins).
+- **crates.io today:** `retinue` 0.1.1, `outrider` 0.1.1, `postilion` 0.1.0.
+  Local `main` and `origin/main` are both at `66bc578`.
+- **The 0.2.0 break reaches two more published crates.** `outrider` has 21
+  public items using retinue types (`Identity`, `AddressHash`, `Endpoint`,
+  `DestinationName`, ...), and `postilion` has 16 (`PrivateIdentity`,
+  `AddressHash`, `Endpoint`, ...). Moving them to retinue 0.2.0 breaks their
+  APIs too. The integration tree still versions them 0.1.1 and 0.1.0, so
+  publishing them unchanged would be a semver error: both need a minor bump
+  before any publish.
+- **Downstream pins**, at `Code/repos`:
+  - mere's root `retinue` is pinned at `85e716c7`, 0.1.1.
+  - mere's `ports/signalman` pins `=0.1.1`, `=0.1.0`, and `=0.0.1` exact for
+    retinue, outrider, postilion, and radio-hand at `6af5c0ff`.
+  - turnstone pins `5db362ee`.
+  - knot-editor's `knot-site` pins `2563202b` (optional).
+  - `repos/mere-verify` is a second mere worktree (branch
+    `pairing-d1b-verify`) carrying the same pins.
+  - mere's probes `murm-direct-phy` and `pack-distribution` take retinue by
+    path from the local checkout. They are excluded from mere's workspace and
+    call none of the changed APIs, so moving local `main` does not break mere's
+    build.
+
 ## Source review and provenance
 
 This batch is **source-informed work, not strict clean-room work**. It is
