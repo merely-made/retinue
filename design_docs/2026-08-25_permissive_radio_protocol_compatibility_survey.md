@@ -42,6 +42,8 @@ Any proposed adaptation requires a separate decision and provenance record.
 Historical black-box receipts remain unchanged; later source-informed work
 must be described accurately rather than as strict clean-room work.
 
+*2026-10-02:* the first recorded reviews under this policy, with revisions, files, and lines, are in the [Node link lifecycle plan](2026-10-02_node_link_lifecycle_plan.md#source-review-and-provenance).
+
 ## Finding
 
 Retinue should not grow a universal mesh router. It already has the right lower

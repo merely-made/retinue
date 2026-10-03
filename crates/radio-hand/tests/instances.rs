@@ -36,6 +36,20 @@ fn runtime_with_carrier_mtu(
     carrier: radio_hand::retinue_carrier::RetinueCarrier,
     mtu: u32,
 ) -> Runtime {
+    let mut node = Node::<8, 4, 1, 4>::new(
+        PrivateIdentity::from_secret_bytes(&[1; 64]),
+        DestinationName::new("retinue", ["resident"]).name_hash(),
+    );
+    node.set_logical_mtu(mtu).unwrap();
+    runtime_from(node, tx_budget_ms, frame_ttl_ms, carrier)
+}
+
+fn runtime_from(
+    node: Node<8, 4, 1, 4>,
+    tx_budget_ms: u64,
+    frame_ttl_ms: u64,
+    carrier: radio_hand::retinue_carrier::RetinueCarrier,
+) -> Runtime {
     let ids = [RETINUE, SENNET, TUCKET];
     let config = Config {
         controller: ControllerConfig {
@@ -52,11 +66,6 @@ fn runtime_with_carrier_mtu(
         tx_budget_ms,
         frame_ttl_ms,
     };
-    let mut node = Node::<8, 4, 1, 4>::new(
-        PrivateIdentity::from_secret_bytes(&[1; 64]),
-        DestinationName::new("retinue", ["resident"]).name_hash(),
-    );
-    node.set_logical_mtu(mtu).unwrap();
     let channel = Channel {
         hash: 8,
         key: ChannelKey::Aes128([2; 16]),
@@ -336,7 +345,7 @@ fn linked_runtime() -> (
     let announce = peer.announce(&blob, None);
     runtime.ingest(1, &announce.encode()).unwrap();
     let request = sent(
-        peer.open_link(runtime.retinue().node().destination(), 0, &[8; 64])
+        peer.open_link(runtime.retinue().node().destination(), 0, &[8; 64], 1)
             .unwrap(),
     );
     runtime.ingest(2, &request.encode()).unwrap();
@@ -599,7 +608,7 @@ fn protected_startup_refuses_existing_pending_link_at_identical_mtu() {
     );
     let blob = retinue::announce::AnnounceBlob::mint([1; 5], 1).unwrap();
     node.ingest(0, &peer.announce(&blob, None), 0);
-    node.open_link(peer.destination(), 0, &[8; 64]).unwrap();
+    node.open_link(peer.destination(), 0, &[8; 64], 0).unwrap();
     let protected =
         RetinueCarrier::protected(retinue::ifac::Ifac::new(Some("pending"), None, 8).unwrap());
     assert_eq!(
@@ -607,6 +616,120 @@ fn protected_startup_refuses_existing_pending_link_at_identical_mtu() {
         Err(LogicalMtuError::SessionsActive)
     );
     assert_eq!(RetinueCarrier::default().configure_node(&mut node), Ok(()));
+}
+
+/// Ruling 50 in the resident runtime: the Retinue profile's modulation sets the node's
+/// first-hop airtime allowance on the instance's interface. A request already pending when
+/// the runtime is built keeps its deadline (see the Ruling 46 test below).
+#[test]
+fn the_retinue_profile_sets_the_first_hop_allowance() {
+    let mut node = Node::<8, 4, 1, 4>::new(
+        PrivateIdentity::from_secret_bytes(&[1; 64]),
+        DestinationName::new("retinue", ["resident"]).name_hash(),
+    );
+    let peer = Node::<8, 4, 1, 4>::new(
+        PrivateIdentity::from_secret_bytes(&[9; 64]),
+        DestinationName::new("retinue", ["peer"]).name_hash(),
+    );
+    let blob = retinue::announce::AnnounceBlob::mint([1; 5], 1).unwrap();
+    node.ingest(0, &peer.announce(&blob, None), 0);
+    assert_eq!(node.first_hop_airtime(retinue::instance::INTERFACE), 0);
+    let runtime = runtime_from(node, 2, 20, Default::default());
+    // LongFast: SF11, 250 kHz, 4/5, about 1,074 bps.
+    let allowance = runtime
+        .retinue()
+        .node()
+        .first_hop_airtime(retinue::instance::INTERFACE);
+    assert_eq!(allowance, 3_724);
+    assert_eq!(
+        Some(allowance),
+        radio_hand::phy::nominal_bits_ms(11, 250_000, 5, retinue::node::FIRST_HOP_ALLOWANCE_BITS)
+    );
+}
+
+/// Rulings 46 and 74 in the resident runtime: the runtime's own expiry pass reconciles the
+/// node before polling it, and an unanswered request surfaces as the `LinkRequestTimedOut`
+/// action the channel node reports, with no `RetinueExpired`. A pass that expired only a
+/// request was once dropped from the report entirely.
+#[test]
+fn an_unanswered_request_is_reported_as_timed_out() {
+    let mut node = Node::<8, 4, 1, 4>::new(
+        PrivateIdentity::from_secret_bytes(&[1; 64]),
+        DestinationName::new("retinue", ["resident"]).name_hash(),
+    );
+    let peer = Node::<8, 4, 1, 4>::new(
+        PrivateIdentity::from_secret_bytes(&[9; 64]),
+        DestinationName::new("retinue", ["peer"]).name_hash(),
+    );
+    let blob = retinue::announce::AnnounceBlob::mint([1; 5], 1).unwrap();
+    node.ingest(0, &peer.announce(&blob, None), 0);
+    let request = sent(node.open_link(peer.destination(), 0, &[8; 64], 0).unwrap());
+    let id = retinue::link::link_id(&request).unwrap();
+    let mut runtime = runtime_from(node, 2, 20, Default::default());
+    let deadline = retinue::node::link_request_timeout(0);
+    // Every Retinue event in a report: a timed-out request by its id, anything else by kind.
+    let expired = |report: &radio_hand::instances::Report| {
+        report
+            .events
+            .iter()
+            .filter_map(|event| match event {
+                Event::Retinue(retinue::node::Action::LinkRequestTimedOut { link_id }) => {
+                    Some(("timed out", Some(*link_id)))
+                }
+                Event::Retinue(_) => Some(("other action", None)),
+                Event::RetinueExpired(_) => Some(("expiry report", None)),
+                _ => None,
+            })
+            .collect::<std::vec::Vec<_>>()
+    };
+
+    let before = runtime.poll(deadline - 1, None).unwrap();
+    assert!(
+        expired(&before).is_empty(),
+        "control: nothing expires early"
+    );
+    assert_eq!(
+        runtime
+            .retinue()
+            .node()
+            .pause_assessment()
+            .pending_handshakes,
+        1
+    );
+
+    let at = runtime.poll(deadline, None).unwrap();
+    assert_eq!(expired(&at), vec![("timed out", Some(id))]);
+    assert_eq!(
+        runtime
+            .retinue()
+            .node()
+            .pause_assessment()
+            .pending_handshakes,
+        0
+    );
+}
+
+/// Positive control for Ruling 74: an established link that idles out is still reported
+/// in `RetinueExpired`, whose `pending_links` stays empty.
+#[test]
+fn an_idle_link_is_still_reported_as_expired() {
+    let (mut runtime, _peer, id, _announce) = linked_runtime();
+    let at = runtime
+        .poll(3 + retinue::node::LINK_IDLE_TIMEOUT, None)
+        .unwrap();
+    let reports: std::vec::Vec<_> = at
+        .events
+        .iter()
+        .filter_map(|event| match event {
+            Event::RetinueExpired(r) => Some((r.links.to_vec(), r.pending_links.len())),
+            Event::Retinue(retinue::node::Action::LinkRequestTimedOut { .. }) => {
+                panic!("no request was pending")
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(reports, vec![(vec![id], 0)]);
+    assert!(!runtime.retinue().node().has_link(id));
 }
 
 #[test]

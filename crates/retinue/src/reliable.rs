@@ -180,13 +180,21 @@ impl<
 
     /// Feed an inbound IDENTIFY packet: if it validates, learn the peer identity so the
     /// peer's proofs can be validated from here on. Returns whether it was learned.
+    ///
+    /// Only the first identity is learned, and never our own. On a shared medium our own
+    /// IDENTIFY comes back from a relay under the shared link key with a valid signature;
+    /// taking it would make us our own peer and fail every real proof. An initiator already
+    /// holds its peer from the announce, so it learns nothing here.
     pub fn on_identify(&mut self, packet: &Packet) -> bool {
+        if self.peer.is_some() {
+            return false;
+        }
         match self.link.read_identify(packet) {
-            Some(peer) => {
+            Some(peer) if peer != *self.prover.public() => {
                 self.peer = Some(peer);
                 true
             }
-            None => false,
+            _ => false,
         }
     }
 
@@ -799,5 +807,99 @@ mod tests {
         );
         assert!(server.on_proof(&proof, 2), "proof accepted after identify");
         assert!(server.send_idle(), "the server's packet is now released");
+    }
+
+    /// A shared medium hands the initiator its own IDENTIFY back from a relay. It decrypts
+    /// under the shared link key and carries a valid signature, so the channel must refuse it
+    /// on its own account: here the router's filter is bypassed and the packet is fed straight
+    /// in. Adopting it would make the initiator its own peer, and every proof the real peer
+    /// sends would then fail to verify.
+    #[test]
+    fn an_echoed_own_identify_does_not_become_the_peer() {
+        let (mut client, mut server) = pair();
+        let client_id = PrivateIdentity::from_secret_bytes(&[0x11; 64]);
+        let server_hash = server.prover.public().hash();
+
+        let mut echo = client.link.identify_packet(&client_id, &[0x07; IV_LEN]);
+        echo.hops += 1;
+        let adopted = client.on_identify(&echo);
+        let peer_after = client.peer().map(|p| p.hash());
+
+        assert_eq!(client.write(b"after the echo"), b"after the echo".len());
+        let mut ivc = 0u64;
+        let sent = client.poll_transmit(0, counting_iv(&mut ivc));
+        let proof = server
+            .on_data_packet(&sent[0])
+            .expect("the server proves the client's packet");
+        let proof_accepted = client.on_proof(&proof, 1);
+
+        assert_eq!(
+            (adopted, peer_after == Some(server_hash), proof_accepted),
+            (false, true, true),
+            "(echo adopted, peer is still the server, server's proof accepted); \
+             peer after the echo: {peer_after:?}, client is {:?}",
+            client_id.public().hash()
+        );
+    }
+
+    /// Positive controls for the guard: a responder still learns the initiator from its first
+    /// IDENTIFY, and the link carries data and proofs both ways afterwards. Its own identity,
+    /// a second identity, and a repeat of the first, verbatim or re-sealed, are each refused
+    /// without disturbing that.
+    #[test]
+    fn a_responder_learns_its_first_peer_only_and_the_link_still_works() {
+        let server_id = PrivateIdentity::from_secret_bytes(&[0x22; 64]);
+        let client_id = PrivateIdentity::from_secret_bytes(&[0x11; 64]);
+        let stranger = PrivateIdentity::from_secret_bytes(&[0x55; 64]);
+        let trailer = LinkTrailer {
+            mode: LinkMode::Aes256Cbc,
+            mtu: 500,
+        };
+        let dest = DestinationName::new("retinue", ["test"]).destination_hash(server_id.public());
+        let (pending, request) = PendingLink::open(dest, *server_id.public(), &[0x33; 64], trailer);
+        let (responder_link, proof) = accept(&request, &server_id, &[0x99; 64], trailer).unwrap();
+        let initiator_link = pending.prove(&proof).unwrap();
+        let mut client: ReliableChannel =
+            ReliableChannel::new(initiator_link, client_id.clone(), *server_id.public());
+        let mut server: ReliableChannel =
+            ReliableChannel::accepting(responder_link, server_id.clone());
+        let client_hash = Some(client_id.public().hash());
+
+        let own = server.link.identify_packet(&server_id, &[0x01; IV_LEN]);
+        assert!(!server.on_identify(&own), "its own identity is refused");
+        assert!(server.peer().is_none());
+
+        let genuine = client.link.identify_packet(&client_id, &[0x02; IV_LEN]);
+        assert!(
+            server.on_identify(&genuine),
+            "the first IDENTIFY is learned"
+        );
+        assert_eq!(server.peer().map(|p| p.hash()), client_hash);
+
+        let other = client.link.identify_packet(&stranger, &[0x03; IV_LEN]);
+        assert!(!server.on_identify(&other), "a second identity is refused");
+        assert!(!server.on_identify(&genuine), "a repeat learns nothing new");
+        // The initiator re-sends under a fresh IV (Ruling 72): a new packet, the same identity.
+        let resend = client.link.identify_packet(&client_id, &[0x04; IV_LEN]);
+        assert_ne!(resend.hash(), genuine.hash(), "a re-send is a new packet");
+        assert!(
+            !server.on_identify(&resend),
+            "a fresh-IV re-send learns nothing new"
+        );
+        assert_eq!(server.peer().map(|p| p.hash()), client_hash);
+
+        let mut ivc = 0u64;
+        assert_eq!(client.write(b"to the server"), 13);
+        let sent = client.poll_transmit(0, counting_iv(&mut ivc));
+        let ack = server.on_data_packet(&sent[0]).expect("server proves");
+        assert!(client.on_proof(&ack, 1), "the client's packet is released");
+        assert_eq!(server.read(), b"to the server");
+
+        assert_eq!(server.write(b"to the client"), 13);
+        let sent = server.poll_transmit(2, counting_iv(&mut ivc));
+        let ack = client.on_data_packet(&sent[0]).expect("client proves");
+        assert!(server.on_proof(&ack, 3), "the server's packet is released");
+        assert_eq!(client.read(), b"to the client");
+        assert!(client.send_idle() && server.send_idle());
     }
 }

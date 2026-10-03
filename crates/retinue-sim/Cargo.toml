@@ -1,0 +1,18 @@
+[package]
+name = "retinue-sim"
+version = "0.0.1"
+edition = "2024"
+rust-version.workspace = true
+license = "MPL-2.0"
+publish = false
+description = "Runs Retinue nodes in process over a shared-radio topology and emits a deterministic route trace."
+
+[dependencies]
+retinue = { path = "../retinue", default-features = false, features = ["alloc"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.151"
+
+[dev-dependencies]
+# Proves the per-node state fills radio-face's TRAFFIC page and ticker, without the
+# crate itself depending on the face.
+radio-face = { path = "../radio-face" }

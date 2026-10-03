@@ -183,6 +183,99 @@ const MAX_HOPS: u8 = 128;
 /// How many recent announce packet-hashes to remember for de-duplication.
 const SEEN_ANNOUNCES: usize = 4096;
 
+/// Recent link packet hashes, both ways, across every link this endpoint holds.
+///
+/// On a shared medium a relay's retransmission of our own link packet reaches us under the
+/// shared link key, with hops+1 and the same hash: `sent` marks it as ours rather than the
+/// far end's. That covers Channel too, where taking our own sequence for the far end's would
+/// also drop the far end's real one as a repeat. The same medium hands us the far end's packet
+/// twice, directly and from a relay: `received` delivers it once.
+struct LinkPacketMemory {
+    sent: HashWindow,
+    received: HashWindow,
+}
+
+impl LinkPacketMemory {
+    fn new() -> Self {
+        Self {
+            sent: HashWindow::new(crate::capacity::desktop::OWN_ECHO_HASHES),
+            received: HashWindow::new(crate::capacity::desktop::DUPLICATE_HASHES),
+        }
+    }
+
+    /// Note a link packet we transmit.
+    fn note_sent(&mut self, pkt: &Packet) {
+        if is_remembered_link_packet(pkt) {
+            self.sent.insert(pkt.hash());
+        }
+    }
+
+    /// Whether an inbound packet on one of our links is new, our own, or a repeat.
+    fn admit(&mut self, pkt: &Packet) -> LinkPacketAdmission {
+        if !is_remembered_link_packet(pkt) {
+            return LinkPacketAdmission::New;
+        }
+        let hash = pkt.hash();
+        if self.sent.contains(&hash) {
+            LinkPacketAdmission::OwnEcho
+        } else if self.received.insert(hash) {
+            LinkPacketAdmission::New
+        } else {
+            LinkPacketAdmission::Duplicate
+        }
+    }
+}
+
+/// What [`LinkPacketMemory::admit`] made of an inbound link packet.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LinkPacketAdmission {
+    New,
+    OwnEcho,
+    Duplicate,
+}
+
+fn is_remembered_link_packet(pkt: &Packet) -> bool {
+    pkt.packet_type == PacketType::Data
+        && pkt.destination_type == DestinationType::Link
+        && crate::node::is_deduplicated_link_context(pkt.context)
+}
+
+/// A bounded set of packet hashes that forgets the oldest first. A burst can outrun it; that
+/// only lets a late copy through, never drops a new packet.
+struct HashWindow {
+    set: HashSet<AddressHash>,
+    order: VecDeque<AddressHash>,
+    capacity: usize,
+}
+
+impl HashWindow {
+    fn new(capacity: usize) -> Self {
+        Self {
+            set: HashSet::with_capacity(capacity),
+            order: VecDeque::with_capacity(capacity),
+            capacity,
+        }
+    }
+
+    fn contains(&self, hash: &AddressHash) -> bool {
+        self.set.contains(hash)
+    }
+
+    /// Record a hash; false if it was already there.
+    fn insert(&mut self, hash: AddressHash) -> bool {
+        if !self.set.insert(hash) {
+            return false;
+        }
+        self.order.push_back(hash);
+        if self.order.len() > self.capacity
+            && let Some(oldest) = self.order.pop_front()
+        {
+            self.set.remove(&oldest);
+        }
+        true
+    }
+}
+
 /// Host-owned policy for receive-side announce freshness.
 ///
 /// This is deliberately independent of the packet-loop cache: it bounds durable receiver
@@ -1240,6 +1333,11 @@ pub struct RoutingCounters {
     pub freshness_rows_evicted: u64,
     /// Per-destination freshness blobs evicted to retain the configured bounded history.
     pub freshness_blobs_evicted: u64,
+    /// Our own link packets heard back from a relay, and dropped as ours.
+    pub own_echo_dropped: u64,
+    /// Far-end link packets heard again, directly or from a relay, and dropped as copies.
+    /// A reliable initiator's IDENTIFY re-sends are new packets and do not land here.
+    pub duplicate_dropped: u64,
 }
 
 /// The live counter cells behind [`RoutingCounters`].
@@ -1260,6 +1358,8 @@ struct RoutingStats {
     freshness_blobs_expired: AtomicU64,
     freshness_rows_evicted: AtomicU64,
     freshness_blobs_evicted: AtomicU64,
+    own_echo_dropped: AtomicU64,
+    duplicate_dropped: AtomicU64,
 }
 
 impl RoutingStats {
@@ -1280,6 +1380,8 @@ impl RoutingStats {
             freshness_blobs_expired: self.freshness_blobs_expired.load(Ordering::Relaxed),
             freshness_rows_evicted: self.freshness_rows_evicted.load(Ordering::Relaxed),
             freshness_blobs_evicted: self.freshness_blobs_evicted.load(Ordering::Relaxed),
+            own_echo_dropped: self.own_echo_dropped.load(Ordering::Relaxed),
+            duplicate_dropped: self.duplicate_dropped.load(Ordering::Relaxed),
         }
     }
 }
@@ -1939,16 +2041,18 @@ struct Shared {
     /// Recently-seen announce packet hashes, for de-duplication (a ring of the last
     /// [`SEEN_ANNOUNCES`]).
     seen_announces: Mutex<(HashSet<AddressHash>, VecDeque<AddressHash>)>,
+    /// Our own link packets heard back, and the far end's heard twice. See [`LinkPacketMemory`].
+    link_packets: Mutex<LinkPacketMemory>,
     /// Bounded freshness admission. Its lock spans the complete announce-effect bundle.
     announce_freshness: Mutex<AnnounceFreshnessState>,
-    announce_freshness_started: Instant,
+    announce_freshness_started: tokio::time::Instant,
     /// Route expiry follows the host freshness policy without needing to acquire the freshness
     /// bundle lock during ordinary packet routing.
     route_ttl_ms: AtomicU64,
     /// The bounded interface and destination announce-admission state machines. Their clock
     /// is relative to this endpoint so the verdicts are deterministic under a supplied time.
     announce_admission: Mutex<AnnounceAdmission>,
-    announce_admission_started: Instant,
+    announce_admission_started: tokio::time::Instant,
     /// Verified unknown-route announces held until their ingress burst has subsided.
     held_announces: Mutex<VecDeque<HeldAnnounce>>,
     /// At most one release task runs for each interface, however many announces it is holding.
@@ -2228,6 +2332,10 @@ impl Shared {
     }
 
     fn try_send_on_class(&self, iface: InterfaceId, pkt: Packet, class: TrafficClass) -> bool {
+        // Carried traffic is someone else's, and its copies coming back are theirs to judge.
+        if class != TrafficClass::Transit {
+            self.link_packets.lock().unwrap().note_sent(&pkt);
+        }
         let addressed = self.address_for(iface, pkt);
         if let Some(i) = self
             .interfaces
@@ -2289,10 +2397,7 @@ impl Shared {
             .unwrap()
             .get(&pkt.destination)
             .and_then(|entry| entry.transport);
-        if let Some(t) = via {
-            pkt.header_type = crate::packet::HeaderType::Type2;
-            pkt.transport = Some(t);
-        }
+        pkt.address_via(via);
         let _ = iface;
         pkt
     }
@@ -2583,13 +2688,14 @@ impl Endpoint {
             inbound_link_proofs: Mutex::new(HashMap::new()),
             path_table: Mutex::new(HashMap::new()),
             seen_announces: Mutex::new((HashSet::new(), VecDeque::new())),
+            link_packets: Mutex::new(LinkPacketMemory::new()),
             announce_freshness: Mutex::new(AnnounceFreshnessState::new(freshness_policy)?),
-            announce_freshness_started: Instant::now(),
+            announce_freshness_started: tokio::time::Instant::now(),
             route_ttl_ms: AtomicU64::new(freshness_policy.route_ttl_ticks()),
             announce_admission: Mutex::new(
                 AnnounceAdmission::new(AnnounceIngressPolicy::default()),
             ),
-            announce_admission_started: Instant::now(),
+            announce_admission_started: tokio::time::Instant::now(),
             held_announces: Mutex::new(VecDeque::new()),
             held_release_tasks: Mutex::new(HashSet::new()),
             held_release_wake: tokio::sync::Notify::new(),
@@ -4425,6 +4531,20 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                     None => (None, None),
                 }
             };
+            // On one of our links, our own packet heard back or the far end's heard twice
+            // is not new traffic, whichever discipline the link uses.
+            if raw.is_some() || best.is_some() {
+                let admission = shared.link_packets.lock().unwrap().admit(&pkt);
+                let dropped = match admission {
+                    LinkPacketAdmission::New => None,
+                    LinkPacketAdmission::OwnEcho => Some(&shared.routing_stats.own_echo_dropped),
+                    LinkPacketAdmission::Duplicate => Some(&shared.routing_stats.duplicate_dropped),
+                };
+                if let Some(counter) = dropped {
+                    counter.fetch_add(1, Ordering::Relaxed);
+                    return;
+                }
+            }
             if let Some(packets) = raw {
                 // The reliable or resource driver owns this packet; hand it over raw.
                 let _ = packets.send(pkt);
@@ -4692,9 +4812,9 @@ fn register_reliable_stream(
     });
 
     // An initiator (known peer) identifies itself so the responder can validate our proofs.
-    let identify = peer
-        .is_some()
-        .then(|| link.identify_packet(&shared.identity, &next_iv()));
+    // Each send is sealed under a fresh IV, so a re-send is a new packet with a new hash and
+    // the responder's duplicate window does not count it (Ruling 72).
+    let identify_link = peer.is_some().then(|| link.clone());
     let close_link = link.clone();
     let initial_rtt_ms = shared.reliable_initial_rtt_ms.load(Ordering::Relaxed);
     let max_window = shared.reliable_max_window.load(Ordering::Relaxed);
@@ -4728,8 +4848,8 @@ fn register_reliable_stream(
         // Identify to the responder so it can validate our proofs. RNS sends this once; we
         // re-send it over the first few ticks (in the clock arm below) so a dropped one still
         // lands on a lossy medium.
-        if let Some(id_packet) = &identify {
-            drv.send_on(iface, id_packet.clone());
+        if let Some(id_link) = &identify_link {
+            drv.send_on(iface, id_link.identify_packet(&drv.identity, &next_iv()));
         }
         let mut identify_sends: u32 = 1;
         let mut buf = [0u8; WRITE_CHUNK];
@@ -4829,10 +4949,10 @@ fn register_reliable_stream(
                     clock += RELIABLE_TICK_MS;
                     // Re-send IDENTIFY over the first few ticks so a dropped one still reaches
                     // the responder on a lossy medium (bounded; there is no ack to wait on).
-                    if let Some(id_packet) = &identify
+                    if let Some(id_link) = &identify_link
                         && identify_sends < IDENTIFY_MAX_SENDS
                     {
-                        drv.send_on(iface, id_packet.clone());
+                        drv.send_on(iface, id_link.identify_packet(&drv.identity, &next_iv()));
                         identify_sends += 1;
                     }
                 }
@@ -5272,6 +5392,51 @@ mod tests {
         assert_eq!(emitted_timebase(&first_again), 701);
         assert_eq!(emitted_timebase(&path_response_again), 701);
         assert_eq!(path_response.context, crate::path::CTX_PATH_RESPONSE);
+    }
+
+    /// The link packet memory holds its bound, forgets oldest first, and leaves alone the
+    /// contexts whose repeats are legitimate: every keepalive request shares one hash, and a
+    /// re-sent resource part repeats its own.
+    #[test]
+    fn link_packet_memory_is_bounded_and_skips_keepalives_and_resources() {
+        let mut window = HashWindow::new(2);
+        let [a, b, c] = [1u8, 2, 3].map(|n| AddressHash::from_bytes([n; 16]));
+        assert!(window.insert(a) && window.insert(b) && !window.insert(a));
+        assert!(window.insert(c));
+        assert_eq!(window.order.len(), 2);
+        assert!(!window.contains(&a), "the oldest is forgotten first");
+        assert!(window.contains(&b) && window.contains(&c));
+
+        let link_packet = |context| Packet {
+            ifac: false,
+            header_type: crate::packet::HeaderType::Type1,
+            context_flag: false,
+            propagation: crate::packet::Propagation::Broadcast,
+            destination_type: DestinationType::Link,
+            packet_type: PacketType::Data,
+            hops: 0,
+            transport: None,
+            destination: AddressHash::from_bytes([9; 16]),
+            context,
+            payload: vec![link::KEEPALIVE_REQUEST],
+        };
+        let mut memory = LinkPacketMemory::new();
+        for context in [link::CTX_KEEPALIVE, link::CTX_RESOURCE] {
+            let packet = link_packet(context);
+            memory.note_sent(&packet);
+            assert_eq!(memory.admit(&packet), LinkPacketAdmission::New);
+            assert_eq!(memory.admit(&packet), LinkPacketAdmission::New);
+        }
+        let data = link_packet(0);
+        assert_eq!(memory.admit(&data), LinkPacketAdmission::New);
+        assert_eq!(memory.admit(&data), LinkPacketAdmission::Duplicate);
+        let channel = link_packet(CTX_CHANNEL);
+        memory.note_sent(&channel);
+        assert_eq!(
+            memory.admit(&channel),
+            LinkPacketAdmission::OwnEcho,
+            "our own Channel packet is ours"
+        );
     }
 
     #[test]

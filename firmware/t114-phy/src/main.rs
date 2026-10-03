@@ -16,7 +16,6 @@ use embassy_time::{Delay, Duration, with_timeout};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::{Builder, Config, UsbDevice};
 use embedded_hal_bus::spi::ExclusiveDevice;
-use lora_modulation::{Bandwidth, CodingRate, SpreadingFactor};
 use lora_phy::LoRa;
 use lora_phy::sx126x::{Config as Sx126xConfig, Sx126x, Sx1262, TcxoCtrlVoltage};
 use radio_hand::channel::modem::ModemChannel;
@@ -52,7 +51,7 @@ bind_interrupts!(struct Irqs {
 
 type UsbDriver = Driver<'static, HardwareVbusDetect>;
 
-const TX_POWER_DBM: i32 = 17;
+const TX_POWER_DBM: i32 = board::DEFAULT_TX_POWER_DBM as i32;
 const MAX_RADIO_FRAME: usize = 255;
 const USB_PACKET: usize = 64;
 
@@ -220,16 +219,30 @@ async fn main(spawner: Spawner) {
     }
 
     // The node this board answers as, built from the persisted identity.
-    let node = settings.map(|settings| {
-        retinue::node::Node::<32, 8, 4>::new(
-            retinue::identity::PrivateIdentity::from_secret_bytes(&settings.identity),
-            retinue::destination::DestinationName::new("retinue", ["node"]).name_hash(),
-        )
-        // The native-node personality is this board's standalone mesh participant, so it
-        // carries its bounded transport policy. Modem and RNode remain host-driven and do
-        // not acquire routing state.
-        .with_transport_config(retinue::node::TransportConfig::transit())
-    });
+    let node = settings
+        .map(|settings| {
+            retinue::node::Node::<32, 8, 4>::new(
+                retinue::identity::PrivateIdentity::from_secret_bytes(&settings.identity),
+                retinue::destination::DestinationName::new("retinue", ["node"]).name_hash(),
+            )
+            // The native-node personality is this board's standalone mesh participant, so it
+            // carries its bounded transport policy. Modem and RNode remain host-driven and do
+            // not acquire routing state.
+            .with_transport_config(retinue::node::TransportConfig::transit())
+        })
+        .map(|mut node| {
+            // A link request's deadline covers this radio's own slowness (Ruling 50): the first
+            // hop's airtime allowance, from the modulation the node channel runs on.
+            let allowance = radio_hand::phy::nominal_bits_ms(
+                board::DEFAULT_SPREADING_FACTOR,
+                board::DEFAULT_BANDWIDTH_HZ,
+                board::DEFAULT_CODING_RATE_DENOMINATOR,
+                retinue::node::FIRST_HOP_ALLOWANCE_BITS,
+            )
+            .unwrap_or(0);
+            let _ = node.set_first_hop_airtime(radio_hand::channel::node::RADIO, allowance);
+            node
+        });
     let mut node_line = [0_u8; 64];
     let node_line_len = describe_node(node.as_ref(), &mut node_line);
 
@@ -365,15 +378,22 @@ async fn main(spawner: Spawner) {
     let boot_frequency = region
         .profile()
         .map(|p| p.default_frequency_hz)
-        .unwrap_or(906_875_000);
-    let modulation = match lora.create_modulation_params(
-        SpreadingFactor::_11,
-        Bandwidth::_250KHz,
-        CodingRate::_4_5,
-        boot_frequency,
+        .unwrap_or(board::DEFAULT_FREQUENCY_HZ);
+    // One source for the modulation: the same board defaults the link deadline's airtime
+    // allowance is computed from (Ruling 70), so the two cannot drift.
+    let params = match (
+        radio_hand::phy::spreading_factor(board::DEFAULT_SPREADING_FACTOR),
+        radio_hand::phy::bandwidth(board::DEFAULT_BANDWIDTH_HZ),
+        radio_hand::phy::coding_rate(board::DEFAULT_CODING_RATE_DENOMINATOR),
     ) {
-        Ok(params) => params,
-        Err(_) => {
+        (Some(sf), Some(bw), Some(cr)) => lora
+            .create_modulation_params(sf, bw, cr, boot_frequency)
+            .ok(),
+        _ => None,
+    };
+    let modulation = match params {
+        Some(params) => params,
+        None => {
             publish_fault(&mut local_status, 2, "PHY PARAMS");
             host::serve_status_only(class, b"tulle/t114 phy modulation invalid\r\n".as_slice())
                 .await

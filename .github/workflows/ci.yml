@@ -87,6 +87,33 @@ jobs:
       - name: Build (outrider, no_std)
         run: cargo build -p outrider --no-default-features --target thumbv7em-none-eabihf
 
+  # radio-mirror is radio-face in the browser. The host jobs above build it natively only,
+  # where its wasm-bindgen layer (src/web.rs) is compiled out, so this is the job that
+  # compiles and lints that layer and proves the JS bindings generate. The CLI is pinned
+  # to the crate's wasm-bindgen (=0.2.127): the two must match exactly or bindgen refuses.
+  # Bindings are generated for the default build (what ships) and for all features
+  # (adds the `canvas` draw helper).
+  wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: clippy
+      - name: Clippy (radio-mirror, wasm32, deny warnings)
+        run: cargo clippy -p radio-mirror --target wasm32-unknown-unknown --all-targets --all-features -- -D warnings
+      - name: Install wasm-bindgen-cli 0.2.127
+        run: cargo install wasm-bindgen-cli --version 0.2.127 --locked
+      - name: Build and bind (default features)
+        run: |
+          cargo build -p radio-mirror --release --target wasm32-unknown-unknown
+          wasm-bindgen --target web --out-dir target/radio-mirror-pkg target/wasm32-unknown-unknown/release/radio_mirror.wasm
+      - name: Build and bind (all features)
+        run: |
+          cargo build -p radio-mirror --release --target wasm32-unknown-unknown --all-features
+          wasm-bindgen --target web --out-dir target/radio-mirror-pkg-all target/wasm32-unknown-unknown/release/radio_mirror.wasm
+
   # Enforce that the whole dependency tree stays permissively licensed. A copyleft
   # dependency would force any firmware that links retinue to GPLv3 (see deny.toml and the
   # embedded/licensing research note), so this gate fails the build if one ever enters.

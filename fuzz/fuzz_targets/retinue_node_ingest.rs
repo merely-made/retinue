@@ -38,7 +38,7 @@ fn linked<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>(
         &sender.announce(&AnnounceBlob::from_wire([0xA1; 10]), None),
         0,
     );
-    let request = sent(receiver.open_link(sender.destination(), IFACE, &[0xB2; 64])?)?;
+    let request = sent(receiver.open_link(sender.destination(), IFACE, &[0xB2; 64], 0)?)?;
     let proof = sent(sender.ingest(IFACE, &request, 1))?;
     receiver
         .ingest(IFACE, &proof, 2)
