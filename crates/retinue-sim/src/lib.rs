@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! Run Retinue nodes in process over a shared-radio topology, and record what happened.
 //!
 //! Each radio is a real [`retinue::node::Node`]. The harness is its shell: it polls every
