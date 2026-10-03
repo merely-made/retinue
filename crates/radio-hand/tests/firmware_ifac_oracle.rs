@@ -14,7 +14,9 @@ fn fixture() -> Value {
 
 fn bytes(value: &Value) -> Vec<u8> {
     let text = value.as_str().unwrap().as_bytes();
-    text.chunks_exact(2)
+    text.as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| u8::from_str_radix(core::str::from_utf8(pair).unwrap(), 16).unwrap())
         .collect()
 }

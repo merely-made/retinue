@@ -70,7 +70,9 @@ fn every_receipt_screen_matches_pixel_for_pixel_and_byte_for_byte() {
             assert!(
                 frame
                     .as_rgba()
-                    .chunks_exact(4)
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
                     .all(|pixel| pixel[3] == u8::MAX),
                 "{file}: not opaque"
             );

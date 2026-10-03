@@ -19,7 +19,7 @@ impl<C> RgbaFramebuffer<C> {
     /// An opaque black buffer.
     pub fn new(size: Size) -> Self {
         let mut rgba = vec![0; size.width as usize * size.height as usize * 4];
-        for pixel in rgba.chunks_exact_mut(4) {
+        for pixel in rgba.as_chunks_mut::<4>().0 {
             pixel[3] = u8::MAX;
         }
         Self {
@@ -48,7 +48,9 @@ impl<C> RgbaFramebuffer<C> {
     /// RGB8 without alpha, for encoders that want opaque rows.
     pub fn to_rgb(&self) -> Vec<u8> {
         self.rgba
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .flat_map(|pixel| [pixel[0], pixel[1], pixel[2]])
             .collect()
     }
@@ -124,7 +126,7 @@ where
 
     fn clear(&mut self, color: Self::Color) -> Result<(), Self::Error> {
         let color: Rgb888 = color.into();
-        for pixel in self.rgba.chunks_exact_mut(4) {
+        for pixel in self.rgba.as_chunks_mut::<4>().0 {
             pixel.copy_from_slice(&[color.r(), color.g(), color.b(), u8::MAX]);
         }
         Ok(())
