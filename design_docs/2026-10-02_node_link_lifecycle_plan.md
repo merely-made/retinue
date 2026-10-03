@@ -1,8 +1,17 @@
 # Node link lifecycle and retinue 0.2.0
 
-**Status (2026-10-02):** in progress. The verified work is merged on the
-integration branch `site-canvas-integration`. Lanes L-A and L-B are building
-the remaining phases. Nothing is on `main`, published, or repinned in mere yet.
+**Status (2026-10-03):** every phase except N12 is merged and verified on the
+integration branch `site-canvas-integration` (`76d4e80`). The gate passed
+twice:
+- host crates: 430/0;
+- radio-hand: 236/0, and 265/0 with `replay,instances`;
+- retinue with no default features: 23/0, green for the first time; it failed
+  on `main` before;
+- retinue with `alloc` only: 273/0.
+
+Clippy and fmt are clean, and T114, V4, and V4 `resident-protocols` build.
+N12 (merging to `main`, pushing, publishing, and downstream repins) awaits
+Mark. Nothing is on `main`, pushed, or published.
 
 ## Purpose and authority
 
@@ -38,11 +47,11 @@ phase's tests pass, the gate below passes twice, and both firmwares build.
 | N13 | 65 | `reliable.rs` `on_identify` refuses to replace a set peer or adopt its own identity, with a control | merged (`de9e244` control, `30210a2` guard) |
 | N14 | 66 | Own-echo and duplicate windows get dedicated per-profile capacity constants | merged (`788be35`) |
 | N15 | 67 | Own-echo drops and duplicate drops are counted separately in `Node` and `Endpoint` | merged (`46922f8`) |
-| N16 | 72 | Each IDENTIFY re-send is encrypted under a fresh IV, so re-sends are new packets | lane L-D |
-| N17 | 74 | radio-hand's resident `Runtime` emits `LinkRequestTimedOut` like the channel node | lane L-D |
-| N18 | 76 | An expiry found by `open_link` carries the node's state at expiry, before the new request | lane L-D |
-| N19 | 77 | `request_string_map` is gated on its required features; `--no-default-features` CI is green | lane L-D |
-| N20 | 78 | The protocol-capacity receipt is regenerated on the 0.2.0 tree | lane L-D |
+| N16 | 72 | Each IDENTIFY re-send is encrypted under a fresh IV, so re-sends are new packets | merged (`85e67c9` control, `90e1b3a` fix) |
+| N17 | 74 | radio-hand's resident `Runtime` emits `LinkRequestTimedOut` like the channel node | merged (`3fa4cf0`) |
+| N18 | 76 | An expiry found by `open_link` carries the node's state at expiry, before the new request | merged (`83bda43`) |
+| N19 | 77 | `request_string_map` is gated on its required features; `--no-default-features` CI is green | merged (`a6d089d`) |
+| N20 | 78 | The protocol-capacity receipt is regenerated on the 0.2.0 tree | merged (`85e2f4d`) |
 | N12 | 29, 41 | Publish 0.2.0 (Mark's separate call) and repin mere, coordinated with mere's active session | open |
 
 **The gate**, run with `--locked`:
@@ -222,3 +231,19 @@ were taken from their reads, were discarded without being merged
     `instances`. Clippy and fmt are clean; retinue checks with `alloc` only.
 - 2026-10-02 (3b20342): T114's radio is configured from `board::DEFAULT_*`
   (Ruling 70). The values are unchanged and T114 builds clean.
+- 2026-10-03: L-D merged (`76d4e80`).
+  - **N16:** each IDENTIFY re-send is sealed under a fresh IV. The control
+    failed at `85e67c9`, re-run by the coordinator, with `(0, 3)` against
+    `(0, 0)`. L-C's relaxed assertions are exact again.
+  - **N17:** `Runtime` emits `LinkRequestTimedOut`. `RetinueExpired` now
+    covers links and resources only.
+  - **N18:** an `open_link` expiry carries the state at expiry. The traces are
+    byte-identical, because every warm expiry comes from a poll.
+  - **N19:** `request_string_map` is gated on `alloc` and `endpoint_link_echo`
+    on `tokio`.
+  - **N20:** the capacity receipt is regenerated. `Node<8,4,1,4>` costs +616 B
+    and `Node<32,8,4,16>` +640 B; most of it (+384 B) is the 16-entry windows.
+    Heap use is unchanged.
+  - **Open fork:** the protocol-capacity README's V4 command fails as written,
+    because since `b107814` `embedded-alloc` needs the `resident-protocols`
+    feature.
