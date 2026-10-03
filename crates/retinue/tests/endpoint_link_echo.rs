@@ -19,10 +19,13 @@ use retinue::destination::DestinationName;
 use retinue::endpoint::{Endpoint, InterfaceSink, LinkStream, OutboundPackets};
 use retinue::hash::AddressHash;
 use retinue::identity::PrivateIdentity;
-use retinue::link::CTX_CHANNEL;
+use retinue::link::{CTX_CHANNEL, CTX_LINKIDENTIFY};
 use retinue::packet::{Packet, PacketType};
 
 const WAIT: Duration = Duration::from_secs(5);
+/// No IDENTIFY for this long means the initiator has stopped re-sending. The re-sends ride
+/// the reliable driver's opening ticks, 50 ms apart.
+const QUIET: Duration = Duration::from_secs(1);
 /// Plain link data.
 const CTX_DATA: u8 = 0x00;
 
@@ -226,8 +229,8 @@ async fn own_channel_message_echoed_by_a_relay_is_not_received() {
     write(&mut b_stream, b"next B").await;
     assert_eq!(read_n(&mut a_stream, 6).await, "next B");
     assert_eq!(drops(&a), (2, 0), "the late copy counts once more");
-    // B's duplicate count is A's IDENTIFY re-sends, which depend on timing.
-    assert_eq!(drops(&b).0, 0, "B's delivered packets are not counted");
+    // A's IDENTIFY re-sends are new packets (Ruling 72), so B's count is exact.
+    assert_eq!(drops(&b), (0, 0), "B's delivered packets are not counted");
 }
 
 /// Ruling 52: the far end's link data heard twice more, verbatim and via a relay, reaches
@@ -271,7 +274,53 @@ async fn far_end_channel_message_heard_twice_is_received_once() {
         "each far-end Channel message reaches the application once"
     );
     assert_eq!(drops(&a), (0, 2), "each copy counts once, as a duplicate");
-    // B's duplicate count is A's IDENTIFY re-sends, which depend on timing; see the
-    // reliable link's IDENTIFY_MAX_SENDS. Its own-echo count is exact.
-    assert_eq!(drops(&b).0, 0, "A's delivered packets are not counted");
+    // A's IDENTIFY re-sends are new packets (Ruling 72), so B's count is exact.
+    assert_eq!(drops(&b), (0, 0), "A's delivered packets are not counted");
+}
+
+/// Ruling 72: a reliable initiator re-sends its IDENTIFY, each under a fresh IV, so every
+/// re-send is a new packet. The responder counts none of them as a duplicate and learns the
+/// initiator once.
+#[tokio::test]
+async fn identify_re_sends_are_new_packets() {
+    let (_a, b, mut w, mut a_stream, mut b_stream) = reliable().await;
+    let link = a_stream.link_id();
+
+    let mut sends = Vec::new();
+    while let Ok(packet) = tokio::time::timeout(QUIET, w.from_a.recv()).await {
+        let packet = packet.expect("the tap stays open");
+        if packet.destination == link && packet.context == CTX_LINKIDENTIFY {
+            sends.push(packet);
+        }
+    }
+    assert!(
+        sends.len() > 1,
+        "A re-sends its IDENTIFY: {} sent",
+        sends.len()
+    );
+
+    // Every IDENTIFY reached B before the tap copied it, so B has judged them all once this
+    // later packet reaches the application.
+    write(&mut a_stream, b"after").await;
+    assert_eq!(read_n(&mut b_stream, 5).await, "after");
+    assert_eq!(
+        drops(&b),
+        (0, 0),
+        "{} IDENTIFY sends, none a duplicate",
+        sends.len()
+    );
+
+    let mut hashes: Vec<_> = sends.iter().map(Packet::hash).collect();
+    hashes.sort_unstable();
+    hashes.dedup();
+    assert_eq!(hashes.len(), sends.len(), "each send is a new packet");
+
+    let learned = b
+        .link_facts()
+        .into_iter()
+        .find(|fact| fact.id == link)
+        .expect("B holds the link")
+        .remote
+        .identity;
+    assert_eq!(learned, Some(*identity(0x11).public()), "B learns A");
 }

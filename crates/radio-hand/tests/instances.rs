@@ -647,11 +647,12 @@ fn the_retinue_profile_sets_the_first_hop_allowance() {
     );
 }
 
-/// Ruling 46 in the resident runtime: the runtime's own expiry pass reconciles the node
-/// before polling it, so an unanswered request surfaces in `RetinueExpired.pending_links`,
-/// apart from established `links`. It was dropped from the report before.
+/// Rulings 46 and 74 in the resident runtime: the runtime's own expiry pass reconciles the
+/// node before polling it, and an unanswered request surfaces as the `LinkRequestTimedOut`
+/// action the channel node reports, with no `RetinueExpired`. A pass that expired only a
+/// request was once dropped from the report entirely.
 #[test]
-fn an_unanswered_request_is_reported_apart_from_lost_links() {
+fn an_unanswered_request_is_reported_as_timed_out() {
     let mut node = Node::<8, 4, 1, 4>::new(
         PrivateIdentity::from_secret_bytes(&[1; 64]),
         DestinationName::new("retinue", ["resident"]).name_hash(),
@@ -666,12 +667,17 @@ fn an_unanswered_request_is_reported_apart_from_lost_links() {
     let id = retinue::link::link_id(&request).unwrap();
     let mut runtime = runtime_from(node, 2, 20, Default::default());
     let deadline = retinue::node::link_request_timeout(0);
+    // Every Retinue event in a report: a timed-out request by its id, anything else by kind.
     let expired = |report: &radio_hand::instances::Report| {
         report
             .events
             .iter()
             .filter_map(|event| match event {
-                Event::RetinueExpired(r) => Some((r.pending_links.to_vec(), r.links.len())),
+                Event::Retinue(retinue::node::Action::LinkRequestTimedOut { link_id }) => {
+                    Some(("timed out", Some(*link_id)))
+                }
+                Event::Retinue(_) => Some(("other action", None)),
+                Event::RetinueExpired(_) => Some(("expiry report", None)),
                 _ => None,
             })
             .collect::<std::vec::Vec<_>>()
@@ -692,7 +698,7 @@ fn an_unanswered_request_is_reported_apart_from_lost_links() {
     );
 
     let at = runtime.poll(deadline, None).unwrap();
-    assert_eq!(expired(&at), vec![(vec![id], 0)]);
+    assert_eq!(expired(&at), vec![("timed out", Some(id))]);
     assert_eq!(
         runtime
             .retinue()
@@ -701,6 +707,29 @@ fn an_unanswered_request_is_reported_apart_from_lost_links() {
             .pending_handshakes,
         0
     );
+}
+
+/// Positive control for Ruling 74: an established link that idles out is still reported
+/// in `RetinueExpired`, whose `pending_links` stays empty.
+#[test]
+fn an_idle_link_is_still_reported_as_expired() {
+    let (mut runtime, _peer, id, _announce) = linked_runtime();
+    let at = runtime
+        .poll(3 + retinue::node::LINK_IDLE_TIMEOUT, None)
+        .unwrap();
+    let reports: std::vec::Vec<_> = at
+        .events
+        .iter()
+        .filter_map(|event| match event {
+            Event::RetinueExpired(r) => Some((r.links.to_vec(), r.pending_links.len())),
+            Event::Retinue(retinue::node::Action::LinkRequestTimedOut { .. }) => {
+                panic!("no request was pending")
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(reports, vec![(vec![id], 0)]);
+    assert!(!runtime.retinue().node().has_link(id));
 }
 
 #[test]

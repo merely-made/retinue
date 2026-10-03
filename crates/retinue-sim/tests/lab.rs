@@ -418,6 +418,27 @@ fn open_link_expiries_precede_the_send_that_freed_them() {
         [Some(1), Some(2), Some(3)]
     );
     assert!(at_send.iter().all(|(i, ..)| *i < send_6));
+    // Ruling 76: each carries fire's state at expiry, before the sixth send's request is
+    // added, so only the fourth request is pending. The request's own transmit, after it was
+    // added, counts two.
+    let pending = |i: usize| match &trace.events[i] {
+        Event::LinkRequestExpired { state, .. } | Event::Transmit { state, .. } => {
+            state.pending_links
+        }
+        other => panic!("no node state on {other:?}"),
+    };
+    assert_eq!(
+        at_send
+            .iter()
+            .map(|(i, ..)| pending(*i))
+            .collect::<Vec<_>>(),
+        [1, 1, 1]
+    );
+    let request = trace.events[send_6..]
+        .iter()
+        .position(|event| matches!(event, Event::Transmit { node, .. } if node == "fire"))
+        .expect("the sixth send's request is transmitted");
+    assert_eq!(pending(send_6 + request), 2);
     assert!(
         !trace
             .events

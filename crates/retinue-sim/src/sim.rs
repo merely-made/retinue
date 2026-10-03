@@ -299,16 +299,20 @@ impl<'a, const P: usize, const A: usize, const L: usize, const R: usize> Sim<'a,
             return Ok(());
         };
         // Requests `open_link` dropped as overdue happened first, so they are recorded
-        // before the send that freed their slots.
+        // before the send that freed their slots, each with the state between the two.
         let actions = self.checked(t, from, actions)?;
         let (expired, actions): (Vec<_>, Vec<_>) = actions
             .into_iter()
             .partition(|action| matches!(action, Action::LinkRequestTimedOut { .. }));
-        self.perform_list(t, from, expired, None)?;
         let request = actions.iter().find_map(|action| match action {
             Action::Send { packet, .. } => Some(packet.clone()),
             _ => None,
         });
+        for action in expired {
+            if let Action::LinkRequestTimedOut { link_id } = action {
+                self.link_request_expired(t, from, link_id, u32::from(request.is_some()));
+            }
+        }
         self.messages[i].link = request
             .as_ref()
             .and_then(|packet| retinue::link::link_id(packet).ok());
@@ -390,17 +394,8 @@ impl<'a, const P: usize, const A: usize, const L: usize, const R: usize> Sim<'a,
                         link: link_id.to_string(),
                     });
                 }
-                // As the channel node notes it (`radio_hand::channel::node::LINK_UNANSWERED`).
                 Action::LinkRequestTimedOut { link_id } => {
-                    self.note(n, FaceEventKind::Failed, "link unanswered");
-                    let state = self.state(t, n);
-                    self.events.push(Event::LinkRequestExpired {
-                        t,
-                        node: self.nodes[n].name.clone(),
-                        link: link_id.to_string(),
-                        message: self.message_on(link_id),
-                        state,
-                    });
+                    self.link_request_expired(t, n, link_id, 0);
                 }
                 Action::Data { link_id, payload } => {
                     let message = self.message_on(link_id);
@@ -458,6 +453,26 @@ impl<'a, const P: usize, const A: usize, const L: usize, const R: usize> Sim<'a,
             self.send_payload(t, n, link_id)?;
         }
         Ok(())
+    }
+
+    /// Record a link request node `n` dropped unanswered, with the node's state at expiry.
+    /// `added` counts requests the same call added after the drop: `open_link` drops overdue
+    /// requests and then adds its own in one call, so they are taken back out (Ruling 76).
+    fn link_request_expired(&mut self, t: u64, n: usize, link_id: AddressHash, added: u32) {
+        // As the channel node notes it (`radio_hand::channel::node::LINK_UNANSWERED`).
+        self.note(n, FaceEventKind::Failed, "link unanswered");
+        let mut state = self.state(t, n);
+        state.pending_links = state
+            .pending_links
+            .checked_sub(added)
+            .expect("an added request is pending");
+        self.events.push(Event::LinkRequestExpired {
+            t,
+            node: self.nodes[n].name.clone(),
+            link: link_id.to_string(),
+            message: self.message_on(link_id),
+            state,
+        });
     }
 
     /// The application half: once a send's link is up at its sender, carry the payload.

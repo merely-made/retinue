@@ -1336,7 +1336,7 @@ pub struct RoutingCounters {
     /// Our own link packets heard back from a relay, and dropped as ours.
     pub own_echo_dropped: u64,
     /// Far-end link packets heard again, directly or from a relay, and dropped as copies.
-    /// A reliable initiator's IDENTIFY re-sends land here once the first has arrived.
+    /// A reliable initiator's IDENTIFY re-sends are new packets and do not land here.
     pub duplicate_dropped: u64,
 }
 
@@ -4812,9 +4812,9 @@ fn register_reliable_stream(
     });
 
     // An initiator (known peer) identifies itself so the responder can validate our proofs.
-    let identify = peer
-        .is_some()
-        .then(|| link.identify_packet(&shared.identity, &next_iv()));
+    // Each send is sealed under a fresh IV, so a re-send is a new packet with a new hash and
+    // the responder's duplicate window does not count it (Ruling 72).
+    let identify_link = peer.is_some().then(|| link.clone());
     let close_link = link.clone();
     let initial_rtt_ms = shared.reliable_initial_rtt_ms.load(Ordering::Relaxed);
     let max_window = shared.reliable_max_window.load(Ordering::Relaxed);
@@ -4848,8 +4848,8 @@ fn register_reliable_stream(
         // Identify to the responder so it can validate our proofs. RNS sends this once; we
         // re-send it over the first few ticks (in the clock arm below) so a dropped one still
         // lands on a lossy medium.
-        if let Some(id_packet) = &identify {
-            drv.send_on(iface, id_packet.clone());
+        if let Some(id_link) = &identify_link {
+            drv.send_on(iface, id_link.identify_packet(&drv.identity, &next_iv()));
         }
         let mut identify_sends: u32 = 1;
         let mut buf = [0u8; WRITE_CHUNK];
@@ -4949,10 +4949,10 @@ fn register_reliable_stream(
                     clock += RELIABLE_TICK_MS;
                     // Re-send IDENTIFY over the first few ticks so a dropped one still reaches
                     // the responder on a lossy medium (bounded; there is no ack to wait on).
-                    if let Some(id_packet) = &identify
+                    if let Some(id_link) = &identify_link
                         && identify_sends < IDENTIFY_MAX_SENDS
                     {
-                        drv.send_on(iface, id_packet.clone());
+                        drv.send_on(iface, id_link.identify_packet(&drv.identity, &next_iv()));
                         identify_sends += 1;
                     }
                 }
