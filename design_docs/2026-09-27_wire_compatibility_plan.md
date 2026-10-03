@@ -18,6 +18,8 @@ attribution and uncertainty remain recorded; they are not prerequisites to rerun
 or current endorsements. Passing protocol tests cannot establish source authorship.
 
 RNS 1.5.4 has replaced the live 1.5.2 pin; LXMF stays 1.1.1.
+
+*2026-10-03:* RNS 1.5.6 and LXMF 1.2.0 replace the 1.5.4 and 1.1.1 pins, within the scopes of the [1.5.6 receipt](../testing/receipts/rns-1.5.6-repin/README.md). On 1.5.6, every live gate passed in at least one run, though no single run had all 13 green. `interop_ifac` is intermittent on an RNS-side race that is also present on 1.5.4 (1 failure in 12 there, 4 in 12 on 1.5.6). outrider passed 7/7, resource 12/12, and routing 3/3, with route decisions identical to 1.5.4.
 Physical firmware and public-network claims require their own receipts. Local TCP
 success does not requalify radio scheduling, on-air relay, power, or board IFAC.
 

@@ -5,8 +5,7 @@
 retinue 0.2.0 (the link-lifecycle work in
 [the plan](../../../design_docs/2026-10-02_node_link_lifecycle_plan.md)).
 **Supersedes:** [the 1.5.4 repin](../rns-1.5.4-repin/README.md), within the
-scopes measured below. `requirements.txt` moves only when the pin is ruled
-(see Open).
+scopes measured below. The pin moved on 2026-10-03 (see Open).
 
 ## Acquisition and method
 
@@ -71,9 +70,16 @@ interface: `'TCPClientInterface' object has no attribute 'ifac_size'`. RNS then
 tears the interface down, and both directions fail. The passing runs show no
 such error.
 
-Whether this is new in 1.5.6 is **unmeasured**. The 1.5.4 receipt ran this gate
-twice, and both runs passed. A comparison needs 1.5.4 reinstalled in a scratch
-environment.
+**It is not new in 1.5.6.** RNS 1.5.4 (wheel `862615b1...6a19`, matching the
+1.5.4 receipt) was installed in a separate scratch venv with the same Python
+(3.14.2), cryptography (49.0.0), and pyserial (3.5). The gate ran there 12
+times, by the same procedure, and failed once, with the identical `ifac_size`
+error (logs in [ifac-repeat-rns154/](ifac-repeat-rns154/)).
+
+The observed rates, 1 in 12 on 1.5.4 and 4 in 12 on 1.5.6, are too small a
+sample to tell apart. This is a pre-existing intermittent RNS-side race on
+IFAC-configured TCP interfaces, not a Retinue failure. It joins the RNS behaviours
+held under mer3ly's Ruling 53.
 
 ## The corroboration re-checks ([link-echo/](link-echo/))
 
@@ -123,9 +129,10 @@ Run each lane with the oracle venv's Python, one at a time. Each gate has a
 
 ## Open
 
-- The pin itself: `requirements.txt` stays at 1.5.4 and 1.1.1 until the IFAC
-  finding is ruled.
-- Whether the IFAC failure predates 1.5.6.
+- The pin moved to `rns==1.5.6` and `lxmf==1.2.0` on 2026-10-03, once the
+  1.5.4 comparison showed the IFAC race predates 1.5.6 (mer3ly Ruling 95).
+- `interop_ifac` remains intermittently red on the stock side under both
+  versions. A run that hits the race is not a Retinue regression.
 - The open gates listed in the 1.5.4 receipt are unchanged. They include
   firmware IFAC, queue saturation, natural route expiry, and physical
   requalification.
