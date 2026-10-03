@@ -1,12 +1,13 @@
 #![no_std]
 #![forbid(unsafe_code)]
 
-//! The board-management contract for Retinue wall nodes: what a controller may ask of a board,
-//! and what the board keeps durable about who may ask.
+//! How a controller manages a remote radio board safely: what a controller may ask of a board,
+//! and what the board keeps durable about who may ask, so that only its owner can change it and
+//! a power cut never leaves it half-configured.
 //!
-//! - [`control`]: the WN0 request grammar and replies, the WN1 durable configuration journal
-//!   (owner grants, recovery policy, provisional apply and commit), first-owner claiming, and
-//!   the public status record.
+//! - [`control`]: the request grammar and replies, the durable configuration journal (owner
+//!   grants, recovery policy, provisional apply and commit), first-owner claiming, and the public
+//!   status record.
 //! - [`store`]: the CRC-protected A/B record format the journal persists through.
 //! - [`region`]: the regulatory regions a public configuration names.
 //!

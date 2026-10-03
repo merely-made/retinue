@@ -5,7 +5,7 @@ edition = "2024"
 rust-version.workspace = true
 license = "MPL-2.0"
 repository = "https://github.com/merely-made/retinue"
-description = "Board-management contract for Retinue wall nodes: control requests and replies, the durable owner and configuration journal, and A/B record storage."
+description = "Lets a controller manage a remote radio board safely: the signed control requests and replies they exchange, the owner and configuration journal that decides who may change what, and the A/B record store that keeps it across power loss."
 keywords = ["reticulum", "lora", "embedded", "no-std", "configuration"]
 categories = ["embedded", "no-std", "network-programming"]
 
