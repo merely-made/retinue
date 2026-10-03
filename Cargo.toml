@@ -37,7 +37,15 @@ members = [
 #
 # It reaches `signalman` and `linkboy` by relative path, which is not a
 # cross-checkout dependency — they are in this repository.
-exclude = ["apps/signalman-desktop"]
+# Vendored upstream crates are path dependencies, not members: CI lints members with
+# -D warnings, and upstream code is patched only where a defect forces it (156d3bb).
+# Membership made every new rustc lint in vendored code a CI failure (Rust 1.99, 2026-10-03).
+exclude = [
+    "apps/signalman-desktop",
+    "vendor/embedded-graphics",
+    "vendor/embedded-graphics-core",
+    "vendor/lora-phy",
+]
 
 # Firmware targets thumbv7em/xtensa and is built by name, not by default:
 #   cargo build -p tulle-t114-phy --release --target thumbv7em-none-eabihf
