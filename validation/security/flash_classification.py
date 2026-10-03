@@ -91,7 +91,11 @@ def forbidden_hits(root: Path, patterns: tuple[str, ...], globs: tuple[str, ...]
     """
     hits = []
     for glob in globs:
-        for path in sorted(root.glob(glob)):
+        paths = sorted(root.glob(glob))
+        if not paths:
+            # A moved or renamed file must not silently leave the seizure scan.
+            raise PolicyError(f"scan path matches nothing: {glob}")
+        for path in paths:
             for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
                 declaration = re.match(
                     r"\s*(?:pub\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*:\s*[^=]+,?\s*$", line
@@ -264,6 +268,12 @@ def self_test() -> None:
         assert len(hits) == 1, hits
         assert "wifi_psk" in hits[0], hits
         assert forbidden_hits(root, ("ssid",), ("src/*.rs",)) == []
+        try:
+            forbidden_hits(root, ("psk",), ("src/moved_away.rs",))
+        except PolicyError as error:
+            assert "matches nothing" in str(error), error
+        else:
+            raise AssertionError("a scan path matching nothing must fail the audit")
 
 
 def main() -> int:
