@@ -1,0 +1,1 @@
+Correction (2026-10-03): this message says 'live 13/13 after two harness fixes'. No single live run on RNS 1.5.6 had all 13 gates green; every gate passed in at least one run, and interop_ifac is intermittent on an RNS-side race also present on 1.5.4. See 3e1d6a9 and the receipt README.
