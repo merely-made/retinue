@@ -1,12 +1,12 @@
 use heapless::Vec;
-use radio_hand::control::{
+use retinue::identity::PrivateIdentity;
+use seneschal::control::{
     BoardRecoveryFacts, ConfigGeneration, ControllerRole, DurableConfig, DurableLoadError,
     DurableState, MAX_DURABLE_BODY, ManagementCarrier, ManagementCarrierSet, NodeId, OwnerGrant,
     PublicConfigurationV1, RecoveryClause, RecoveryPathFacts, RecoveryPolicy,
     ReticulumTransportPolicy, decode_durable, encode_durable, load, next_record,
 };
-use radio_hand::region::Region;
-use retinue::identity::PrivateIdentity;
+use seneschal::region::Region;
 
 const PAGE: usize = 4096;
 
@@ -83,7 +83,7 @@ fn rhd_v2_is_refused_instead_of_reinterpreting_weak_recovery_claims() {
     body[4] = 2;
     assert_eq!(
         decode_durable(&body[..len]),
-        Err(radio_hand::control::DurableError::UnsupportedVersion(2))
+        Err(seneschal::control::DurableError::UnsupportedVersion(2))
     );
 }
 

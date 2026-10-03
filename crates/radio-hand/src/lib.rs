@@ -16,6 +16,10 @@
 //! Everything here is board-agnostic. Flash and entropy peripherals stay in the firmware
 //! crates, because the T114 reaches them through `embassy-nrf` and the V4 through `esp-hal`;
 //! only the byte formats and the decisions over them are portable.
+//!
+//! [`store`], [`region`], and most of [`control`] are `seneschal`'s, re-exported at their
+//! old paths: the board-management contract is published so hosts can share it without
+//! this crate's vendored radio forks.
 
 #[cfg(test)]
 extern crate std;
@@ -37,7 +41,6 @@ pub mod observation;
 pub mod packet_reservation;
 pub mod phy;
 pub mod profiles;
-pub mod region;
 #[cfg(feature = "replay")]
 pub mod replay;
 pub mod resident_command;
@@ -49,5 +52,6 @@ pub mod scheduler;
 #[cfg(feature = "radio")]
 pub mod service;
 pub mod settings;
-pub mod store;
 pub mod work;
+
+pub use seneschal::{region, store};

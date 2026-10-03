@@ -396,10 +396,11 @@ pub fn state() -> DurableState {
     .unwrap()
 }
 
+/// The owner granted by [`state`], verified the way a board would verify it.
 pub fn controller() -> VerifiedController {
-    VerifiedController::from_verified_key(
-        OwnerGrant::from_public_identity(public_identity(0x30), ControllerRole::Owner).controller(),
-    )
+    crate::control::test_authority::verified_controller(&PrivateIdentity::from_secret_bytes(
+        &[0x30; 64],
+    ))
 }
 
 pub fn public_identity(value: u8) -> [u8; 64] {

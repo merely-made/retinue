@@ -201,11 +201,10 @@ impl ControlRuntime {
         // Call this after an already-verified envelope is refused by WN0 decoding (wrong
         // opcode, non-node target, or malformed payload), so the outer counter is durable
         // before the caller rebuilds or reuses its Retinue verifier.
-        let controller = ControllerId(*v.key_id().as_bytes());
         self.record_verified_outer(
             q,
             x,
-            VerifiedController::from_verified_key(controller),
+            VerifiedController::from_verified_command(v),
             v.counter(),
         )
         .await

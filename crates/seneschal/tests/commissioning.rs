@@ -1,12 +1,12 @@
 use ed25519_dalek::SigningKey;
 use heapless::Vec;
-use radio_hand::control::{
+use seneschal::control::{
     BoardRecoveryFacts, ConfigGeneration, ControllerRole, ManagementCarrier, ManagementCarrierSet,
     NodeId, OwnerClaim, OwnerClaimError, PublicConfigurationError, PublicConfigurationV1,
     RecoveryClause, RecoveryPathFacts, RecoveryPolicy, RecoveryPolicyError,
     ReticulumTransportPolicy,
 };
-use radio_hand::region::Region;
+use seneschal::region::Region;
 
 fn owner_identity(seed: u8) -> [u8; 64] {
     let mut identity = [seed; 64];
@@ -66,7 +66,7 @@ fn valid_claim() -> OwnerClaim {
 #[test]
 fn valid_claim_creates_exactly_one_owner_at_the_canonical_initial_state() {
     let claim = valid_claim();
-    let state = radio_hand::control::DurableState::from_owner_claim(
+    let state = seneschal::control::DurableState::from_owner_claim(
         NodeId([0x10; 16]),
         claim.clone(),
         &facts(true),
@@ -135,7 +135,7 @@ fn owner_role_is_implicit_and_unsafe_recovery_configuration_is_rejected() {
 fn board_recovery_facts_are_required_before_state_construction() {
     let claim = valid_claim();
     assert_eq!(
-        radio_hand::control::DurableState::from_owner_claim(
+        seneschal::control::DurableState::from_owner_claim(
             NodeId([0x20; 16]),
             claim,
             &facts(false),
@@ -160,13 +160,13 @@ fn invalid_public_configuration_or_recovery_policy_is_refused_by_its_existing_va
 
 #[test]
 fn construction_is_deterministic_and_has_no_transaction_artifacts() {
-    let first = radio_hand::control::DurableState::from_owner_claim(
+    let first = seneschal::control::DurableState::from_owner_claim(
         NodeId([0x44; 16]),
         valid_claim(),
         &facts(true),
     )
     .unwrap();
-    let second = radio_hand::control::DurableState::from_owner_claim(
+    let second = seneschal::control::DurableState::from_owner_claim(
         NodeId([0x44; 16]),
         valid_claim(),
         &facts(true),

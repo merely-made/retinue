@@ -30,6 +30,8 @@ mod sequence_tests;
 mod tests;
 mod transaction;
 mod transition;
+#[cfg(test)]
+mod wire_anchors;
 pub use codec::{decode_durable, encode_durable, load, next_record};
 pub use commissioning::{
     FirstWriteBoot, FirstWriteError, FirstWriteLoadError, OWNER_CLAIM_LEN, OwnerClaim,
@@ -417,7 +419,7 @@ impl DurableState {
 
     /// Whether a verified controller may abandon the armed candidate. The same grants
     /// that may confirm a candidate may revert it.
-    pub(crate) fn permits_provisional_revert(&self, controller: VerifiedController) -> bool {
+    pub fn permits_provisional_revert(&self, controller: VerifiedController) -> bool {
         self.permits_provisional_commit(controller.0)
     }
 

@@ -62,7 +62,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.88.0
       - name: Build and test on the declared MSRV
-        run: cargo test -p retinue -p tulle -p selvage -p sennet -p tucket -p outrider -p postilion -p signalman -p linkboy
+        run: cargo test -p retinue -p tulle -p selvage -p seneschal -p sennet -p tucket -p outrider -p postilion -p signalman -p linkboy
 
   # The firmware members build for their own targets and are not default members, so
   # the host jobs above never compile them. This guards the flash-critical path: a

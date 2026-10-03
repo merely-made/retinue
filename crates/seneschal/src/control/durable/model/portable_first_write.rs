@@ -31,7 +31,7 @@ pub const CLAIM_PROOF_LEN: usize = 28 + 1 + NODE_ID_LEN + NONCE_LEN + OWNER_CLAI
 pub const CLAIM_REQUEST_LEN: usize = CLAIM_PREFIX_LEN + SIGNATURE_LEN;
 /// Exact literal-carrier length of an inspect response.
 pub const INSPECT_RESPONSE_LEN: usize = 2 + 3 + NODE_ID_LEN + NONCE_LEN;
-const CLAIM_DOMAIN: &[u8; 28] = b"retinue:first-owner:claim:v1";
+pub(super) const CLAIM_DOMAIN: &[u8; 28] = b"retinue:first-owner:claim:v1";
 
 /// A freshly generated board challenge.  It deliberately cannot be cloned or
 /// copied: the carrier sends [`Self::nonce`] while retaining this value, then

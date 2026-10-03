@@ -1,15 +1,15 @@
 use heapless::Vec;
-use radio_hand::control::{
+use retinue::command::{Command, TargetClass, Verifier};
+use retinue::hash::AddressHash;
+use retinue::identity::{IDENTITY_LEN, PrivateIdentity};
+use seneschal::control::{
     BoardRecoveryFacts, COMMAND_OPCODE, ConfigGeneration, ControllerId, ControllerRole,
     DurableConfig, DurableState, InboundControlError, ManagementCarrier, ManagementCarrierSet,
     NodeId, Operation, OwnerGrant, PublicConfigurationV1, RecoveryClause, RecoveryPathFacts,
     RecoveryPolicy, Request, ReticulumTransportPolicy, TransactionId, VerifiedCounterError,
     VerifierRestoreError, decode_verified_command, restore_verifier,
 };
-use radio_hand::region::Region;
-use retinue::command::{Command, TargetClass, Verifier};
-use retinue::hash::AddressHash;
-use retinue::identity::{IDENTITY_LEN, PrivateIdentity};
+use seneschal::region::Region;
 
 fn operator(fill: u8) -> PrivateIdentity {
     let mut secret = [0u8; IDENTITY_LEN];
@@ -32,9 +32,9 @@ fn request(payload: &[u8]) -> Request {
     }
 }
 
-fn request_payload(request: &Request) -> Vec<u8, { radio_hand::control::MAX_REQUEST_LEN }> {
-    let mut out = [0; radio_hand::control::MAX_REQUEST_LEN];
-    let length = radio_hand::control::encode_request(request, &mut out).unwrap();
+fn request_payload(request: &Request) -> Vec<u8, { seneschal::control::MAX_REQUEST_LEN }> {
+    let mut out = [0; seneschal::control::MAX_REQUEST_LEN];
+    let length = seneschal::control::encode_request(request, &mut out).unwrap();
     Vec::try_from(&out[..length]).unwrap()
 }
 
@@ -286,7 +286,7 @@ fn verifier_restore_rejects_capacity() {
 
 #[test]
 fn local_carrier_frames_fail_closed() {
-    use radio_hand::control::{
+    use seneschal::control::{
         CONTROL_COMMAND_FRAME_TAG, CONTROL_RESPONSE_FRAME_TAG, ControlFrameError,
         MAX_CONTROL_COMMAND_FRAME_LEN, MAX_CONTROL_RESPONSE_FRAME_LEN,
         MIN_CONTROL_COMMAND_FRAME_LEN, decode_command_frame, decode_response_frame,
@@ -333,7 +333,7 @@ fn local_carrier_frames_fail_closed() {
     ));
 
     let response =
-        radio_hand::control::decode_response(&radio_hand::control::GOLDEN_RESPONSE).unwrap();
+        seneschal::control::decode_response(&seneschal::control::GOLDEN_RESPONSE).unwrap();
     let mut response_frame = [0_u8; MAX_CONTROL_RESPONSE_FRAME_LEN];
     let response_len = encode_response_frame(&response, &mut response_frame).unwrap();
     assert_eq!(response_frame[0], CONTROL_RESPONSE_FRAME_TAG);

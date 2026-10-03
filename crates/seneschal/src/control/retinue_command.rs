@@ -103,6 +103,18 @@ pub fn decode_response_frame(frame: &[u8]) -> Result<Response, ControlFrameError
     decode_response(&frame[1..]).map_err(ControlFrameError::Decode)
 }
 
+impl VerifiedController {
+    /// The controller that signed an outer command Retinue's verifier accepted.
+    ///
+    /// Every public route to a `VerifiedController` passes through here, so each needs
+    /// Retinue's verification witness, which only `Verifier::verify` produces. Unlike
+    /// [`decode_verified_command`] it does not inspect the payload: a carrier that refused
+    /// the payload as WN0 still owes this controller its durable outer counter.
+    pub const fn from_verified_command(command: &VerifiedCommand<'_>) -> Self {
+        Self::from_verified_key(ControllerId(*command.key_id().as_bytes()))
+    }
+}
+
 impl OwnerGrant {
     /// Converts Retinue's canonical public identity to the durable grant form. Only firmware
     /// setup should call this; unverified carrier bytes never become an `Identity` here.
@@ -238,10 +250,9 @@ pub fn decode_verified_command(
     }
     let request = decode_request(command.payload()).map_err(InboundControlError::InvalidRequest)?;
     let node = NodeId(*command.target().as_bytes());
-    let controller_id = ControllerId(*command.key_id().as_bytes());
     Ok(InboundControl {
         node,
-        controller: VerifiedController::from_verified_key(controller_id),
+        controller: VerifiedController::from_verified_command(command),
         counter: command.counter(),
         request,
     })

@@ -1,0 +1,31 @@
+[package]
+name = "seneschal"
+version = "0.1.0"
+edition = "2024"
+rust-version.workspace = true
+license = "MPL-2.0"
+repository = "https://github.com/merely-made/retinue"
+description = "Board-management contract for Retinue wall nodes: control requests and replies, the durable owner and configuration journal, and A/B record storage."
+keywords = ["reticulum", "lora", "embedded", "no-std", "configuration"]
+categories = ["embedded", "no-std", "network-programming"]
+
+[features]
+# The bridge from Retinue's verified command envelope into control authority. Deliberately
+# without `retinue/alloc`: the verifier is Retinue's allocation-free floor, which is how a
+# core-only firmware image links it without gaining a heap.
+retinue = ["dep:retinue"]
+
+[dependencies]
+ed25519-dalek = { version = "3", default-features = false }
+heapless = "0.9"
+hmac = "0.13"
+retinue = { version = "0.2.0", path = "../retinue", default-features = false, optional = true }
+selvage = { version = "0.1.0", path = "../selvage" }
+sha2 = { version = "0.11", default-features = false }
+
+[dev-dependencies]
+retinue = { version = "0.2.0", path = "../retinue", default-features = false }
+
+[[test]]
+name = "retinue_command"
+required-features = ["retinue"]

@@ -10,7 +10,7 @@ use super::SEMANTIC_TAG_LEN;
 
 type HmacSha256 = Hmac<Sha256>;
 
-const DOMAIN: &[u8] = b"radio-hand-semantic-tag-v2";
+pub(super) const DOMAIN: &[u8] = b"radio-hand-semantic-tag-v2";
 
 /// Firmware-held HMAC key for durable semantic replay tags.
 ///

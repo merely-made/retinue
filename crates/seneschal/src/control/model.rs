@@ -46,6 +46,11 @@ impl VerifiedController {
     pub(crate) const fn from_verified_key(id: ControllerId) -> Self {
         Self(id)
     }
+
+    /// The verified controller's identifier. Reading it grants nothing.
+    pub const fn controller_id(self) -> ControllerId {
+        self.0
+    }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TransactionId(pub [u8; ID_LEN]);

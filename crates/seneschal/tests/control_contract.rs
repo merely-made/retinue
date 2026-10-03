@@ -1,5 +1,5 @@
 use heapless::Vec;
-use radio_hand::control::*;
+use seneschal::control::*;
 
 fn bytes<const N: usize>(value: &[u8]) -> Vec<u8, N> {
     Vec::try_from(value).unwrap()

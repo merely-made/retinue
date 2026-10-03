@@ -1,6 +1,6 @@
 use ed25519_dalek::{Signer, SigningKey};
 use heapless::Vec;
-use radio_hand::control::{
+use seneschal::control::{
     AbandonOutcome, BoardRecoveryFacts, CLAIM_PROOF_LEN, CLAIM_REQUEST_LEN, ClaimChallenge,
     ClaimProofError, ClaimRequest, DurableState, FIRST_OWNER_VERSION, FirstOwnerRequest,
     FirstOwnerResponse, FirstWriteActions, FirstWriteScratch, FirstWriteStatus,
@@ -9,8 +9,8 @@ use radio_hand::control::{
     RecoveryPathFacts, RecoveryPolicy, ResumeOutcome, StageOutcome, abandon_first_write,
     claim_proof_transcript, first_write_status, resume_first_write, stage_first_write,
 };
-use radio_hand::region::Region;
-use radio_hand::store::Slot;
+use seneschal::region::Region;
+use seneschal::store::Slot;
 
 const PAGE: usize = 4096;
 const NODE: NodeId = NodeId([0x10; 16]);
@@ -29,7 +29,7 @@ fn configuration() -> PublicConfigurationV1 {
     PublicConfigurationV1::new(
         Region::Us915,
         selvage::PhyProfile::meshtastic_long_fast(906_875_000),
-        radio_hand::control::ReticulumTransportPolicy::new(false, false, 0).unwrap(),
+        seneschal::control::ReticulumTransportPolicy::new(false, false, 0).unwrap(),
         ManagementCarrierSet::from_mask(1 << ManagementCarrier::Usb as u8).unwrap(),
     )
     .unwrap()
@@ -132,13 +132,13 @@ fn every_simple_request_and_response_variant_is_exact_and_rejects_bad_dispositio
         assert!(FirstOwnerRequest::decode(&[bytes[0], bytes[1], 0]).is_err());
     }
     for response in [
-        FirstOwnerResponse::Claim(radio_hand::control::ClaimResponse::Rejected),
-        FirstOwnerResponse::Claim(radio_hand::control::ClaimResponse::Staged),
-        FirstOwnerResponse::Resume(radio_hand::control::ResumeResponse::Rejected),
-        FirstOwnerResponse::Resume(radio_hand::control::ResumeResponse::Committed),
-        FirstOwnerResponse::Resume(radio_hand::control::ResumeResponse::CommittedCleanupPending),
-        FirstOwnerResponse::Abandon(radio_hand::control::AbandonResponse::Rejected),
-        FirstOwnerResponse::Abandon(radio_hand::control::AbandonResponse::Abandoned),
+        FirstOwnerResponse::Claim(seneschal::control::ClaimResponse::Rejected),
+        FirstOwnerResponse::Claim(seneschal::control::ClaimResponse::Staged),
+        FirstOwnerResponse::Resume(seneschal::control::ResumeResponse::Rejected),
+        FirstOwnerResponse::Resume(seneschal::control::ResumeResponse::Committed),
+        FirstOwnerResponse::Resume(seneschal::control::ResumeResponse::CommittedCleanupPending),
+        FirstOwnerResponse::Abandon(seneschal::control::AbandonResponse::Rejected),
+        FirstOwnerResponse::Abandon(seneschal::control::AbandonResponse::Abandoned),
     ] {
         let mut bytes = [0; 3];
         assert_eq!(response.encode(&mut bytes), Ok(3));
@@ -202,7 +202,7 @@ fn claim_proof_binds_every_authority_bearing_byte_and_is_one_shot() {
         PublicConfigurationV1::new(
             Region::Us915,
             selvage::PhyProfile::meshtastic_long_fast(907_875_000),
-            radio_hand::control::ReticulumTransportPolicy::new(false, false, 0).unwrap(),
+            seneschal::control::ReticulumTransportPolicy::new(false, false, 0).unwrap(),
             ManagementCarrierSet::from_mask(1).unwrap(),
         )
         .unwrap(),
@@ -389,7 +389,7 @@ fn run_with<R>(
     let mut control_b = [0; PAGE];
     let mut pending_a = [0; PAGE];
     let mut pending_b = [0; PAGE];
-    let mut body = [0; radio_hand::control::MAX_DURABLE_BODY];
+    let mut body = [0; seneschal::control::MAX_DURABLE_BODY];
     let mut page = [0; PAGE];
     let mut readback = [0; PAGE];
     f(
@@ -475,7 +475,7 @@ fn inspection_read_failures_are_typed_and_scratch_refuses_mismatched_slots() {
     let mut b = [0; 8];
     let mut p_a = [0; 8];
     let mut p_b = [0; 8];
-    let mut body = [0; radio_hand::control::MAX_DURABLE_BODY];
+    let mut body = [0; seneschal::control::MAX_DURABLE_BODY];
     let mut page = [0; 7];
     let mut readback = [0; 8];
     assert!(
@@ -544,7 +544,7 @@ fn corrupt_control_can_be_repaired_from_valid_pending_but_torn_control_never_hid
 #[test]
 fn corrupt_repair_advances_outer_sequence_and_handles_max_without_losing_pending() {
     let mut store = staged_store();
-    radio_hand::store::encode(41, b"malformed-durable-body", &mut store.control[1]).unwrap();
+    seneschal::store::encode(41, b"malformed-durable-body", &mut store.control[1]).unwrap();
     let status = first_write_status(
         &store.control[0],
         &store.control[1],
@@ -586,7 +586,7 @@ fn corrupt_repair_advances_outer_sequence_and_handles_max_without_losing_pending
         Ok(ResumeOutcome::Committed)
     );
     assert_eq!(
-        radio_hand::store::decode(&store.control[0])
+        seneschal::store::decode(&store.control[0])
             .unwrap()
             .sequence,
         42
@@ -605,8 +605,8 @@ fn corrupt_repair_advances_outer_sequence_and_handles_max_without_losing_pending
     );
 
     let mut store = staged_store();
-    radio_hand::store::encode(u32::MAX, b"malformed-durable-a", &mut store.control[0]).unwrap();
-    radio_hand::store::encode(u32::MAX, b"malformed-durable-b", &mut store.control[1]).unwrap();
+    seneschal::store::encode(u32::MAX, b"malformed-durable-a", &mut store.control[0]).unwrap();
+    seneschal::store::encode(u32::MAX, b"malformed-durable-b", &mut store.control[1]).unwrap();
     assert_eq!(
         run_with(&mut store, |store, scratch| resume_first_write(
             store,
@@ -617,7 +617,7 @@ fn corrupt_repair_advances_outer_sequence_and_handles_max_without_losing_pending
         Ok(ResumeOutcome::Committed)
     );
     assert_eq!(
-        radio_hand::store::decode(&store.control[0])
+        seneschal::store::decode(&store.control[0])
             .unwrap()
             .sequence,
         u32::MAX

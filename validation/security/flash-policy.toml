@@ -86,7 +86,7 @@ name_patterns = [
 ]
 scan_globs = [
     "crates/radio-hand/src/settings.rs",
-    "crates/radio-hand/src/store.rs",
+    "crates/seneschal/src/store.rs",
     "firmware/t114-phy/src/store.rs",
     "firmware/heltec-v4-phy/src/store.rs",
 ]
@@ -95,7 +95,7 @@ scan_globs = [
 # the seizure inventory is complete rather than only convenient.
 [[adjacent]]
 name = "store record header"
-location = "crates/radio-hand/src/store.rs"
+location = "crates/seneschal/src/store.rs"
 classification = "public"
 reason = """
 Magic, version, body length, a monotonic sequence, and a CRC-32.  Structural.
