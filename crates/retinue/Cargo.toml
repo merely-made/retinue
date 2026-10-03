@@ -195,6 +195,10 @@ name = "node_link_timeout"
 required-features = ["alloc"]
 
 [[test]]
+name = "request_string_map"
+required-features = ["alloc"]
+
+[[test]]
 name = "flood_desk"
 required-features = ["alloc"]
 
@@ -216,6 +220,10 @@ required-features = ["alloc"]
 
 [[test]]
 name = "endpoint_ingress"
+required-features = ["tokio"]
+
+[[test]]
+name = "endpoint_link_echo"
 required-features = ["tokio"]
 
 [[test]]
