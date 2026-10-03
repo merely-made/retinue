@@ -247,3 +247,27 @@ were taken from their reads, were discarded without being merged
   - **Open fork:** the protocol-capacity README's V4 command fails as written,
     because since `b107814` `embedded-alloc` needs the `resident-protocols`
     feature.
+- 2026-10-03: landed on `main` (`fa4f925`) and pushed. CI run 37087337250 was
+  red.
+  - The earlier local gate ran on Rust 1.97.1. CI's `stable` had become 1.99.0
+    (released 2026-09-28), and on `main` before the push clippy had never run:
+    the `check` job died first at `request_string_map`, which N19 fixed.
+  - Three failures, each fixed and verified locally on 1.99.0, with the toolchain
+    installed for the purpose:
+    - The vendored crates were implicit workspace members. They are now
+      excluded (`f466bc7`).
+    - The V1 receipt scripts were orphan validation assets. They are now
+      registered as three local suites (`171d25a`).
+    - Clippy 1.99's `chunks_exact_to_as_chunks` lint fired on four sites
+      (`2363417`).
+  - The unsafe audit also wanted `#![forbid(unsafe_code)]` in `retinue-sim`
+    (`25983ed`).
+  - On 1.99.0: fmt, build, 1,190/0 tests, 23/0 with no default features, 152/0
+    for sennet and tucket, clippy (workspace, and radio-mirror on wasm32), docs
+    with `-D warnings`, registry verify, the unsafe audit, and the flash
+    self-test all pass. T114, outrider `no_std`, and V4 build.
+- 2026-10-03: downstream repins (Ruling 82). knot-editor `ea3e99e` and
+  turnstone `74a4689` are pushed. mere's branch carries the root and signalman
+  pins, plus djinn's knot-site moved to `ea3e99e` with its `retinue` feature on,
+  leaving one Retinue in mere's graph. It is pending the conatus session's
+  check.
