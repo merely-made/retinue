@@ -70,6 +70,9 @@ impl From<tucket::instance::InstanceError> for Error {
 #[derive(Debug)]
 pub enum Event {
     Retinue(Action),
+    /// Established links and resource transfers removed by expiry. Its `pending_links` is
+    /// always empty: an expired link request is reported as
+    /// `Retinue(Action::LinkRequestTimedOut)`.
     RetinueExpired(retinue::node::SessionExpiryReport<1>),
     /// Contains locally discarded, unsent close packets, not remote receipts.
     RetinueInterrupted(retinue::node::InterruptionReport<1, 4>),
@@ -381,14 +384,23 @@ impl Runtime {
         let t = self.tucket.advance(now)?;
         self.tucket_lost(now, t)?;
         let r = self.retinue.advance(now)?;
+        self.retinue_expired(r);
+        Ok(())
+    }
+    /// Report what a Retinue expiry pass removed. An unanswered link request is the
+    /// `LinkRequestTimedOut` action the channel node surfaces, not part of the expiry report
+    /// (Ruling 74), so a pass that expired only requests still reports them.
+    fn retinue_expired(&mut self, mut r: retinue::node::SessionExpiryReport<1>) {
+        let timed_out = core::mem::take(&mut r.pending_links);
         if !r.links.is_empty()
-            || !r.pending_links.is_empty()
             || !r.inbound_resources.is_empty()
             || !r.outbound_resources.is_empty()
         {
             self.event(Event::RetinueExpired(r));
         }
-        Ok(())
+        for link_id in timed_out {
+            self.event(Event::Retinue(Action::LinkRequestTimedOut { link_id }));
+        }
     }
     fn assessment(
         &self,
@@ -646,13 +658,7 @@ impl Runtime {
         match to {
             RETINUE => {
                 let r = self.retinue.resume(now)?;
-                if !r.links.is_empty()
-                    || !r.pending_links.is_empty()
-                    || !r.inbound_resources.is_empty()
-                    || !r.outbound_resources.is_empty()
-                {
-                    self.event(Event::RetinueExpired(r));
-                }
+                self.retinue_expired(r);
             }
             SENNET => {
                 if let Some(e) = self.sennet.resume(now)? {
