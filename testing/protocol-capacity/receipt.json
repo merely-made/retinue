@@ -1,17 +1,26 @@
 {
-  "date": "2026-09-13",
-  "scope": "MC4a software capacity groundwork; build-only V4 example, no installation or target execution",
-  "base_revision": "b41e300a244864029a2996d744bffb2e0a285b36",
-  "evidence_kind": "working-tree source hashes; not a clean-revision release receipt",
+  "date": "2026-10-02",
+  "scope": "Retinue 0.2.0 node link lifecycle (phases N1-N11 and N13-N19; N12, the publish, is open) regenerated under mer3ly Ruling 78; build-only V4 example, no installation or target execution",
+  "base_revision": "a6d089dd256f1342aab396bdf8510449888409fa",
+  "evidence_kind": "committed blob hashes at base_revision on a clean tree; the probe ran on that tree",
+  "commands": [
+    "cargo run -p protocol-capacity-probe --features host --locked --offline",
+    "cargo +esp rustc -p protocol-capacity-probe --lib --release --locked --offline --target xtensa-esp32s3-none-elf -Zbuild-std=core,alloc -- --emit=llvm-ir",
+    "cargo +esp build -p tulle-heltec-v4-phy --features resident-protocols --example protocol_capacity --release --locked --offline --target xtensa-esp32s3-none-elf -Zbuild-std=core,alloc"
+  ],
+  "command_notes": [
+    "The README's V4 command omits --features resident-protocols. Since b107814 embedded-alloc is an optional dependency of that feature, not a dev-dependency, so the command as written fails with an unresolved embedded_alloc import. Provisional (lane L-D fork): the feature was passed. A scratch build with embedded-alloc restored as a dev-dependency and no feature linked identical section sizes.",
+    "Nested worktree: RUSTFLAGS was set to one copy of the xtensa linker-script flags."
+  ],
   "host_workload": {
     "host_pointer_bytes": 8,
     "retained_requested_bytes": 11183,
     "peak_requested_bytes": 18380,
-    "allocation_count": 1395,
+    "allocation_count": 1413,
     "after_drop_bytes": 0,
     "layout": [
       8,
-      2840,
+      3456,
       336,
       248,
       34,
@@ -20,13 +29,13 @@
       56,
       368,
       56,
-      3448,
+      4064,
       32
     ]
   },
   "xtensa_layout_bytes": {
     "pointer": 4,
-    "retinue_node": 2640,
+    "retinue_node": 3256,
     "retinue_actions_4": 248,
     "retinue_interruption_1_4": 208,
     "sennet_channel": 34,
@@ -35,7 +44,7 @@
     "sennet_directory": 28,
     "tucket_node": 328,
     "tucket_pending_text": 40,
-    "residents": 3128,
+    "residents": 3744,
     "tucket_pending_texts": 16
   },
   "linked_sections_bytes": {
@@ -43,9 +52,9 @@
     ".vectors": 1024,
     ".rwdata_dummy": 5704,
     ".data": 1276,
-    ".bss": 150636,
-    ".stack": 184132,
-    ".text": 267825,
+    ".bss": 151252,
+    ".stack": 183516,
+    ".text": 271133,
     ".rodata": 41904
   },
   "reservations_bytes": {
@@ -54,94 +63,208 @@
     "queue_state": 16384
   },
   "capacity_image": {
-    "path": "C:\\t\\mc4-xtensa-target\\xtensa-esp32s3-none-elf\\release\\examples\\protocol_capacity",
-    "sha256": "e930b0c9b3f4ca9809526c54e78a542818441339c29eaf6d026cdd4e91c5f8f6"
+    "path": "C:\\Users\\mark_\\Code\\repos\\retinue\\.claude\\worktrees\\agent-ac7b3f649c6aa4f85\\target\\xtensa-esp32s3-none-elf\\release\\examples\\protocol_capacity",
+    "sha256": "b5ac68aa9edcc778c7d2b455b55a9e04ac09bd574eeaeb3c37f0e7ff77d85b51"
   },
-  "llvm_ir_sha256": "43945001109d541b973200bdd152f7c22ce576272bb3095c8fbe48dedab9018c",
+  "llvm_ir_sha256": "334aa950e6ce8772f8abf8a2c2cf5c73940bdfb90c452d0a61b36fa7024cd9a2",
   "source_sha256": {
-    ".cargo/config.toml": "cece083625da5914656fcc8b23a820b1229a3a34772df4525770d3e81b0dfc2c",
-    "Cargo.lock": "b8ab88c236606a0ae64b3836e8244d1595d6bb47117eda57a3109935186548b2",
-    "Cargo.toml": "f6621e338cb8a0547f624930ace25f3cd504161981d188dd2ac1d9a05de60df4",
-    "crates/retinue/Cargo.toml": "5eada2c5c7229ba7f98fe1c73a94a6b81b30eb1f2752c15da74063de443bd08e",
+    ".cargo/config.toml": "1acd09e2c952620cd6ed0195716d86724e2f41e9d59699ca4270adbae343e5f9",
+    "Cargo.lock": "a1fc1f8dd7d50a1a66172c9c30e2672597c6597554bdc30facf25b26d4a0b813",
+    "Cargo.toml": "4a6267975085bc160a217babb17095659093a97edb4872c07845719c5af8a0a8",
+    "crates/retinue/Cargo.toml": "db17472130851b5e5f9db8d3fab0ea8a15be9f251a66feca72bbc0e626aeb77c",
     "crates/retinue/src/address_book.rs": "953ec2362829bdaade60d68a3e4bd11c2f98ddf5b99a2a65337ebfd8cee8bf43",
     "crates/retinue/src/announce.rs": "fbe9b7a65dd8f3e1a0056732798027192ae79dfdbb488804e75eaa0d2285223a",
-    "crates/retinue/src/announce_admission.rs": "7383bf53846694f37add85ca5576ffd31c9d5dc0b304ac0f2b3d651d806cfc1a",
+    "crates/retinue/src/announce_admission.rs": "90cca07e20f95248adaa86fad533533233f96384027bf67897dc46c1d4f2d1d6",
     "crates/retinue/src/announce_freshness.rs": "f3d92de0d23ea54a05ad4ff2b0a73234274614b6d626b7db5643ddc96d31c0e2",
-    "crates/retinue/src/artifact.rs": "9dfa3ef25503f7fe4d137008abc984b77fdaadf9764773d1bfc82a4cd487e84a",
-    "crates/retinue/src/capacity.rs": "3b416ff24de8c2e84cab237feb3886c342e22560db958db7394efa8447636fa9",
-    "crates/retinue/src/channel.rs": "dc93a14f8cc84890a02b7fd7167d0153f313113d8b7eb3119f3e45b170532e39",
+    "crates/retinue/src/artifact.rs": "8fecdb2c76f8a52c5c65bbd551dc107fd9818167cbc4d4111e4a143455056d93",
+    "crates/retinue/src/capacity.rs": "1fd620c9425bca8830aa8f206ad561ad0d4f85b5e95f13d129df41076464ce1d",
+    "crates/retinue/src/channel.rs": "0c347c633d178fba9cda7d8aaf89dcc269e1461de17dc25817da91272aeb3fa3",
     "crates/retinue/src/command.rs": "5b84da8f6ff29bf17266bc2e626dce073546caed250cfca8be528aaf0e10f959",
     "crates/retinue/src/destination.rs": "954448995d32780e7d47496387fd156359c14550beff4071afdf0490b1d2aa74",
+    "crates/retinue/src/endpoint.rs": "52ab4362eeffd98cf9938a3f0c038be789bea2ef48254374303978d199cad1f0",
     "crates/retinue/src/hash.rs": "d7ffb1a52e36cec2fb870a30fb5439fb4c35aeac479116f643835afa10297d2e",
     "crates/retinue/src/identity.rs": "950c2c0e9968531b0c7a24a7f8651633705db501ddccbe5812016d08573a5e84",
     "crates/retinue/src/ifac.rs": "48f3d3c68d1918f8427075077433b234bf609e26f53e9f51a80d4da0a7d9376d",
     "crates/retinue/src/iface/hdlc.rs": "ec8009b253e775bd2a23547269fe4e1eab182657ee6dff7a093202274369e1ed",
     "crates/retinue/src/iface/mod.rs": "3e11564c8b522a2ad9ca7b0a6b5e5e88aa1f2e57a076ff6a2fe14536b97413ed",
-    "crates/retinue/src/iface/tcp.rs": "57e6210c30f9e0435f44286a96541689e6fe752947d15079c2fd3d8ed72ed2d3",
+    "crates/retinue/src/iface/tcp.rs": "5bed172203ad2763d1f13612bcae6abccebbe974bb88a88d512fdf5784c593e5",
     "crates/retinue/src/iface/tulle.rs": "c6fd8f2fa9e0b76d1c9f7691f480d5af5ff7f361f085177cd3967082e888bdbf",
-    "crates/retinue/src/lib.rs": "5fd6156066191f6f0f0f52f4e53e838514d197d537a27ebf46087480ec9ece1d",
-    "crates/retinue/src/link.rs": "ec0bfe04aefa13df84a170db96005a5e2d59b8385817b4807b727af505e48fdf",
+    "crates/retinue/src/instance.rs": "9a671a03aa50b7ac0f4d681725f2361abe833fdb1575345902d7e2f383fcd73f",
+    "crates/retinue/src/lib.rs": "ef240e7c7a1523dbdfe8c4cad80386cd2b47a698733ea078d3bbf47d90c102d3",
+    "crates/retinue/src/link.rs": "fc308f5612cd4886ab6918498e70348d72f2d0352fff3513a04e708a766bcfaa",
     "crates/retinue/src/lossy.rs": "11068b10a5961832652ae9449fd9dd7934952f0e2c6c9940532cd32a1d3cab2e",
     "crates/retinue/src/msgpack.rs": "dc20372b2c53840ad3ed2fb83e9eafa7aa3847f7f152b10281324ba65335e21b",
-    "crates/retinue/src/node.rs": "23adc9fcd283f0dce4a7884197acfd9d19449e0951b665c9be6038385390df04",
-    "crates/retinue/src/nomadnet.rs": "f27d4d50373a368f9b62e4119cf6d3d6917563906b6fdd254cd75391fb970699",
-    "crates/retinue/src/packet.rs": "ab277dcd557fb30f84d2de8f9a6692cb18034508402b4bc31eefb580bfd41761",
+    "crates/retinue/src/node.rs": "2f91e944344052fc1967e6a97ab0188c53b1b1f52bd137bb9908fe2d5dc603c2",
+    "crates/retinue/src/nomadnet.rs": "5e08cc4a65e955c11a3f27f276f09da4cd678d02abd25e96241f8ad1e6cb07e9",
+    "crates/retinue/src/packet.rs": "9dc6ae5f40995b5aa361222e8f4b87da4c8d65a4294bc42b75c733b87313a33c",
     "crates/retinue/src/path.rs": "4de3cee95e8c6c6339fb2ce6565ded586e7d320f30469597e8222375a3936b1a",
     "crates/retinue/src/ratchet.rs": "600a2f0a0dd44c531ff6011b705d6a84958370c76d843ef92fff6e09bd96bc3d",
-    "crates/retinue/src/reliable.rs": "e7bc16fe05c08b3adaaededf8c33d752bd7c3e98a8603b3b92516cf924680d0d",
-    "crates/retinue/src/request.rs": "06bbe1f5c4479acb491b466a32aaa086cfeb9d784e1348d18146b8e8fb0903d6",
-    "crates/retinue/src/resource.rs": "de4b96a42e0e4b438f9494483f62a62b0590b02bf1a0963e8fd9fbf52f204478",
-    "crates/retinue/src/resource_transfer.rs": "5fb111120c9c6d9dbd2abfbc08b8e1fea0cde808d70591b2b9c6eba6d862869f",
+    "crates/retinue/src/reliable.rs": "6639df3f011b2b8edc30f2cd384cb26cf31ebe8cd74d947c7f5b9d0b884941c3",
+    "crates/retinue/src/request.rs": "35c04669b0cf0619dc6f600eaafb42f703be87a1183f1b3bf4fc984d46373a79",
+    "crates/retinue/src/request/string_map.rs": "dcf86da8130cfedc6701c411fb18115764e9cfb66f5e0daa4d5b6b62c371e36d",
+    "crates/retinue/src/resource.rs": "6165537674227ae93cdf21ae7be33956d24db8e32f72341157dd0a38f3ad84dc",
+    "crates/retinue/src/resource_transfer.rs": "41c434c1f382519c094c17b0333cbb3a6dc50fded092c86e02bce92b278f8d72",
     "crates/retinue/src/token.rs": "9039feb7a47d8f78272aa3bea6e38c6804cb4bd1d2f207a6dcc360ebd69310a1",
-    "crates/sennet/Cargo.toml": "48614f81318ebf3f1b5fae8065ce91968a9e5e175c9f00bb71a649e6fad334b4",
-    "crates/sennet/src/application.rs": "24bf2eef592a94a9ed101c347409bdf00075a4f1f7eee17e6aa4d0a3fd8a2563",
-    "crates/sennet/src/flood.rs": "336c95fe220f30e61505f90dbdc688802bb073d22ded0cb6a17f85e30facafd2",
-    "crates/sennet/src/lib.rs": "61b10ad82a550ce486806ea7c31a83e20937e7f3890005b5e19538e8cd798a93",
-    "crates/sennet/src/node.rs": "f97b3a6e81c67de6e77fe2a3bc1c50ba56a3edb04d340800f45ae064c07f58ed",
+    "crates/sennet/Cargo.toml": "bb95dfb4064072aab2a88b62ccc40266fd34dfdd607d6d0b9e3833769b3d0d54",
+    "crates/sennet/src/application.rs": "bc3ff3560d290dfebb0a64cb6ca6c006e72cc2b40bf80d3c16047e355248560b",
+    "crates/sennet/src/flood.rs": "b6365904078bb5c7a708c9cdd1492fb5778181b58d94275dd4dadc66ff31399e",
+    "crates/sennet/src/instance.rs": "bcb1771944b7add03947b9846f6076ee148bdd8b72eb3e9b880fd0123414d53a",
+    "crates/sennet/src/lib.rs": "0b57c3c0419d84f3126fda1b96ce17d3f88d066c00c798083da7d41809067923",
+    "crates/sennet/src/node.rs": "a31e8727ca7e0eb4d58a570669836241f9acc7910ebeae6a956124189be890e4",
     "crates/sennet/src/node_info.rs": "ec1e1a605a57ba548312321ee6f1df21f1cc8e78008504d6f38978aa9c9a966c",
-    "crates/sennet/src/packet_id.rs": "c2dbc799b2a8f4143474c6e818f3281ba9ef6b4ea1d18b3420f89f4e52808532",
+    "crates/sennet/src/packet_id.rs": "7f63071ab7382a8d8f473ba54679ba5da8b491e19801e03644e67fd1384b0215",
     "crates/sennet/src/protobuf.rs": "8c1f0b039af2e9659fbd084546115a322534dabc20423f8fce115a05adafc342",
     "crates/sennet/src/stream.rs": "0d2e944eebe94707a72ba0e292c1d396f5e80d2a8642e4f962093308bc9b2ac5",
     "crates/sennet/src/transport.rs": "ad8a439018a363084719c46b50183eb2c0e8755e36d5d08f6c77b6b05aac5f60",
-    "crates/tucket/Cargo.toml": "dde6aa4d52934202034f5b862b5ffccbe563015ac73da3277129739fa30b2cfb",
-    "crates/tucket/src/advert.rs": "764318d8a6f982af2ce0c7ed43143b1522352572536bcb84353f9cf45bc069bd",
+    "crates/tucket/Cargo.toml": "886221d9f39d1bec97b2593c9291959981bf8243dc2470a12d9a136d8073fdeb",
+    "crates/tucket/src/advert.rs": "499ed6ad55622870fa176856f296134f36b1914581474ff9b97e79256a080345",
     "crates/tucket/src/cipher.rs": "da3ce75ca65ccb81186f3a8128b35603d30216bc38f959cbae1d6d9045e74d9f",
-    "crates/tucket/src/identity.rs": "4253633f92cad235a8a948a1a058132357c89c79bbec28bd9d36b5705c5a2f4c",
-    "crates/tucket/src/lib.rs": "10f32341c065d29a7005a155b84ff98ec9cc44eb9a652303accadc119ac15e72",
-    "crates/tucket/src/mesh.rs": "2f268c7c8695846ed2a23590248d2da2f4c750218708a17ff8b733385acc46ff",
+    "crates/tucket/src/companion.rs": "a12252842ab6e4a48820a039fb5da961079c6596afaf999767dc836b3fb53b13",
+    "crates/tucket/src/identity.rs": "60abc75bf741deb04e1cf56f5ca50d99c85a7f94a51533e65059c31c5e3516ac",
+    "crates/tucket/src/instance.rs": "70f59cc7dc15e3bb6bdb64e81319c6645bbbd07179beb5d99da2136b8f6a4351",
+    "crates/tucket/src/lib.rs": "319f3a90eb8ed584aa4e2a6f2a33ee6a0e45acb32287f5d0473ec7073f528386",
+    "crates/tucket/src/mesh.rs": "a28e8f25b5ae2423a775a3b5ab29228aea9bb36b8414fea4b33b6584a7173754",
     "crates/tucket/src/message.rs": "d3ef45506e5a27e7a2648e4088867c04d595c0c36fe552dea33e955af2eef8dc",
-    "crates/tucket/src/node.rs": "2155350b541f7f2ee6c9a13e52793a7711898e02b4690acb246530be98e2b22d",
-    "crates/tucket/src/packet.rs": "4dd17f787a1be35a1dd3e6dabd3c1fc5d9fbd4c6871a0b1bca1639c1b6795054",
-    "crates/tucket/src/path.rs": "075e1d02ecc774ea343c22ad6d42ff59263eaa4a85972775b2db6ac484803009",
-    "firmware/heltec-v4-phy/Cargo.toml": "24cb83141d5f3fa4490076512a30f1a785fd443beef07b11ca1d6c062646e129",
+    "crates/tucket/src/node.rs": "d192cebafa441385218365b191e9ba99f865c675e6a6862f855aaca2ee41d4e3",
+    "crates/tucket/src/packet.rs": "5c6757063765525457a5cc819a4551ae3cd7f54c13859320a64b0197a80388b8",
+    "crates/tucket/src/path.rs": "a3c32ce3f4fc6c5699254febb1627006bcbd4e731d8ad071c779d0badd3149a5",
+    "firmware/heltec-v4-phy/Cargo.toml": "759c6ce70b9c0459cee133e76787891e7fced5749525090c6fc5d72b1eb32822",
     "firmware/heltec-v4-phy/examples/protocol_capacity.rs": "3b286360f798fadb97d217fe3bfcfd689d375b9c371bdef0235ec7c9f0839073",
     "testing/protocol-capacity/Cargo.toml": "e04f7e761b5829f6e29d707df3b425179fb54d9fc5ee886921ffcb7678a4310a",
-    "testing/protocol-capacity/src/lib.rs": "725f1ccac33896a1d1784365e31438fe348028d90a81fa6f8fdaddfe1f550db7",
+    "testing/protocol-capacity/src/lib.rs": "76cff4a3e61cd69d4d4eba7b7cde146586f3c4b748cd271026767c74b8c2e444",
     "testing/protocol-capacity/src/main.rs": "0b97290fd69e0626c1f1c90dd8ec77da4fd9cafe3b7203d01058545f7a30d7d7"
   },
   "checks": {
-    "sennet_tests": 57,
-    "tucket_tests": 61,
-    "retinue_alloc_library_tests": 171,
-    "retinue_default_library_tests": 208,
-    "retinue_pause_capacity_tests": 20,
+    "gate_run_1_locked": {
+      "retinue_retinue-sim_radio-face_radio-mirror_all_features": "430 passed, 0 failed",
+      "radio-hand_default": "236 passed, 0 failed",
+      "radio-hand_replay_instances": "265 passed, 0 failed",
+      "retinue_no_default_features": "23 passed, 0 failed",
+      "retinue_no_default_features_alloc": "273 passed, 0 failed",
+      "clippy_all_targets_all_features_deny_warnings": "clean",
+      "rustfmt_check": "clean"
+    },
     "passed": [
-      "strict Clippy Sennet/Tucket all targets/features",
-      "strict Clippy Retinue library, node_pause and murmuration_probe",
-      "strict Clippy capacity probe",
-      "Retinue all-targets tulle-radio host check",
-      "Signalman/Linkboy all-targets check",
-      "strict all-feature rustdoc Retinue/Sennet/Tucket",
-      "Xtensa combined no_std + alloc library",
+      "T114 thumbv7em-none-eabihf release build",
+      "V4 xtensa-esp32s3-none-elf release build, -Zbuild-std=core",
+      "V4 resident-protocols release build, -Zbuild-std=core,alloc",
       "V4 capacity example release link",
-      "ordinary core-only V4 USB release build",
-      "scoped rustfmt",
-      "validation inventory 21 manifests, 83 assets, 15 suites"
+      "Xtensa combined no_std + alloc probe library",
+      "retinue, retinue-sim and radio-hand (replay, instances) check on Rust 1.90.0, the nearest installed toolchain to MSRV 1.88"
     ],
     "existing_limitations": [
-      "alloc-only Retinue strict rustdoc has pre-existing links to feature-disabled Endpoint/TCP/connect",
-      "ordinary V4 build has two existing wake-input dead-code warnings"
+      "ordinary V4 build has five dead-code warnings (last_sleep_us, PACKET_RESERVATION_SLOT_READ_LEN, the Packet* variants, reserve_packet_ids, radio_wake_registrations); resident-protocols has two",
+      "MSRV 1.88 itself was not installed or run"
     ]
+  },
+  "changes_since_2026_09_13": {
+    "previous_base_revision": "b41e300a244864029a2996d744bffb2e0a285b36",
+    "previous_receipt_commit": "35997aa",
+    "host_layout_delta_bytes": {
+      "retinue_node": 616,
+      "residents": 616
+    },
+    "xtensa_layout_delta_bytes": {
+      "retinue_node": 616,
+      "residents": 616
+    },
+    "linked_sections_delta_bytes": {
+      ".bss": 616,
+      ".stack": -616,
+      ".text": 3308
+    },
+    "host_workload_delta": {
+      "allocation_count": 18
+    },
+    "node_growth": {
+      "method": "size_of::<Node<..>>() at each commit, from the probe on the host and from a scratch-only layout static read from thumbv7em and Xtensa LLVM IR",
+      "by_profile_and_target_bytes": {
+        "Node<32, 8, 4, 16> (T114 channel node, crate default)": {
+          "x86_64": [
+            8816,
+            9456,
+            640
+          ],
+          "thumbv7em-none-eabihf": [
+            8256,
+            8896,
+            640
+          ],
+          "xtensa-esp32s3-none-elf": [
+            8256,
+            8896,
+            640
+          ]
+        },
+        "Node<8, 4, 1, 4> (V4 resident runtime, this probe)": {
+          "x86_64": [
+            2840,
+            3456,
+            616
+          ],
+          "thumbv7em-none-eabihf": [
+            2640,
+            3256,
+            616
+          ],
+          "xtensa-esp32s3-none-elf": [
+            2640,
+            3256,
+            616
+          ]
+        },
+        "columns": [
+          "2026-09-13 receipt tree (35997aa)",
+          "this tree",
+          "growth"
+        ]
+      },
+      "node_8_4_1_4_x86_64_by_change": [
+        {
+          "commit": "978b360",
+          "phase": "N3",
+          "change": "a u64 deadline on each pending request (8 x LINKS)",
+          "bytes": 8
+        },
+        {
+          "commit": "e2f82d3",
+          "phase": "N4",
+          "change": "sent link-data window, then 4 hashes",
+          "bytes": 72
+        },
+        {
+          "commit": "9b63d99",
+          "phase": "N11",
+          "change": "received duplicate window, then 4 hashes",
+          "bytes": 72
+        },
+        {
+          "commit": "81d029d",
+          "phase": "N8",
+          "change": "first-hop airtime table",
+          "bytes": 72
+        },
+        {
+          "commit": "788be35",
+          "phase": "N14",
+          "change": "both windows raised to 16 hashes (Ruling 73)",
+          "bytes": 384
+        },
+        {
+          "commit": "46922f8",
+          "phase": "N15",
+          "change": "own_echo_dropped and duplicate_dropped counters",
+          "bytes": 8
+        },
+        {
+          "commit": "59b71e0 and 6c69592",
+          "phase": "N7 and pre-0.2.0",
+          "change": "expired_link_requests counter and logical_mtu, absorbed by padding",
+          "bytes": 0
+        }
+      ],
+      "node_32_8_4_16_difference": "24 bytes more than Node<8,4,1,4>: the pending deadline is 8 bytes per link slot, and this profile has 4"
+    }
   },
   "limits": [
     "Host peak excludes allocator overhead and stack and includes synthetic peers; it is one workload, not exhaustive worst-case behavior.",
