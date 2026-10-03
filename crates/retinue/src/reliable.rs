@@ -844,7 +844,8 @@ mod tests {
 
     /// Positive controls for the guard: a responder still learns the initiator from its first
     /// IDENTIFY, and the link carries data and proofs both ways afterwards. Its own identity,
-    /// a second identity, and a repeat of the first are each refused without disturbing that.
+    /// a second identity, and a repeat of the first, verbatim or re-sealed, are each refused
+    /// without disturbing that.
     #[test]
     fn a_responder_learns_its_first_peer_only_and_the_link_still_works() {
         let server_id = PrivateIdentity::from_secret_bytes(&[0x22; 64]);
@@ -878,6 +879,13 @@ mod tests {
         let other = client.link.identify_packet(&stranger, &[0x03; IV_LEN]);
         assert!(!server.on_identify(&other), "a second identity is refused");
         assert!(!server.on_identify(&genuine), "a repeat learns nothing new");
+        // The initiator re-sends under a fresh IV (Ruling 72): a new packet, the same identity.
+        let resend = client.link.identify_packet(&client_id, &[0x04; IV_LEN]);
+        assert_ne!(resend.hash(), genuine.hash(), "a re-send is a new packet");
+        assert!(
+            !server.on_identify(&resend),
+            "a fresh-IV re-send learns nothing new"
+        );
         assert_eq!(server.peer().map(|p| p.hash()), client_hash);
 
         let mut ivc = 0u64;
