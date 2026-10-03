@@ -127,6 +127,24 @@ command = ["python3", "-u", "crates/retinue/oracle/run_live.py"]
 asset_globs = ["crates/retinue/oracle/*.py", "testing/receipts/rns-1.5.4-repin/run.py"]
 
 [[suite]]
+id = "rns-154-corroboration-q1-link-timeout"
+tier = "local"
+command = ["python3", "-u", "testing/receipts/rns-1.5.4-link-echo-corroboration/q1_link_timeout.py", "--reps", "2"]
+asset_globs = ["testing/receipts/rns-1.5.4-link-echo-corroboration/q1_link_timeout.py", "testing/receipts/rns-1.5.4-link-echo-corroboration/harness.py", "testing/receipts/rns-1.5.4-link-echo-corroboration/node.py"]
+
+[[suite]]
+id = "rns-154-corroboration-q2-link-echo"
+tier = "local"
+command = ["python3", "-u", "testing/receipts/rns-1.5.4-link-echo-corroboration/q2_link_echo.py"]
+asset_globs = ["testing/receipts/rns-1.5.4-link-echo-corroboration/q2_link_echo.py"]
+
+[[suite]]
+id = "rns-154-corroboration-q3-announce-echo"
+tier = "local"
+command = ["python3", "-u", "testing/receipts/rns-1.5.4-link-echo-corroboration/q3_announce_echo.py"]
+asset_globs = ["testing/receipts/rns-1.5.4-link-echo-corroboration/q3_announce_echo.py"]
+
+[[suite]]
 id = "outrider-lxmf-live-oracle"
 tier = "local"
 command = ["python3", "-u", "crates/outrider/oracle/interop_propagation_stock.py"]

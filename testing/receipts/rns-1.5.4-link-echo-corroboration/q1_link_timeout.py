@@ -10,7 +10,7 @@ Usage: python q1_link_timeout.py [--reps N] [--quick]
 """
 from __future__ import annotations
 import argparse, json, time
-from harness import Run, decode, free_port
+from harness import HERE, Run, decode, free_port
 
 LINKREQUEST = 2
 
@@ -117,7 +117,7 @@ def main():
             r = unanswered(f"q1_unanswered_r{n}_bitrate62500", n, bitrate=62500); print(json.dumps(r), flush=True); results.append(r)
         for n in (1, 3):
             r = answered_controls(f"q1_controls_r{n}", n); print(json.dumps(r), flush=True); results.append(r)
-    with open("results/q1_tail_summary.json" if a.tail_only else "results/q1_summary.json", "w", encoding="utf-8") as f:
+    with open(HERE / "results" / ("q1_tail_summary.json" if a.tail_only else "q1_summary.json"), "w", encoding="utf-8") as f:
         json.dump(results, f, indent=1)
 
 

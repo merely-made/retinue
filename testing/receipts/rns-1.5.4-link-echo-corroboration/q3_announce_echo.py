@@ -15,7 +15,7 @@ Usage: python q3_announce_echo.py [--tag name] [--suppress-natural]
 """
 from __future__ import annotations
 import argparse, json, time
-from harness import Run, decode, free_port
+from harness import HERE, Run, decode, free_port
 
 
 def ann_for(dest):
@@ -97,7 +97,7 @@ def main():
 
         run.log({"src": "result", **res})
         print(json.dumps(res, indent=1), flush=True)
-        with open(f"results/{a.tag}_summary.json", "w", encoding="utf-8") as f:
+        with open(HERE / "results" / f"{a.tag}_summary.json", "w", encoding="utf-8") as f:
             json.dump(res, f, indent=1)
     finally:
         run.close()
