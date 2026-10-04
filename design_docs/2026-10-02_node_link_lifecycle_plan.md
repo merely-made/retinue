@@ -1,5 +1,14 @@
 # Node link lifecycle and retinue 0.2.0
 
+**Status (2026-10-04):** landed. Every phase, N12 included, is done.
+- retinue 0.2.0, outrider 0.2.0, seneschal 0.1.0 and postilion 0.2.0 are
+  published.
+- mere, knot and turnstone are repinned.
+- The last open fork, the protocol-capacity README's V4 command, is fixed (see
+  Progress).
+
+What follows is the status as of 2026-10-03, kept as written.
+
 **Status (2026-10-03):** every phase except N12 is merged and verified on the
 integration branch `site-canvas-integration` (`76d4e80`). The gate passed
 twice:
@@ -284,3 +293,8 @@ were taken from their reads, were discarded without being merged
   - Downstream repins have landed: mere (`f62581c7`, via the conatus
     session), knot-editor `ea3e99e`, and turnstone `74a4689`. The oracle is
     pinned to RNS 1.5.6 and LXMF 1.2.0 (`3e1d6a9`).
+- 2026-10-04: N20's open fork closed. The protocol-capacity README's V4
+  command now passes `--features resident-protocols`. With the feature it
+  builds (release, xtensa-esp32s3, 2 m 52 s). Without it, it still fails with
+  `unresolved import embedded_alloc`, as the fork said. The Status line now
+  says the plan has landed.

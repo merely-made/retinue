@@ -19,7 +19,7 @@ never be used in deployed firmware.
 ```powershell
 cargo run -p protocol-capacity-probe --features host --locked --offline
 cargo +esp rustc -p protocol-capacity-probe --lib --release --locked --offline --target xtensa-esp32s3-none-elf '-Zbuild-std=core,alloc' -- --emit=llvm-ir
-cargo +esp build -p tulle-heltec-v4-phy --example protocol_capacity --release --locked --offline --target xtensa-esp32s3-none-elf '-Zbuild-std=core,alloc'
+cargo +esp build -p tulle-heltec-v4-phy --example protocol_capacity --features resident-protocols --release --locked --offline --target xtensa-esp32s3-none-elf '-Zbuild-std=core,alloc'
 ```
 
 The host executable reports **requested allocation bytes** through a System
