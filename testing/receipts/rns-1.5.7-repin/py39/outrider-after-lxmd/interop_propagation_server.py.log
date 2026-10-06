@@ -1,0 +1,20 @@
+LXMF 1.2.0 / RNS 1.5.7
+  [outrider] LISTENING 60926
+  [outrider] PROPAGATION_DESTINATION 2e22b506afe4e6d9b95111d4966dc5ef
+[2026-10-06 16:29:51] [Verbose]  Bringing up system interfaces...
+[2026-10-06 16:29:51] [Verbose]  System interfaces are ready
+[2026-10-06 16:29:51] [Verbose]  Configuration loaded from /var/folders/nt/xlxwlg695b399ck_h55sfwtc0000gn/T/outrider-propagation-server-0pxp8seu/rns/config
+[2026-10-06 16:29:51] [Verbose]  Destinations file does not exist, no known destinations loaded
+[2026-10-06 16:29:51] [Verbose]  No valid Transport Identity in storage, creating...
+[2026-10-06 16:29:51] [Verbose]  Identity keys created for <54bfa6e47fd0cf753bd8c721afec87b6>
+[2026-10-06 16:29:51] [Verbose]  Identity keys created for <1c54177835960db39eb0d1274db92a39>
+[2026-10-06 16:29:51] [Verbose]  Initialized ephemeral transport identity <1c54177835960db39eb0d1274db92a39>
+[2026-10-06 16:29:55] [Warning]  Running stamp generation on darwin, work limited to single CPU core. This will be slower than ideal.
+  [outrider] SERVER_STORED inserted=1 rejected=0 entries=1 bytes=240
+  [outrider] SERVER_SERVED offered=1 served=1 acknowledged=0
+[2026-10-06 16:30:03] [Warning]  The socket for TCPInterface[outrider/127.0.0.1:60926] was closed, attempting to reconnect...
+stock submitted to Outrider: PASS
+stock fetched from Outrider: PASS
+stock decoded title/body/id: PASS
+OUTRIDER_PROPAGATION_SERVER: PASS
+[2026-10-06 16:30:04] [Notice]   Error while shutting down socket for TCPInterface[outrider/127.0.0.1:60926]: [Errno 57] Socket is not connected

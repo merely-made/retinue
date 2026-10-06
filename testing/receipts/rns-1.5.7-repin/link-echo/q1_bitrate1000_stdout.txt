@@ -1,0 +1,11 @@
+Traceback (most recent call last):
+  File "<string>", line 3, in <module>
+    r = q.unanswered('q1_unanswered_r0_bitrate1000_157', 0, bitrate=1000); print(json.dumps(r))
+  File "/private/tmp/claude-501/-Users-markik-Code/ead988fd-de3e-4175-b19a-c544ebe99350/scratchpad/v1-157/q1_link_timeout.py", line 43, in unanswered
+    A, B, rel, P, dest, path = build(run, relays, accept_links=False, bitrate=bitrate)
+                               ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/tmp/claude-501/-Users-markik-Code/ead988fd-de3e-4175-b19a-c544ebe99350/scratchpad/v1-157/q1_link_timeout.py", line 36, in build
+    path = A.wait("path", timeout=70)
+  File "/private/tmp/claude-501/-Users-markik-Code/ead988fd-de3e-4175-b19a-c544ebe99350/scratchpad/v1-157/harness.py", line 178, in wait
+    raise TimeoutError(f"{self.name}: no {ev} within {timeout}s")
+TimeoutError: A: no path within 70s

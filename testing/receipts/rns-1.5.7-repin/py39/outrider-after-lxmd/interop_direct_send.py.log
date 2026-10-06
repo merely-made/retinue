@@ -1,0 +1,30 @@
+LXMF 1.2.0 / RNS 1.5.7
+  [outrider] LISTENING 60901
+  [outrider] DESTINATION 3e45eacae90c7f3c18b2ae4643097606
+[2026-10-06 16:29:15] [Verbose]  Bringing up system interfaces...
+[2026-10-06 16:29:15] [Verbose]  System interfaces are ready
+[2026-10-06 16:29:15] [Verbose]  Configuration loaded from /var/folders/nt/xlxwlg695b399ck_h55sfwtc0000gn/T/outrider-direct-send-wjttcts_/config
+[2026-10-06 16:29:15] [Verbose]  Destinations file does not exist, no known destinations loaded
+[2026-10-06 16:29:15] [Verbose]  No valid Transport Identity in storage, creating...
+[2026-10-06 16:29:15] [Verbose]  Identity keys created for <f3293109ed9eb5421d87d0eb34780212>
+[2026-10-06 16:29:15] [Verbose]  Identity keys created for <07bd46611663dc429d36654aeb974d20>
+[2026-10-06 16:29:15] [Verbose]  Initialized ephemeral transport identity <07bd46611663dc429d36654aeb974d20>
+  [outrider] ANNOUNCE ca8c12aee6acd35c83f048927490e188 1cf579aba45a10ba1d1ef06d91fca2aa9ed0a1150515653155405d0b18cb9a67c853ad0f0cd2b619aea92ceec4fd56a24d6499d584ce79257e45cfd8139b60a7 93c40c53746f636b204f7261636c65089100
+  stock: queued 9f6a267af4b0340ddba58e44a0b51b8aa03533fc87be9fa7bc345b5870607541
+[2026-10-06 16:29:19] [Warning]  Running stamp generation on darwin, work limited to single CPU core. This will be slower than ideal.
+  [outrider] RECEIVED 166
+  [outrider] TRANSPORT data
+  [outrider] PACKED 3e45eacae90c7f3c18b2ae4643097606ca8c12aee6acd35c83f048927490e1885496322f1b14d627ba26190fb6dce2ce964a06d8da65af0277f785897172b8d7905ade70d6c9190470d4a1582c4f78ff1024ea931db88dbee1c12c266b6d040295cb41da217720600000c40b53544f434b205449544c45c40a53544f434b20424f445980c4200ba87b96c11f039b17b545a49e33de148f7d00984432a8150484be4d9e1bd2f2
+  [outrider] MESSAGE_ID 9f6a267af4b0340ddba58e44a0b51b8aa03533fc87be9fa7bc345b5870607541
+  [outrider] SOURCE ca8c12aee6acd35c83f048927490e188
+  [outrider] TITLE 53544f434b205449544c45
+  [outrider] CONTENT 53544f434b20424f4459
+  [outrider] SIGNATURE_VERIFIED true
+[2026-10-06 16:29:23] [Warning]  The socket for TCPInterface[outrider/127.0.0.1:60901] was closed, attempting to reconnect...
+stock queued direct message: PASS
+Outrider decoded title/body: PASS
+Outrider verified signature: PASS
+captured complete wire object: PASS
+stock chose data: PASS
+STOCK_TO_OUTRIDER_DIRECT: PASS
+[2026-10-06 16:29:24] [Notice]   Error while shutting down socket for TCPInterface[outrider/127.0.0.1:60901]: [Errno 57] Socket is not connected

@@ -1,0 +1,23 @@
+RNS 1.5.7
+
+  [retinue] LISTENING 61435
+waiting...
+
+  [retinue] SENDING 259 parts
+  [retinue] SENT_ADV
+  [retinue] SENT_HMU
+  [retinue] SENT_HMU
+  [retinue] SENT_HMU
+  [retinue] PROOF_VERIFIED
+  [retinue] DONE
+[2026-10-06 16:39:59] [Warning]  The socket for TCPInterface[retinue/127.0.0.1:61435] was closed, attempting to reconnect...
+  RNS: concluded status=6 len=120000
+
+====================================================================
+RNS received retinue's 120000-byte resource intact: PASS
+sender emitted HMU:                     PASS
+RNS concluded COMPLETE:                 PASS
+retinue verified RNS's proof:           PASS
+====================================================================
+R4 WINDOWED RESOURCE SEND INTEROP: PASS
+[2026-10-06 16:40:00] [Notice]   Error while shutting down socket for TCPInterface[retinue/127.0.0.1:61435]: [Errno 57] Socket is not connected

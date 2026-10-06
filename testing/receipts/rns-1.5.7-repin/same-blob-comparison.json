@@ -1,0 +1,18 @@
+{
+  "old_result": "testing/receipts/rns-1.5.6-repin/same-blob-result.json",
+  "old_sha256": "bb0c42848b5a6ca63f99ae7c296bf7c2ae652c23717cb5164d5d4c10044b0446",
+  "new_result": "testing/receipts/rns-1.5.7-repin/same-blob-result.json",
+  "new_sha256": "d769aeb8a1b6e708370a34ff44fdf110c898b72679a31ad0da477548c8a5819e",
+  "fields_compared": [
+    "blob_relation",
+    "new_blob_admitted",
+    "observable_admission",
+    "same_blob_route_transition",
+    "observed_hop_relation",
+    "outcome",
+    "valid_measurement"
+  ],
+  "cell_count": 6,
+  "all_equal": true,
+  "differing_cells": []
+}

@@ -1,0 +1,25 @@
+LXMF 1.2.0 / RNS 1.5.7
+  [retinue] TRANSPORT_NODE_UP 36172e50b3a4a104b8ca1e75cd4aba47 on 60934
+[2026-10-06 16:30:05] [Verbose]  Bringing up system interfaces...
+[2026-10-06 16:30:05] [Verbose]  System interfaces are ready
+[2026-10-06 16:30:05] [Verbose]  Configuration loaded from /var/folders/nt/xlxwlg695b399ck_h55sfwtc0000gn/T/outrider-propagation-stock-y5mhqg8k/client-rns/config
+[2026-10-06 16:30:05] [Verbose]  Destinations file does not exist, no known destinations loaded
+[2026-10-06 16:30:05] [Verbose]  No valid Transport Identity in storage, creating...
+[2026-10-06 16:30:05] [Verbose]  Identity keys created for <657b4dedea991ad8c7674a2f276a9a47>
+[2026-10-06 16:30:05] [Verbose]  Identity keys created for <32d9b559f28a2aa1221d3f0eaba71684>
+[2026-10-06 16:30:05] [Verbose]  Initialized ephemeral transport identity <32d9b559f28a2aa1221d3f0eaba71684>
+  stock: learned propagation node a16da454dbd5e01378e899144c4f10fb
+  stock: states SENT=4 DELIVERED=8 FAILED=255
+  stock: queued propagated 43582edd8546333f8e44702c5821feeabfe3470ab7917bc4e1628834f339f3d7
+[2026-10-06 16:30:29] [Warning]  Running stamp generation on darwin, work limited to single CPU core. This will be slower than ideal.
+  stock: submit state 4
+  stock: fetch requested None
+  stock: fetched 43582edd8546333f8e44702c5821feeabfe3470ab7917bc4e1628834f339f3d7
+stock learned propagation node: PASS
+stock submitted message: PASS
+stock fetched message: PASS
+stock decoded title/body: PASS
+stock agreed on message id: PASS
+STOCK_PROPAGATION_ROUND_TRIP: PASS
+[2026-10-06 16:30:37] [Warning]  The socket for TCPInterface[retinue/127.0.0.1:60934] was closed, attempting to reconnect...
+[2026-10-06 16:30:37] [Notice]   Error while shutting down socket for TCPInterface[retinue/127.0.0.1:60934]: [Errno 57] Socket is not connected

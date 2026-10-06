@@ -48,12 +48,12 @@ T114 boards is in `firmware/`, with flashable packages in `firmware/packages/`.
 - **Releases.** retinue, outrider and postilion 0.2.0 and seneschal 0.1.0 were
   published on 2026-10-03 under MPL-2.0. retinue and outrider 0.3.0 is the
   first release under the Reticulum License; see [License](#license).
-- **Reticulum.** The live oracle is pinned to RNS 1.5.6 and LXMF 1.2.0. The
-  [repin receipt](testing/receipts/rns-1.5.6-repin/README.md) recorded every
-  gate passing in at least one run. `interop_ifac` fails intermittently, from
-  an RNS-side race that also occurs on 1.5.4. Outrider's 7 LXMF gates,
-  12 Resource gates and 3 routing gates passed. RNS 1.5.7 was released
-  2026-10-05 and has not been qualified yet. The 0.2.0
+- **Reticulum.** The live oracle is pinned to RNS 1.5.7 and LXMF 1.2.0. The
+  [repin receipt](testing/receipts/rns-1.5.7-repin/README.md) passed every
+  lane in a single run: 13 live, 7 LXMF, 12 Resource and 3 routing gates.
+  Routing decisions are identical to 1.5.6. The intermittent `interop_ifac`
+  failure seen on 1.5.4 and 1.5.6 did not recur in 14 runs on the new macOS
+  host. Two held RNS-side defects persist. The 0.2.0
   [link lifecycle](design_docs/2026-10-02_node_link_lifecycle_plan.md) work
   landed: route learning, `open_link(now)`, link-request expiry, and
   own-echo and duplicate filtering. These results cover the measured

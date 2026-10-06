@@ -1,0 +1,142 @@
+{
+  "baseline_commit": "a63f2fd2305f45559b784a56c828dc1db8ea4d0d",
+  "rns": "1.5.7",
+  "lxmf": "1.2.0",
+  "lane": "resource",
+  "started_utc": "2026-10-06T20:25:38.285721+00:00",
+  "gates": [
+    {
+      "name": "round-1-interop_resource_recv.py",
+      "command": [
+        "/private/tmp/claude-501/-Users-markik-Code/ead988fd-de3e-4175-b19a-c544ebe99350/scratchpad/oracle-venv/bin/python",
+        "-u",
+        "/Users/markik/Code/repos/retinue/crates/retinue/oracle/interop_resource_recv.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 6.99
+    },
+    {
+      "name": "round-1-interop_resource_send.py",
+      "command": [
+        "/private/tmp/claude-501/-Users-markik-Code/ead988fd-de3e-4175-b19a-c544ebe99350/scratchpad/oracle-venv/bin/python",
+        "-u",
+        "/Users/markik/Code/repos/retinue/crates/retinue/oracle/interop_resource_send.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 11.228
+    },
+    {
+      "name": "round-1-interop_send_large.py",
+      "command": [
+        "/private/tmp/claude-501/-Users-markik-Code/ead988fd-de3e-4175-b19a-c544ebe99350/scratchpad/oracle-venv/bin/python",
+        "-u",
+        "/Users/markik/Code/repos/retinue/crates/retinue/oracle/interop_send_large.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 3.098
+    },
+    {
+      "name": "round-1-interop_send_multiseg.py",
+      "command": [
+        "/private/tmp/claude-501/-Users-markik-Code/ead988fd-de3e-4175-b19a-c544ebe99350/scratchpad/oracle-venv/bin/python",
+        "-u",
+        "/Users/markik/Code/repos/retinue/crates/retinue/oracle/interop_send_multiseg.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 4.766
+    },
+    {
+      "name": "round-2-interop_resource_recv.py",
+      "command": [
+        "/private/tmp/claude-501/-Users-markik-Code/ead988fd-de3e-4175-b19a-c544ebe99350/scratchpad/oracle-venv/bin/python",
+        "-u",
+        "/Users/markik/Code/repos/retinue/crates/retinue/oracle/interop_resource_recv.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 6.971
+    },
+    {
+      "name": "round-2-interop_resource_send.py",
+      "command": [
+        "/private/tmp/claude-501/-Users-markik-Code/ead988fd-de3e-4175-b19a-c544ebe99350/scratchpad/oracle-venv/bin/python",
+        "-u",
+        "/Users/markik/Code/repos/retinue/crates/retinue/oracle/interop_resource_send.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 11.053
+    },
+    {
+      "name": "round-2-interop_send_large.py",
+      "command": [
+        "/private/tmp/claude-501/-Users-markik-Code/ead988fd-de3e-4175-b19a-c544ebe99350/scratchpad/oracle-venv/bin/python",
+        "-u",
+        "/Users/markik/Code/repos/retinue/crates/retinue/oracle/interop_send_large.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 3.117
+    },
+    {
+      "name": "round-2-interop_send_multiseg.py",
+      "command": [
+        "/private/tmp/claude-501/-Users-markik-Code/ead988fd-de3e-4175-b19a-c544ebe99350/scratchpad/oracle-venv/bin/python",
+        "-u",
+        "/Users/markik/Code/repos/retinue/crates/retinue/oracle/interop_send_multiseg.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 4.739
+    },
+    {
+      "name": "round-3-interop_resource_recv.py",
+      "command": [
+        "/private/tmp/claude-501/-Users-markik-Code/ead988fd-de3e-4175-b19a-c544ebe99350/scratchpad/oracle-venv/bin/python",
+        "-u",
+        "/Users/markik/Code/repos/retinue/crates/retinue/oracle/interop_resource_recv.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 7.167
+    },
+    {
+      "name": "round-3-interop_resource_send.py",
+      "command": [
+        "/private/tmp/claude-501/-Users-markik-Code/ead988fd-de3e-4175-b19a-c544ebe99350/scratchpad/oracle-venv/bin/python",
+        "-u",
+        "/Users/markik/Code/repos/retinue/crates/retinue/oracle/interop_resource_send.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 11.031
+    },
+    {
+      "name": "round-3-interop_send_large.py",
+      "command": [
+        "/private/tmp/claude-501/-Users-markik-Code/ead988fd-de3e-4175-b19a-c544ebe99350/scratchpad/oracle-venv/bin/python",
+        "-u",
+        "/Users/markik/Code/repos/retinue/crates/retinue/oracle/interop_send_large.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 3.115
+    },
+    {
+      "name": "round-3-interop_send_multiseg.py",
+      "command": [
+        "/private/tmp/claude-501/-Users-markik-Code/ead988fd-de3e-4175-b19a-c544ebe99350/scratchpad/oracle-venv/bin/python",
+        "-u",
+        "/Users/markik/Code/repos/retinue/crates/retinue/oracle/interop_send_multiseg.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 4.686
+    }
+  ],
+  "all_passed": true
+}

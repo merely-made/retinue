@@ -22,7 +22,7 @@ import RNS
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
-LXMD = Path(sys.executable).parent / "lxmd.exe"
+LXMD = Path(sys.executable).parent / ("lxmd.exe" if os.name == "nt" else "lxmd")
 
 
 def pump(process: subprocess.Popen[str], prefix: str, lines: list[str]) -> None:

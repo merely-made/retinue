@@ -1,0 +1,19 @@
+RNS 1.5.7
+
+  [hub] TRANSPORT_NODE_UP 36172e50b3a4a104b8ca1e75cd4aba47 on 46030
+RNS leaf waiting to learn the responder through the retinue node...
+
+  [resp] RESPONDER_DEST 8fba2aeb56f70dcf135193b4bde80cb6
+  RNS: learned responder 8fba2aeb56f70dcf135193b4bde80cb6 via the retinue node; linking
+  RNS: link ESTABLISHED through the retinue transport node
+  [resp] RESPONDER_ACCEPTED
+  RNS: received b'echo:ping-rns'
+
+====================================================================
+RNS learned the responder via the retinue node: True
+RNS link + echo through the retinue node:       True
+====================================================================
+R7 RNS-ROUTES-THROUGH-RETINUE: PASS
+[2026-10-06 16:35:08] [Warning]  An interface error occurred for TCPInterface[hub/127.0.0.1:46030], the contained exception was: [Errno 54] Connection reset by peer
+[2026-10-06 16:35:08] [Warning]  Attempting to reconnect...
+[2026-10-06 16:35:09] [Notice]   Error while shutting down socket for TCPInterface[hub/127.0.0.1:46030]: [Errno 57] Socket is not connected

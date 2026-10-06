@@ -1,0 +1,32 @@
+RNS 1.5.7
+
+  [retinue] LISTENING 61133
+waiting for retinue's announce...
+
+  [retinue] ACCEPTED
+  [retinue] SENT_ANNOUNCE c12f2880b000e629686499bde489071c
+  RNS: saw retinue announce c12f2880b000e629686499bde489071c, linking...
+  [retinue] LINK_ACCEPTED id=374a6aa7e5e2fce172f3e825325cb409 mode=Aes256Cbc mtu=500
+  [retinue] SENT_PROOF
+  RNS: link to retinue ESTABLISHED  [retinue] RECV_RTT
+
+  [retinue] RECV_DATA hello-responder
+  [retinue] SENT_ECHO
+  RNS: received b'echo:hello-responder' on the link
+  RNS: sending keepalive...
+  [retinue] RECV_KEEPALIVE_REQUEST
+  [retinue] SENT_KEEPALIVE_RESPONSE
+  RNS: closing link...
+  [retinue] RECV_CLOSE c6c3623cd87dbd441b670eae04f42482d76eeb8be855bc9c6659b5a4822a836ab33b2d73fe01e42f88e4cfc9d791f506d45efb53b08d3e99816d491f96498f1645bd6d8685032d175d1510a5467bf30c[2026-10-06 16:33:58] [Warning]  The socket for TCPInterface[retinue/127.0.0.1:61133] was closed, attempting to reconnect...
+  [retinue] DONE
+
+
+====================================================================
+retinue proved the link:        PASS
+RNS established (link active):  PASS
+retinue decrypted RNS data:     PASS
+RNS decrypted retinue's echo:   PASS
+keepalive round-trip:           PASS
+====================================================================
+R3 RESPONDER INTEROP: PASS
+[2026-10-06 16:33:59] [Notice]   Error while shutting down socket for TCPInterface[retinue/127.0.0.1:61133]: [Errno 57] Socket is not connected

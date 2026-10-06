@@ -1,0 +1,20 @@
+LXMF 1.2.0 / RNS 1.5.7
+  [retinue] TRANSPORT_NODE_UP 36172e50b3a4a104b8ca1e75cd4aba47 on 60785
+[2026-10-06 16:25:37] [Verbose]  Bringing up system interfaces...
+[2026-10-06 16:25:37] [Verbose]  System interfaces are ready
+[2026-10-06 16:25:37] [Verbose]  Configuration loaded from /var/folders/nt/xlxwlg695b399ck_h55sfwtc0000gn/T/outrider-propagation-stock-0b9vkprb/client-rns/config
+[2026-10-06 16:25:37] [Verbose]  Destinations file does not exist, no known destinations loaded
+[2026-10-06 16:25:37] [Verbose]  No valid Transport Identity in storage, creating...
+[2026-10-06 16:25:37] [Verbose]  Identity keys created for <8b90b2bdad1870caf76ca32926eb291e>
+[2026-10-06 16:25:37] [Verbose]  Identity keys created for <57ff140705ad302606d2e67183d9fca5>
+[2026-10-06 16:25:37] [Verbose]  Initialized ephemeral transport identity <57ff140705ad302606d2e67183d9fca5>
+Traceback (most recent call last):
+  File "/Users/markik/Code/repos/retinue/crates/outrider/oracle/interop_propagation_stock.py", line 250, in <module>
+    raise SystemExit(main())
+  File "/Users/markik/Code/repos/retinue/crates/outrider/oracle/interop_propagation_stock.py", line 154, in main
+    daemon = subprocess.Popen(
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/subprocess.py", line 951, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/subprocess.py", line 1821, in _execute_child
+    raise child_exception_type(errno_num, err_msg, err_filename)
+FileNotFoundError: [Errno 2] No such file or directory: '/private/tmp/claude-501/-Users-markik-Code/ead988fd-de3e-4175-b19a-c544ebe99350/scratchpad/oracle-venv/bin/lxmd.exe'
