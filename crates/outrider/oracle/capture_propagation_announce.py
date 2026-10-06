@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import atexit
+import os
 import re
 import shutil
 import subprocess
@@ -15,7 +16,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
-LXMD = Path(sys.executable).parent / "lxmd.exe"
+LXMD = Path(sys.executable).parent / ("lxmd.exe" if os.name == "nt" else "lxmd")
 
 
 def main() -> int:

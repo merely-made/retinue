@@ -173,7 +173,7 @@ def main() -> int:
         RNS.Transport.register_announce_handler(PropagationAnnounce())
         daemon = subprocess.Popen(
             [
-                str(Path(os.environ.get("LXMD", Path(os.sys.executable).parent / "lxmd.exe"))),
+                str(Path(os.environ.get("LXMD", Path(os.sys.executable).parent / ("lxmd.exe" if os.name == "nt" else "lxmd")))),
                 "-p",
                 "--config",
                 str(node_config),

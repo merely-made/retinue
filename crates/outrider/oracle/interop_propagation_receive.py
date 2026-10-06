@@ -19,7 +19,7 @@ import RNS
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
-LXMD = Path(sys.executable).parent / "lxmd.exe"
+LXMD = Path(sys.executable).parent / ("lxmd.exe" if os.name == "nt" else "lxmd")
 TITLE = b"PROPAGATION TITLE"
 CONTENT = b"PROPAGATION BODY"
 RECEIVER_SEED = bytes([0x62] * 64)
