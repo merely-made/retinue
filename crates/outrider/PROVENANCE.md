@@ -1,6 +1,6 @@
 # Outrider provenance
 
-Outrider is an independent implementation of interoperability with LXMF, the
+Outrider is an implementation of interoperability with LXMF, the
 message format and delivery system of the Reticulum ecosystem. Its
 auditability depends on keeping observation, implementation, and distribution
 boundaries explicit. This record keeps pace with the code: every wire fact
@@ -22,10 +22,15 @@ The excluded implementation inputs are the same as the household's other clean-r
 client applications, generated bindings, and implementation-derived API
 references. The Python LXMF package and its client applications serve
 strictly as external oracles. They are under the Reticulum License, which is
-reproduced verbatim in [`oracle/RETICULUM_LICENSE`](oracle/RETICULUM_LICENSE)
-in acknowledgment; its terms are honored for the oracle use, and its added
-clauses do not attach to outrider's own code, which is MPL-2.0 by the
-clean-room boundary this document records.
+reproduced verbatim in [`oracle/RETICULUM_LICENSE`](oracle/RETICULUM_LICENSE).
+
+**Update, 2026-10-05.** The boundary above governed everything recorded below
+this point. From this date outrider is under the Reticulum License itself (see
+[`LICENSE`](LICENSE)), and the Python LXMF and RNS implementations may be read
+and adapted into it. Each adaptation is listed in [`NOTICE`](NOTICE) with its
+upstream revision, file and lines. Later entries here name it as their source
+class. Client applications remain excluded unless their own terms allow it.
+Ruling: `design_docs/2026-10-05_reticulum_license_adoption.md`.
 
 ## Capture discipline
 

@@ -44,6 +44,8 @@ must be described accurately rather than as strict clean-room work.
 
 *2026-10-02:* the first recorded reviews under this policy, with revisions, files, and lines, are in the [Node link lifecycle plan](2026-10-02_node_link_lifecycle_plan.md#source-review-and-provenance).
 
+*2026-10-05:* the separate adaptation decision is made. retinue and outrider are now under the Reticulum License, and RNS and LXMF source and the manual may be adapted into those two crates only. RNode firmware (GPL-3.0) stays unread. See the [adoption record](2026-10-05_reticulum_license_adoption.md).
+
 ## Finding
 
 Retinue should not grow a universal mesh router. It already has the right lower

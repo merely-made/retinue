@@ -1,7 +1,9 @@
 # Third-party notices
 
-Retinue is licensed under the Mozilla Public License, Version 2.0 (see
-`LICENSE`), including the firmware. This file aggregates the third-party work
+The Retinue workspace is licensed under the Mozilla Public License, Version 2.0
+(see `LICENSE`). The exceptions are `crates/retinue` and `crates/outrider`,
+which are under the Reticulum License from 2026-10-05 (see each crate's
+`LICENSE` and the [Reticulum](#reticulum) section). This file aggregates the third-party work
 this repository derives from or uses as a reference, and points at notices carrying
 the full license texts.
 
@@ -74,34 +76,41 @@ exactly this build:
 
 ## Reticulum
 
-The Reticulum protocol specification and manual are public domain. The Python
-reference implementation was used as a black-box oracle for the recorded
-RNS 1.5.2 re-pin qualification. That receipt describes its precise evidence
-boundary. The [September 27 qualification](testing/receipts/rns-1.5.4-repin/README.md)
-adds separate RNS 1.5.4 observations and preserves the earlier results.
-On September 26, the owner reported the first limited review of RNS
-implementation source and clarified that no RNS implementation code has been
-copied or translated into Retinue. The license is included to identify and
-acknowledge the reference implementation, not to declare an RNS-derived port.
-Comparative review is the current scope; adaptation is a separate decision.
-See the source-review update in
+**Reticulum License, adopted 2026-10-05** for `crates/retinue` and
+`crates/outrider`. The decision record is
+[`design_docs/2026-10-05_reticulum_license_adoption.md`](design_docs/2026-10-05_reticulum_license_adoption.md).
+The RNS and LXMF reference implementations (Copyright (c) 2016-2026 and
+2020-2025 Mark Qvist) and the Reticulum manual may now be read and adapted
+into those two crates. Each crate's `LICENSE` carries the upstream text and
+notices, and each crate's `NOTICE` lists what has been adapted. Releases
+published through 0.2.0 were MPL-2.0 and keep those terms.
+
+What this means in practice:
+
+- **Adapted code stays in those two crates.** No RNS- or LXMF-derived code
+  enters the MPL-2.0 crates, the apps, or the firmware crates.
+- **Linking carries the terms.** Anything that links retinue or outrider ships
+  Reticulum-licensed code. That includes the apps, the firmware images, and
+  downstream projects such as mere. Its notice must accompany the binary, and
+  its two conditions apply to those portions: no use in systems that can
+  purposefully harm people, and no use in creating AI training data. Code
+  outside the two crates keeps its own license.
+- **Firmware images are not GPLv3.** Those conditions are incompatible with
+  GPLv3. Images are MPL-2.0 combined works that include Reticulum-licensed
+  portions.
+- **RNode firmware (GPL-3.0) is not read.**
+
+The Reticulum protocol itself is public domain, as upstream states in
+[Brandolini's Reference](https://reticulum.network/manual/brandolinis.html).
+Historical oracle receipts keep their original evidence boundaries: black-box
+for the RNS 1.5.2 re-pin; see also the
+[September 27 qualification](testing/receipts/rns-1.5.4-repin/README.md).
+Comparative reads from September 26 to October 4 are recorded under the
+source-review update in
 `design_docs/2026-08-25_permissive_radio_protocol_compatibility_survey.md`.
-We acknowledge Mark Qvist and the Reticulum contributors for their protocol
-design, documentation and reference implementation. The full upstream RNS
-license is included at [`RETICULUM_LICENSE`](RETICULUM_LICENSE) in good faith
-and for reference. Including it does not apply it to all Retinue code or offer
-an alternative MPL grant for upstream code. Oracle-local copies retain the
-notices for their reference packages. This project is not affiliated with or
-endorsed by the upstream project.
+The root [`RETICULUM_LICENSE`](RETICULUM_LICENSE) is the unmodified RNS text.
+Oracle-local copies retain their packages' notices.
 
-### Scope of the included Reticulum License
-
-The root license copy identifies and acknowledges the reference implementation.
-We respect its terms in our own use of that implementation. This statement is
-not an additional condition on recipients of independently authored Retinue
-code: that code remains MPL-2.0, with no added harm or AI-use restrictions.
-The protocol's public-domain status and the implementation's separate terms are
-explained in [Brandolini's Reference](https://reticulum.network/manual/brandolinis.html).
-Copying or translating protected implementation material, including through an
-intermediary, would require its applicable terms; this notice is not a waiver
-or certification that every historical input has been independently cleared.
+We acknowledge Mark Qvist and the Reticulum contributors for the protocol
+design, documentation, and reference implementations. This project is not
+affiliated with or endorsed by the upstream project.

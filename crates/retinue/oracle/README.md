@@ -6,14 +6,15 @@ the bytes it produces. Each receipt identifies its version and observation metho
 
 Earlier wording said RNS source had never been read and prohibited reading it. On
 September 26 the owner reported the first limited comparative source review, with no
-RNS implementation code copied or translated. Comparative review is now the authorized
-scope; adaptation remains a separate decision. Historical black-box receipts retain
+RNS implementation code copied or translated through October 4. From October 5 retinue
+is under the Reticulum License and RNS source may be adapted into it (see the crate's
+`NOTICE`). Historical black-box receipts retain
 their original evidence boundary. The signed-artifact driver invokes `rnid` and reads
 its output files; it does not import RNS or translate its implementation.
 
-RNS's license is reproduced in [`RETICULUM_LICENSE`](RETICULUM_LICENSE) as acknowledgment
-of the reference implementation. Its inclusion does not add use restrictions to
-independently authored MPL-2.0 code. Historical Prns influence and unresolved provenance
+RNS's license is reproduced in [`RETICULUM_LICENSE`](RETICULUM_LICENSE) for the oracle
+package. Since October 5 the same license also covers retinue itself
+([`../LICENSE`](../LICENSE)). Historical Prns influence and unresolved provenance
 are recorded in the [donor ledger](../../../design_docs/2026-08-10_prns_donor_ledger.md);
 observed byte compatibility does not establish authorship or license clearance. See
 the [third-party notices](../../../THIRD_PARTY_NOTICES.md) for the current scope.

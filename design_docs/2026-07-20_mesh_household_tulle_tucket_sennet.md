@@ -186,14 +186,24 @@ firmware layer):
    household ("the work we do will make it worth it for tulle and tucket too"),
    which also protects the implementations from being forked closed.
    Consequences: MPL is GPL-compatible, so the crates still flow into the GPLv3
-   firmware images (point 2); MPL is consumable by mere/merecat unchanged; GPL
+   firmware images (point 2; *superseded 2026-10-05, see below*); MPL is consumable by mere/merecat unchanged; GPL
    at the library root remains wrong for the same reason as before. **Never put
    MPL Exhibit B ("Incompatible With Secondary Licenses") in a source file** —
    that would break GPL compatibility and the firmware plan. Use Exhibit A.
    tucket retains MeshCore's MIT notice in `NOTICE` (MIT permits relicensing a
    derivative but requires the original notice be kept). retinue's `deny.toml`
    was inverted to match: MPL-2.0 allowed, strong copyleft still the red line.
-2. **Firmware images are GPLv3.** The flashable artifact (the retinue-derived
+2. **REVERSED 2026-10-05: firmware images are no longer GPLv3.** retinue and
+   outrider moved to the Reticulum License so that the reference
+   implementations can be adapted into them. Every image links retinue, and
+   that license's use conditions are incompatible with GPLv3. Images are now
+   MPL-2.0 combined works that include Reticulum-licensed portions. MPL-2.0
+   section 3.2 still requires the source offer described below; GPLv3's
+   installation-information clause no longer applies. See
+   [the adoption record](2026-10-05_reticulum_license_adoption.md). The
+   original ruling follows. Its GPLv3 rationale no longer holds; the
+   source-offer practice continues. ~~**Firmware images are GPLv3.**~~ The
+   flashable artifact (the retinue-derived
    ESP32/nRF images, and v1's stock RNode firmware) is where GPLv3's teeth
    matter: the installation-information clause means nobody ships a locked
    commercial radio. Direction is fine (MIT/Apache libraries flow into a GPL

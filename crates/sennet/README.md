@@ -143,5 +143,5 @@ protocol's own authors chose, letting anyone take the work without giving
 improvements back. MPL-2.0 keeps that door shut: build whatever you like on top,
 under any license, but improvements to *this implementation* stay published.
 
-MPL is GPL-compatible, so it also combines into the GPLv3 firmware images this
-project ships.
+MPL is GPL-compatible. The firmware images this project ships combine it with
+Reticulum-licensed `retinue`, so the images themselves are not GPLv3.

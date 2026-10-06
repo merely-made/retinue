@@ -95,7 +95,7 @@ tulle = { version = "0.1.0", path = "../../crates/tulle", features = ["serial-as
 accesskit = "0.24"
 # The live bench receipt's announcing peer: a plain Postilion station with a
 # short-lived random identity on the second attached board.
-retinue = { version = "0.2.0", path = "../../crates/retinue" }
+retinue = { version = "0.3.0", path = "../../crates/retinue" }
 radio-hand = { version = "0.0.1", path = "../../crates/radio-hand" }
 getrandom = "0.3"
 

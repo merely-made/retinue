@@ -239,6 +239,7 @@ supplying data-graph and identity crates.
 | Document | What it is |
 | --- | --- |
 | [`DOC_POLICY.md`](DOC_POLICY.md) | Documentation governance; canonical core plus Retinue addendum. |
+| [Reticulum License adoption](2026-10-05_reticulum_license_adoption.md) | Ruling, 2026-10-05: retinue and outrider move to the Reticulum License (0.3.0) so RNS/LXMF source can be adapted into those two crates only; RNode firmware stays unread; firmware images are no longer GPLv3. Review and adaptation rules, and upstream versions checked. |
 | [Work lanes](2026-08-09_retinue_work_lanes.md) | Four-lane split and shared source lock. Lane split authoritative; ordering superseded. |
 | [Program sequencing](2026-08-12_program_sequencing_and_deadline_order.md) | Historical August ordering audit. September coordination and current gate owners govern active slices. |
 | [ARDC application lane](2026-07-31_ardc_application_lane.md) | Grant lane, G0–G4. Dormant by decision 2026-08-26: Sep 1 window passed, FIVCO-facilitated funding leads, next window Feb 1, 2027. |

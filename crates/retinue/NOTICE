@@ -1,7 +1,19 @@
 # Third-party notices
 
-Retinue is licensed under the Mozilla Public License, Version 2.0 (see
-LICENSE).
+Retinue is licensed under the Reticulum License (see LICENSE) from 2026-10-05.
+Releases through 0.2.0 were published under the Mozilla Public License,
+Version 2.0, and keep those terms.
+
+## Reticulum (RNS)
+
+The RNS reference implementation, Copyright (c) 2016-2026 Mark Qvist, is
+licensed under the Reticulum License. From 2026-10-05 it may be read and
+adapted into this crate; see the repository's
+`design_docs/2026-10-05_reticulum_license_adoption.md`. Its copyright notice
+is carried in LICENSE. Each adapted portion is listed below with its upstream
+revision, file and line range, and target file.
+
+Adapted from RNS: none yet.
 
 ## Prns
 

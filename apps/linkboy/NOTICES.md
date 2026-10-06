@@ -16,5 +16,7 @@ Linkboy's built-in UF2 writer instead, so an owner does not need this helper. `e
 only from the platform-specific official release archive whose archive and extracted-executable
 digests are recorded in the package manifest. Physical host receipts remain separate evidence.
 
-The Linkboy and Retinue workspace code remains under the repository's MPL-2.0 terms. This file
-does not grant redistribution rights for either helper.
+The Linkboy and Retinue workspace code remains under the repository's MPL-2.0 terms, except
+`crates/retinue` and `crates/outrider`, which are under the Reticulum License from 2026-10-05.
+Firmware images built from a later revision include those crates. This file does not grant
+redistribution rights for either helper.

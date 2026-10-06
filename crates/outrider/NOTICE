@@ -1,0 +1,19 @@
+# Third-party notices
+
+Outrider is licensed under the Reticulum License (see LICENSE) from 2026-10-05.
+Releases through 0.2.0 were published under the Mozilla Public License,
+Version 2.0, and keep those terms.
+
+## LXMF and Reticulum (RNS)
+
+The LXMF reference implementation, Copyright (c) 2020-2025 Mark Qvist, and the
+RNS reference implementation, Copyright (c) 2016-2026 Mark Qvist, are licensed
+under the Reticulum License. From 2026-10-05 they may be read and adapted into
+this crate; see the repository's
+`design_docs/2026-10-05_reticulum_license_adoption.md`. Their copyright
+notices are carried in LICENSE. Each adapted portion is listed below with its
+upstream revision, file and line range, and target file.
+
+Adapted from LXMF: none yet.
+
+Adapted from RNS: none yet.

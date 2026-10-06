@@ -26,9 +26,10 @@
 //!
 //! # Provenance
 //!
-//! Outrider is implemented from the public LXMF specification prose and
-//! black-box observation of pinned stock clients. The Python LXMF
-//! implementation and its client applications are not implementation inputs. See
+//! Outrider was implemented from the public LXMF specification prose and
+//! black-box observation of pinned stock clients. From 2026-10-05 the crate is
+//! under the Reticulum License, and the Python LXMF and RNS implementations may
+//! be read and adapted into it, with each adaptation listed in `NOTICE`. See
 //! `PROVENANCE.md`.
 //!
 //! # Building for a board
