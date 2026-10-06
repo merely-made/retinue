@@ -115,8 +115,10 @@ jobs:
           wasm-bindgen --target web --out-dir target/radio-mirror-pkg-all target/wasm32-unknown-unknown/release/radio_mirror.wasm
 
   # Enforce that the whole dependency tree stays permissively licensed. A copyleft
-  # dependency would force any firmware that links retinue to GPLv3 (see deny.toml and the
-  # embedded/licensing research note), so this gate fails the build if one ever enters.
+  # dependency would relicense any firmware that links retinue, and GPL cannot be combined
+  # with retinue's Reticulum License at all (see deny.toml and
+  # design_docs/2026-10-05_reticulum_license_adoption.md), so this gate fails the build if
+  # one ever enters.
   licenses:
     runs-on: ubuntu-latest
     steps:

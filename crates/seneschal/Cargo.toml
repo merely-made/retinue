@@ -19,12 +19,12 @@ retinue = ["dep:retinue"]
 ed25519-dalek = { version = "3", default-features = false }
 heapless = "0.9"
 hmac = "0.13"
-retinue = { version = "0.2.0", path = "../retinue", default-features = false, optional = true }
+retinue = { version = "0.3.0", path = "../retinue", default-features = false, optional = true }
 selvage = { version = "0.1.0", path = "../selvage" }
 sha2 = { version = "0.11", default-features = false }
 
 [dev-dependencies]
-retinue = { version = "0.2.0", path = "../retinue", default-features = false }
+retinue = { version = "0.3.0", path = "../retinue", default-features = false }
 
 [[test]]
 name = "retinue_command"

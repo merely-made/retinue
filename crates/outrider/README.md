@@ -45,12 +45,17 @@ conversation/contact semantics remain open.
 
 ## Provenance
 
-Outrider is implemented from the public LXMF specification prose, the
-Reticulum manual, and black-box captures of pinned stock clients. The Python
-LXMF implementation and its client applications are not implementation inputs. See
-[`PROVENANCE.md`](PROVENANCE.md), which keeps pace with the code.
+Outrider was implemented from the public LXMF specification prose, the
+Reticulum manual, and black-box captures of pinned stock clients. From
+2026-10-05 the crate is under the Reticulum License, and the Python LXMF and
+RNS implementations may be read and adapted into it. Adaptations are listed in
+[NOTICE](NOTICE). See [`PROVENANCE.md`](PROVENANCE.md), which keeps pace with
+the code.
 
 ## License
 
-Mozilla Public License 2.0, like the rest of the retinue workspace; see the
-[workspace README](../../README.md) for what that means in practice.
+Licensed under the Reticulum License ([LICENSE](LICENSE)) from 2026-10-05,
+like `retinue`. Releases through 0.2.0 were published under MPL-2.0 and keep
+those terms. The rest of the workspace stays MPL-2.0; see
+[retinue's README](../retinue/README.md#license) for what the Reticulum License
+means in practice.

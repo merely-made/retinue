@@ -146,8 +146,9 @@ Licensed under the Mozilla Public License, Version 2.0 ([LICENSE](LICENSE)).
 
 MPL-2.0 is file-level copyleft: you may use this crate in a larger work under
 any license, including a proprietary one, but modifications to *these files*
-must be published under the MPL. It is GPL-compatible, so it combines into the
-GPLv3 firmware images this project ships.
+must be published under the MPL. It is GPL-compatible. The firmware images
+this project ships combine it with Reticulum-licensed `retinue`, so the images
+themselves are not GPLv3.
 
 Portions were ported from the upstream [MeshCore](https://github.com/ripplebiz/MeshCore)
 project, which is MIT licensed. MIT permits relicensing a derivative work and

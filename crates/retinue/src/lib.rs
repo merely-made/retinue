@@ -47,8 +47,10 @@
 //! public-domain Reticulum protocol specification and the MIT-licensed Beechat
 //! `reticulum` crate, with later inputs recorded below and in the notices. Historical
 //! oracle work ran and observed the reference implementation. Limited comparative
-//! source review began September 26; the owner reported no RNS implementation code
-//! copied or translated. Captured bytes live under `tests/fixtures/`. See
+//! source review began September 26; through October 4 the owner reported no RNS
+//! implementation code copied or translated. From October 5 the crate is under the
+//! Reticulum License and RNS source may be adapted into it, with each adaptation
+//! listed in `NOTICE`. Captured bytes live under `tests/fixtures/`. See
 //! `design_docs/2026-07-13_rns_wire_format_reference.md`.
 //!
 //! The signed-artifact envelope in [`artifact`] had its layout

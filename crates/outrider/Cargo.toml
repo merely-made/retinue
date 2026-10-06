@@ -1,10 +1,10 @@
 [package]
 name = "outrider"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 rust-version.workspace = true
 description = "LXMF boundary crate in the retinue family: message codec, delivery, propagation, and voice clips over Reticulum."
-license = "MPL-2.0"
+license-file = "LICENSE"
 repository = "https://github.com/merely-made/retinue"
 readme = "README.md"
 keywords = ["lxmf", "reticulum", "mesh", "messaging"]
@@ -32,7 +32,7 @@ voice = ["std", "dep:pipit"]
 hkdf = "0.13"
 # The clip format for voice messages. MIT/Apache, no_std, no dependencies of its own.
 pipit = { version = "0.2", optional = true }
-retinue = { version = "0.2.0", path = "../retinue", default-features = false, features = ["alloc"] }
+retinue = { version = "0.3.0", path = "../retinue", default-features = false, features = ["alloc"] }
 rmpv = { version = "1.3.1", optional = true }
 # sha2 0.11 has no std feature; its defaults are already no_std, so this line is the same
 # on a host and on a board.

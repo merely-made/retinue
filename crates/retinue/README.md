@@ -110,8 +110,10 @@ been audited. Treat it as pre-1.0.
 Implemented from the public-domain Reticulum protocol specification and manual,
 and the MIT-licensed Beechat `reticulum` crate. The Python reference
 implementation supplied the recorded black-box oracle results. Limited comparative
-source review began September 26; the owner reported no RNS implementation code
-copied or translated. Wire notes: `design_docs/2026-07-13_rns_wire_format_reference.md`.
+source review began September 26; through October 4 the owner reported no RNS
+implementation code copied or translated. From October 5 the crate is under the
+Reticulum License and RNS source may be adapted into it; adaptations are listed
+in [NOTICE](NOTICE). Wire notes: `design_docs/2026-07-13_rns_wire_format_reference.md`.
 Not affiliated with the Reticulum project.
 
 One seam has a third input. `src/artifact.rs` and `src/msgpack.rs` implement the
@@ -125,13 +127,16 @@ historical provenance. See [NOTICE](NOTICE) and
 
 ## License
 
-Licensed under the Mozilla Public License, Version 2.0 ([LICENSE](LICENSE)).
+Licensed under the Reticulum License ([LICENSE](LICENSE)) from 2026-10-05.
+Releases through 0.2.0 were published under MPL-2.0 and keep those terms.
 
-MPL-2.0 is file-level copyleft: you may use these crates in a larger work under
-any license, including a proprietary one, but modifications to *these files*
-must be published under the MPL. The intent is that the implementation stays
-shared — improvements to it come back — while anything built on top remains
-yours. It is also GPL-compatible, so these crates combine into the GPLv3
-firmware images this project ships.
+The Reticulum License is the license of the reference implementation. It is
+permissive (use, copy, modify, distribute, sell) with two conditions. The
+software must not be used in any system that can purposefully harm people,
+and it must not be used to create AI or machine-learning training data. Keep
+the notice in copies. It applies to this crate wherever the crate is linked;
+code around it keeps its own license. It is not OSI-approved and has no SPDX
+identifier, so license gates need an explicit exception
+(`LicenseRef-Reticulum`). Why: `design_docs/2026-10-05_reticulum_license_adoption.md`.
 
 Contributions are accepted under the same terms.

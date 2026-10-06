@@ -5,14 +5,13 @@ This directory uses pinned reference packages as interoperability oracles.
 Historical receipts state whether a run used only public APIs and observed
 wire output. Those historical evidence boundaries remain unchanged.
 
-The owner permits comparative source review. The first limited RNS source
-review was reported on September 26, with no RNS implementation copying or
-translation. The license identifies and acknowledges the reference software;
-it does not declare a port or relicense independently authored MPL-2.0 code.
-Any proposed adaptation is a separate decision with its own provenance record.
-See THIRD_PARTY_NOTICES.md and the September 26 policy update in
-design_docs/2026-08-25_permissive_radio_protocol_compatibility_survey.md
-at the repository root.
+The owner permits source review. The first limited RNS source review was
+reported on September 26; through October 4 no RNS implementation code was
+copied or translated. From October 5, retinue and outrider are themselves
+under the Reticulum License, and the reference implementations may be adapted
+into them. Each crate's NOTICE lists adaptations. See THIRD_PARTY_NOTICES.md
+and design_docs/2026-10-05_reticulum_license_adoption.md at the repository
+root.
 
 The upstream license below is retained unmodified for this oracle's reference
 package. The root RETICULUM_LICENSE contains the RNS license; this copy retains

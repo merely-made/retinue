@@ -22,45 +22,65 @@ implementations, at the very least. That's my goal, and I'm sticking to it.
 
 Each crate has its own README with more detail, and here's a generated overview.
 
-## Status (2026-09-30)
+## Crates
 
-- The shared Rust protocol crates serve both host applications and firmware.
-  Retinue's recorded RNS 1.5.4 qualification covers links, requests, streams,
-  Resources and routing within the measured local-TCP scopes. Outrider's seven
-  LXMF 1.1.1 gates also passed. The [repin receipt](testing/receipts/rns-1.5.4-repin/README.md)
-  records measured scope; the [wire plan](design_docs/2026-09-27_wire_compatibility_plan.md)
-  records boundary repairs and remaining gates. These are not full upstream parity.
-- Sennet/Tucket's [current receipt](testing/receipts/sennet-tucket-current/README.md)
-  covers the software repairs and September 30 identified stock-radio exchanges.
-  MeshCore 1.17.1 passed endpoint traffic, ACKs, fallback and one-repeater routes
-  at all three path widths. Meshtastic 2.7.26 passed bidirectional encrypted text,
-  rebroadcast, node association and duplicate suppression. Both temporary stock
-  radios are restored. Maximum-size stock acceptance remains unqualified after
-  USB interruptions; alpha, multiple repeaters, scopes and broader roles are open.
-- T114 bounded transport has an on-air receipt from August 13. September's V4
-  resident-protocol receipt covers retained state and ordinary protocol traffic;
-  full fault, memory and unattended-operation acceptance remain open.
-- The [firmware refresh](testing/receipts/firmware-refresh/README.md) installed
-  clean-pin modem and resident V4 images with exact live build identities and
-  preserved settings. Selected Sennet/Tucket RF traffic passed; the resident
-  cancellation proof timed out. The [follow-up](testing/receipts/firmware-refresh/follow-up/README.md)
-  installed T114's native image, retained its identity and settings sequence,
-  passed a 1024-byte exchange, and verified advancing signed announces across
-  soft resets. One isolated resident cancellation passed; the second returned
-  Home and opened a link, but its expected RF proof timed out. T114's same-image
-  recovery retry and complete resident acceptance remain open.
-- Signalman desktop collected observations from identified V4 and T114 boards
-  with automatic saving disabled, and keyboard export/reload was verified on
-  September 21. Device-switch association clearing is implemented. Clipboard,
-  scrolled accessibility, physical cancellation and synchronized coverage remain open.
-- MC5 shared-radio power measurement is pending. The owner has a PPK2, currently
-  disconnected; wiring, supply isolation and measurement qualification remain open.
+| Crate | What it is | crates.io |
+| --- | --- | --- |
+| `retinue` | Reticulum protocol: identity, announces, links, requests, Resources, routing. `no_std + alloc` core with a tokio shell. | published |
+| `outrider` | LXMF: message codec, direct and opportunistic delivery, propagation client and server. | published |
+| `postilion` | Shared radio-host library: a Station wraps one identity, one board, an announce cadence and a peer table. | published |
+| `seneschal` | Board-management contract: signed control requests and replies, owner and configuration journal. | published |
+| `tulle` | Radio interface layer: serial modem control, direct PHY, medium access. | published |
+| `selvage` | LoRa PHY profiles shared by host and firmware. | published |
+| `sennet` | Meshtastic-compatible mesh. | published |
+| `tucket` | MeshCore interop. | published |
+| `radio-face`, `radio-hand`, `radio-mirror` | On-device UI, board runtime, and the UI's browser (wasm) realization. | workspace only |
+| `retinue-sim` | In-process multi-node route-trace harness. | workspace only |
+| `tinyssb-core` | Allocation-free tinySSB v0 feed verifier. | workspace only |
+
+Apps: `linkboy` (inspects, plans and flashes firmware packages), `signalman`
+(runs a household radio from a serial port), and `signalman-desktop` (its
+desktop face, rooted in its own workspace). Firmware for Heltec V4 and Heltec
+T114 boards is in `firmware/`, with flashable packages in `firmware/packages/`.
+
+## Status (2026-10-06)
+
+- **Releases.** retinue, outrider and postilion 0.2.0 and seneschal 0.1.0 were
+  published on 2026-10-03 under MPL-2.0. retinue and outrider 0.3.0 is the
+  first release under the Reticulum License; see [License](#license).
+- **Reticulum.** The live oracle is pinned to RNS 1.5.6 and LXMF 1.2.0. The
+  [repin receipt](testing/receipts/rns-1.5.6-repin/README.md) recorded every
+  gate passing in at least one run. `interop_ifac` fails intermittently, from
+  an RNS-side race that also occurs on 1.5.4. Outrider's 7 LXMF gates,
+  12 Resource gates and 3 routing gates passed. RNS 1.5.7 was released
+  2026-10-05 and has not been qualified yet. The 0.2.0
+  [link lifecycle](design_docs/2026-10-02_node_link_lifecycle_plan.md) work
+  landed: route learning, `open_link(now)`, link-request expiry, and
+  own-echo and duplicate filtering. These results cover the measured
+  local-TCP scopes; they are not full upstream parity.
+- **Sennet and Tucket.** The [current receipt](testing/receipts/sennet-tucket-current/README.md)
+  covers September 30 exchanges with identified stock radios. MeshCore 1.17.1
+  passed endpoint traffic, ACKs, fallback and one-repeater routes at all three
+  path widths. Meshtastic 2.7.26 passed bidirectional encrypted text,
+  rebroadcast, node association and duplicate suppression. Maximum-size stock
+  acceptance, multiple repeaters and broader roles remain open.
+- **Firmware.** T114 bounded transport has an on-air receipt from August 13.
+  The [firmware refresh](testing/receipts/firmware-refresh/README.md) and its
+  [follow-up](testing/receipts/firmware-refresh/follow-up/README.md) installed
+  clean-pin V4 and T114 images with preserved settings. They passed selected
+  RF traffic, a 1024-byte exchange and signed announces across soft resets.
+  Resident cancellation is not yet reliable: one isolated run passed and one
+  timed out. Full resident, fault and unattended-operation acceptance remain
+  open.
+- **Signalman desktop** collects observations from identified V4 and T114
+  boards, with keyboard export and reload verified. Clipboard, scrolled
+  accessibility, physical cancellation and synchronized coverage remain open.
+- **Power.** MC5 shared-radio power measurement is pending; wiring, supply
+  isolation and measurement qualification remain open.
 
 The [canonical index](design_docs/DOC_README.md) links exact receipts and open
 criteria. Historical plan queues and older README summaries are not current
-execution orders. The next comparison work is to classify behavioral differences
-against existing implementations and connect them to reproducible tests; it does
-not imply a new source adaptation or licensing change.
+execution orders.
 
 ## Use
 
@@ -83,50 +103,37 @@ cargo build --manifest-path apps/signalman-desktop/Cargo.toml
 
 ## License
 
-Mozilla Public License 2.0 ([LICENSE](LICENSE)), including the firmware 
-(though the firmware images themselves when created are GPLv3).
+Mozilla Public License 2.0 ([LICENSE](LICENSE)) for the workspace, except
+`crates/retinue` and `crates/outrider`. Those two are under the
+[Reticulum License](crates/retinue/LICENSE) from 2026-10-05, so that the
+reference implementations can be read and adapted into them. Releases through
+0.2.0 remain MPL-2.0; 0.3.0 is the first under the Reticulum License.
+Anything that links them carries the Reticulum License's notice and conditions
+for those portions. That includes the apps and the firmware images, which are
+therefore not GPLv3. See the
+[decision record](design_docs/2026-10-05_reticulum_license_adoption.md).
 Vendored third-party forks under `vendor/` (lora-phy, embedded-graphics,
 embedded-graphics-core) keep their own MIT/Apache-2.0 terms.
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) aggregates derivations;
 per-crate NOTICE and PROVENANCE files record specifics.
 
-We acknowledge Mark Qvist and the Reticulum contributors. The full
-[Reticulum License](RETICULUM_LICENSE) is included for reference; its scope and
-our source-review policy are explained in the [notices](THIRD_PARTY_NOTICES.md#reticulum).
-We respect those terms in our own use of the reference implementation. This is
-an acknowledgment, not an added restriction on users of independently authored
-Retinue code; its MPL-2.0 license remains unchanged.
+We acknowledge Mark Qvist and the Reticulum contributors for the protocol,
+its documentation, and the reference implementations. See the
+[notices](THIRD_PARTY_NOTICES.md#reticulum).
 
 ## History
 
 `tulle`, `sennet`, and `tucket` merged into this workspace on 2026-07-23 with
 history preserved; their standalone repositories are archived.
 
-I've been using reference implementations as oracles, capturing packets sent via my 
-radios to build these implementations; the references were reviewed once but not 
-copied and not translated. Why: I don't mind adhering to the terms of a license 
-provided it doesn't make me change the rest of the licensing as a combined work (GPL >_>), 
-or it has an established legal precedence I can point to if people ask me about it.
+Retinue was first built from the public-domain Reticulum protocol, the manual,
+and packet captures from the reference implementations, which were run as
+black-box oracles. Comparative review of RNS source began on 2026-09-26.
+Nothing was copied or translated. On 2026-10-05 retinue and outrider moved to
+the Reticulum License so that the reference implementations can be adapted
+into them. Adaptations are listed in each crate's `NOTICE`. The rest of the
+workspace remains MPL-2.0, and RNode firmware source stays unread.
 
-I have included the Reticulum license in the repo, for example, and agree to its terms 
-in principle: no violence, no training/developing AI. Ok, bet, Anthropic is out of luck. 
-But, as far as me imposing those violence and LLM training restrictions myself or 
-instructing people who clone this repo to do so, I feel like I have reasonable concerns 
-that haven't been addressed. How will other people interpret those terms? I note that 
-use restrictions are not compatible with MPL-2.0, my personal standard, and I am aware 
-of no legal precedence for these particular restrictions, which makes me uncomfortable. 
-
-So I will try to take the slightly harder path for a hobbyist using LLMs, and 
-will avoid copying and/or translating the reference source. This is all ancillary 
-to giving my local community a reliable, resilient network, and I'm happy to use
-the reference or microReticulum or whatever meets those needs. This implementation
-achieving any fraction of the reference standard's utility would be cream on top.
-
-I am willing to forfeit any of these efforts to the owners
-of the reference implementations, under whatever terms they wish,
-or to discuss what I should change. I acknowledge the talented folks
-who made these protocols probably have a better understanding of the 
-legal situation, but I gotta work with my own limited understanding.
 ---
 
 *This README was generated by AI and has/will be edited by the author upon
