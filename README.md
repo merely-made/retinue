@@ -45,9 +45,10 @@ T114 boards is in `firmware/`, with flashable packages in `firmware/packages/`.
 
 ## Status (2026-10-06)
 
-- **Releases.** retinue, outrider and postilion 0.2.0 and seneschal 0.1.0 were
-  published on 2026-10-03 under MPL-2.0. retinue and outrider 0.3.0 is the
-  first release under the Reticulum License; see [License](#license).
+- **Releases.** On 2026-10-06, retinue and outrider 0.3.0 were published, the
+  first releases under the Reticulum License (see [License](#license)).
+  postilion 0.3.0 and seneschal 0.2.0 were published with them; they stay
+  MPL-2.0 and move to retinue 0.3. Earlier releases are MPL-2.0.
 - **Reticulum.** The live oracle is pinned to RNS 1.5.7 and LXMF 1.2.0. The
   [repin receipt](testing/receipts/rns-1.5.7-repin/README.md) passed every
   lane in a single run: 13 live, 7 LXMF, 12 Resource and 3 routing gates.

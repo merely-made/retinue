@@ -1958,7 +1958,7 @@ dependencies = [
 
 [[package]]
 name = "postilion"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "getrandom 0.3.4",
  "heapless 0.9.3",
@@ -2314,7 +2314,7 @@ checksum = "388a1df253eca08550bef6c72392cfe7c30914bf41df5269b68cbd6ff8f570a3"
 
 [[package]]
 name = "seneschal"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ed25519-dalek",
  "heapless 0.9.3",
