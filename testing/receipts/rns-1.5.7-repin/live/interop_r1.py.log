@@ -1,0 +1,29 @@
+RNS 1.5.7
+
+starting retinue (cargo run --example interop_tcp)...
+  [retinue] LISTENING 61094
+retinue is listening on 61094
+
+RNS destination a8725a7e212dace39e9f99a8ac5da28c
+  [retinue] ACCEPTED 127.0.0.1:61095
+  [retinue] SENT_ANNOUNCE 19208507854a8a0b871f881170d475aa
+  [retinue] SKIPPED non-announce packet type Data
+
+RNS announcing...
+  [retinue] RECV_ANNOUNCE a8725a7e212dace39e9f99a8ac5da28c ratchet=false
+  [retinue]   identity  70de4e01d8064fae79daa0e198233f56
+  [retinue]   app_data  "hello-from-rns"
+  [retinue] VALIDATED_RNS_ANNOUNCE
+
+====================================================================
+retinue -> RNS
+  RNS ACCEPTED retinue's announce
+    destination 19208507854a8a0b871f881170d475aa
+    identity    ef330a1940c70349459fc4401d273cb9
+    app_data    b'hello-from-retinue'
+RNS -> retinue
+  retinue VALIDATED RNS's announce
+====================================================================
+R1 INTEROP: PASS
+[2026-10-06 16:33:13] [Warning]  The socket for TCPInterface[retinue/127.0.0.1:61094] was closed, attempting to reconnect...
+[2026-10-06 16:33:13] [Notice]   Error while shutting down socket for TCPInterface[retinue/127.0.0.1:61094]: [Errno 57] Socket is not connected

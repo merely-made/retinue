@@ -1,0 +1,21 @@
+LXMF 1.2.0 / RNS 1.5.7
+  [outrider] LISTENING 61213
+[2026-10-06 16:35:26] [Verbose]  Bringing up system interfaces...
+[2026-10-06 16:35:26] [Verbose]  System interfaces are ready
+[2026-10-06 16:35:26] [Verbose]  Configuration loaded from /var/folders/nt/xlxwlg695b399ck_h55sfwtc0000gn/T/outrider-opportunistic-receive-16nqo2e6/config
+[2026-10-06 16:35:26] [Verbose]  Destinations file does not exist, no known destinations loaded
+[2026-10-06 16:35:26] [Verbose]  No valid Transport Identity in storage, creating...
+[2026-10-06 16:35:26] [Verbose]  Identity keys created for <d393843053e142a40696fac2b09a2a2b>
+[2026-10-06 16:35:26] [Verbose]  Identity keys created for <e8312c4f08baf10c66e5acdee74e0d00>
+[2026-10-06 16:35:26] [Verbose]  Initialized ephemeral transport identity <e8312c4f08baf10c66e5acdee74e0d00>
+  [outrider] STOCK_ANNOUNCE 8f77e37e8a1c8904553a29095a6dcadd 93c41c53746f636b204f70706f7274756e6973746963205265636569766572c09100
+  [outrider] MESSAGE_ID 3ab78c866429cddf2ce72c2d3b69515586a05e35f68b073eb38066ecd5915138
+  [outrider] RATCHET 55cb3ec64264be7b538e
+  [outrider] QUEUED 1
+  stock: received 3ab78c866429cddf2ce72c2d3b69515586a05e35f68b073eb38066ecd5915138
+[2026-10-06 16:35:26] [Warning]  The socket for TCPInterface[outrider/127.0.0.1:61213] was closed, attempting to reconnect...
+stock delivery callback fired: PASS
+stock decoded title/body: PASS
+stock agreed on message id: PASS
+OUTRIDER_TO_STOCK_OPPORTUNISTIC: PASS
+[2026-10-06 16:35:26] [Notice]   Error while shutting down socket for TCPInterface[outrider/127.0.0.1:61213]: [Errno 57] Socket is not connected

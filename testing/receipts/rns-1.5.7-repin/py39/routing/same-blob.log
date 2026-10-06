@@ -1,0 +1,6 @@
+Traceback (most recent call last):
+  File "/Users/markik/Code/repos/retinue/crates/retinue/oracle/probe_route_freshness.py", line 52, in <module>
+    from peer_matrix import RecordingRelay, free_port
+  File "/Users/markik/Code/repos/retinue/crates/retinue/oracle/peer_matrix.py", line 48, in <module>
+    from datetime import UTC, datetime
+ImportError: cannot import name 'UTC' from 'datetime' (/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/datetime.py)

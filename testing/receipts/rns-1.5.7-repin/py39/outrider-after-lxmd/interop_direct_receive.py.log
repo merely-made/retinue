@@ -1,0 +1,25 @@
+LXMF 1.2.0 / RNS 1.5.7
+  [outrider] LISTENING 60897
+[2026-10-06 16:29:11] [Verbose]  Bringing up system interfaces...
+[2026-10-06 16:29:11] [Verbose]  System interfaces are ready
+[2026-10-06 16:29:11] [Verbose]  Configuration loaded from /var/folders/nt/xlxwlg695b399ck_h55sfwtc0000gn/T/outrider-direct-receive-3ifzv7xg/config
+[2026-10-06 16:29:11] [Verbose]  Destinations file does not exist, no known destinations loaded
+[2026-10-06 16:29:11] [Verbose]  No valid Transport Identity in storage, creating...
+[2026-10-06 16:29:11] [Verbose]  Identity keys created for <12b36bdd0a64d0fe3bf552c385dde99a>
+[2026-10-06 16:29:11] [Verbose]  Identity keys created for <6e8089c563ca2752d1920d3c0f3b2383>
+[2026-10-06 16:29:11] [Verbose]  Initialized ephemeral transport identity <6e8089c563ca2752d1920d3c0f3b2383>
+  [outrider] STOCK_ANNOUNCE 8f77e37e8a1c8904553a29095a6dcadd 93c40e53746f636b205265636569766572089100
+  [outrider] SENT 172
+  [outrider] TRANSPORT Data
+  [outrider] PACKED 8f77e37e8a1c8904553a29095a6dcadde427ccc58572c042c4f749304e4ad550b8bc5889bbf8fe057c4c87788247cc42c92ffc2b2fab0176f74f57e84e7769fb6be69aa3ed235050db0ea502f5acb8ae9f59135399bd55252b1cde504202e50e95cb41da217720a00000c40e4f55545249444552205449544c45c40d4f5554524944455220424f445980c420000000000000000000000000000000000000000000000000000000000000005c
+  [outrider] MESSAGE_ID bbca8e62091fe896544847f4b0c904207f8b78f4708d4cfc51cf54d3c12c0dd5
+  [outrider] SOURCE e427ccc58572c042c4f749304e4ad550
+  stock: received bbca8e62091fe896544847f4b0c904207f8b78f4708d4cfc51cf54d3c12c0dd5
+[2026-10-06 16:29:14] [Warning]  The socket for TCPInterface[outrider/127.0.0.1:60897] was closed, attempting to reconnect...
+stock delivery callback fired: PASS
+stock decoded title/body: PASS
+stock agreed on message id: PASS
+Outrider captured announce data: PASS
+Outrider chose Data: PASS
+OUTRIDER_TO_STOCK_DIRECT: PASS
+[2026-10-06 16:29:14] [Notice]   Error while shutting down socket for TCPInterface[outrider/127.0.0.1:60897]: [Errno 57] Socket is not connected

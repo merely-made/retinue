@@ -1,0 +1,66 @@
+{
+ "case": "q3_announce_echo_157",
+ "own_dest": "7247dbf218c274c9d112a8be2a782840",
+ "peer_dest": "d3c1bfc1961244b513e2ceeff5784c46",
+ "A_own_state_initial": {
+  "has_path": false,
+  "hops_to": null,
+  "recall_app_data": null,
+  "in_known_destinations": false
+ },
+ "ctl_A_handler_events_for_peer": 1,
+ "ctl_A_peer_state": {
+  "has_path": true,
+  "hops_to": 2,
+  "recall_app_data": "B-app",
+  "in_known_destinations": true
+ },
+ "ctl_A_rebroadcast_peer_to_C_frames": 1,
+ "ctl_C_peer_state": {
+  "has_path": true,
+  "hops_to": 3,
+  "recall_app_data": "B-app",
+  "in_known_destinations": true
+ },
+ "suppress_natural_echo": false,
+ "A_own_announce_frames_to_R": 1,
+ "A_own_announce_frames_to_C": 1,
+ "R_rebroadcast_frames_toward_B": 1,
+ "R_natural_echo_frames_back_to_A": 1,
+ "A_own_state_after_own_announce": {
+  "has_path": false,
+  "hops_to": null,
+  "recall_app_data": "A-app",
+  "in_known_destinations": true
+ },
+ "ctl_B_learned_A": {
+  "has_path": true,
+  "hops_to": 2,
+  "recall_app_data": "A-app",
+  "in_known_destinations": true
+ },
+ "R_rebroadcast_header": {
+  "header_type": 2,
+  "hops": 1,
+  "transport_id": "a1ee50618a124503a0884022863ecd65",
+  "context": 0
+ },
+ "R_transport_id": "a1ee50618a124503a0884022863ecd65",
+ "inj_A_handler_events_for_own": 0,
+ "inj_A_own_announce_frames_to_R_after": 0,
+ "inj_A_own_announce_frames_to_C_after": 0,
+ "inj_A_own_state_after_echo": {
+  "has_path": false,
+  "hops_to": null,
+  "recall_app_data": "A-app",
+  "in_known_destinations": true
+ },
+ "inj2_A_handler_events_for_own": 0,
+ "inj2_A_own_announce_frames_out_after": 0,
+ "inj2_A_own_state": {
+  "has_path": false,
+  "hops_to": null,
+  "recall_app_data": "A-app",
+  "in_known_destinations": true
+ }
+}

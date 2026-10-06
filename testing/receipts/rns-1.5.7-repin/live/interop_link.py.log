@@ -1,0 +1,28 @@
+RNS 1.5.7
+
+  [retinue] LISTENING 61123
+RNS destination a8725a7e212dace39e9f99a8ac5da28c
+
+  [retinue] ACCEPTED
+  [retinue] LINK_REQUEST id=884427832578c7b9f18142069008daae
+  [retinue] LINK_ESTABLISHED id=884427832578c7b9f18142069008daae mode=Aes256Cbc mtu=500
+  [retinue] SENT_RTT
+  RNS: link established
+  [retinue] SENT_DATA hello-over-the-link
+  RNS: received b'hello-over-the-link' on the link
+  [retinue] RECV_DATA pong-from-rns
+  [retinue] IDLING
+  [retinue] SENT_DATA_AFTER_IDLE after-idle
+  RNS: received b'after-idle' on the link
+  [retinue] DONE[2026-10-06 16:33:49] [Warning]  An interface error occurred for TCPInterface[retinue/127.0.0.1:61123], the contained exception was: [Errno 54] Connection reset by peer
+
+[2026-10-06 16:33:49] [Warning]  Attempting to reconnect...
+
+====================================================================
+link established (both sides):  PASS
+retinue -> RNS decrypt:         PASS
+RNS -> retinue decrypt:         PASS
+link survived idle:             PASS
+====================================================================
+R3 LINK INTEROP: PASS
+[2026-10-06 16:33:50] [Notice]   Error while shutting down socket for TCPInterface[retinue/127.0.0.1:61123]: [Errno 57] Socket is not connected

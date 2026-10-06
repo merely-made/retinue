@@ -1,0 +1,87 @@
+{
+  "baseline_commit": "a63f2fd2305f45559b784a56c828dc1db8ea4d0d",
+  "rns": "1.5.7",
+  "lxmf": "1.2.0",
+  "lane": "outrider",
+  "started_utc": "2026-10-06T20:29:09.847653+00:00",
+  "gates": [
+    {
+      "name": "interop_direct_receive.py",
+      "command": [
+        "/private/tmp/claude-501/-Users-markik-Code/ead988fd-de3e-4175-b19a-c544ebe99350/scratchpad/oracle-venv/bin/python",
+        "-u",
+        "/Users/markik/Code/repos/retinue/crates/outrider/oracle/interop_direct_receive.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 4.373
+    },
+    {
+      "name": "interop_direct_send.py",
+      "command": [
+        "/private/tmp/claude-501/-Users-markik-Code/ead988fd-de3e-4175-b19a-c544ebe99350/scratchpad/oracle-venv/bin/python",
+        "-u",
+        "/Users/markik/Code/repos/retinue/crates/outrider/oracle/interop_direct_send.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 9.991
+    },
+    {
+      "name": "interop_opportunistic_receive.py",
+      "command": [
+        "/private/tmp/claude-501/-Users-markik-Code/ead988fd-de3e-4175-b19a-c544ebe99350/scratchpad/oracle-venv/bin/python",
+        "-u",
+        "/Users/markik/Code/repos/retinue/crates/outrider/oracle/interop_opportunistic_receive.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 1.254
+    },
+    {
+      "name": "interop_opportunistic_send.py",
+      "command": [
+        "/private/tmp/claude-501/-Users-markik-Code/ead988fd-de3e-4175-b19a-c544ebe99350/scratchpad/oracle-venv/bin/python",
+        "-u",
+        "/Users/markik/Code/repos/retinue/crates/outrider/oracle/interop_opportunistic_send.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 2.231
+    },
+    {
+      "name": "interop_propagation_receive.py",
+      "command": [
+        "/private/tmp/claude-501/-Users-markik-Code/ead988fd-de3e-4175-b19a-c544ebe99350/scratchpad/oracle-venv/bin/python",
+        "-u",
+        "/Users/markik/Code/repos/retinue/crates/outrider/oracle/interop_propagation_receive.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 22.687
+    },
+    {
+      "name": "interop_propagation_server.py",
+      "command": [
+        "/private/tmp/claude-501/-Users-markik-Code/ead988fd-de3e-4175-b19a-c544ebe99350/scratchpad/oracle-venv/bin/python",
+        "-u",
+        "/Users/markik/Code/repos/retinue/crates/outrider/oracle/interop_propagation_server.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 13.829
+    },
+    {
+      "name": "interop_propagation_stock.py",
+      "command": [
+        "/private/tmp/claude-501/-Users-markik-Code/ead988fd-de3e-4175-b19a-c544ebe99350/scratchpad/oracle-venv/bin/python",
+        "-u",
+        "/Users/markik/Code/repos/retinue/crates/outrider/oracle/interop_propagation_stock.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "elapsed_seconds": 33.671
+    }
+  ],
+  "all_passed": true
+}

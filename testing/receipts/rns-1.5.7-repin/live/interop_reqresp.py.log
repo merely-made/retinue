@@ -1,0 +1,21 @@
+RNS 1.5.7
+
+  [retinue] LISTENING 61141
+RNS /echo responder 7fc94acdb1cc63c3b03792fdf39ce7de
+waiting...
+
+  RNS: saw retinue /svc e1237a470055d8710780e13063b114b2, linking to request it
+  [retinue] SENT_REQUEST id=b0559eb2ae8c98633e4e80312b89630a
+  RNS /echo handler: data=b'ping-from-retinue'
+  [retinue] RECV_RESPONSE data=rns-echo:ping-from-retinue id_match=true
+  [retinue] ANSWERED_REQUEST
+  [retinue] DONE d1=true d2=true  RNS: got retinue's response: b'retinue-echo:hi-retinue'
+
+[2026-10-06 16:34:04] [Warning]  The socket for TCPInterface[retinue/127.0.0.1:61141] was closed, attempting to reconnect...
+
+====================================================================
+retinue -> RNS request (matched):  PASS  data=rns-echo:ping-from-retinue
+RNS -> retinue request answered:   PASS  (RNS got b'retinue-echo:hi-retinue')
+====================================================================
+R3 REQUEST/RESPONSE INTEROP: PASS
+[2026-10-06 16:34:05] [Notice]   Error while shutting down socket for TCPInterface[retinue/127.0.0.1:61141]: [Errno 57] Socket is not connected

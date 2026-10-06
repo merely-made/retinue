@@ -20,6 +20,8 @@ or current endorsements. Passing protocol tests cannot establish source authorsh
 RNS 1.5.4 has replaced the live 1.5.2 pin; LXMF stays 1.1.1.
 
 *2026-10-03:* RNS 1.5.6 and LXMF 1.2.0 replace the 1.5.4 and 1.1.1 pins, within the scopes of the [1.5.6 receipt](../testing/receipts/rns-1.5.6-repin/README.md). On 1.5.6, every live gate passed in at least one run, though no single run had all 13 green. `interop_ifac` is intermittent on an RNS-side race that is also present on 1.5.4 (1 failure in 12 there, 4 in 12 on 1.5.6). outrider passed 7/7, resource 12/12, and routing 3/3, with route decisions identical to 1.5.4.
+
+*2026-10-06:* RNS 1.5.7 replaces the 1.5.6 pin; LXMF stays 1.2.0. The [1.5.7 receipt](../testing/receipts/rns-1.5.7-repin/README.md) ran on a macOS host with CPython 3.13. Every lane passed in a single run: live 13/13, outrider 7/7, resource 12/12, routing 3/3. Route, same-blob and timebase decisions are identical to 1.5.6. `interop_ifac` passed 14 of 14; the earlier failures were on Windows, so the race is not yet ruled out. The V1 re-checks are unchanged, and both held RNS defects persist. The oracle harness needs Python 3.11 or later.
 Physical firmware and public-network claims require their own receipts. Local TCP
 success does not requalify radio scheduling, on-air relay, power, or board IFAC.
 

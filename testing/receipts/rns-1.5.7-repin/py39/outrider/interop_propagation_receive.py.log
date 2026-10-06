@@ -1,0 +1,12 @@
+LXMF 1.2.0 / RNS 1.5.7
+  [outrider] LISTENING 60779
+[2026-10-06 16:25:26] [Verbose]  Bringing up system interfaces...
+[2026-10-06 16:25:26] [Verbose]  System interfaces are ready
+[2026-10-06 16:25:26] [Verbose]  Configuration loaded from /var/folders/nt/xlxwlg695b399ck_h55sfwtc0000gn/T/outrider-propagation-receive-t9vtq46q/client-rns/config
+[2026-10-06 16:25:26] [Verbose]  Destinations file does not exist, no known destinations loaded
+[2026-10-06 16:25:26] [Verbose]  No valid Transport Identity in storage, creating...
+[2026-10-06 16:25:26] [Verbose]  Identity keys created for <02cb1dc90ec38b4456c7c512f139be85>
+[2026-10-06 16:25:26] [Verbose]  Identity keys created for <b51f0c45e1d4a5fbafd7ab29061b6941>
+[2026-10-06 16:25:26] [Verbose]  Initialized ephemeral transport identity <b51f0c45e1d4a5fbafd7ab29061b6941>
+[2026-10-06 16:25:26] [Warning]  The socket for TCPInterface[outrider/127.0.0.1:60779] was closed, attempting to reconnect...
+[2026-10-06 16:25:26] [Notice]   Error while shutting down socket for TCPInterface[outrider/127.0.0.1:60779]: [Errno 57] Socket is not connected

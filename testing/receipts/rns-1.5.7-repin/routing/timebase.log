@@ -1,0 +1,476 @@
+{
+  "rns_version": "1.5.7",
+  "method": "persistent RNS receiver; raw valid announces over observed HDLC TCP framing",
+  "rns_source_read": false,
+  "config_dir": "/Users/markik/Code/repos/retinue/validation/results/rns-1.5.7-repin/timebase/rns-config",
+  "destination_table": "/Users/markik/Code/repos/retinue/validation/results/rns-1.5.7-repin/timebase/rns-config/storage/destination_table",
+  "inputs": {
+    "source_seed_hex": "f0ecbba49e783dee14ffc6c9f1e1251efa7d7629e0fa32413c5c59ec2e0f6d6cf0ecbba49e783dee14ffc6c9f1e1251efa7d7629e0fa32413c5c59ec2e0f6d6c",
+    "wire_timebase": "blob[5:10], big-endian whole seconds",
+    "nonce_length": 5
+  },
+  "probes": {
+    "P1_equal_timestamp": {
+      "destination_hash": "3345f8e9eac4e361b63abc6bd1b41b02",
+      "records": [
+        {
+          "timebase_seconds": 100,
+          "nonce_hex": "50312d4130",
+          "blob_hex": "50312d41300000000064",
+          "packet_hex": "01003345f8e9eac4e361b63abc6bd1b41b0200a8fd56cbca13577c24914cc4c13308b7d7f3e20bd39c55a4e636984655be343884f6da8c37b5f343568b185a20c63b5bf011a3d60ee805bb9e151371ea1d5555a5dc676b2619283b90c150312d413000000000640949d46fb89b3151509a2b0d3d7df0c0b163af212cb39c9c851baa09d2984a7c669d9b5dddc2ee5d1fc42c6ee4a0e313bf56c0b14df02c6a99bc48ddcac2ee01",
+          "packet_length": 167,
+          "sender_result": {
+            "rns_version": "1.5.7",
+            "packet_hex": "01003345f8e9eac4e361b63abc6bd1b41b0200a8fd56cbca13577c24914cc4c13308b7d7f3e20bd39c55a4e636984655be343884f6da8c37b5f343568b185a20c63b5bf011a3d60ee805bb9e151371ea1d5555a5dc676b2619283b90c150312d413000000000640949d46fb89b3151509a2b0d3d7df0c0b163af212cb39c9c851baa09d2984a7c669d9b5dddc2ee5d1fc42c6ee4a0e313bf56c0b14df02c6a99bc48ddcac2ee01",
+            "packet_length": 167,
+            "blob_hex": "50312d41300000000064",
+            "destination_hash": "3345f8e9eac4e361b63abc6bd1b41b02",
+            "packet_valid": true,
+            "rns_source_read": false
+          },
+          "receiver_result": {
+            "rns_version": "1.5.7",
+            "packet_length": 167,
+            "packet_valid": true,
+            "destination_hash": "3345f8e9eac4e361b63abc6bd1b41b02",
+            "candidate_blob_hex": "50312d41300000000064",
+            "rns_source_read": false,
+            "in_process_snapshot": null,
+            "table_path": "/Users/markik/Code/repos/retinue/validation/results/rns-1.5.7-repin/timebase/rns-config/storage/destination_table",
+            "in_process_candidate_observed": false,
+            "processed_window_complete": true
+          },
+          "before": null,
+          "after": {
+            "destination_hash": "3345f8e9eac4e361b63abc6bd1b41b02",
+            "entry": [
+              "3345f8e9eac4e361b63abc6bd1b41b02",
+              1791319222.375463,
+              "3345f8e9eac4e361b63abc6bd1b41b02",
+              1,
+              1791924022.375463,
+              [
+                "50312d41300000000064"
+              ],
+              "ee6415de4f1b9382e005958829a6c8e746de06668e847f2208d3502e531b9228",
+              "373065ce66bc85170e19c7e6ec58524d4f46fafba3ddc5e004676490a3380536"
+            ],
+            "random_blobs": [
+              "50312d41300000000064"
+            ],
+            "random_blob_count": 1
+          },
+          "accepted_by_blob_growth": true
+        },
+        {
+          "timebase_seconds": 100,
+          "nonce_hex": "50312d4230",
+          "blob_hex": "50312d42300000000064",
+          "packet_hex": "01003345f8e9eac4e361b63abc6bd1b41b0200a8fd56cbca13577c24914cc4c13308b7d7f3e20bd39c55a4e636984655be343884f6da8c37b5f343568b185a20c63b5bf011a3d60ee805bb9e151371ea1d5555a5dc676b2619283b90c150312d42300000000064af72e4380e423621a77153a166994c15d14212c6eb10032b16643d39c132c047b8506987e7247cc6a8d709dea45f4d75404bbe189b54ee21917edc5515d47c03",
+          "packet_length": 167,
+          "sender_result": {
+            "rns_version": "1.5.7",
+            "packet_hex": "01003345f8e9eac4e361b63abc6bd1b41b0200a8fd56cbca13577c24914cc4c13308b7d7f3e20bd39c55a4e636984655be343884f6da8c37b5f343568b185a20c63b5bf011a3d60ee805bb9e151371ea1d5555a5dc676b2619283b90c150312d42300000000064af72e4380e423621a77153a166994c15d14212c6eb10032b16643d39c132c047b8506987e7247cc6a8d709dea45f4d75404bbe189b54ee21917edc5515d47c03",
+            "packet_length": 167,
+            "blob_hex": "50312d42300000000064",
+            "destination_hash": "3345f8e9eac4e361b63abc6bd1b41b02",
+            "packet_valid": true,
+            "rns_source_read": false
+          },
+          "receiver_result": {
+            "rns_version": "1.5.7",
+            "packet_length": 167,
+            "packet_valid": true,
+            "destination_hash": "3345f8e9eac4e361b63abc6bd1b41b02",
+            "candidate_blob_hex": "50312d42300000000064",
+            "rns_source_read": false,
+            "in_process_snapshot": {
+              "destination_hash": "3345f8e9eac4e361b63abc6bd1b41b02",
+              "entry": [
+                "3345f8e9eac4e361b63abc6bd1b41b02",
+                1791319222.375463,
+                "3345f8e9eac4e361b63abc6bd1b41b02",
+                1,
+                1791924022.375463,
+                [
+                  "50312d41300000000064"
+                ],
+                "ee6415de4f1b9382e005958829a6c8e746de06668e847f2208d3502e531b9228",
+                "373065ce66bc85170e19c7e6ec58524d4f46fafba3ddc5e004676490a3380536"
+              ],
+              "random_blobs": [
+                "50312d41300000000064"
+              ],
+              "random_blob_count": 1
+            },
+            "table_path": "/Users/markik/Code/repos/retinue/validation/results/rns-1.5.7-repin/timebase/rns-config/storage/destination_table",
+            "in_process_candidate_observed": false,
+            "processed_window_complete": true
+          },
+          "before": {
+            "destination_hash": "3345f8e9eac4e361b63abc6bd1b41b02",
+            "entry": [
+              "3345f8e9eac4e361b63abc6bd1b41b02",
+              1791319222.375463,
+              "3345f8e9eac4e361b63abc6bd1b41b02",
+              1,
+              1791924022.375463,
+              [
+                "50312d41300000000064"
+              ],
+              "ee6415de4f1b9382e005958829a6c8e746de06668e847f2208d3502e531b9228",
+              "373065ce66bc85170e19c7e6ec58524d4f46fafba3ddc5e004676490a3380536"
+            ],
+            "random_blobs": [
+              "50312d41300000000064"
+            ],
+            "random_blob_count": 1
+          },
+          "after": {
+            "destination_hash": "3345f8e9eac4e361b63abc6bd1b41b02",
+            "entry": [
+              "3345f8e9eac4e361b63abc6bd1b41b02",
+              1791319222.375463,
+              "3345f8e9eac4e361b63abc6bd1b41b02",
+              1,
+              1791924022.375463,
+              [
+                "50312d41300000000064"
+              ],
+              "ee6415de4f1b9382e005958829a6c8e746de06668e847f2208d3502e531b9228",
+              "373065ce66bc85170e19c7e6ec58524d4f46fafba3ddc5e004676490a3380536"
+            ],
+            "random_blobs": [
+              "50312d41300000000064"
+            ],
+            "random_blob_count": 1
+          },
+          "accepted_by_blob_growth": false
+        }
+      ],
+      "answer": false
+    },
+    "P2_high_then_correct": {
+      "destination_hash": "d696639336ec928c56c9d4a61b1ab20c",
+      "records": [
+        {
+          "timebase_seconds": 549755813888,
+          "nonce_hex": "50322d4849",
+          "blob_hex": "50322d48498000000000",
+          "packet_hex": "0100d696639336ec928c56c9d4a61b1ab20c00a8fd56cbca13577c24914cc4c13308b7d7f3e20bd39c55a4e636984655be343884f6da8c37b5f343568b185a20c63b5bf011a3d60ee805bb9e151371ea1d5555f0c9f1c5cedab144ee3b50322d48498000000000d0d1f6d474e15b2fab66db0cf0073242bd20a7dc4109f3068c95d3004a9c931592d7f9f3f5a09a0f1e5a93aa14085befc00836aa262632a9d877b1ad22a70a0c",
+          "packet_length": 167,
+          "sender_result": {
+            "rns_version": "1.5.7",
+            "packet_hex": "0100d696639336ec928c56c9d4a61b1ab20c00a8fd56cbca13577c24914cc4c13308b7d7f3e20bd39c55a4e636984655be343884f6da8c37b5f343568b185a20c63b5bf011a3d60ee805bb9e151371ea1d5555f0c9f1c5cedab144ee3b50322d48498000000000d0d1f6d474e15b2fab66db0cf0073242bd20a7dc4109f3068c95d3004a9c931592d7f9f3f5a09a0f1e5a93aa14085befc00836aa262632a9d877b1ad22a70a0c",
+            "packet_length": 167,
+            "blob_hex": "50322d48498000000000",
+            "destination_hash": "d696639336ec928c56c9d4a61b1ab20c",
+            "packet_valid": true,
+            "rns_source_read": false
+          },
+          "receiver_result": {
+            "rns_version": "1.5.7",
+            "packet_length": 167,
+            "packet_valid": true,
+            "destination_hash": "d696639336ec928c56c9d4a61b1ab20c",
+            "candidate_blob_hex": "50322d48498000000000",
+            "rns_source_read": false,
+            "in_process_snapshot": null,
+            "table_path": "/Users/markik/Code/repos/retinue/validation/results/rns-1.5.7-repin/timebase/rns-config/storage/destination_table",
+            "in_process_candidate_observed": false,
+            "processed_window_complete": true
+          },
+          "before": null,
+          "after": {
+            "destination_hash": "d696639336ec928c56c9d4a61b1ab20c",
+            "entry": [
+              "d696639336ec928c56c9d4a61b1ab20c",
+              1791319237.826457,
+              "d696639336ec928c56c9d4a61b1ab20c",
+              1,
+              1791924037.826457,
+              [
+                "50322d48498000000000"
+              ],
+              "ee6415de4f1b9382e005958829a6c8e746de06668e847f2208d3502e531b9228",
+              "929150d1de7c33df3554543e36cd2920c83a47405cca93ca179fb74c44ff59dd"
+            ],
+            "random_blobs": [
+              "50322d48498000000000"
+            ],
+            "random_blob_count": 1
+          },
+          "accepted_by_blob_growth": true
+        },
+        {
+          "timebase_seconds": 2,
+          "nonce_hex": "50322d4c4f",
+          "blob_hex": "50322d4c4f0000000002",
+          "packet_hex": "0100d696639336ec928c56c9d4a61b1ab20c00a8fd56cbca13577c24914cc4c13308b7d7f3e20bd39c55a4e636984655be343884f6da8c37b5f343568b185a20c63b5bf011a3d60ee805bb9e151371ea1d5555f0c9f1c5cedab144ee3b50322d4c4f00000000022a23191aac90a5af51f7328663d497cbfec6480d6f74a01e8874c297a3df39c404926b724be1c81151488fe8dc1bef797140a14129d847ed595c3ce614ff810a",
+          "packet_length": 167,
+          "sender_result": {
+            "rns_version": "1.5.7",
+            "packet_hex": "0100d696639336ec928c56c9d4a61b1ab20c00a8fd56cbca13577c24914cc4c13308b7d7f3e20bd39c55a4e636984655be343884f6da8c37b5f343568b185a20c63b5bf011a3d60ee805bb9e151371ea1d5555f0c9f1c5cedab144ee3b50322d4c4f00000000022a23191aac90a5af51f7328663d497cbfec6480d6f74a01e8874c297a3df39c404926b724be1c81151488fe8dc1bef797140a14129d847ed595c3ce614ff810a",
+            "packet_length": 167,
+            "blob_hex": "50322d4c4f0000000002",
+            "destination_hash": "d696639336ec928c56c9d4a61b1ab20c",
+            "packet_valid": true,
+            "rns_source_read": false
+          },
+          "receiver_result": {
+            "rns_version": "1.5.7",
+            "packet_length": 167,
+            "packet_valid": true,
+            "destination_hash": "d696639336ec928c56c9d4a61b1ab20c",
+            "candidate_blob_hex": "50322d4c4f0000000002",
+            "rns_source_read": false,
+            "in_process_snapshot": {
+              "destination_hash": "d696639336ec928c56c9d4a61b1ab20c",
+              "entry": [
+                "d696639336ec928c56c9d4a61b1ab20c",
+                1791319237.826457,
+                "d696639336ec928c56c9d4a61b1ab20c",
+                1,
+                1791924037.826457,
+                [
+                  "50322d48498000000000"
+                ],
+                "ee6415de4f1b9382e005958829a6c8e746de06668e847f2208d3502e531b9228",
+                "929150d1de7c33df3554543e36cd2920c83a47405cca93ca179fb74c44ff59dd"
+              ],
+              "random_blobs": [
+                "50322d48498000000000"
+              ],
+              "random_blob_count": 1
+            },
+            "table_path": "/Users/markik/Code/repos/retinue/validation/results/rns-1.5.7-repin/timebase/rns-config/storage/destination_table",
+            "in_process_candidate_observed": false,
+            "processed_window_complete": true
+          },
+          "before": {
+            "destination_hash": "d696639336ec928c56c9d4a61b1ab20c",
+            "entry": [
+              "d696639336ec928c56c9d4a61b1ab20c",
+              1791319237.826457,
+              "d696639336ec928c56c9d4a61b1ab20c",
+              1,
+              1791924037.826457,
+              [
+                "50322d48498000000000"
+              ],
+              "ee6415de4f1b9382e005958829a6c8e746de06668e847f2208d3502e531b9228",
+              "929150d1de7c33df3554543e36cd2920c83a47405cca93ca179fb74c44ff59dd"
+            ],
+            "random_blobs": [
+              "50322d48498000000000"
+            ],
+            "random_blob_count": 1
+          },
+          "after": {
+            "destination_hash": "d696639336ec928c56c9d4a61b1ab20c",
+            "entry": [
+              "d696639336ec928c56c9d4a61b1ab20c",
+              1791319237.826457,
+              "d696639336ec928c56c9d4a61b1ab20c",
+              1,
+              1791924037.826457,
+              [
+                "50322d48498000000000"
+              ],
+              "ee6415de4f1b9382e005958829a6c8e746de06668e847f2208d3502e531b9228",
+              "929150d1de7c33df3554543e36cd2920c83a47405cca93ca179fb74c44ff59dd"
+            ],
+            "random_blobs": [
+              "50322d48498000000000"
+            ],
+            "random_blob_count": 1
+          },
+          "accepted_by_blob_growth": false
+        }
+      ],
+      "answer": true
+    },
+    "P3_low_then_2pow39": {
+      "destination_hash": "a79405327da93f3e02928e1ba0271ee2",
+      "records": [
+        {
+          "timebase_seconds": 1,
+          "nonce_hex": "50332d4c4f",
+          "blob_hex": "50332d4c4f0000000001",
+          "packet_hex": "0100a79405327da93f3e02928e1ba0271ee200a8fd56cbca13577c24914cc4c13308b7d7f3e20bd39c55a4e636984655be343884f6da8c37b5f343568b185a20c63b5bf011a3d60ee805bb9e151371ea1d555558e9d54782c2906f048050332d4c4f000000000170184b6fc8dc1a869a4c22db4db8dc8dce679dc9373c239b3732504125410e1b97fde736189adcee2b3c658dcb264669048adb4f8360f8a3315074b304a21a01",
+          "packet_length": 167,
+          "sender_result": {
+            "rns_version": "1.5.7",
+            "packet_hex": "0100a79405327da93f3e02928e1ba0271ee200a8fd56cbca13577c24914cc4c13308b7d7f3e20bd39c55a4e636984655be343884f6da8c37b5f343568b185a20c63b5bf011a3d60ee805bb9e151371ea1d555558e9d54782c2906f048050332d4c4f000000000170184b6fc8dc1a869a4c22db4db8dc8dce679dc9373c239b3732504125410e1b97fde736189adcee2b3c658dcb264669048adb4f8360f8a3315074b304a21a01",
+            "packet_length": 167,
+            "blob_hex": "50332d4c4f0000000001",
+            "destination_hash": "a79405327da93f3e02928e1ba0271ee2",
+            "packet_valid": true,
+            "rns_source_read": false
+          },
+          "receiver_result": {
+            "rns_version": "1.5.7",
+            "packet_length": 167,
+            "packet_valid": true,
+            "destination_hash": "a79405327da93f3e02928e1ba0271ee2",
+            "candidate_blob_hex": "50332d4c4f0000000001",
+            "rns_source_read": false,
+            "in_process_snapshot": null,
+            "table_path": "/Users/markik/Code/repos/retinue/validation/results/rns-1.5.7-repin/timebase/rns-config/storage/destination_table",
+            "in_process_candidate_observed": false,
+            "processed_window_complete": true
+          },
+          "before": null,
+          "after": {
+            "destination_hash": "a79405327da93f3e02928e1ba0271ee2",
+            "entry": [
+              "a79405327da93f3e02928e1ba0271ee2",
+              1791319255.0024588,
+              "a79405327da93f3e02928e1ba0271ee2",
+              1,
+              1791924055.0024588,
+              [
+                "50332d4c4f0000000001"
+              ],
+              "ee6415de4f1b9382e005958829a6c8e746de06668e847f2208d3502e531b9228",
+              "16cf7a19e6c47479c1f0c64b11f7cfa17c9d71776466e417b38bc7c66d718a48"
+            ],
+            "random_blobs": [
+              "50332d4c4f0000000001"
+            ],
+            "random_blob_count": 1
+          },
+          "accepted_by_blob_growth": true
+        },
+        {
+          "timebase_seconds": 549755813888,
+          "nonce_hex": "50332d4849",
+          "blob_hex": "50332d48498000000000",
+          "packet_hex": "0100a79405327da93f3e02928e1ba0271ee200a8fd56cbca13577c24914cc4c13308b7d7f3e20bd39c55a4e636984655be343884f6da8c37b5f343568b185a20c63b5bf011a3d60ee805bb9e151371ea1d555558e9d54782c2906f048050332d48498000000000e7c78895e81b42c19b919ea43c4bdb1585d081448af411be9fb6f6f85d01bb6e80cf000d9fee7d9e65f51f9801eb438e8b98c83f2bbb172a047c05077aaf8302",
+          "packet_length": 167,
+          "sender_result": {
+            "rns_version": "1.5.7",
+            "packet_hex": "0100a79405327da93f3e02928e1ba0271ee200a8fd56cbca13577c24914cc4c13308b7d7f3e20bd39c55a4e636984655be343884f6da8c37b5f343568b185a20c63b5bf011a3d60ee805bb9e151371ea1d555558e9d54782c2906f048050332d48498000000000e7c78895e81b42c19b919ea43c4bdb1585d081448af411be9fb6f6f85d01bb6e80cf000d9fee7d9e65f51f9801eb438e8b98c83f2bbb172a047c05077aaf8302",
+            "packet_length": 167,
+            "blob_hex": "50332d48498000000000",
+            "destination_hash": "a79405327da93f3e02928e1ba0271ee2",
+            "packet_valid": true,
+            "rns_source_read": false
+          },
+          "receiver_result": {
+            "rns_version": "1.5.7",
+            "packet_length": 167,
+            "packet_valid": true,
+            "destination_hash": "a79405327da93f3e02928e1ba0271ee2",
+            "candidate_blob_hex": "50332d48498000000000",
+            "rns_source_read": false,
+            "in_process_snapshot": {
+              "destination_hash": "a79405327da93f3e02928e1ba0271ee2",
+              "entry": [
+                "a79405327da93f3e02928e1ba0271ee2",
+                1791319255.0024588,
+                "a79405327da93f3e02928e1ba0271ee2",
+                1,
+                1791924055.0024588,
+                [
+                  "50332d4c4f0000000001"
+                ],
+                "ee6415de4f1b9382e005958829a6c8e746de06668e847f2208d3502e531b9228",
+                "16cf7a19e6c47479c1f0c64b11f7cfa17c9d71776466e417b38bc7c66d718a48"
+              ],
+              "random_blobs": [
+                "50332d4c4f0000000001"
+              ],
+              "random_blob_count": 1
+            },
+            "table_path": "/Users/markik/Code/repos/retinue/validation/results/rns-1.5.7-repin/timebase/rns-config/storage/destination_table",
+            "in_process_candidate_observed": false,
+            "processed_window_complete": true
+          },
+          "before": {
+            "destination_hash": "a79405327da93f3e02928e1ba0271ee2",
+            "entry": [
+              "a79405327da93f3e02928e1ba0271ee2",
+              1791319255.0024588,
+              "a79405327da93f3e02928e1ba0271ee2",
+              1,
+              1791924055.0024588,
+              [
+                "50332d4c4f0000000001"
+              ],
+              "ee6415de4f1b9382e005958829a6c8e746de06668e847f2208d3502e531b9228",
+              "16cf7a19e6c47479c1f0c64b11f7cfa17c9d71776466e417b38bc7c66d718a48"
+            ],
+            "random_blobs": [
+              "50332d4c4f0000000001"
+            ],
+            "random_blob_count": 1
+          },
+          "after": {
+            "destination_hash": "a79405327da93f3e02928e1ba0271ee2",
+            "entry": [
+              "a79405327da93f3e02928e1ba0271ee2",
+              1791319263.162751,
+              "a79405327da93f3e02928e1ba0271ee2",
+              1,
+              1791924063.162751,
+              [
+                "50332d4c4f0000000001",
+                "50332d48498000000000"
+              ],
+              "ee6415de4f1b9382e005958829a6c8e746de06668e847f2208d3502e531b9228",
+              "896d97a97dee4dd5e1234ebc2d3f102c4957b8fee5f1c0f55b56ab9d8710f383"
+            ],
+            "random_blobs": [
+              "50332d4c4f0000000001",
+              "50332d48498000000000"
+            ],
+            "random_blob_count": 2
+          },
+          "accepted_by_blob_growth": true
+        }
+      ],
+      "answer": true
+    }
+  },
+  "final_table": [
+    [
+      "3345f8e9eac4e361b63abc6bd1b41b02",
+      1791319222.375463,
+      "3345f8e9eac4e361b63abc6bd1b41b02",
+      1,
+      1791924022.375463,
+      [
+        "50312d41300000000064"
+      ],
+      "ee6415de4f1b9382e005958829a6c8e746de06668e847f2208d3502e531b9228",
+      "373065ce66bc85170e19c7e6ec58524d4f46fafba3ddc5e004676490a3380536"
+    ],
+    [
+      "d696639336ec928c56c9d4a61b1ab20c",
+      1791319237.826457,
+      "d696639336ec928c56c9d4a61b1ab20c",
+      1,
+      1791924037.826457,
+      [
+        "50322d48498000000000"
+      ],
+      "ee6415de4f1b9382e005958829a6c8e746de06668e847f2208d3502e531b9228",
+      "929150d1de7c33df3554543e36cd2920c83a47405cca93ca179fb74c44ff59dd"
+    ],
+    [
+      "a79405327da93f3e02928e1ba0271ee2",
+      1791319263.162751,
+      "a79405327da93f3e02928e1ba0271ee2",
+      1,
+      1791924063.162751,
+      [
+        "50332d4c4f0000000001",
+        "50332d48498000000000"
+      ],
+      "ee6415de4f1b9382e005958829a6c8e746de06668e847f2208d3502e531b9228",
+      "896d97a97dee4dd5e1234ebc2d3f102c4957b8fee5f1c0f55b56ab9d8710f383"
+    ]
+  ],
+  "all_answers_present": true
+}

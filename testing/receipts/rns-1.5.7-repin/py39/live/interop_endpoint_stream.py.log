@@ -1,0 +1,21 @@
+RNS 1.5.7
+
+  [retinue] LISTENING 60739
+waiting...
+
+  RNS: link up, sending a raw link data packet
+  RNS: sent b'hello-over-stream'
+  [retinue] WAITING_LINK
+  [retinue] LINK 281a96178350ed59e4077704eb2bc489
+  [retinue] RECV hello-over-stream
+  [retinue] SENT_ECHO
+  RNS: received b'echo:hello-over-stream'
+
+====================================================================
+retinue read from the stream:    PASS
+RNS read retinue's echo back:    PASS (got [b'echo:hello-over-stream'])
+====================================================================
+ENDPOINT STREAM INTEROP: PASS
+[2026-10-06 16:24:03] [Warning]  An interface error occurred for TCPInterface[retinue/127.0.0.1:60739], the contained exception was: [Errno 54] Connection reset by peer
+[2026-10-06 16:24:03] [Warning]  Attempting to reconnect...
+[2026-10-06 16:24:03] [Notice]   Error while shutting down socket for TCPInterface[retinue/127.0.0.1:60739]: [Errno 57] Socket is not connected
