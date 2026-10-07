@@ -4,21 +4,22 @@ Embedded Rust implementations of three mesh protocols, a shared
 radio interface layer, operator apps, and firmware that runs on my limited 
 subset of hardware. 
 
-So: what's the idea? Why all three? I wanna see if it's possible, using embassy,
-to make the three more like channels that are triggered by a given announce, allowing
-one node to configure a persona/address for each protocol and route traffic correctly. 
-My mental picture: a retinue of protocols, working together. 
+So: what's the idea? Why all three? I wanna make the three more like channels that 
+are triggered by a given announce, allowing a node to configure a persona/address 
+for each protocol and route traffic correctly. It just seemed like much of the LoRa
+radio hardware had the memory space to do that. And the name: a retinue of protocols, 
+working together, letting people use each for what they're each good at. There aren't
+that many good names that begin with reti-...
 
 On the host side, this is possible with existing projects, but on the embedded side, 
-doing it would mean forking C++, which I haven't had since college. So, Rust: the path 
-of many such glitzy attempts, of late. Mine is comparatively drab: I prompt, I read, I type, 
-I learn something new about Rust or embedded programming, I say "don't use this" when I don't 
-know what it'll do, and *don't use this,* I don't know what it'll do.
+not with Rust, my preferred language ever since I first heard of Servo in 2018.
+The path of many such attempts, of late, for good reason. So to be clear, this is not 
+a reference implementation of Reticulum, Meshtastic, or Meshcore: it's an experimental implementation.
 
-I am pathologically honest: I use LLMs because I have come to truly enjoy leveraging my 
-English degree in increasingly esoteric and elaborate ways, and I won't ever release or 
-promote this implementation without demonstrated wire compatibility with reference 
-implementations, at the very least. That's my goal, and I'm sticking to it.
+I use LLMs because I have come to truly enjoy leveraging my English degree in increasingly 
+esoteric and elaborate ways. I develop to standards so I can verify functionality,
+but the engineering of these projects must and will definitely be improved with time 
+before I would release it. If you need reliable protocol implementations, consider the reference implementations.
 
 Each crate has its own README with more detail, and here's a generated overview.
 
@@ -118,7 +119,8 @@ embedded-graphics-core) keep their own MIT/Apache-2.0 terms.
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) aggregates derivations;
 per-crate NOTICE and PROVENANCE files record specifics.
 
-We acknowledge Mark Qvist and the Reticulum contributors for the protocol,
+We (me and a gaggle of robots with any training data settings off) 
+acknowledge Mark Qvist and the Reticulum contributors for the protocol,
 its documentation, and the reference implementations. See the
 [notices](THIRD_PARTY_NOTICES.md#reticulum).
 
@@ -127,13 +129,16 @@ its documentation, and the reference implementations. See the
 `tulle`, `sennet`, and `tucket` merged into this workspace on 2026-07-23 with
 history preserved; their standalone repositories are archived.
 
-Retinue was first built from the public-domain Reticulum protocol, the manual,
-and packet captures from the reference implementations, which were run as
-black-box oracles. Comparative review of RNS source began on 2026-09-26.
-Nothing was copied or translated. On 2026-10-05 retinue and outrider moved to
-the Reticulum License so that the reference implementations can be adapted
-into them. Adaptations are listed in each crate's `NOTICE`. The rest of the
-workspace remains MPL-2.0, and RNode firmware source stays unread.
+Retinue was first built from the public-domain Reticulum protocol using two v4s and a T114, 
+the manual, and packet captures from the reference implementations, which were run as
+black-box oracles like the other protocols. Comparative review of RNS source began on 2026-09-26.
+Nothing was copied or translated before or after. My perspective is, if you can derive the protocol
+from the wire, then you should do that as a control and functional baseline. The goal is 
+verifiable interoperability with reference implementations, after all.
+
+On 2026-10-05 retinue and outrider moved to the Reticulum License so that the reference 
+implementations can be adapted into them. Adaptations are listed in each crate's `NOTICE`. 
+The rest of the workspace remains MPL-2.0, and RNode firmware source stays unread.
 
 ---
 
