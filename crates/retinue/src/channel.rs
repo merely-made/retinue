@@ -196,9 +196,9 @@ pub struct Channel<
     ///
     /// Keyed rather than ordered: delivery pulls `recv_next` by exact key, so this never
     /// iterates in sequence order and does not need an ordered map.
-    reorder: FnvIndexMap<u16, Vec<u8>, REORDER>,
-    /// Delivered, in order, ready for the application to read.
-    inbox: Deque<Vec<u8>, QUEUE>,
+    reorder: FnvIndexMap<u16, (u16, Vec<u8>), REORDER>,
+    /// Delivered, in order, ready for the application to read, each with its msgtype.
+    inbox: Deque<(u16, Vec<u8>), QUEUE>,
 }
 
 impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize> Default
@@ -445,7 +445,7 @@ impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize>
             if self.inbox.is_full() {
                 return false;
             }
-            let _ = self.inbox.push_back(envelope.payload);
+            let _ = self.inbox.push_back((envelope.msgtype, envelope.payload));
             self.recv_next = self.recv_next.wrapping_add(1);
             // Pull any now-contiguous buffered envelopes into order, stopping if the inbox
             // fills so the rest stay held rather than dropped.
@@ -460,7 +460,7 @@ impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize>
             let _ = self
                 .reorder
                 .entry(envelope.sequence)
-                .or_insert(envelope.payload);
+                .or_insert((envelope.msgtype, envelope.payload));
             true
         } else {
             // Behind `recv_next`: an already-delivered duplicate. Drop the payload but prove
@@ -487,8 +487,17 @@ impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize>
         }
     }
 
-    /// The next in-order application payload, if one is ready.
+    /// The next in-order application payload, if one is ready, whatever its msgtype.
+    /// Use [`recv_message`](Self::recv_message) to dispatch on the type.
     pub fn recv(&mut self) -> Option<Vec<u8>> {
+        self.recv_message().map(|(_, payload)| payload)
+    }
+
+    /// The next in-order message as `(msgtype, payload)`, if one is ready.
+    ///
+    /// Every message is sequenced and proved whatever its type, so an unexpected type
+    /// never stalls the sequence; deciding what a type means is the reader's business.
+    pub fn recv_message(&mut self) -> Option<(u16, Vec<u8>)> {
         // Pump before popping: if the inbox is empty but proved frames sit in the reorder
         // buffer (see `pump`), this is the moment they become deliverable. Pumping first
         // also means this never returns `None` while in-order data is stranded.
@@ -599,6 +608,12 @@ pub enum StreamDecodeLimitError {
 /// bidirectional buffer is two ids over one channel). [`finish`](Self::finish) marks the
 /// send stream done with an eof frame; [`recv_finished`](Self::recv_finished) reports the
 /// peer's eof.
+///
+/// A buffer reads only [`STREAM_MSGTYPE`] envelopes. A message of any other type is still
+/// sequenced and proved, so the stream does not stall behind it, and is then dropped:
+/// its bytes never reach the reader and cannot set eof or a receive error. A caller that
+/// wants other message types uses a [`Channel`] and
+/// [`recv_message`](Channel::recv_message) directly.
 ///
 /// Retinue does not compress sent frames. With the `compression` feature, received
 /// compressed frames are decoded before delivery. Decode failure is terminal and
@@ -811,9 +826,15 @@ impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize, const READ_B
                 }
                 continue;
             }
-            let Some(msg) = self.channel.recv() else {
+            let Some((msgtype, msg)) = self.channel.recv_message() else {
                 break;
             };
+            if msgtype != STREAM_MSGTYPE {
+                // Not stream data. The channel has already sequenced and proved it, so the
+                // sequence moves on; a Buffer has no use for it and drops it here rather
+                // than reading its bytes as a stream frame.
+                continue;
+            }
             let Some(frame) = StreamFrame::decode(&msg) else {
                 continue; // malformed frame; the channel already ordered/deduped it
             };
@@ -1739,5 +1760,57 @@ mod tests {
         got.extend(rx.read_available());
         assert_eq!(got, payload, "stream reconstructs exactly");
         assert!(rx.recv_finished(), "reader saw the writer's eof");
+    }
+
+    /// A Buffer reads only stream messages (review #6). Another message type is
+    /// sequenced and proved, so the stream moves past it, but its bytes are never read as
+    /// a stream frame: an `80 00` payload would otherwise be an eof frame on stream 0, and
+    /// `40 00` a compressed frame that fails to decode and tears the stream down.
+    #[test]
+    fn buffer_ignores_messages_that_are_not_stream_data() {
+        let mut rx: Buffer = Buffer::new();
+        let foreign = |sequence: u16, payload: &[u8]| Envelope {
+            msgtype: 0x0101,
+            sequence,
+            payload: payload.to_vec(),
+        };
+        assert!(
+            rx.handle(foreign(0, &[0x80, 0x00, b'x', b'y'])),
+            "a foreign message is still proved"
+        );
+        assert!(rx.handle(foreign(1, &[0x40, 0x00, 0xde, 0xad])));
+        assert!(rx.read_available().is_empty(), "no bytes reach the reader");
+        assert!(!rx.recv_finished(), "a foreign message cannot set eof");
+        assert_eq!(rx.receive_error(), None, "nor raise a receive error");
+
+        // The sequence moved past both, so the next stream frame delivers in order.
+        let frame = StreamFrame {
+            stream_id: 0,
+            eof: true,
+            compressed: false,
+            data: b"ok".to_vec(),
+        };
+        assert!(rx.handle(Envelope {
+            msgtype: STREAM_MSGTYPE,
+            sequence: 2,
+            payload: frame.encode(),
+        }));
+        assert_eq!(rx.read_available(), b"ok".to_vec());
+        assert!(rx.recv_finished(), "the stream's own eof still counts");
+    }
+
+    #[test]
+    fn channel_reports_each_message_type() {
+        let mut rx: Channel = Channel::new(STREAM_MSGTYPE);
+        for (sequence, msgtype) in [(1u16, 0x0101u16), (0, STREAM_MSGTYPE)] {
+            assert!(rx.handle(Envelope {
+                msgtype,
+                sequence,
+                payload: vec![sequence as u8],
+            }));
+        }
+        assert_eq!(rx.recv_message(), Some((STREAM_MSGTYPE, vec![0])));
+        assert_eq!(rx.recv_message(), Some((0x0101, vec![1])));
+        assert_eq!(rx.recv_message(), None);
     }
 }
