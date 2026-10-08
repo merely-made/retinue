@@ -1,12 +1,15 @@
 //! Endpoint-level ratcheted single-packet delivery.
 
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use retinue::destination::DestinationName;
-use retinue::endpoint::Endpoint;
+use retinue::endpoint::{Endpoint, Interface, InterfaceSink, ProofStrategy, SingleDelivery};
+use retinue::hash::AddressHash;
 use retinue::identity::{KEY_LEN, PrivateIdentity};
 use retinue::lossy::{LossModel, connect};
-use retinue::ratchet::{RatchetPolicy, RatchetStore};
+use retinue::packet::{DestinationType, HeaderType, Packet, PacketType, Propagation};
+use retinue::ratchet::{RatchetError, RatchetPolicy, RatchetStore};
 
 #[tokio::test]
 async fn current_and_retained_ratchets_deliver_without_opening_a_link() {
@@ -17,19 +20,17 @@ async fn current_and_retained_ratchets_deliver_without_opening_a_link() {
 
     let name = DestinationName::new("retinue", ["single"]);
     let destination = name.destination_hash(receiver_id.public());
-    let mut ratchets = RatchetStore::new(RatchetPolicy {
+    let ratchets = RatchetStore::new(RatchetPolicy {
         max_count: 4,
         rotation_interval: Duration::from_secs(1),
-        max_age: Duration::from_secs(60),
+        max_superseded_age: None,
     })
     .unwrap();
-    let first = ratchets
-        .rotate_if_due([0x31; KEY_LEN], 0.0)
-        .unwrap()
-        .current;
+    // The endpoint owns the store and mints its first epoch at registration.
     receiver
-        .register_resource_with_ratchets(name.clone(), b"single", &ratchets)
+        .register_resource_with_ratchets(name.clone(), b"single", ratchets)
         .unwrap();
+    let first = receiver.current_ratchet_id(&name).unwrap();
 
     let announced = tokio::time::timeout(Duration::from_secs(2), sender.next_announcement())
         .await
@@ -38,7 +39,7 @@ async fn current_and_retained_ratchets_deliver_without_opening_a_link() {
     assert_eq!(announced.destination, destination);
 
     let receipt = sender.send_single(destination, b"first epoch").unwrap();
-    assert_eq!(receipt.ratchet_id, first);
+    assert_eq!(receipt.ratchet_id, Some(first));
     assert_eq!(receipt.queued_interfaces, 1);
     let received = tokio::time::timeout(Duration::from_secs(2), receiver.accept_single())
         .await
@@ -48,16 +49,15 @@ async fn current_and_retained_ratchets_deliver_without_opening_a_link() {
     assert_eq!(received.data, b"first epoch");
     assert_eq!(received.ratchet_id, Some(first));
 
-    // Keep the old public ratchet in the sender's address book while installing a new
-    // receiver epoch. A packet already encrypted to the old epoch must still decrypt.
-    tokio::time::sleep(Duration::from_millis(1_050)).await;
-    let second = ratchets
-        .rotate_if_due([0x32; KEY_LEN], 1.0)
-        .unwrap()
-        .current;
-    receiver.update_ratchets(&name, &ratchets).unwrap();
+    // Once the interval has passed, the next announce rotates. Keep the old public ratchet
+    // in the sender's address book: a packet already encrypted to it must still decrypt.
+    // The host clock is whole seconds and rotation needs `now > created + interval`.
+    tokio::time::sleep(Duration::from_millis(2_050)).await;
+    receiver.announce(&name, b"single");
+    let second = receiver.current_ratchet_id(&name).unwrap();
+    assert_ne!(second, first, "the announce rotated the ratchet");
     let old_receipt = sender.send_single(destination, b"retained epoch").unwrap();
-    assert_eq!(old_receipt.ratchet_id, first);
+    assert_eq!(old_receipt.ratchet_id, Some(first));
     let retained = tokio::time::timeout(Duration::from_secs(2), receiver.accept_single())
         .await
         .expect("retained-ratchet packet arrives")
@@ -72,7 +72,7 @@ async fn current_and_retained_ratchets_deliver_without_opening_a_link() {
         .unwrap();
     assert_eq!(refreshed.destination, destination);
     let new_receipt = sender.send_single(destination, b"current epoch").unwrap();
-    assert_eq!(new_receipt.ratchet_id, second);
+    assert_eq!(new_receipt.ratchet_id, Some(second));
     let current = tokio::time::timeout(Duration::from_secs(2), receiver.accept_single())
         .await
         .expect("current-ratchet packet arrives")
@@ -81,8 +81,10 @@ async fn current_and_retained_ratchets_deliver_without_opening_a_link() {
     assert_eq!(current.ratchet_id, Some(second));
 }
 
+/// A destination that advertises no ratchet is reached through its identity key, as RNS
+/// does (`Destination.py` 602-611), rather than refused.
 #[tokio::test]
-async fn outbound_single_requires_an_advertised_ratchet_and_enforces_the_mdu() {
+async fn outbound_single_falls_back_to_the_identity_key_and_enforces_the_mdu() {
     let receiver_id = PrivateIdentity::from_secret_bytes(&[0x52; 64]);
     let receiver = Endpoint::new(receiver_id.clone());
     let sender = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x25; 64]));
@@ -96,17 +98,18 @@ async fn outbound_single_requires_an_advertised_ratchet_and_enforces_the_mdu() {
         .unwrap()
         .unwrap();
 
-    assert_eq!(
-        sender
-            .send_single(destination, b"missing ratchet")
-            .unwrap_err()
-            .kind(),
-        std::io::ErrorKind::InvalidData,
-    );
+    let receipt = sender.send_single(destination, b"identity key").unwrap();
+    assert_eq!(receipt.ratchet_id, None);
+    let received = tokio::time::timeout(Duration::from_secs(2), receiver.accept_single())
+        .await
+        .expect("identity-key packet arrives")
+        .unwrap();
+    assert_eq!(received.data, b"identity key");
+    assert_eq!(received.ratchet_id, None);
 
-    let mut ratchets = RatchetStore::new(RatchetPolicy::default()).unwrap();
-    ratchets.rotate_if_due([0x53; KEY_LEN], 0.0).unwrap();
-    receiver.update_ratchets(&name, &ratchets).unwrap();
+    receiver
+        .update_ratchets(&name, RatchetStore::new(RatchetPolicy::default()).unwrap())
+        .unwrap();
     tokio::time::sleep(Duration::from_millis(1_050)).await;
     receiver.announce(&name, b"plain");
     tokio::time::timeout(Duration::from_secs(2), sender.next_announcement())
@@ -135,10 +138,12 @@ async fn single_packet_receipt_requires_a_frame_capable_interface() {
 
     let name = DestinationName::new("retinue", ["capped-single"]);
     let destination = name.destination_hash(receiver_id.public());
-    let mut ratchets = RatchetStore::new(RatchetPolicy::default()).unwrap();
-    ratchets.rotate_if_due([0x63; KEY_LEN], 0.0).unwrap();
     receiver
-        .register_resource_with_ratchets(name, b"capped", &ratchets)
+        .register_resource_with_ratchets(
+            name,
+            b"capped",
+            RatchetStore::new(RatchetPolicy::default()).unwrap(),
+        )
         .unwrap();
     let announce = tokio::time::timeout(Duration::from_secs(1), receiver_wire.next_outbound())
         .await
@@ -176,4 +181,345 @@ async fn single_packet_receipt_requires_a_frame_capable_interface() {
         .expect("fitting packet delivered")
         .unwrap();
     assert_eq!(received.data, &[0xA5; 143]);
+}
+
+/// A sender and a receiver joined by hand-pumped interfaces, so a test sees and steers every
+/// packet. The receiver has registered `name` and the sender has its announce.
+struct Wired {
+    sender: Endpoint,
+    sender_wire: Interface,
+    sender_sink: InterfaceSink,
+    receiver: Endpoint,
+    receiver_id: PrivateIdentity,
+    receiver_wire: Interface,
+    receiver_sink: InterfaceSink,
+    name: DestinationName,
+    destination: AddressHash,
+}
+
+async fn wired(seed: u8, ratchets: Option<&RatchetStore>) -> Wired {
+    let receiver_id = PrivateIdentity::from_secret_bytes(&[seed; 64]);
+    let receiver = Endpoint::new(receiver_id.clone());
+    let sender = Endpoint::new(PrivateIdentity::from_secret_bytes(&[seed ^ 0xFF; 64]));
+    let sender_wire = sender.attach_interface();
+    let sender_sink = sender_wire.sink();
+    let mut receiver_wire = receiver.attach_interface();
+    let receiver_sink = receiver_wire.sink();
+
+    let name = DestinationName::new("retinue", ["proved"]);
+    let destination = name.destination_hash(receiver_id.public());
+    match ratchets {
+        Some(ratchets) => receiver
+            .register_resource_with_ratchets(name.clone(), b"proved", ratchets.clone())
+            .unwrap(),
+        None => receiver.register(name.clone(), b"proved"),
+    }
+    assert!(sender_sink.deliver(next(&mut receiver_wire).await));
+    tokio::time::timeout(Duration::from_secs(1), sender.next_announcement())
+        .await
+        .expect("announce ingested")
+        .unwrap();
+    Wired {
+        sender,
+        sender_wire,
+        sender_sink,
+        receiver,
+        receiver_id,
+        receiver_wire,
+        receiver_sink,
+        name,
+        destination,
+    }
+}
+
+async fn next(wire: &mut Interface) -> Packet {
+    tokio::time::timeout(Duration::from_secs(1), wire.next_outbound())
+        .await
+        .expect("a packet is queued")
+        .expect("the interface remains live")
+}
+
+async fn silent(wire: &mut Interface) -> bool {
+    tokio::time::timeout(Duration::from_millis(50), wire.next_outbound())
+        .await
+        .is_err()
+}
+
+/// A PROVE_ALL destination signs the packet hash and addresses the proof to its truncation;
+/// the sender's receipt validates either proof form and concludes DELIVERED (RNS
+/// `Transport.py` 2595-2605, `Identity.py` 946-957, `Packet.py` 495-539).
+#[tokio::test]
+async fn a_prove_all_destination_proves_and_the_receipt_is_delivered() {
+    for (seed, implicit) in [(0x71, true), (0x72, false)] {
+        let mut w = wired(seed, None).await;
+        w.receiver
+            .set_proof_strategy(&w.name, ProofStrategy::All)
+            .unwrap();
+        w.receiver.set_implicit_proofs(implicit);
+
+        let receipt = w.sender.send_single(w.destination, b"prove me").unwrap();
+        assert!(w.receiver_sink.deliver(next(&mut w.sender_wire).await));
+        let received = w.receiver.accept_single().await.unwrap();
+        assert_eq!(received.data, b"prove me");
+        assert_eq!(received.packet_hash(), receipt.packet_hash);
+
+        let proof = next(&mut w.receiver_wire).await;
+        assert_eq!(proof.packet_type, PacketType::Proof);
+        assert_eq!(proof.destination.as_slice(), &receipt.packet_hash[..16]);
+        assert_eq!(proof.payload.len(), if implicit { 64 } else { 96 });
+        assert!(w.sender_sink.deliver(proof));
+        assert!(matches!(
+            receipt.delivery().await,
+            SingleDelivery::Delivered { .. }
+        ));
+    }
+}
+
+/// RNS's default strategy proves nothing, so the receipt times out; such a destination
+/// refuses an application proof.
+#[tokio::test(start_paused = true)]
+async fn the_default_strategy_never_proves_and_the_receipt_times_out() {
+    let mut w = wired(0x73, None).await;
+    let receipt = w.sender.send_single(w.destination, b"unproved").unwrap();
+    assert_eq!(receipt.timeout, Duration::from_secs(12));
+    assert!(w.receiver_sink.deliver(next(&mut w.sender_wire).await));
+    let received = w.receiver.accept_single().await.unwrap();
+    assert!(silent(&mut w.receiver_wire).await);
+    assert_eq!(
+        w.receiver.prove_single(&received).unwrap_err().kind(),
+        std::io::ErrorKind::InvalidInput
+    );
+    assert_eq!(receipt.delivery().await, SingleDelivery::TimedOut);
+}
+
+/// Under PROVE_APP nothing is proved until the application asks; a forged proof addressed
+/// to the receipt neither concludes nor evicts it.
+#[tokio::test]
+async fn an_app_proof_concludes_and_a_forged_one_does_not() {
+    let mut w = wired(0x74, None).await;
+    w.receiver
+        .set_proof_strategy(&w.name, ProofStrategy::App)
+        .unwrap();
+    let receipt = w.sender.send_single(w.destination, b"app").unwrap();
+    assert!(w.receiver_sink.deliver(next(&mut w.sender_wire).await));
+    let received = w.receiver.accept_single().await.unwrap();
+    assert!(silent(&mut w.receiver_wire).await);
+
+    let stranger = PrivateIdentity::from_secret_bytes(&[0x75; 64]);
+    let forged = retinue::proof::proof_packet(&stranger, &receipt.packet_hash, true);
+    assert!(w.sender_sink.deliver(forged));
+
+    w.receiver.prove_single(&received).unwrap();
+    assert!(w.sender_sink.deliver(next(&mut w.receiver_wire).await));
+    assert!(matches!(
+        receipt.delivery().await,
+        SingleDelivery::Delivered { .. }
+    ));
+}
+
+/// A ratcheted destination accepts an identity-key packet unless it enforces ratchets, as
+/// in RNS (`Destination.py` 502-513, `Identity.py` 868-892).
+#[tokio::test]
+async fn ratchet_enforcement_is_opt_in() {
+    let mut ratchets = RatchetStore::new(RatchetPolicy::default()).unwrap();
+    ratchets.rotate_if_due([0x76; KEY_LEN], 0.0).unwrap();
+    let w = wired(0x77, Some(&ratchets)).await;
+    let identity_packet = |data: &[u8]| Packet {
+        ifac: false,
+        header_type: HeaderType::Type1,
+        context_flag: false,
+        propagation: Propagation::Broadcast,
+        destination_type: DestinationType::Single,
+        packet_type: PacketType::Data,
+        hops: 0,
+        transport: None,
+        destination: w.destination,
+        context: 0,
+        payload: retinue::token::encrypt_to_identity(
+            w.receiver_id.public(),
+            &[0x78; KEY_LEN],
+            &[0x79; 16],
+            data,
+        ),
+    };
+
+    assert!(w.receiver_sink.deliver(identity_packet(b"identity")));
+    let received = tokio::time::timeout(Duration::from_secs(1), w.receiver.accept_single())
+        .await
+        .expect("identity-key packet accepted by default")
+        .unwrap();
+    assert_eq!(received.data, b"identity");
+    assert_eq!(received.ratchet_id, None);
+
+    w.receiver.set_enforce_ratchets(&w.name, true).unwrap();
+    assert!(w.receiver_sink.deliver(identity_packet(b"downgraded")));
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), w.receiver.accept_single())
+            .await
+            .is_err(),
+        "an enforcing destination drops identity-key packets"
+    );
+
+    // Ratcheted packets still arrive.
+    w.sender.send_single(w.destination, b"ratcheted").unwrap();
+    let mut sender_wire = w.sender_wire;
+    assert!(w.receiver_sink.deliver(next(&mut sender_wire).await));
+    let received = w.receiver.accept_single().await.unwrap();
+    assert_eq!(received.data, b"ratcheted");
+    // The endpoint owns the store and rotates it at announce (an epoch created at 0 is
+    // long overdue), so compare against its current ratchet, not the copy handed in.
+    assert_eq!(received.ratchet_id, w.receiver.current_ratchet_id(&w.name));
+
+    let plain = DestinationName::new("retinue", ["plain"]);
+    w.receiver.register(plain.clone(), b"plain");
+    assert_eq!(
+        w.receiver
+            .set_enforce_ratchets(&plain, true)
+            .unwrap_err()
+            .kind(),
+        std::io::ErrorKind::InvalidInput
+    );
+    let unknown = DestinationName::new("retinue", ["unknown"]);
+    assert_eq!(
+        w.receiver
+            .set_proof_strategy(&unknown, ProofStrategy::All)
+            .unwrap_err()
+            .kind(),
+        std::io::ErrorKind::NotFound
+    );
+}
+
+/// A proof crosses an Endpoint transport hop back to the sender by the hop's reverse table
+/// (RNS `Transport.py` 2104-2110, 2733-2744).
+#[tokio::test]
+async fn a_proof_crosses_an_endpoint_transport_hop() {
+    let hub = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x81; 64]));
+    hub.enable_routing();
+    let sender = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x82; 64]));
+    connect(&sender, &hub, LossModel::new(1), LossModel::new(2));
+    let receiver_id = PrivateIdentity::from_secret_bytes(&[0x83; 64]);
+    let receiver = Endpoint::new(receiver_id.clone());
+    connect(&receiver, &hub, LossModel::new(3), LossModel::new(4));
+
+    let name = DestinationName::new("retinue", ["relayed"]);
+    let destination = name.destination_hash(receiver_id.public());
+    receiver.register(name.clone(), b"relayed");
+    receiver
+        .set_proof_strategy(&name, ProofStrategy::All)
+        .unwrap();
+    let announced = tokio::time::timeout(Duration::from_secs(2), sender.next_announcement())
+        .await
+        .expect("relayed announce arrives")
+        .unwrap();
+    assert_eq!(announced.destination, destination);
+    assert_eq!(announced.transport, Some(hub.identity().hash()));
+
+    let receipt = sender.send_single(destination, b"via hub").unwrap();
+    let received = tokio::time::timeout(Duration::from_secs(2), receiver.accept_single())
+        .await
+        .expect("carried packet arrives")
+        .unwrap();
+    assert_eq!(received.data, b"via hub");
+    assert!(matches!(
+        tokio::time::timeout(Duration::from_secs(2), receipt.delivery())
+            .await
+            .expect("the proof comes back before the receipt times out"),
+        SingleDelivery::Delivered { .. }
+    ));
+    assert!(hub.routing_counters().forwarded_packets >= 2);
+}
+
+fn host_seconds() -> f64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs_f64()
+}
+
+#[tokio::test]
+async fn persisted_ratchets_survive_a_restart_and_tampering_is_refused() {
+    let receiver_id = PrivateIdentity::from_secret_bytes(&[0x72; 64]);
+    let sender = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x27; 64]));
+    let name = DestinationName::new("retinue", ["persisted-single"]);
+    let destination = name.destination_hash(receiver_id.public());
+    let disk: Arc<Mutex<Option<Vec<u8>>>> = Arc::default();
+
+    let first = {
+        let receiver = Endpoint::new(receiver_id.clone());
+        let persisted = Arc::clone(&disk);
+        receiver.set_ratchet_persistence(move |dest, snapshot| {
+            assert_eq!(dest, destination);
+            *persisted.lock().unwrap() = Some(snapshot.to_vec());
+            Ok(())
+        });
+        connect(&sender, &receiver, LossModel::new(5), LossModel::new(6));
+        receiver
+            .register_resource_with_ratchets(
+                name.clone(),
+                b"persisted",
+                RatchetStore::new(RatchetPolicy::default()).unwrap(),
+            )
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(2), sender.next_announcement())
+            .await
+            .expect("ratcheted announce arrives")
+            .unwrap();
+        let first = receiver.current_ratchet_id(&name).unwrap();
+        receiver.shutdown(Duration::from_millis(200)).await;
+        first
+    };
+    let snapshot = disk
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("registration persisted");
+
+    // A substituted key would let whoever planted it read traffic sent to us.
+    let mut tampered = snapshot.clone();
+    tampered[20] ^= 1;
+    assert_eq!(
+        RatchetStore::restore(
+            RatchetPolicy::default(),
+            &tampered,
+            receiver_id.public(),
+            host_seconds()
+        )
+        .unwrap_err(),
+        RatchetError::InvalidSignature,
+    );
+
+    let (restored, receipt) = RatchetStore::restore(
+        RatchetPolicy::default(),
+        &snapshot,
+        receiver_id.public(),
+        host_seconds(),
+    )
+    .unwrap();
+    assert_eq!(receipt.loaded, 1);
+    // Announce freshness is keyed on whole host seconds; restart in a later one.
+    tokio::time::sleep(Duration::from_millis(1_050)).await;
+    let receiver = Endpoint::new(receiver_id.clone());
+    connect(&sender, &receiver, LossModel::new(7), LossModel::new(8));
+    receiver
+        .register_resource_with_ratchets(name.clone(), b"persisted", restored)
+        .unwrap();
+    assert_eq!(
+        receiver.current_ratchet_id(&name),
+        Some(first),
+        "a restored epoch inside its interval is advertised again, not replaced"
+    );
+    // The re-announce moves the sender's route to the new link; its ratchet is unchanged.
+    tokio::time::timeout(Duration::from_secs(2), sender.next_announcement())
+        .await
+        .expect("restored announce arrives")
+        .unwrap();
+
+    let receipt = sender.send_single(destination, b"after restart").unwrap();
+    assert_eq!(receipt.ratchet_id, Some(first));
+    let received = tokio::time::timeout(Duration::from_secs(2), receiver.accept_single())
+        .await
+        .expect("restored-ratchet packet arrives")
+        .unwrap();
+    assert_eq!(received.data, b"after restart");
+    assert_eq!(received.ratchet_id, Some(first));
 }

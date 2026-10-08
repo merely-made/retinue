@@ -63,6 +63,74 @@ translated line by line. The findings are recorded in
   3219-3226, 3459-3530, 3729-3742.
   Targets: `src/announce_freshness.rs`, `src/node.rs`, `src/endpoint.rs`.
 
+From the Priority 1 batch (2026-10-08), same source:
+
+- Routes default to one week, capped at 1 day on access-point and 6 hours on
+  roaming interfaces, and are refreshed when used. RNS `Transport.py` 126-128,
+  155, 957-978, 1406, 1426, 2113; `Interfaces/Interface.py` 45-51.
+  Targets: `src/node.rs`, `src/endpoint.rs`.
+- Path requests: tagless and repeated requests are dropped, and a local
+  destination answers on the requesting interface only. RNS `Transport.py` 195,
+  1828-1886, 3295-3296, 3380-3416, 3452-3456.
+  Targets: `src/path.rs`, `src/node.rs`, `src/endpoint.rs`.
+- Routes and bridges are culled when their interface detaches. RNS
+  `Transport.py` 880-881, 975-978.
+  Targets: `src/node.rs`, `src/endpoint.rs`.
+- A two-generation packet-hash filter, with header-type-2 packets for other
+  transports dropped and PLAIN/GROUP hop limits. RNS `Transport.py` 832-834,
+  1623-1680, 1944-1961.
+  Targets: `src/node.rs`, `src/endpoint.rs`.
+- Link MTU is clamped in transit, at the terminus and at the initiator. RNS
+  `Transport.py` 2058-2088, 2538-2566; `Link.py` 144-216, 300-312, 366-376,
+  391-424.
+  Targets: `src/link.rs`, `src/node.rs`, `src/endpoint.rs`.
+- Transit bridges have validated state, a proof deadline, and capacity that
+  never evicts a validated link. RNS `Transport.py` 872-955, 2060-2160,
+  2605-2671, 3200-3202.
+  Targets: `src/link.rs`, `src/node.rs`, `src/endpoint.rs`.
+- Link liveness: measured RTT, keepalives, stale teardown and the handshake
+  deadline. RNS `Link.py` 80-106, 204, 245-262, 282-283, 419-438, 516-538,
+  652-655, 712-805, 929-946, 1130-1135; `Packet.py` 302, 462.
+  Targets: `src/link_liveness.rs`, `src/node.rs`, `src/endpoint.rs`.
+- The link MDU formula (431 at MTU 500). RNS `Link.py` 73, 512-514.
+  Target: `src/endpoint.rs`.
+- Hop-scaled link setup, and path rediscovery when setup fails. RNS
+  `Transport.py` 138, 697-725, 2062, 3200-3202; `Reticulum.py` 1818-1846.
+  Target: `src/endpoint.rs`.
+- Channel retransmission: per-envelope tries, backoff, the retry limit with
+  teardown, and window growth with tier promotion. RNS `Channel.py` 200-245,
+  300-311, 417-483, 555-570, 605.
+  Targets: `src/channel.rs`, `src/reliable.rs`.
+- Single-packet proofs (PROVE_ALL/APP), delivery receipts and the reverse
+  table. RNS `Transport.py` 154, 159, 740-763, 863-870, 1358-1377, 2104-2110,
+  2595-2605, 2724-2761; `Identity.py` 946-957; `Packet.py` 391-539.
+  Targets: `src/proof.rs`, `src/endpoint.rs`, `src/node.rs`.
+- Identity-key fallback for single packets, and opt-in ratchet enforcement. RNS
+  `Destination.py` 502-513, 596-654; `Identity.py` 807-902.
+  Target: `src/endpoint.rs`.
+- Announces naming a known destination under a different key are rejected. RNS
+  `Identity.py` 569-577.
+  Targets: `src/address_book.rs`, `src/node.rs`, `src/endpoint.rs`.
+- Resource cancel and reject (sealed RCL/ICL matched by hash), an accept hook,
+  and `max_response_size`. RNS `Resource.py` 155-165, 652-671, 1090-1136;
+  `Link.py` 1035-1126.
+  Targets: `src/resource_transfer.rs`, `src/endpoint.rs`, `src/node.rs`.
+- Index-based resource parts, window-bounded matching, `segment*74` HMU
+  placement and a collision re-roll. RNS `Resource.py` 440-512, 877-901,
+  1011-1058.
+  Targets: `src/resource.rs`, `src/resource_transfer.rs`.
+- Resource metadata (flag 0x20). RNS `Resource.py` 261-272, 707-749;
+  `Link.py` 838-846, 899-903.
+  Targets: `src/resource.rs`, `src/resource_transfer.rs`, `src/endpoint.rs`.
+- Resource proof recovery by CACHE_REQUEST. RNS `Resource.py` 652-671, 773;
+  `Transport.py` 2576-2581.
+  Targets: `src/endpoint.rs`, `src/node.rs`, `src/resource_transfer.rs`.
+- The ratchet lifecycle: an endpoint-owned store, rotation at announce, count
+  retention, persistence before advertising, and a signed snapshot. RNS
+  `Destination.py` 85-90, 206-242, 285-288, 437-475; `Identity.py` 69-74,
+  484-508.
+  Targets: `src/ratchet.rs`, `src/endpoint.rs`.
+
 ## Prns
 
 Reference withdrawn September 26 over unresolved provenance concerns. Existing

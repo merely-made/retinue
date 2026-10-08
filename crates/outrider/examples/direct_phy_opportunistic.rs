@@ -11,7 +11,7 @@ use outrider::{
     receive_opportunistic_with_stamp_cost, register_opportunistic, send_opportunistic_stamped,
 };
 use retinue::endpoint::{Endpoint, PeerAnnounce};
-use retinue::identity::{KEY_LEN, PrivateIdentity};
+use retinue::identity::PrivateIdentity;
 use retinue::iface::tulle::drive;
 use retinue::ratchet::{RatchetPolicy, RatchetStore};
 use tulle::PhyProfile;
@@ -44,10 +44,8 @@ fn profile(bandwidth_hz: u32) -> PhyProfile {
     }
 }
 
-fn ratchets(secret: u8) -> Result<RatchetStore, retinue::ratchet::RatchetError> {
-    let mut store = RatchetStore::new(RatchetPolicy::default())?;
-    store.rotate_if_due([secret; KEY_LEN], 0.0)?;
-    Ok(store)
+fn ratchets() -> Result<RatchetStore, retinue::ratchet::RatchetError> {
+    RatchetStore::new(RatchetPolicy::default())
 }
 
 struct Transfer<'a> {
@@ -85,7 +83,7 @@ async fn transfer(spec: Transfer<'_>) -> Result<(), Box<dyn std::error::Error>> 
         || received.message.payload.title != spec.title
         || received.message.payload.content != spec.content
         || received.source_identity != *spec.sender_identity.public()
-        || received.ratchet_id != receipt.ratchet_id
+        || Some(received.ratchet_id) != receipt.ratchet_id
     {
         return Err(format!("{} did not arrive byte-exact and authenticated", spec.label).into());
     }
@@ -174,14 +172,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let left_driver = tokio::spawn(drive(left.attach_interface(), left_radio));
     let right_driver = tokio::spawn(drive(right.attach_interface(), right_radio));
 
-    let left_ratchets = ratchets(0x51)?;
-    let right_ratchets = ratchets(0x52)?;
+    let left_ratchets = ratchets()?;
+    let right_ratchets = ratchets()?;
     let left_delivery = DeliveryAnnounce {
         display_name: Some(b"Outrider RF Left".to_vec()),
         stamp_cost: Some(STAMP_COST),
     };
     let left_app_data = left_delivery.encode()?;
-    let left_destination = register_opportunistic(&left, &left_delivery, &left_ratchets)?;
+    let left_destination = register_opportunistic(&left, &left_delivery, left_ratchets)?;
     let left_announce = discover(
         &right,
         &left,
@@ -197,7 +195,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         stamp_cost: Some(STAMP_COST),
     };
     let right_app_data = right_delivery.encode()?;
-    let right_destination = register_opportunistic(&right, &right_delivery, &right_ratchets)?;
+    let right_destination = register_opportunistic(&right, &right_delivery, right_ratchets)?;
     let right_announce = discover(
         &left,
         &right,

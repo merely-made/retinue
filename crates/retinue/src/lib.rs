@@ -35,7 +35,8 @@
 //! [`endpoint::RoutingPolicy`]); the default posture is endpoint-scoped. On-air interfaces
 //! (RNode serial, direct PHY) live in the sibling `tulle` crate and are proven over real
 //! RF; endpoint-level resource sessions, route expiry, and announce budgeting are
-//! implemented. Ratcheted single packets use caller-owned rotation and retained-key state.
+//! implemented. Ratcheted single packets rotate at announce and retain epochs by count, with
+//! a host hook persisting the signed ratchet snapshot before a new ratchet is advertised.
 //! Host IFAC virtual-network authentication is applied at TCP and Tulle carrier
 //! boundaries. The firmware Node carrier has a separate, still-open IFAC gate.
 //! See the README's *Maturity* section and
@@ -100,6 +101,8 @@ pub mod instance;
 #[cfg(feature = "alloc")]
 pub mod link;
 #[cfg(feature = "alloc")]
+pub mod link_liveness;
+#[cfg(feature = "alloc")]
 pub mod lossy;
 #[cfg(feature = "alloc")]
 pub mod msgpack;
@@ -111,6 +114,8 @@ pub mod nomadnet;
 pub mod packet;
 #[cfg(feature = "alloc")]
 pub mod path;
+#[cfg(feature = "alloc")]
+pub mod proof;
 #[cfg(feature = "alloc")]
 pub mod ratchet;
 #[cfg(feature = "alloc")]
@@ -190,6 +195,9 @@ pub enum Error {
     /// A resource advertisement named more than one segment. Segment accumulation is not
     /// implemented, so the offer is refused rather than truncated to its first segment.
     MultiSegmentResource,
+    /// A resource offer was refused by this side's accept policy, before any part of it
+    /// was requested. The sender was told with a receiver cancel.
+    ResourceRejected,
 }
 
 impl core::fmt::Display for Error {
@@ -214,6 +222,7 @@ impl core::fmt::Display for Error {
             Self::CapacityExceeded => "peer asked for more state than the capacity policy allows",
             Self::DecompressionLimit => "decompressed resource exceeds the size limit",
             Self::MultiSegmentResource => "multi-segment resources are not supported",
+            Self::ResourceRejected => "resource offer refused by the accept policy",
         };
         f.write_str(s)
     }

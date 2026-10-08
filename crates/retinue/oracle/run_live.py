@@ -28,9 +28,18 @@ GATES = (
     "interop_send_multiseg.py",
     "interop_library_resource_recv.py",
     "interop_library_resource_send.py",
+    "interop_resource_cancel.py",
+    "interop_resource_metadata.py",
+    "interop_resource_proof_cache.py",
     "interop_reliable_responder_send.py",
     "interop_reliable_initiator_proofs.py",
     "interop_transport_node.py",
+    "interop_link_liveness.py",
+    "interop_transit_mtu.py",
+    "interop_path_request.py",
+    "interop_reliable_vanish.py",
+    "interop_single_proof.py",
+    "interop_ratchet_rotation.py",
 )
 
 

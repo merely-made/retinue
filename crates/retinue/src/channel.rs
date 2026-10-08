@@ -39,23 +39,26 @@ use heapless::index_map::FnvIndexMap;
 /// tell "ahead" (a future packet to buffer) from "behind" (an old duplicate).
 pub const SEQ_MODULUS: u32 = 65536;
 
-/// Dynamic send-window constants, from RNS 1.3.8's `Channel` (captured in
-/// `channel_wire.json`). The window bounds unacknowledged envelopes in flight; it grows
-/// on sustained proofs and shrinks on retransmit, bounded by the RTT tier. It is a
-/// *local* send-rate policy, never on the wire, so matching RNS's tiers is a tuning
-/// choice, interoperable either way. `new` starts at [`WINDOW_INITIAL`].
+/// Dynamic send-window constants, from RNS's `Channel` (1.5.7 `Channel.py` 200-245). The
+/// window bounds unacknowledged envelopes in flight. It grows by one per proof up to
+/// `window_max`, and `window_max` itself is promoted to the next RTT tier after
+/// `FAST_RATE_THRESHOLD` proofs below that tier's RTT; each timeout shrinks the window by
+/// one. It is a *local* send-rate policy, never on the wire, so matching RNS's tiers is a
+/// tuning choice, interoperable either way. `new` starts at [`WINDOW_INITIAL`].
 pub const WINDOW_INITIAL: u32 = 2;
-/// The window never shrinks below this (RNS `WINDOW_MIN`).
+/// The window never shrinks below this (RNS `WINDOW_MIN`), unless the link starts slower
+/// than the slow RTT tier, when RNS pins the whole window to one.
 pub const WINDOW_MIN: u32 = 2;
 /// The window never grows above this (RNS `WINDOW_MAX`, the fast-tier ceiling).
 pub const WINDOW_MAX: u32 = 48;
-/// How far the window drops on a retransmit (RNS `WINDOW_FLEXIBILITY`).
+/// The smallest gap a timeout leaves between `window_max` and `window_min` (RNS
+/// `WINDOW_FLEXIBILITY`): a timeout lowers `window_max` by one only while it is more than
+/// this far above the floor. It is not a step size; the window itself drops by one.
 pub const WINDOW_FLEXIBILITY: u32 = 4;
 
 const WINDOW_MAX_SLOW: u32 = 5;
 const WINDOW_MAX_MEDIUM: u32 = 12;
 const WINDOW_MAX_FAST: u32 = 48;
-const WINDOW_MIN_LIMIT_SLOW: u32 = 2;
 const WINDOW_MIN_LIMIT_MEDIUM: u32 = 5;
 const WINDOW_MIN_LIMIT_FAST: u32 = 16;
 // RTT tier thresholds, in the caller's tick unit. RNS's are seconds; these read a tick
@@ -63,28 +66,45 @@ const WINDOW_MIN_LIMIT_FAST: u32 = 16;
 const RTT_FAST: u64 = 180;
 const RTT_MEDIUM: u64 = 750;
 const RTT_SLOW: u64 = 1450;
-// Consecutive proofs (no retransmit) before the window steps up one (RNS FAST_RATE_THRESHOLD).
+/// Proofs measured below a tier's RTT before `window_max` is promoted to that tier (RNS
+/// `FAST_RATE_THRESHOLD`).
 const FAST_RATE_THRESHOLD: u32 = 10;
 
-/// Ticks without a proof before an outstanding envelope is retransmitted. "Tick" is
-/// whatever unit the caller passes to [`Channel::poll_transmit`] (milliseconds over a
-/// real clock; a counter in tests).
+/// Ticks without a proof before an outstanding envelope is retransmitted, for a fixed
+/// channel ([`Channel::with_params`]). "Tick" is whatever unit the caller passes to
+/// [`Channel::poll_transmit`] (milliseconds over a real clock; a counter in tests).
 pub const DEFAULT_RETX_TIMEOUT: u64 = 4;
 
-/// The adaptive retransmit timeout is this multiple of the measured EWMA RTT, so the timeout
-/// tracks the medium instead of a fixed tick count: a fast pipe retransmits in a few ticks, a
-/// LoRa link whose round trip is seconds waits proportionally rather than storming the channel
-/// with retransmits before the first proof can return. Only the dynamic channel adapts;
-/// [`Channel::with_params`] keeps the fixed timeout it is given.
-const RETX_RTT_FACTOR: u64 = 2;
-/// The adaptive timeout never drops below this, preserving fast-medium behaviour.
-const RETX_MIN: u64 = 4;
-/// ...nor rises above this, so one wild RTT sample cannot stall the channel indefinitely.
-const RETX_MAX: u64 = 8000;
+/// How many times one envelope goes on the wire before the channel gives up (RNS
+/// `Channel._max_tries`). The first send is a try, so this is the transmission count.
+pub const DEFAULT_MAX_TRIES: u8 = 5;
 
-/// The retransmit timeout implied by an RTT estimate: `RETX_RTT_FACTOR * rtt`, clamped.
-fn retx_from_rtt(rtt: u64) -> u64 {
-    (rtt * RETX_RTT_FACTOR).clamp(RETX_MIN, RETX_MAX)
+/// The floor of the per-envelope timeout's RTT term, in ticks read as milliseconds (RNS
+/// `max(rtt * 2.5, 0.025)`).
+const RETX_RTT_FLOOR: u64 = 25;
+
+/// How long an envelope on its `tries`-th transmission waits for its proof, with
+/// `outstanding` envelopes in flight, given an RTT estimate. RNS `_get_packet_timeout_time`:
+/// `1.5^(tries-1) * max(2.5 * rtt, 25 ms) * (outstanding + 1.5)`, in integer ticks. The
+/// backoff exponent stops at the default try count, so a raised limit cannot overflow it.
+fn retx_timeout(rtt: u64, tries: u8, outstanding: usize) -> u64 {
+    let backoff = u32::from(tries.clamp(1, DEFAULT_MAX_TRIES) - 1);
+    let base = (rtt.saturating_mul(5) / 2).max(RETX_RTT_FLOOR);
+    base.saturating_mul(2 * outstanding as u64 + 3)
+        .saturating_mul(3u64.pow(backoff))
+        / (2u64 << backoff)
+}
+
+/// Why a channel stopped. Terminal: once set, nothing more is sent and the link should be
+/// torn down, as RNS does when a channel times out.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ChannelError {
+    /// An envelope went unproved through every try (RNS tears the link down here).
+    RetriesExhausted {
+        /// The sequence that was never proved.
+        sequence: u16,
+    },
 }
 
 /// The most out-of-order future envelopes the receiver will hold at once. A well-behaved
@@ -147,7 +167,12 @@ impl Envelope {
 /// One un-acknowledged outbound envelope.
 struct Outstanding {
     payload: Vec<u8>,
+    /// When it last went on the wire.
     last_tx: u64,
+    /// When it is next due for a retransmit (or, out of tries, for giving up).
+    deadline: u64,
+    /// How many times it has gone on the wire (RNS `Envelope.tries`).
+    tries: u8,
 }
 
 /// A reliable, in-order message channel. See the module docs.
@@ -170,16 +195,30 @@ pub struct Channel<
 > {
     msgtype: u16,
     window: u32,
-    /// Caller-selected ceiling for dynamic growth. A value of one serializes
-    /// data/proof turns on strict half-duplex media.
+    /// Current growth ceiling (RNS `window_max`): promoted by RTT tier, lowered by timeouts.
+    window_max: u32,
+    /// Current shrink floor (RNS `window_min`).
+    window_min: u32,
+    /// Smallest gap timeouts leave between `window_max` and `window_min`.
+    window_flexibility: u32,
+    /// Caller-selected ceiling over every tier. A value of one serializes data/proof turns
+    /// on strict half-duplex media.
     max_window: u32,
+    /// The fixed retransmit timeout of a [`with_params`](Self::with_params) channel.
     retx_timeout: u64,
-    /// Whether the window sizes dynamically. Off for a fixed window (`with_params`).
+    /// Whether the window and timeout adapt. Off for a fixed window (`with_params`).
     dynamic: bool,
-    /// Consecutive proofs since the last retransmit; drives window growth.
-    consecutive: u32,
+    /// Consecutive proofs measured inside the fast / medium RTT tier.
+    fast_rate_rounds: u32,
+    medium_rate_rounds: u32,
     /// EWMA of the proof round-trip, in the caller's tick unit; selects the RTT tier.
     rtt: u64,
+    /// Whether `rtt` is measured yet, or still the caller's initial guess.
+    rtt_measured: bool,
+    /// Transmissions per envelope before the channel fails.
+    max_tries: u8,
+    /// Set once the channel has given up; see [`error`](Self::error).
+    error: Option<ChannelError>,
 
     // ── send side ──
     /// Application payloads not yet assigned a sequence (waiting for window room).
@@ -214,14 +253,9 @@ impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize>
 {
     /// A channel for one message type with a **dynamic** window: it starts at
     /// [`WINDOW_INITIAL`] and grows toward the RTT tier's max on sustained proofs,
-    /// shrinking on retransmit.
+    /// shrinking on timeouts. The first RTT estimate is the medium tier's bound.
     pub fn new(msgtype: u16) -> Self {
-        // Start the timeout from the initial RTT estimate (a medium-latency guess), then let
-        // on_proof adapt it to the measured round trip.
-        let mut channel = Self::with_params(msgtype, WINDOW_INITIAL, retx_from_rtt(RTT_MEDIUM));
-        channel.dynamic = true;
-        channel.max_window = WINDOW_MAX;
-        channel
+        Self::with_initial_rtt(msgtype, RTT_MEDIUM)
     }
 
     /// A dynamic channel whose first retransmit estimate is tuned to the selected medium.
@@ -232,6 +266,10 @@ impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize>
 
     /// A dynamic channel with medium-specific RTT and send-window policy.
     ///
+    /// As in RNS, a link starting slower than the slow tier (1450 ticks) runs a window of
+    /// one; otherwise the window starts at [`WINDOW_INITIAL`] under the slow tier's ceiling
+    /// and is promoted from measured RTT.
+    ///
     /// `max_window = 1` is useful for strict half-duplex radios: the sender waits
     /// for each proof before transmitting the next frame, so a receiver's proof
     /// cannot collide with a second in-flight data frame.
@@ -240,33 +278,54 @@ impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize>
         initial_rtt: u64,
         max_window: u32,
     ) -> Self {
-        let initial_rtt = initial_rtt.max(1);
-        // The profile's table caps the protocol window as well as the protocol's own
-        // WINDOW_MAX, so a small board cannot be talked into a window its table cannot hold.
-        let max_window = max_window.clamp(1, WINDOW_MAX.min(WINDOW as u32).max(1));
-        let mut channel = Self::with_params(
-            msgtype,
-            WINDOW_INITIAL.min(max_window),
-            retx_from_rtt(initial_rtt),
-        );
+        let mut channel = Self::with_params(msgtype, max_window, 0);
+        channel.start_window(initial_rtt);
         channel.dynamic = true;
         channel.rtt = initial_rtt;
-        channel.max_window = max_window;
         channel
     }
 
+    /// RNS's starting window for a link of round trip `rtt`: one when slower than the slow
+    /// tier, else [`WINDOW_INITIAL`] under the slow tier's ceiling.
+    fn start_window(&mut self, rtt: u64) {
+        let (window, window_max, window_min, flexibility) = if rtt > RTT_SLOW {
+            (1, 1, 1, 1)
+        } else {
+            (
+                WINDOW_INITIAL,
+                WINDOW_MAX_SLOW,
+                WINDOW_MIN,
+                WINDOW_FLEXIBILITY,
+            )
+        };
+        // The profile's table caps the protocol window as well as the protocol's own
+        // WINDOW_MAX, so a small board cannot be talked into a window its table cannot hold.
+        let ceiling = self.max_window;
+        self.window = window.min(ceiling);
+        self.window_max = window_max.min(ceiling);
+        self.window_min = window_min.min(ceiling);
+        self.window_flexibility = flexibility;
+    }
+
     /// A channel with a **fixed** window and explicit retransmit timeout (for tests and
-    /// callers that want a static send rate).
+    /// callers that want a static send rate). The try limit still applies.
     pub fn with_params(msgtype: u16, window: u32, retx_timeout: u64) -> Self {
         let window = window.clamp(1, WINDOW_MAX.min(WINDOW as u32).max(1));
         Self {
             msgtype,
             window,
+            window_max: window,
+            window_min: window,
+            window_flexibility: WINDOW_FLEXIBILITY,
             max_window: window,
             retx_timeout,
             dynamic: false,
-            consecutive: 0,
+            fast_rate_rounds: 0,
+            medium_rate_rounds: 0,
             rtt: RTT_MEDIUM,
+            rtt_measured: false,
+            max_tries: DEFAULT_MAX_TRIES,
+            error: None,
             outgoing: Deque::new(),
             outstanding: FnvIndexMap::new(),
             send_next: 0,
@@ -276,25 +335,33 @@ impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize>
         }
     }
 
-    /// The RTT tier's window ceiling, from the current RTT estimate.
-    fn tier_max(&self) -> u32 {
-        let tier = match self.rtt {
-            r if r <= RTT_FAST => WINDOW_MAX_FAST,
-            r if r <= RTT_MEDIUM => WINDOW_MAX_MEDIUM,
-            r if r <= RTT_SLOW => WINDOW_MAX_SLOW,
-            _ => WINDOW_MIN,
-        };
-        tier.min(self.max_window)
+    /// Set how many times one envelope may go on the wire before the channel fails
+    /// (default [`DEFAULT_MAX_TRIES`], at least one). The timeout backoff stops growing at
+    /// the default try count, so a larger limit adds evenly spaced tries.
+    pub fn set_max_tries(&mut self, tries: u8) {
+        self.max_tries = tries.max(1);
     }
 
-    /// The RTT tier's shrink floor, from the current RTT estimate.
-    fn tier_min(&self) -> u32 {
-        let tier = match self.rtt {
-            r if r <= RTT_FAST => WINDOW_MIN_LIMIT_FAST,
-            r if r <= RTT_MEDIUM => WINDOW_MIN_LIMIT_MEDIUM,
-            _ => WINDOW_MIN_LIMIT_SLOW,
-        };
-        tier.min(self.max_window).max(1)
+    /// Replace the RTT estimate with a link-level measurement, such as the handshake RTT RNS
+    /// times its channel by, until a proof measures the round trip itself. Ignored once a
+    /// proof has, and on a fixed channel. Deadlines already set stay as they are.
+    ///
+    /// Before anything has been sent this also redoes the starting window from `rtt`, so a
+    /// responder built on a guess before the link's RTT arrived still gets RNS's window of
+    /// one on a slow link (RNS creates its channel only once the link is active).
+    pub fn set_initial_rtt(&mut self, rtt: u64) {
+        if self.dynamic && !self.rtt_measured {
+            self.rtt = rtt;
+            if self.send_next == 0 && self.outstanding.is_empty() {
+                self.start_window(rtt);
+            }
+        }
+    }
+
+    /// Why the channel stopped, once it has. A failed channel sends nothing more, refuses
+    /// new data, and is never [`send_idle`](Self::send_idle); its link should be closed.
+    pub fn error(&self) -> Option<ChannelError> {
+        self.error
     }
 
     /// The current send window.
@@ -302,11 +369,20 @@ impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize>
         self.window
     }
 
+    /// The current RTT estimate, in ticks (diagnostics).
+    pub fn rtt(&self) -> u64 {
+        self.rtt
+    }
+
     /// Queue a payload for reliable, in-order delivery. Assigned a sequence and put on
     /// the wire by [`poll_transmit`](Self::poll_transmit) as the window allows.
-    /// Returns the payload back when the send queue is full, so a caller that writes faster
-    /// than the link drains is told rather than silently growing the queue forever.
+    /// Returns the payload back when the send queue is full, or the channel has failed, so
+    /// a caller that writes faster than the link drains is told rather than silently
+    /// growing the queue forever.
     pub fn send(&mut self, payload: Vec<u8>) -> Result<(), Vec<u8>> {
+        if self.error.is_some() {
+            return Err(payload);
+        }
         self.outgoing.push_back(payload)
     }
 
@@ -315,12 +391,55 @@ impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize>
         QUEUE - self.outgoing.len()
     }
 
-    /// The envelopes to transmit at time `now`: newly sendable data within the window,
-    /// and retransmissions of outstanding envelopes past the retransmit timeout. There
-    /// is no ack envelope — acknowledgement is the link proof, delivered via
+    /// The envelopes to transmit at time `now`: retransmissions of outstanding envelopes
+    /// past their timeout, then newly sendable data within the window. There is no ack
+    /// envelope — acknowledgement is the link proof, delivered via
     /// [`on_proof`](Self::on_proof).
+    ///
+    /// An envelope that times out on its last try fails the channel instead (see
+    /// [`error`](Self::error)): this returns nothing then or after.
     pub fn poll_transmit(&mut self, now: u64) -> Vec<Envelope> {
         let mut out = Vec::new();
+        if self.error.is_some() {
+            return out;
+        }
+
+        // Retransmit anything unproved past its deadline, or give up on it (RNS
+        // `_packet_timeout`). Each timeout steps the window down by one.
+        let mut timeouts = 0u32;
+        let mut exhausted = None;
+        for (&seq, o) in &mut self.outstanding {
+            if now < o.deadline {
+                continue;
+            }
+            if o.tries >= self.max_tries {
+                exhausted = Some(seq);
+                break;
+            }
+            o.tries += 1;
+            o.last_tx = now;
+            o.deadline = 0; // recomputed below, once the in-flight count is settled
+            out.push(Envelope {
+                msgtype: self.msgtype,
+                sequence: seq,
+                payload: o.payload.clone(),
+            });
+            timeouts += 1;
+        }
+        if let Some(sequence) = exhausted {
+            self.fail(ChannelError::RetriesExhausted { sequence });
+            return Vec::new();
+        }
+        if self.dynamic {
+            for _ in 0..timeouts {
+                if self.window > self.window_min {
+                    self.window -= 1;
+                    if self.window_max > self.window_min + self.window_flexibility {
+                        self.window_max -= 1;
+                    }
+                }
+            }
+        }
 
         // Fill the window with fresh data. The window is clamped to WINDOW at construction,
         // so the table has room, but the guard keeps that a local fact rather than an
@@ -351,6 +470,8 @@ impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize>
             let record = Outstanding {
                 payload,
                 last_tx: now,
+                deadline: 0,
+                tries: 1,
             };
             if let Err((_, unsent)) = self.outstanding.insert(seq, record) {
                 // Unreachable while the guard above holds. Put the payload back and undo the
@@ -362,32 +483,29 @@ impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize>
             }
         }
 
-        // Retransmit anything unproven for too long.
-        let mut retransmitted = false;
-        for (&seq, o) in &mut self.outstanding {
-            if now.saturating_sub(o.last_tx) >= self.retx_timeout {
-                o.last_tx = now;
-                out.push(Envelope {
-                    msgtype: self.msgtype,
-                    sequence: seq,
-                    payload: o.payload.clone(),
-                });
-                retransmitted = true;
+        // Anything sent sets its own deadline, and every in-flight envelope's deadline may
+        // only move later now that more share the link (RNS `_update_packet_timeouts`).
+        if !out.is_empty() {
+            let in_flight = self.outstanding.len();
+            let (dynamic, rtt, fixed) = (self.dynamic, self.rtt, self.retx_timeout);
+            for o in self.outstanding.values_mut() {
+                let timeout = if dynamic {
+                    retx_timeout(rtt, o.tries, in_flight)
+                } else {
+                    fixed
+                };
+                o.deadline = o.deadline.max(o.last_tx.saturating_add(timeout));
             }
         }
 
-        // A retransmit means loss (or a stall): back the window off toward the tier floor.
-        if self.dynamic && retransmitted {
-            let floor = self.tier_min();
-            self.window = self
-                .window
-                .saturating_sub(WINDOW_FLEXIBILITY)
-                .max(floor)
-                .min(self.max_window);
-            self.consecutive = 0;
-        }
-
         out
+    }
+
+    /// Give up: record why and drop everything unsent or unproved (RNS `_shutdown`).
+    fn fail(&mut self, error: ChannelError) {
+        self.error = Some(error);
+        self.outstanding.clear();
+        self.outgoing.clear();
     }
 
     /// The oldest unproved sequence, or `send_next` when nothing is in flight. Age is the
@@ -402,7 +520,13 @@ impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize>
 
     /// Release an outstanding sequence: its packet's proof arrived. Selective — RNS
     /// proves each packet individually, so this frees exactly one sequence. `now` lets
-    /// the dynamic window measure RTT and grow on sustained success.
+    /// the dynamic window measure RTT.
+    ///
+    /// Each proof opens the window by one up to `window_max`, and `FAST_RATE_THRESHOLD`
+    /// proofs inside a faster RTT tier promote `window_max` and `window_min` to that tier
+    /// (RNS `_packet_tx_op`). RTT is sampled only from envelopes sent once (Karn's rule): a
+    /// proof of a retransmitted envelope cannot say which transmission it answers. The first
+    /// sample replaces the initial estimate; later samples are averaged in.
     pub fn on_proof(&mut self, sequence: u16, now: u64) {
         let Some(o) = self.outstanding.remove(&sequence) else {
             return;
@@ -410,19 +534,39 @@ impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize>
         if !self.dynamic {
             return;
         }
-        // EWMA the round-trip since this packet's last transmit, then grow the window
-        // one step per run of clean proofs, capped by the RTT tier.
-        let sample = now.saturating_sub(o.last_tx);
-        self.rtt = (self.rtt * 7 + sample) / 8;
-        // Track the retransmit timeout to the measured RTT (finding 1 from the first reliable
-        // link over real RF: a fixed timeout storms a slow medium with premature retransmits).
-        self.retx_timeout = retx_from_rtt(self.rtt);
-        self.consecutive += 1;
-        if self.consecutive >= FAST_RATE_THRESHOLD {
-            self.consecutive = 0;
-            let cap = self.tier_max();
-            if self.window < cap {
-                self.window += 1;
+        if o.tries == 1 {
+            // The first sample replaces the initial guess outright, as RNS starts from the
+            // link's measured handshake RTT rather than a guess; later ones are smoothed.
+            let sample = now.saturating_sub(o.last_tx);
+            self.rtt = if self.rtt_measured {
+                (self.rtt * 7 + sample) / 8
+            } else {
+                sample
+            };
+            self.rtt_measured = true;
+        }
+        if self.window < self.window_max {
+            self.window += 1;
+        }
+        let ceiling = self.max_window;
+        if self.rtt > RTT_FAST {
+            self.fast_rate_rounds = 0;
+            if self.rtt > RTT_MEDIUM {
+                self.medium_rate_rounds = 0;
+            } else {
+                self.medium_rate_rounds = self.medium_rate_rounds.saturating_add(1);
+                if self.window_max < WINDOW_MAX_MEDIUM
+                    && self.medium_rate_rounds == FAST_RATE_THRESHOLD
+                {
+                    self.window_max = WINDOW_MAX_MEDIUM.min(ceiling);
+                    self.window_min = WINDOW_MIN_LIMIT_MEDIUM.min(ceiling);
+                }
+            }
+        } else {
+            self.fast_rate_rounds = self.fast_rate_rounds.saturating_add(1);
+            if self.window_max < WINDOW_MAX_FAST && self.fast_rate_rounds == FAST_RATE_THRESHOLD {
+                self.window_max = WINDOW_MAX_FAST.min(ceiling);
+                self.window_min = WINDOW_MIN_LIMIT_FAST.min(ceiling);
             }
         }
     }
@@ -507,7 +651,7 @@ impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize>
 
     /// Whether everything queued to send has been sent and proven.
     pub fn send_idle(&self) -> bool {
-        self.outgoing.is_empty() && self.outstanding.is_empty()
+        self.error.is_none() && self.outgoing.is_empty() && self.outstanding.is_empty()
     }
 
     /// Count of in-flight, unproven envelopes.
@@ -916,6 +1060,26 @@ impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize, const READ_B
         self.channel.window()
     }
 
+    /// The current RTT estimate — see [`Channel::rtt`].
+    pub fn rtt(&self) -> u64 {
+        self.channel.rtt()
+    }
+
+    /// Replace the initial RTT estimate — see [`Channel::set_initial_rtt`].
+    pub fn set_initial_rtt(&mut self, rtt: u64) {
+        self.channel.set_initial_rtt(rtt);
+    }
+
+    /// Set the per-envelope try limit — see [`Channel::set_max_tries`].
+    pub fn set_max_tries(&mut self, tries: u8) {
+        self.channel.set_max_tries(tries);
+    }
+
+    /// Why the underlying channel stopped, once it has — see [`Channel::error`].
+    pub fn channel_error(&self) -> Option<ChannelError> {
+        self.channel.error()
+    }
+
     /// Whether everything written has been sent and proven.
     pub fn send_idle(&self) -> bool {
         self.channel.send_idle()
@@ -931,8 +1095,10 @@ mod tests {
     use alloc::vec::Vec;
 
     use super::{
-        Buffer, Channel, DEFAULT_RETX_TIMEOUT, Envelope, MAX_DATA_LEN, STREAM_ID_MAX,
-        STREAM_MSGTYPE, StreamFrame, WINDOW_INITIAL,
+        Buffer, Channel, ChannelError, DEFAULT_MAX_TRIES, DEFAULT_RETX_TIMEOUT, Envelope,
+        FAST_RATE_THRESHOLD, MAX_DATA_LEN, STREAM_ID_MAX, STREAM_MSGTYPE, StreamFrame,
+        WINDOW_FLEXIBILITY, WINDOW_INITIAL, WINDOW_MAX, WINDOW_MAX_MEDIUM, WINDOW_MAX_SLOW,
+        WINDOW_MIN_LIMIT_MEDIUM,
     };
     use crate::lossy::LossModel;
 
@@ -998,12 +1164,13 @@ mod tests {
     /// Run a byte stream through two Buffers across a deterministic lossy pipe on a
     /// virtual clock, proving each delivered envelope back (subject to loss) — the
     /// proof-based model. Returns nothing; asserts exact reconstruction.
-    fn stream_over_loss(drop_per_mille: u32, max_delay_ticks: u64, seed: u64) {
+    fn stream_over_loss(drop_per_mille: u32, max_delay_ticks: u64, seed: u64, max_tries: u8) {
         let payload: Vec<u8> = (0..4000u32)
             .map(|i| (i.wrapping_mul(31).wrapping_add(7)) as u8)
             .collect();
         let mut tx: Buffer = Buffer::new();
         let mut rx: Buffer = Buffer::new();
+        tx.set_max_tries(max_tries);
         assert_eq!(
             tx.write(&payload),
             payload.len(),
@@ -1057,28 +1224,39 @@ mod tests {
             }
         }
         assert_eq!(got, payload, "stream must reconstruct exactly over loss");
+        assert_eq!(tx.channel_error(), None, "the sender never gave up");
+        assert!(tx.send_idle(), "and every envelope was proved");
     }
 
+    /// At 30% loss each way one try fails half the time, so RNS's five tries lose about
+    /// one envelope in thirty; this raises the limit to exercise retransmission at that loss.
     #[test]
     fn stream_survives_drop() {
-        stream_over_loss(300, 0, 11);
+        stream_over_loss(300, 0, 11, 64);
     }
 
     #[test]
     fn stream_survives_drop_reorder_and_delay() {
-        stream_over_loss(250, 6, 99);
+        stream_over_loss(250, 6, 99, DEFAULT_MAX_TRIES);
     }
 
+    /// At 60% loss each way a round trip succeeds 16% of the time, so RNS's five tries
+    /// would give up on most envelopes. This exercises reordering and retransmission at
+    /// that loss, so it raises the try limit.
     #[test]
     fn heavy_loss_still_converges() {
-        stream_over_loss(600, 3, 7);
+        stream_over_loss(600, 3, 7, 64);
     }
 
     /// Count how many envelopes `channel` puts on the wire to deliver `messages` messages over
     /// a lossless pipe whose one-way delay is `rtt/2` ticks (so a data->proof round trip is
     /// `rtt` ticks). Each sequence's proof returns once, `rtt` ticks after its first send;
     /// retransmits issued before then are the waste this measures.
-    fn transmissions_over_rtt(mut channel: Channel, rtt: u64, messages: usize) -> usize {
+    fn transmissions_over_rtt(
+        mut channel: Channel,
+        rtt: u64,
+        messages: usize,
+    ) -> Result<usize, (usize, ChannelError)> {
         use alloc::collections::BTreeMap;
         use std::collections::HashSet;
         for m in 0..messages {
@@ -1101,24 +1279,28 @@ mod tests {
                     proof_at.entry(now + rtt).or_default().push(env.sequence);
                 }
             }
+            if let Some(error) = channel.error() {
+                return Err((total, error));
+            }
             if channel.send_idle() {
                 break;
             }
         }
         assert!(channel.send_idle(), "the transfer completed");
-        total
+        Ok(total)
     }
 
     /// The adaptive retransmit timeout must not storm a slow medium. Over a 1000-tick round
-    /// trip, the dynamic channel keys its timeout off the measured RTT and sends close to one
-    /// transmission per message; a fixed 4-tick timeout retransmits each packet hundreds of
-    /// times before its proof can return. This is the fix for the RF finding, measured.
+    /// trip, the dynamic channel keys its timeout off the RTT estimate and sends close to one
+    /// transmission per message. A fixed 4-tick timeout retransmits before any proof can
+    /// return, and so spends all its tries and gives up on a link that was working.
     #[test]
     fn adaptive_timeout_does_not_storm_a_high_rtt_link() {
         let messages = 16;
         let rtt = 1000;
 
-        let adaptive = transmissions_over_rtt(Channel::new(STREAM_MSGTYPE), rtt, messages);
+        let adaptive = transmissions_over_rtt(Channel::new(STREAM_MSGTYPE), rtt, messages)
+            .expect("the adaptive channel completes");
         let fixed_tiny = transmissions_over_rtt(
             Channel::with_params(STREAM_MSGTYPE, 8, DEFAULT_RETX_TIMEOUT),
             rtt,
@@ -1131,15 +1313,12 @@ mod tests {
             adaptive < messages * 3,
             "adaptive sent {adaptive} for {messages} messages (should be near {messages})"
         );
-        // The fixed tiny timeout storms: an order of magnitude more, and far worse than adaptive.
-        assert!(
-            fixed_tiny > messages * 10,
-            "fixed-4 sent {fixed_tiny}, expected a retransmit storm"
-        );
-        assert!(
-            fixed_tiny > adaptive * 5,
-            "adaptive {adaptive} should be dramatically leaner than fixed {fixed_tiny}"
-        );
+        // The fixed tiny timeout exhausts every try of its first window before a proof lands.
+        let Err((sent, error)) = fixed_tiny else {
+            panic!("a 4-tick timeout over a 1000-tick round trip must give up");
+        };
+        assert_eq!(error, ChannelError::RetriesExhausted { sequence: 0 });
+        assert_eq!(sent, 8 * usize::from(DEFAULT_MAX_TRIES));
     }
 
     #[test]
@@ -1191,44 +1370,6 @@ mod tests {
         assert_eq!(got, total, "all delivered across the sequence wrap");
     }
 
-    #[test]
-    fn window_grows_on_sustained_clean_proofs() {
-        // A dynamic channel starts at WINDOW_INITIAL. Prove a long run of packets
-        // cleanly and promptly (one-tick round trip), and the window climbs step by
-        // step into the fast RTT tier — the growth half of RNS's dynamic sizing.
-        let mut c: Channel<64, 4096> = Channel::new(0x0001);
-        assert_eq!(c.window(), WINDOW_INITIAL, "starts at the initial window");
-        for i in 0..2000u16 {
-            c.send(vec![i as u8]).expect("the send queue has room");
-        }
-        let mut now = 0u64;
-        let mut proven = 0u32;
-        // Each poll sends `window` fresh envelopes; we prove them all one tick later.
-        // The outer bound is a safety net — growth reaches the ceiling in ~40 polls.
-        for _ in 0..100_000 {
-            if proven >= 2000 {
-                break;
-            }
-            let envs = c.poll_transmit(now);
-            now += 1;
-            for e in envs {
-                c.on_proof(e.sequence, now);
-                proven += 1;
-            }
-        }
-        assert_eq!(proven, 2000, "proved every packet");
-        assert!(
-            c.window() > WINDOW_INITIAL,
-            "window grew (got {})",
-            c.window()
-        );
-        assert!(
-            c.window() >= 16,
-            "climbed into the fast tier (got {})",
-            c.window()
-        );
-    }
-
     /// A proved frame must never strand in the reorder buffer (review finding, 2026-07-31).
     ///
     /// A frame buffered out of order is proved on arrival, so the sender never retransmits
@@ -1265,49 +1406,254 @@ mod tests {
         assert_eq!(rx.recv(), None, "and nothing further is owed");
     }
 
+    /// Prove every envelope one tick after it is sent until `proofs` have landed.
+    fn prove_promptly<const W: usize, const Q: usize, const R: usize>(
+        c: &mut Channel<W, Q, R>,
+        now: &mut u64,
+        proofs: u32,
+    ) {
+        let mut proven = 0u32;
+        while proven < proofs {
+            let envs = c.poll_transmit(*now);
+            *now += 1;
+            for e in envs {
+                if proven < proofs {
+                    c.on_proof(e.sequence, *now);
+                    proven += 1;
+                }
+            }
+        }
+    }
+
     #[test]
-    fn window_shrinks_on_retransmit() {
-        // Grow the window with clean proofs, then let fresh packets go unproven past the
-        // retransmit timeout: the retransmit backs the window off toward the tier floor
-        // — the shrink half of the dynamic sizing.
+    fn window_shrinks_by_one_per_timeout() {
+        // Grow the window into the fast tier, then let eight fresh envelopes go unproved past
+        // their timeout. RNS steps the window down by one per timed-out envelope, and
+        // window_max with it while it stays more than WINDOW_FLEXIBILITY above window_min.
         let mut c: Channel<64, 4096> = Channel::new(0x0001);
         for i in 0..2000u16 {
             c.send(vec![i as u8]).expect("the send queue has room");
         }
         let mut now = 0u64;
-        let mut proven = 0u32;
-        for _ in 0..100_000 {
-            if proven >= 2000 {
-                break;
-            }
-            let envs = c.poll_transmit(now);
-            now += 1;
-            for e in envs {
-                c.on_proof(e.sequence, now);
-                proven += 1;
-            }
+        prove_promptly(&mut c, &mut now, 200);
+        // Let whatever is still in flight be proved, so only the fresh eight time out.
+        for seq in 0..=u16::MAX {
+            c.on_proof(seq, now);
         }
-        let grown = c.window();
-        assert!(
-            grown > 20,
-            "window grew well above the floor first (got {})",
-            grown
+        assert_eq!(
+            c.window(),
+            WINDOW_MAX,
+            "grew to the fast-tier ceiling first"
         );
+        assert_eq!((c.window_max, c.window_min), (WINDOW_MAX, 16));
 
-        // New data goes out, and nobody proves it. Past the timeout it retransmits.
-        for i in 0..8u16 {
+        let fresh = c.poll_transmit(now);
+        assert_eq!(fresh.len(), WINDOW_MAX as usize, "a full window went out");
+        let deadline = c.outstanding.values().map(|o| o.deadline).min().unwrap();
+        assert!(
+            c.poll_transmit(deadline - 1).is_empty(),
+            "nothing before the deadline"
+        );
+        let resent = c.poll_transmit(deadline);
+        assert_eq!(
+            resent.len(),
+            WINDOW_MAX as usize,
+            "every envelope timed out together"
+        );
+        // 48 timeouts against a floor of 16: the window stops at the floor, and window_max
+        // stops WINDOW_FLEXIBILITY above it.
+        assert_eq!(c.window(), 16);
+        assert_eq!(c.window_max, 16 + WINDOW_FLEXIBILITY);
+    }
+
+    #[test]
+    fn a_single_timeout_costs_one_window_step() {
+        let mut c: Channel<64, 4096> = Channel::new(0x0001);
+        for i in 0..2000u16 {
             c.send(vec![i as u8]).expect("the send queue has room");
         }
-        let fresh = c.poll_transmit(now);
-        assert!(!fresh.is_empty(), "fresh data went out");
-        now += DEFAULT_RETX_TIMEOUT + 1;
-        let resent = c.poll_transmit(now);
-        assert!(!resent.is_empty(), "unproven data retransmitted");
-        assert!(
-            c.window() < grown,
-            "window shrank on retransmit ({grown} -> {})",
-            c.window()
+        let mut now = 0u64;
+        prove_promptly(&mut c, &mut now, 200);
+        for seq in 0..=u16::MAX {
+            c.on_proof(seq, now);
+        }
+        let grown = c.window();
+        let sent = c.poll_transmit(now);
+        // Prove all but the first, so exactly one envelope times out.
+        for e in &sent[1..] {
+            c.on_proof(e.sequence, now + 1);
+        }
+        let window_after_proofs = c.window();
+        assert_eq!(window_after_proofs, grown, "already at window_max");
+        let deadline = c.outstanding.values().next().unwrap().deadline;
+        let resent: Vec<u16> = c
+            .poll_transmit(deadline)
+            .iter()
+            .map(|e| e.sequence)
+            .filter(|&s| s == sent[0].sequence)
+            .collect();
+        assert_eq!(resent, vec![sent[0].sequence]);
+        assert_eq!(c.window(), grown - 1, "one timeout, one step");
+        assert_eq!(c.window_max, WINDOW_MAX - 1);
+    }
+
+    #[test]
+    fn the_window_grows_by_one_per_proof_up_to_the_slow_ceiling() {
+        // A fresh channel sits in the slow tier: window 2, ceiling 5. A slow RTT never
+        // promotes, so proofs open the window one at a time and stop at 5.
+        let mut c: Channel = Channel::with_initial_rtt(0x0001, 1_000);
+        assert_eq!((c.window(), c.window_max, c.window_min), (2, 5, 2));
+        for i in 0..64u16 {
+            c.send(vec![i as u8]).expect("the send queue has room");
+        }
+        let mut seen = Vec::new();
+        let mut now = 0u64;
+        for _ in 0..20 {
+            let envs = c.poll_transmit(now);
+            now += 1_000;
+            for e in envs {
+                c.on_proof(e.sequence, now);
+                seen.push(c.window());
+            }
+        }
+        assert_eq!(&seen[..4], &[3, 4, 5, 5], "one step per proof, capped at 5");
+        assert_eq!(c.window(), 5, "a slow link never leaves the slow tier");
+    }
+
+    #[test]
+    fn ten_medium_rounds_promote_to_the_medium_tier() {
+        // RTT 500 ticks sits between the fast and medium bounds.
+        let mut c: Channel = Channel::with_initial_rtt(0x0001, 500);
+        for i in 0..64u16 {
+            c.send(vec![i as u8]).expect("the send queue has room");
+        }
+        let mut now = 0u64;
+        let mut proofs = 0u32;
+        while proofs < FAST_RATE_THRESHOLD - 1 {
+            let envs = c.poll_transmit(now);
+            now += 500;
+            for e in envs {
+                if proofs < FAST_RATE_THRESHOLD - 1 {
+                    c.on_proof(e.sequence, now);
+                    proofs += 1;
+                }
+            }
+        }
+        assert_eq!(c.window_max, WINDOW_MAX_SLOW, "nine rounds are not enough");
+        let next = *c.outstanding.keys().next().unwrap();
+        c.on_proof(next, now);
+        assert_eq!(c.window_max, WINDOW_MAX_MEDIUM, "the tenth round promotes");
+        assert_eq!(c.window_min, WINDOW_MIN_LIMIT_MEDIUM);
+    }
+
+    #[test]
+    fn window_grows_on_sustained_clean_proofs() {
+        // A dynamic channel starts at WINDOW_INITIAL. Prove a long run of packets cleanly and
+        // promptly (one-tick round trip): the RTT estimate falls into the fast tier, ten fast
+        // rounds promote window_max to WINDOW_MAX, and the window climbs to it.
+        let mut c: Channel<64, 4096> = Channel::new(0x0001);
+        assert_eq!(c.window(), WINDOW_INITIAL, "starts at the initial window");
+        for i in 0..2000u16 {
+            c.send(vec![i as u8]).expect("the send queue has room");
+        }
+        let mut now = 0u64;
+        prove_promptly(&mut c, &mut now, 2000);
+        assert_eq!(c.window(), WINDOW_MAX, "climbed to the fast-tier ceiling");
+    }
+
+    #[test]
+    fn a_link_slower_than_the_slow_tier_pins_the_window_to_one() {
+        let c: Channel = Channel::with_initial_rtt(0x0001, 1_451);
+        assert_eq!((c.window(), c.window_max, c.window_min), (1, 1, 1));
+        let c: Channel = Channel::with_initial_rtt(0x0001, 1_450);
+        assert_eq!((c.window(), c.window_max, c.window_min), (2, 5, 2));
+    }
+
+    #[test]
+    fn a_link_rtt_arriving_before_any_send_reselects_the_starting_window() {
+        // A responder builds its channel on a guess before the initiator's RTT packet; RNS
+        // builds its channel after, so a slow link still pins the window to one.
+        let mut c: Channel = Channel::with_initial_rtt(0x0001, 750);
+        c.set_initial_rtt(2_000);
+        assert_eq!((c.window(), c.window_max, c.window_min), (1, 1, 1));
+        c.set_initial_rtt(300);
+        assert_eq!((c.window(), c.window_max, c.window_min), (2, 5, 2));
+
+        // Once something is on the wire the window is live state and is left alone.
+        let mut c: Channel = Channel::with_initial_rtt(0x0001, 750);
+        c.send(vec![1]).expect("the send queue has room");
+        let _ = c.poll_transmit(0);
+        c.set_initial_rtt(2_000);
+        assert_eq!(c.window(), 2);
+        assert_eq!(c.rtt, 2_000);
+    }
+
+    #[test]
+    fn retransmits_back_off_by_half_again_and_give_up_after_five_tries() {
+        // One envelope, RTT 100, never proved. RNS's timeout for try n with one envelope in
+        // flight is 1.5^(n-1) * max(2.5 * 100, 25) * (1 + 1.5) = 625 * 1.5^(n-1) ticks.
+        let mut c: Channel = Channel::with_initial_rtt(0x0001, 100);
+        c.send(vec![7]).expect("the send queue has room");
+        let mut sent_at = Vec::new();
+        let mut failed_at = None;
+        for now in 0..20_000u64 {
+            sent_at.extend(c.poll_transmit(now).iter().map(|_| now));
+            if c.error().is_some() {
+                failed_at = Some(now);
+                break;
+            }
+        }
+        // 625, 937, 1406, 2109, 3164 (floored).
+        assert_eq!(sent_at, vec![0, 625, 1_562, 2_968, 5_077]);
+        assert_eq!(failed_at, Some(8_241));
+        assert_eq!(
+            c.error(),
+            Some(ChannelError::RetriesExhausted { sequence: 0 })
         );
+        assert!(!c.send_idle(), "a failed channel is never idle");
+        assert_eq!(c.send(vec![8]), Err(vec![8]), "and takes no more data");
+        assert!(c.poll_transmit(100_000).is_empty(), "nor sends anything");
+    }
+
+    #[test]
+    fn more_in_flight_stretches_every_deadline() {
+        // RNS raises every pending timeout when another envelope joins the ring.
+        let mut c: Channel = Channel::with_initial_rtt(0x0001, 100);
+        c.send(vec![1]).expect("the send queue has room");
+        let _ = c.poll_transmit(0);
+        assert_eq!(c.outstanding[&0].deadline, 625, "250 * (1 + 1.5)");
+        c.send(vec![2]).expect("the send queue has room");
+        let _ = c.poll_transmit(10);
+        assert_eq!(c.outstanding[&0].deadline, 875, "250 * (2 + 1.5)");
+        assert_eq!(c.outstanding[&1].deadline, 10 + 875);
+    }
+
+    #[test]
+    fn karns_rule_skips_rtt_samples_from_retransmits() {
+        let mut c: Channel = Channel::with_initial_rtt(0x0001, 100);
+        c.send(vec![1]).expect("the send queue has room");
+        let _ = c.poll_transmit(0);
+        let resent = c.poll_transmit(625);
+        assert_eq!(resent.len(), 1, "retransmitted once");
+        // The proof might answer either transmission, so it says nothing about the RTT.
+        c.on_proof(0, 700);
+        assert_eq!(c.rtt, 100, "no sample from a retransmitted envelope");
+
+        c.set_initial_rtt(400);
+        assert_eq!(c.rtt, 400, "a link measurement replaces the guess");
+        c.send(vec![2]).expect("the send queue has room");
+        let _ = c.poll_transmit(1_000);
+        c.on_proof(1, 1_020);
+        assert_eq!(
+            c.rtt, 20,
+            "a first transmission is sampled, replacing the guess"
+        );
+        c.send(vec![3]).expect("the send queue has room");
+        let _ = c.poll_transmit(2_000);
+        c.on_proof(2, 2_060);
+        assert_eq!(c.rtt, (20 * 7 + 60) / 8, "and later samples are smoothed");
+        c.set_initial_rtt(400);
+        assert_eq!(c.rtt, (20 * 7 + 60) / 8, "a measured RTT is not overridden");
     }
 
     #[test]

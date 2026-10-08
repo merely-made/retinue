@@ -166,19 +166,32 @@ pub fn decrypt_with_ratchets<'a>(
     retained_secrets: impl IntoIterator<Item = &'a [u8; KEY_LEN]>,
     token: &[u8],
 ) -> Result<(Vec<u8>, NameHash)> {
+    let (plaintext, _, secret) = trial_decrypt(recipient, retained_secrets, token)?;
+    // Only the winning epoch's public key is derived: a failed attempt costs one ECDH.
+    let public = XPublicKey::from(&x25519_dalek::StaticSecret::from(*secret));
+    Ok((plaintext, NameHash::of(public.as_bytes())))
+}
+
+/// Trial-decrypt `token` against `retained_secrets` in order, returning the plaintext with
+/// the index and secret of the epoch that authenticated it.
+pub(crate) fn trial_decrypt<'a>(
+    recipient: &PrivateIdentity,
+    retained_secrets: impl IntoIterator<Item = &'a [u8; KEY_LEN]>,
+    token: &[u8],
+) -> Result<(Vec<u8>, usize, &'a [u8; KEY_LEN])> {
     if token.len() < KEY_LEN + TOKEN_OVERHEAD {
         return Err(Error::Truncated);
     }
     let eph: [u8; KEY_LEN] = token[..KEY_LEN].try_into().expect("checked length");
     let eph = XPublicKey::from(eph);
 
-    for retained in retained_secrets {
-        let secret = x25519_dalek::StaticSecret::from(*retained);
-        let public = XPublicKey::from(&secret);
-        let shared = secret.diffie_hellman(&eph).to_bytes();
+    for (index, retained) in retained_secrets.into_iter().enumerate() {
+        let shared = x25519_dalek::StaticSecret::from(*retained)
+            .diffie_hellman(&eph)
+            .to_bytes();
         let keys = DerivedKeys::derive(&shared, recipient.hash());
         match keys.decrypt(&token[KEY_LEN..]) {
-            Ok(plaintext) => return Ok((plaintext, NameHash::of(public.as_bytes()))),
+            Ok(plaintext) => return Ok((plaintext, index, retained)),
             Err(Error::BadMac) => {}
             Err(error) => return Err(error),
         }

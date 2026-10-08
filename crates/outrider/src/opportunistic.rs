@@ -25,7 +25,9 @@ use crate::stamp::{MESSAGE_WORKBLOCK_ROUNDS, STAMP_LEN, find_streamed, valid_str
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OpportunisticReceipt {
     pub message_id: [u8; 32],
-    pub ratchet_id: NameHash,
+    /// The peer's advertised ratchet the packet was encrypted to, or `None` when the peer
+    /// advertised none and its identity key was used, as stock LXMF does.
+    pub ratchet_id: Option<NameHash>,
     pub queued_interfaces: usize,
     /// The complete signed LXMF object. The on-wire plaintext omits its first 16 bytes.
     pub packed: Vec<u8>,
@@ -43,13 +45,13 @@ pub struct ReceivedOpportunistic {
 
 /// Register `lxmf.delivery` for link, Resource, and ratcheted opportunistic delivery.
 ///
-/// The caller owns and persists `ratchets`; call [`Endpoint::update_ratchets`] after rotating
-/// it. Ordinary delivery re-announces through [`Endpoint::announce`], which automatically
-/// includes the registered current ratchet.
+/// The endpoint takes ownership of `ratchets` (empty, or restored from a snapshot). Each
+/// [`Endpoint::announce`] rotates it when due and carries the current ratchet; install
+/// [`Endpoint::set_ratchet_persistence`] first to keep retained epochs across restarts.
 pub fn register(
     endpoint: &Endpoint,
     announce: &DeliveryAnnounce,
-    ratchets: &RatchetStore,
+    ratchets: RatchetStore,
 ) -> Result<AddressHash, OpportunisticError> {
     let app_data = announce.encode()?;
     let name = delivery_name();
@@ -58,7 +60,7 @@ pub fn register(
     Ok(destination)
 }
 
-/// Send one signed LXMF object as a ratcheted link-less packet.
+/// Send one signed LXMF object as a link-less packet, ratcheted when the peer advertises one.
 pub fn send(
     endpoint: &Endpoint,
     sender: &PrivateIdentity,

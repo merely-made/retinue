@@ -35,7 +35,9 @@ use crate::announce_freshness::{
 use crate::hash::{AddressHash, NameHash};
 use crate::identity::PrivateIdentity;
 use crate::link::{self, Inbound, Link, LinkMode, LinkTrailer, PendingLink};
-use crate::packet::{HeaderType, Packet, PacketType};
+use crate::link_liveness::{self, Due, Liveness};
+use crate::packet::{DestinationType, HeaderType, Packet, PacketType};
+use crate::path::PathRequest;
 use crate::resource_transfer::{ResourceReceiver, ResourceSender};
 
 /// Which interface a packet arrived on or should leave by.
@@ -76,6 +78,10 @@ pub enum Action {
         payload: Vec<u8>,
     },
     /// A resource arrived whole, reassembled and verified against its advertised hash.
+    ///
+    /// Only the data is carried. Metadata the sender attached (RNS's
+    /// `Resource(data, metadata=...)`) is split off and not delivered; each such drop is
+    /// counted by [`Node::dropped_metadata`].
     Resource { link_id: AddressHash, data: Vec<u8> },
 }
 
@@ -237,6 +243,13 @@ pub const RESOURCE_REQUEST_WINDOW: usize = 4;
 /// profile's airtime is the same recorded follow-up as the desktop's retry floors.
 pub const RESOURCE_RETRY_INTERVAL: u64 = 12_000;
 
+/// How long a link keeps the last resource proof this node sent, to answer a sender's cache
+/// request for it, in milliseconds. A sender asks [`PROOF_CACHE_REQUESTS`] times, each
+/// after a retry interval of silence, so this covers them with room for slow airtime.
+///
+/// [`PROOF_CACHE_REQUESTS`]: crate::resource_transfer::PROOF_CACHE_REQUESTS
+pub const RESOURCE_PROOF_CACHE_TTL: u64 = 120_000;
+
 /// How long a link may go unheard before its slot is reclaimed, in milliseconds.
 ///
 /// A board holds four link slots. Without expiry, four peers that establish a link and then
@@ -274,6 +287,13 @@ pub const fn link_request_timeout(relays: u8) -> u64 {
     LINK_ESTABLISHMENT_TIMEOUT_PER_HOP * (relays as u64 + 2)
 }
 
+/// How long a transport hop holds a carried link request open for its proof, in milliseconds,
+/// before the outgoing interface's first-hop airtime: one per-hop allowance for each hop still
+/// ahead (`relays + 1`), as RNS's `ESTABLISHMENT_TIMEOUT_PER_HOP * max(1, remaining_hops)`.
+pub(crate) const fn transit_proof_timeout(relays: u8) -> u64 {
+    LINK_ESTABLISHMENT_TIMEOUT_PER_HOP * (relays as u64 + 1)
+}
+
 /// The bits a first hop is allowed airtime for: one 500-byte Reticulum MTU.
 ///
 /// RNS 1.5.4's first-hop extra was observed as `500 × 8 / bitrate` seconds: 12.079 s at
@@ -304,12 +324,68 @@ impl core::fmt::Display for AirtimeTableFull {
     }
 }
 impl core::error::Error for AirtimeTableFull {}
-/// How long a learned transport route is usable, in the caller's tick unit.
+/// How long a learned transport route is usable, in the caller's tick unit (milliseconds on
+/// the boards): one week, RNS's `PATHFINDER_E` and `DESTINATION_TIMEOUT` (`Transport.py`
+/// 126, 155).
 ///
-/// A board that hears a peer once must not retain that route forever. Thirty minutes leaves
-/// room for the ten-minute announce cadence, while making a disappeared peer's path become
-/// eligible for replacement during one field visit.
-pub const DEFAULT_ROUTE_TTL: u64 = 1_800_000;
+/// A route's announce freshness lives exactly as long as the route, so a shorter lifetime
+/// would let an older emission back in once the route lapsed. A route is refreshed whenever
+/// it carries traffic, and a disappeared peer's route is still replaced by the next accepted
+/// announce. On a board, `ROUTES` bounds the table: the quietest route is evicted to admit a
+/// new destination, whatever its age.
+pub const DEFAULT_ROUTE_TTL: u64 = 604_800_000;
+
+/// Route lifetime on an [`InterfaceMode::AccessPoint`] interface: one day, RNS's
+/// `AP_PATH_TIME` (`Transport.py` 127).
+pub const ACCESS_POINT_ROUTE_TTL: u64 = 86_400_000;
+
+/// Route lifetime on an [`InterfaceMode::Roaming`] interface: six hours, RNS's
+/// `ROAMING_PATH_TIME` (`Transport.py` 128).
+pub const ROAMING_ROUTE_TTL: u64 = 21_600_000;
+
+/// How an interface's peers come and go, which sets how long its routes live.
+///
+/// RNS's interface modes (`Interfaces/Interface.py` 45-51). Only access-point and roaming
+/// shorten route expiry (`Transport.py` 964-969); every other RNS mode expires routes as
+/// [`Self::Full`] does, so they are not separate variants here yet.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum InterfaceMode {
+    /// Peers are stable: routes live for the configured route TTL.
+    #[default]
+    Full,
+    /// Peers are clients that come and go: routes live at most a day.
+    AccessPoint,
+    /// This node moves between peers: routes live at most six hours.
+    Roaming,
+}
+
+impl InterfaceMode {
+    /// The lifetime of a route learned on an interface in this mode, given the configured
+    /// full-mode lifetime. A mode never lengthens it, so a short configured TTL still applies.
+    pub const fn route_ttl(self, full: u64) -> u64 {
+        let cap = match self {
+            Self::Full => return full,
+            Self::AccessPoint => ACCESS_POINT_ROUTE_TTL,
+            Self::Roaming => ROAMING_ROUTE_TTL,
+        };
+        if full < cap { full } else { cap }
+    }
+}
+
+/// How many interfaces can carry a non-default [`InterfaceMode`] at once.
+pub const INTERFACE_MODE_INTERFACES: usize = 4;
+
+/// [`Node::set_interface_mode`] refused a new interface: every slot holds another one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InterfaceModeTableFull;
+
+impl core::fmt::Display for InterfaceModeTableFull {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("interface mode table full")
+    }
+}
+impl core::error::Error for InterfaceModeTableFull {}
 
 /// Bounds for the receive-side announce freshness table.
 ///
@@ -353,14 +429,38 @@ impl FreshnessPolicy {
 /// avoids discarding a quiet but live remote link while still bounding stale transport state.
 pub const LINK_TRANSPORT_TIMEOUT: u64 = 3_600_000;
 
+/// How long a validated carried link may go unheard before a new link request may take its
+/// slot, in milliseconds.
+///
+/// RNS's `Transport.LINK_TIMEOUT`, 1.25 x the link stale time, 900 s. A live link's keepalives
+/// refresh its bridge well inside this, so only a link that ended or went out of range yields;
+/// without it, a full table of finished links would refuse every new one for
+/// [`LINK_TRANSPORT_TIMEOUT`].
+pub const LINK_TRANSPORT_IDLE: u64 = 900_000;
+
 /// How long this node remembers a forwarded packet hash on a shared radio.
 ///
 /// A single-radio transport retransmits on the carrier it heard. Remembering a packet briefly
 /// prevents its own relay from becoming a flood loop while still allowing a normal retry later.
+/// The transit filter starts a new generation at least this often, so a hash is forgotten
+/// between one and two of these after it was last recorded.
 pub const TRANSPORT_DEDUP_TIMEOUT: u64 = 60_000;
+
+/// Transit packet hashes held per generation. The filter keeps two generations, as RNS keeps
+/// its packet hash list and the one before it (`Transport.py` 832-834), so a burst forgets the
+/// older half rather than everything.
+pub const TRANSPORT_DEDUP_HASHES: usize = 32;
+
+/// Path request tags held per generation, so a request heard twice is answered once
+/// (`Transport.py` 1847-1856).
+pub const PATH_REQUEST_TAGS: usize = 8;
 
 /// The Reticulum transport hop ceiling.
 pub const DEFAULT_TRANSPORT_MAX_HOPS: u8 = 128;
+
+/// How long a carried packet's return path is kept for its delivery proof (RNS
+/// `Transport.REVERSE_TIMEOUT`, eight minutes).
+pub const REVERSE_TIMEOUT: u64 = 480_000;
 
 /// What this node agrees to carry for other destinations.
 ///
@@ -425,12 +525,26 @@ pub struct TransportCounters {
     pub evicted_routes: u16,
     /// Carried-link entries removed after their idle timeout.
     pub expired_bridges: u16,
-    /// Carried-link entries evicted to admit a newer transport link.
+    /// Carried-link entries evicted to admit a newer transport link: the stalest link still
+    /// awaiting its proof, or else a validated one unheard for [`LINK_TRANSPORT_IDLE`].
     pub evicted_bridges: u16,
+    /// Link requests not carried because every bridge slot held a recently heard validated
+    /// link.
+    pub refused_bridges: u16,
+    /// Link requests dropped because their MTU had to be lowered under a link mode this node
+    /// cannot encode.
+    pub undecodable_link_requests: u16,
+    /// Packets dropped on a carried link that has not validated: link traffic ahead of the
+    /// proof, and proofs that arrived on the wrong side or failed the destination's signature.
+    pub unvalidated_link_packets: u16,
     /// Transit dropped at the configured hop ceiling.
     pub hop_limit_dropped: u16,
     /// Transit that named this node but had no fresh route onward.
     pub unroutable_packets: u16,
+    /// Packets RNS's packet filter drops before any dispatch: header-type-2 packets for
+    /// another transport, PLAIN or GROUP packets past their first hop, and tagless or
+    /// repeated path requests.
+    pub filtered_packets: u16,
     /// Valid announces rejected because their full blob is in the live route's history.
     pub replayed_announces: u16,
     /// Valid announces rejected because the live route already holds a no-older emission.
@@ -444,6 +558,9 @@ pub struct TransportCounters {
     pub own_echo_dropped: u16,
     /// Far-end link packets heard again, directly or from a relay, and dropped as copies.
     pub duplicate_dropped: u16,
+    /// Validly signed announces rejected because they name a known destination under a
+    /// different public key.
+    pub key_mismatch_announces: u16,
 }
 
 /// Side-effect-free local state relevant to pausing this node's radio.
@@ -586,20 +703,86 @@ struct Route {
     /// The next transport hop that announced this destination, if it is not direct.
     transport: Option<AddressHash>,
     hops: u8,
+    /// When the route was learned, or last carried traffic.
     learned: u64,
+    /// The learning interface's mode when the route was learned.
+    mode: InterfaceMode,
+}
+
+impl Route {
+    /// Whether the route is still usable at `now`, given the configured full-mode lifetime.
+    fn live(&self, now: u64, route_ttl: u64) -> bool {
+        now.saturating_sub(self.learned) < self.mode.route_ttl(route_ttl)
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
 struct LinkBridge {
     link_id: AddressHash,
+    /// The destination the request named, whose identity signs the proof.
+    destination: AddressHash,
     from: InterfaceId,
     out: InterfaceId,
     seen: u64,
+    /// When an unproved link lapses; `None` once the destination's proof has passed.
+    proof_deadline: Option<u64>,
 }
 
+impl LinkBridge {
+    fn lapsed(&self, now: u64, ttl: u64) -> bool {
+        self.proof_deadline
+            .map_or(now.saturating_sub(self.seen) >= ttl, |deadline| {
+                now >= deadline
+            })
+    }
+}
+
+/// Hashes remembered in two generations, as RNS keeps its packet hash list and the one before
+/// it (`Transport.py` 832-834). A full generation becomes the previous one, so a burst forgets
+/// the older half rather than everything. A generation also turns over after `max_age`, and
+/// both are cleared after twice that, so a quiet node does not remember a hash indefinitely.
+#[derive(Debug)]
+struct HashGenerations<const N: usize> {
+    current: BoundedVec<AddressHash, N>,
+    previous: BoundedVec<AddressHash, N>,
+    started: u64,
+}
+
+impl<const N: usize> HashGenerations<N> {
+    const fn new() -> Self {
+        Self {
+            current: BoundedVec::new(),
+            previous: BoundedVec::new(),
+            started: 0,
+        }
+    }
+
+    /// Record `hash` at `now`; false if it was already remembered.
+    fn insert(&mut self, hash: AddressHash, now: u64, max_age: u64) -> bool {
+        let age = now.saturating_sub(self.started);
+        if age >= max_age.saturating_mul(2) {
+            self.previous.clear();
+            self.current.clear();
+            self.started = now;
+        } else if age >= max_age || self.current.is_full() {
+            self.previous = core::mem::take(&mut self.current);
+            self.started = now;
+        }
+        if self.current.contains(&hash) || self.previous.contains(&hash) {
+            return false;
+        }
+        let _ = self.current.push(hash);
+        true
+    }
+}
+
+/// The way back for a carried packet's proof: RNS's reverse-table entry, keyed by the
+/// truncated packet hash the proof is addressed to.
 #[derive(Debug, Clone, Copy)]
-struct SeenPacket {
-    hash: AddressHash,
+struct ReverseEntry {
+    packet: AddressHash,
+    received: InterfaceId,
+    outbound: InterfaceId,
     seen: u64,
 }
 
@@ -641,9 +824,12 @@ fn is_resource_context(context: u8) -> bool {
 /// Whether a link packet with this context is checked against the sent and received
 /// windows. Resource contexts are not: a transfer has its own part and request bookkeeping,
 /// and a re-sent part legitimately repeats its hash. Keepalives are not: every request on a
-/// link is the same unencrypted byte, so each one repeats the last one's hash.
+/// link is the same unencrypted byte, so each one repeats the last one's hash. Nor are cache
+/// requests, which a sender repeats verbatim and RNS's packet filter also lets through.
 pub(crate) fn is_deduplicated_link_context(context: u8) -> bool {
-    !is_resource_context(context) && context != link::CTX_KEEPALIVE
+    !is_resource_context(context)
+        && context != link::CTX_KEEPALIVE
+        && context != link::CTX_CACHE_REQUEST
 }
 
 /// Remember a packet hash in a window, forgetting the oldest at capacity. A burst can outrun
@@ -688,9 +874,14 @@ pub struct Node<
     /// link-data packet names a link id rather than its original destination, so this is the
     /// small fact that lets return traffic take the same bridge back.
     bridges: BoundedVec<LinkBridge, ROUTES>,
+    /// Return paths for the proofs of carried packets, consumed by the proof that uses them
+    /// and forgotten after [`REVERSE_TIMEOUT`]. The oldest gives way at capacity.
+    reverse: BoundedVec<ReverseEntry, ROUTES>,
     /// Recently relayed packet hashes. Bounded and time-limited because a shared radio hears
     /// its own relays; without this, one transport node can keep repeating the same frame.
-    seen_transit: BoundedVec<SeenPacket, ROUTES>,
+    transit_filter: HashGenerations<TRANSPORT_DEDUP_HASHES>,
+    /// Path requests already seen, by target and tag, so each is answered once.
+    path_request_tags: HashGenerations<PATH_REQUEST_TAGS>,
     /// Hashes of the link data this node most recently sent, oldest first. On a shared
     /// medium a relay's retransmission of our own packet reaches us under the shared link
     /// key; its packet hash excludes hops and header type, so it matches what we sent and
@@ -706,23 +897,34 @@ pub struct Node<
     /// announces promptly on boot rather than waiting a full interval.
     last_announce: Option<u64>,
     announce_interval: u64,
+    /// The blob of the announce [`Node::poll`] last emitted. A path request for this node is
+    /// answered with it, since this layer cannot mint a fresh one; the requester has no live
+    /// route to us, so it is a first sighting there, as RNS's cached path responses are.
+    announced_blob: Option<AnnounceBlob>,
     /// Established links, each with the proof that established it.
     ///
     /// The proof is kept so a retransmitted request is answered with the *same* proof
     /// rather than establishing a second link. On a medium that drops, the peer not hearing
     /// our proof is ordinary, and answering twice would leave the two sides holding
     /// different keys for what the initiator thinks is one link.
-    /// Established links, each with the time its peer was last heard from.
-    links: BoundedVec<(Link, Packet, u64), LINKS>,
-    /// Links we opened, awaiting the peer's proof, each with the time it expires unanswered.
-    pending: BoundedVec<(PendingLink, u64), LINKS>,
+    /// Established links, each with its liveness timers (see [`link_liveness`]).
+    links: BoundedVec<(Link, Packet, Liveness), LINKS>,
+    /// Links we opened, awaiting the peer's proof, each with the time it expires unanswered
+    /// and the time it was sent, from which the proof's arrival measures the link RTT.
+    pending: BoundedVec<(PendingLink, u64, u64), LINKS>,
     /// Per-interface first-hop airtime allowances, added to a request's deadline. An
     /// interface with no entry gets none.
     first_hop_airtime: BoundedVec<(InterfaceId, u64), FIRST_HOP_AIRTIME_INTERFACES>,
+    /// Interfaces whose mode is not [`InterfaceMode::Full`].
+    interface_modes: BoundedVec<(InterfaceId, InterfaceMode), INTERFACE_MODE_INTERFACES>,
     /// Inbound resource transfers, at most one per link.
     receivers: BoundedVec<(AddressHash, ResourceReceiver, u64), LINKS>,
     /// Outbound resource transfers, at most one per link.
     senders: BoundedVec<(AddressHash, ResourceSender, u64), LINKS>,
+    /// The last resource proof sent on each link, with when and how many times it has been
+    /// re-sent, kept for [`RESOURCE_PROOF_CACHE_TTL`] to answer the sender's cache request
+    /// (or a re-advertisement) if it was lost.
+    resource_proofs: BoundedVec<(AddressHash, Packet, u64, u8), LINKS>,
     /// Counter feeding derived resource IVs. Node state rather than a per-call local so the
     /// sequence never restarts: an IV must not repeat under a link key, and a counter that
     /// reset on every ingest repeated the whole sequence on every ingest.
@@ -741,6 +943,9 @@ pub struct Node<
     /// segments, a body past the decompression limit, or arriving with every receiver slot
     /// held. The peer's ambition, counted rather than honoured.
     refused_offers: u16,
+    /// Received resources whose attached metadata was dropped, because
+    /// [`Action::Resource`] carries only the data.
+    dropped_metadata: u16,
     transport_counters: TransportCounters,
 }
 
@@ -766,22 +971,28 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             })
             .expect("nonzero fallback freshness capacity"),
             bridges: BoundedVec::new(),
-            seen_transit: BoundedVec::new(),
+            transit_filter: HashGenerations::new(),
+            path_request_tags: HashGenerations::new(),
+            reverse: BoundedVec::new(),
             sent_link_data: BoundedVec::new(),
             received_link_data: BoundedVec::new(),
             last_announce: None,
             announce_interval: DEFAULT_ANNOUNCE_INTERVAL,
+            announced_blob: None,
             links: BoundedVec::new(),
             pending: BoundedVec::new(),
             first_hop_airtime: BoundedVec::new(),
+            interface_modes: BoundedVec::new(),
             receivers: BoundedVec::new(),
             senders: BoundedVec::new(),
+            resource_proofs: BoundedVec::new(),
             iv_counter: 0,
             refused_links: 0,
             expired_links: 0,
             expired_link_requests: 0,
             refused_peers: 0,
             refused_offers: 0,
+            dropped_metadata: 0,
             transport_counters: TransportCounters::default(),
         }
     }
@@ -983,7 +1194,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                 .push(link.close_packet(&iv()))
                 .expect("link bound");
         }
-        for (pending, _) in &self.pending {
+        for (pending, _, _) in &self.pending {
             report
                 .pending_links
                 .push(pending.link_id())
@@ -1020,13 +1231,17 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         let mut earliest_link_expiry: Option<u64> = None;
         let mut latest_link_activity: Option<u64> = None;
         let mut link_expiry_overflow = false;
-        for (_, _, last_seen) in &self.links {
+        for (_, _, liveness) in &self.links {
+            let last_seen = liveness.last_inbound();
             latest_link_activity = Some(match latest_link_activity {
-                Some(current) => current.max(*last_seen),
-                None => *last_seen,
+                Some(current) => current.max(last_seen),
+                None => last_seen,
             });
             match last_seen.checked_add(LINK_IDLE_TIMEOUT) {
-                Some(expiry) => {
+                Some(idle) => {
+                    // A stale link's teardown, or a responder's handshake deadline, can
+                    // come before the idle expiry.
+                    let expiry = liveness.teardown_at().map_or(idle, |at| at.min(idle));
                     earliest_link_expiry = Some(match earliest_link_expiry {
                         Some(current) => current.min(expiry),
                         None => expiry,
@@ -1067,8 +1282,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         self.routes
             .iter()
             .find(|route| {
-                route.destination == destination
-                    && now.saturating_sub(route.learned) < self.transport.route_ttl
+                route.destination == destination && route.live(now, self.transport.route_ttl)
             })
             .map(|route| NextHop {
                 interface: route.interface,
@@ -1091,8 +1305,8 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             pending_links: self.expire_link_requests(now),
             ..Default::default()
         };
-        self.links.retain(|(link, _, seen)| {
-            let expired = now.saturating_sub(*seen) >= LINK_IDLE_TIMEOUT;
+        self.links.retain(|(link, _, liveness)| {
+            let expired = now.saturating_sub(liveness.last_inbound()) >= LINK_IDLE_TIMEOUT;
             if expired {
                 let _ = report.links.push(link.id());
             }
@@ -1152,10 +1366,57 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         Ok(())
     }
 
+    /// The mode of `interface`: [`InterfaceMode::Full`] unless [`Self::set_interface_mode`]
+    /// set another.
+    pub fn interface_mode(&self, interface: InterfaceId) -> InterfaceMode {
+        self.interface_modes
+            .iter()
+            .find(|(id, _)| *id == interface)
+            .map_or(InterfaceMode::Full, |(_, mode)| *mode)
+    }
+
+    /// Set the mode of `interface`, which bounds the lifetime of routes learned on it from
+    /// now on (see [`InterfaceMode::route_ttl`]). [`InterfaceMode::Full`] clears the entry.
+    pub fn set_interface_mode(
+        &mut self,
+        interface: InterfaceId,
+        mode: InterfaceMode,
+    ) -> Result<(), InterfaceModeTableFull> {
+        let existing = self
+            .interface_modes
+            .iter()
+            .position(|(id, _)| *id == interface);
+        match (existing, mode) {
+            (Some(index), InterfaceMode::Full) => {
+                self.interface_modes.swap_remove(index);
+            }
+            (Some(index), _) => self.interface_modes[index].1 = mode,
+            (None, InterfaceMode::Full) => {}
+            (None, _) => self
+                .interface_modes
+                .push((interface, mode))
+                .map_err(|_| InterfaceModeTableFull)?,
+        }
+        Ok(())
+    }
+
+    /// Forget a detached interface: the routes learned on it, the carried links that cross
+    /// it, and its airtime and mode settings. Traffic for those destinations then goes out
+    /// without a route, as for any unknown destination, instead of naming an interface that
+    /// is gone. RNS culls the same rows when their interface disappears (`Transport.py`
+    /// 880-881, 975-978).
+    pub fn forget_interface(&mut self, interface: InterfaceId) {
+        self.routes.retain(|route| route.interface != interface);
+        self.bridges
+            .retain(|bridge| bridge.from != interface && bridge.out != interface);
+        self.first_hop_airtime.retain(|(id, _)| *id != interface);
+        self.interface_modes.retain(|(id, _)| *id != interface);
+    }
+
     /// Drop link requests unanswered at their deadline, returning their link ids.
     fn expire_link_requests(&mut self, now: u64) -> BoundedVec<AddressHash, LINKS> {
         let mut expired_ids = BoundedVec::new();
-        self.pending.retain(|(attempt, deadline)| {
+        self.pending.retain(|(attempt, deadline, _)| {
             let expired = now >= *deadline;
             if expired {
                 let _ = expired_ids.push(attempt.link_id());
@@ -1205,6 +1466,13 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
     /// Resource offers turned away, by the part ceiling or by full receiver slots.
     pub fn refused_offers(&self) -> u16 {
         self.refused_offers
+    }
+
+    /// Resources delivered without the metadata their sender attached. A Node delivers
+    /// only a resource's data ([`Action::Resource`]), so a climbing count means a peer is
+    /// sending metadata this application never sees.
+    pub fn dropped_metadata(&self) -> u16 {
+        self.dropped_metadata
     }
 
     /// Publish a resource on an established link.
@@ -1259,6 +1527,11 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
     /// whatever its transport policy. A route past its TTL at `now` is not used, whether or
     /// not it has been evicted yet; the request then goes out as header type 1.
     ///
+    /// When the proof arrives, [`Node::ingest`] reports [`Action::LinkUp`] and sends the RTT
+    /// packet, carrying the time from `now` to the proof, which activates the responder. From
+    /// then [`Node::poll`] runs the link's keepalives and stale teardown
+    /// ([`crate::link_liveness`]); a link it tears down is reported as [`Action::LinkDown`].
+    ///
     /// The request is not retried. If no proof arrives by `now` plus
     /// [`link_request_timeout`] of the route's relay count (zero with no route) plus
     /// `interface`'s [`Self::first_hop_airtime`], the first
@@ -1299,11 +1572,17 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             },
         );
         let hop = self.next_hop(destination, now);
-        request.address_via(hop.and_then(|hop| hop.via));
+        let via = hop.and_then(|hop| hop.via);
+        request.address_via(via);
+        if via.is_some() {
+            // RNS refreshes a path each time it inserts a packet into transport by it
+            // (`Transport.py` 1406, 1426).
+            self.touch_route(destination, now);
+        }
         let deadline = now
             .saturating_add(link_request_timeout(hop.map_or(0, |hop| hop.hops)))
             .saturating_add(self.first_hop_airtime(interface));
-        let _ = self.pending.push((attempt, deadline));
+        let _ = self.pending.push((attempt, deadline, now));
 
         actions.push(Action::Send {
             interface,
@@ -1366,21 +1645,21 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         while let Some(index) = self
             .bridges
             .iter()
-            .position(|bridge| now.saturating_sub(bridge.seen) >= self.transport.bridge_ttl)
+            .position(|bridge| bridge.lapsed(now, self.transport.bridge_ttl))
         {
             self.bridges.swap_remove(index);
             self.transport_counters.expired_bridges =
                 self.transport_counters.expired_bridges.saturating_add(1);
         }
-        self.seen_transit
-            .retain(|seen| now.saturating_sub(seen.seen) < TRANSPORT_DEDUP_TIMEOUT);
+        self.reverse
+            .retain(|entry| now.saturating_sub(entry.seen) < REVERSE_TIMEOUT);
     }
 
     fn expire_routes(&mut self, now: u64) {
         while let Some(index) = self
             .routes
             .iter()
-            .position(|route| now.saturating_sub(route.learned) >= self.transport.route_ttl)
+            .position(|route| !route.live(now, self.transport.route_ttl))
         {
             self.routes.swap_remove(index);
             self.transport_counters.expired_routes =
@@ -1403,6 +1682,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             return;
         }
         self.expire_routes(now);
+        let mode = self.interface_mode(interface);
         if let Some(route) = self
             .routes
             .iter_mut()
@@ -1414,6 +1694,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                 transport,
                 hops,
                 learned: now,
+                mode,
             };
             return;
         }
@@ -1436,70 +1717,91 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             transport,
             hops,
             learned: now,
+            mode,
         });
     }
 
-    /// Whether this is a fresh packet for a shared-radio relay. At capacity, forget the
-    /// oldest observation rather than growing or refusing all later traffic.
-    fn transit_is_new(&mut self, hash: AddressHash, now: u64) -> bool {
-        self.seen_transit
-            .retain(|seen| now.saturating_sub(seen.seen) < TRANSPORT_DEDUP_TIMEOUT);
-        if self.seen_transit.iter().any(|seen| seen.hash == hash) {
-            return false;
-        }
-        if self.seen_transit.is_full()
-            && let Some(index) = self
-                .seen_transit
-                .iter()
-                .enumerate()
-                .min_by_key(|(_, seen)| seen.seen)
-                .map(|(index, _)| index)
+    /// Mark a route used at `now`, which extends its life as RNS's path timestamp does.
+    fn touch_route(&mut self, destination: AddressHash, now: u64) {
+        if let Some(route) = self
+            .routes
+            .iter_mut()
+            .find(|route| route.destination == destination)
         {
-            self.seen_transit.swap_remove(index);
+            route.learned = now;
         }
-        self.seen_transit
-            .push(SeenPacket { hash, seen: now })
-            .is_ok()
     }
 
+    /// Whether this is a fresh packet for a shared-radio relay. Resource parts and keepalives
+    /// legitimately repeat their hash, so they are never filtered, as RNS exempts them
+    /// (`Transport.py` 1635-1640). Channel is filtered here, unlike RNS: see N10.
+    fn transit_is_new(&mut self, packet: &Packet, now: u64) -> bool {
+        !is_deduplicated_link_context(packet.context)
+            || self
+                .transit_filter
+                .insert(packet.hash(), now, TRANSPORT_DEDUP_TIMEOUT)
+    }
+
+    /// Record a link request this node is about to carry, unvalidated until `proof_deadline`.
+    /// At capacity the stalest unvalidated bridge makes room, or failing one, a validated
+    /// bridge unheard for [`LINK_TRANSPORT_IDLE`]. A recently heard validated link is never
+    /// evicted for a request, so forged requests cannot displace carried links; with every
+    /// slot holding one, the request is refused. Returns whether it may be carried.
     fn remember_bridge(
         &mut self,
         link_id: AddressHash,
+        destination: AddressHash,
         from: InterfaceId,
         out: InterfaceId,
+        proof_deadline: u64,
         now: u64,
-    ) {
-        if let Some(bridge) = self
+    ) -> bool {
+        let bridge = LinkBridge {
+            link_id,
+            destination,
+            from,
+            out,
+            seen: now,
+            proof_deadline: Some(proof_deadline),
+        };
+        if let Some(existing) = self
             .bridges
             .iter_mut()
             .find(|bridge| bridge.link_id == link_id)
         {
-            *bridge = LinkBridge {
-                link_id,
-                from,
-                out,
-                seen: now,
-            };
-            return;
+            // A retransmitted request: an unproved bridge follows it, a validated one stands.
+            if existing.proof_deadline.is_some() {
+                *existing = bridge;
+            }
+            return true;
         }
-        if self.bridges.is_full()
-            && let Some(index) = self
+        if self.bridges.is_full() {
+            let Some(index) = self
                 .bridges
                 .iter()
                 .enumerate()
+                .filter(|(_, bridge)| bridge.proof_deadline.is_some())
                 .min_by_key(|(_, bridge)| bridge.seen)
+                .or_else(|| {
+                    self.bridges
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, bridge)| {
+                            now.saturating_sub(bridge.seen) >= LINK_TRANSPORT_IDLE
+                        })
+                        .min_by_key(|(_, bridge)| bridge.seen)
+                })
                 .map(|(index, _)| index)
-        {
+            else {
+                self.transport_counters.refused_bridges =
+                    self.transport_counters.refused_bridges.saturating_add(1);
+                return false;
+            };
             self.bridges.swap_remove(index);
             self.transport_counters.evicted_bridges =
                 self.transport_counters.evicted_bridges.saturating_add(1);
         }
-        let _ = self.bridges.push(LinkBridge {
-            link_id,
-            from,
-            out,
-            seen: now,
-        });
+        self.bridges.push(bridge).is_ok()
     }
 
     /// Relay a packet already associated with a carried link. Link proofs and data name the
@@ -1522,7 +1824,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         else {
             return false;
         };
-        let bridge = &self.bridges[index];
+        let bridge = self.bridges[index];
         let out = if interface == bridge.from {
             bridge.out
         } else if interface == bridge.out {
@@ -1532,12 +1834,37 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             // relay de-duplication cache for a later packet from a real endpoint.
             return true;
         };
+        // Nothing crosses a bridge before the destination's proof, and the proof itself
+        // must come from the destination's side under its signature. With its identity
+        // unknown here, the side check stands alone. The proof validates the bridge only
+        // once it is on its way to the initiator.
+        let proves = packet.packet_type == PacketType::Proof && packet.context == link::CTX_LRPROOF;
+        if proves {
+            let signed = interface == bridge.out
+                && self
+                    .book
+                    .resolve(bridge.destination)
+                    .is_none_or(|peer| link::proof_is_signed_by(packet, &peer.identity));
+            if !signed {
+                self.transport_counters.unvalidated_link_packets = self
+                    .transport_counters
+                    .unvalidated_link_packets
+                    .saturating_add(1);
+                return true;
+            }
+        } else if bridge.proof_deadline.is_some() {
+            self.transport_counters.unvalidated_link_packets = self
+                .transport_counters
+                .unvalidated_link_packets
+                .saturating_add(1);
+            return true;
+        }
         if packet.hops >= self.transport.max_hops {
             self.transport_counters.hop_limit_dropped =
                 self.transport_counters.hop_limit_dropped.saturating_add(1);
             return true;
         }
-        if !self.transit_is_new(packet.hash(), now) {
+        if !self.transit_is_new(packet, now) {
             return true;
         }
         let mut forwarded = packet.clone();
@@ -1552,6 +1879,9 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             interface: out,
             packet: forwarded,
         }) {
+            if proves {
+                self.bridges[index].proof_deadline = None;
+            }
             self.bridges[index].seen = now;
             self.transport_counters.forwarded_packets =
                 self.transport_counters.forwarded_packets.saturating_add(1);
@@ -1589,7 +1919,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                 self.transport_counters.unroutable_packets.saturating_add(1);
             return true;
         };
-        if !self.transit_is_new(packet.hash(), now) {
+        if !self.transit_is_new(packet, now) {
             return true;
         }
         let mut forwarded = packet.clone();
@@ -1600,19 +1930,119 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             forwarded.header_type = HeaderType::Type2;
             forwarded.transport = Some(next_transport);
         }
+        // Every interface here carries `logical_mtu`, so it bounds the link on both sides.
+        if packet.packet_type == PacketType::LinkRequest
+            && link::clamp_request_mtu(&mut forwarded, self.logical_mtu).is_err()
+        {
+            self.transport_counters.undecodable_link_requests = self
+                .transport_counters
+                .undecodable_link_requests
+                .saturating_add(1);
+            return true;
+        }
         if forwarded.encoded_len() > self.logical_mtu as usize {
             self.refused_payloads = self.refused_payloads.saturating_add(1);
             return true;
+        }
+        // Only a request that will be sent takes a bridge slot: an unsent one would hold it,
+        // or evict another, until its deadline. A full action list refuses the send below.
+        if packet.packet_type == PacketType::LinkRequest
+            && actions.len() < ACTIONS
+            && let Ok(link_id) = link::link_id(packet)
+        {
+            let proof_deadline = now
+                .saturating_add(transit_proof_timeout(route.hops))
+                .saturating_add(self.first_hop_airtime(route.interface));
+            if !self.remember_bridge(
+                link_id,
+                packet.destination,
+                interface,
+                route.interface,
+                proof_deadline,
+                now,
+            ) {
+                return true;
+            }
         }
         if actions.push(Action::Send {
             interface: route.interface,
             packet: forwarded,
         }) {
-            if packet.packet_type == PacketType::LinkRequest
-                && let Ok(link_id) = link::link_id(packet)
-            {
-                self.remember_bridge(link_id, interface, route.interface, now);
+            // A route carrying transit is in use, and RNS refreshes it (`Transport.py` 2113).
+            self.touch_route(packet.destination, now);
+            if packet.packet_type != PacketType::LinkRequest {
+                // RNS's reverse entry, so the packet's proof can come back (`Transport.py`
+                // 2104-2110). A link request's bridge was admitted before forwarding.
+                self.remember_reverse(packet.hash(), interface, route.interface, now);
             }
+            self.transport_counters.forwarded_packets =
+                self.transport_counters.forwarded_packets.saturating_add(1);
+        }
+        true
+    }
+
+    /// Record the way back for a carried packet's proof (RNS `Transport.py` 2104-2110).
+    fn remember_reverse(
+        &mut self,
+        packet: AddressHash,
+        received: InterfaceId,
+        outbound: InterfaceId,
+        now: u64,
+    ) {
+        self.reverse.retain(|entry| entry.packet != packet);
+        if self.reverse.is_full()
+            && let Some(index) = self
+                .reverse
+                .iter()
+                .enumerate()
+                .min_by_key(|(_, entry)| entry.seen)
+                .map(|(index, _)| index)
+        {
+            self.reverse.swap_remove(index);
+        }
+        let _ = self.reverse.push(ReverseEntry {
+            packet,
+            received,
+            outbound,
+            seen: now,
+        });
+    }
+
+    /// Carry a delivery proof back along a remembered reverse path. The entry is consumed
+    /// either way; a proof arriving on any interface but the one the packet left by is not
+    /// carried (RNS `Transport.py` 2733-2744). Returns whether the proof was carried.
+    fn forward_reverse_proof(
+        &mut self,
+        interface: InterfaceId,
+        packet: &Packet,
+        actions: &mut Actions<ACTIONS>,
+    ) -> bool {
+        if !self.transport.relay_packets
+            || matches!(packet.context, link::CTX_LRPROOF | link::CTX_RESOURCE_PRF)
+        {
+            return false;
+        }
+        let Some(index) = self
+            .reverse
+            .iter()
+            .position(|entry| entry.packet == packet.destination)
+        else {
+            return false;
+        };
+        let entry = self.reverse.swap_remove(index);
+        if interface != entry.outbound {
+            return false;
+        }
+        let mut forwarded = packet.clone();
+        forwarded.hops = forwarded.hops.saturating_add(1);
+        if forwarded.encoded_len() > self.logical_mtu as usize {
+            self.refused_payloads = self.refused_payloads.saturating_add(1);
+            return true;
+        }
+        if actions.push(Action::Send {
+            interface: entry.received,
+            packet: forwarded,
+        }) {
             self.transport_counters.forwarded_packets =
                 self.transport_counters.forwarded_packets.saturating_add(1);
         }
@@ -1641,7 +2071,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                 self.transport_counters.hop_limit_dropped.saturating_add(1);
             return;
         }
-        if !self.transit_is_new(packet.hash(), now) {
+        if !self.transit_is_new(packet, now) {
             return;
         }
         let mut forwarded = packet.clone();
@@ -1688,7 +2118,32 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             return actions;
         }
 
+        // RNS's packet filter, ahead of any dispatch (`Transport.py` 1629-1660): a
+        // header-type-2 packet is carried only by the transport it names, and a PLAIN or GROUP
+        // packet never travels past its first hop.
+        if packet.packet_type != PacketType::Announce
+            && ((packet.header_type == HeaderType::Type2
+                && packet.transport != Some(self.identity.hash()))
+                || (matches!(
+                    packet.destination_type,
+                    DestinationType::Plain | DestinationType::Group
+                ) && packet.hops > 1))
+        {
+            self.count_filtered();
+            return actions;
+        }
+
+        if let Some(request) = PathRequest::parse(packet) {
+            self.on_path_request(interface, &request, now, &mut actions);
+            return actions;
+        }
+
         self.expire_transport_state(now);
+        if packet.packet_type == PacketType::Proof
+            && self.forward_reverse_proof(interface, packet, &mut actions)
+        {
+            return actions;
+        }
         if packet.packet_type != PacketType::Announce
             && (self.forward_bridged_packet(interface, packet, now, &mut actions)
                 || self.forward_transport_packet(interface, packet, now, &mut actions))
@@ -1708,6 +2163,15 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                 // matches the announced identity, so an entry can only come from an
                 // announce whose maths checked out. The invalid fixtures are the proof.
                 if let Ok(announce) = Announce::decode(packet) {
+                    // A known destination announced under another key is rejected outright,
+                    // before freshness, routes or relaying (RNS `Identity.validate_announce`).
+                    if self.book.key_conflicts(&announce) {
+                        self.transport_counters.key_mismatch_announces = self
+                            .transport_counters
+                            .key_mismatch_announces
+                            .saturating_add(1);
+                        return actions;
+                    }
                     let candidate = AnnounceFreshnessCandidate {
                         destination: announce.destination,
                         blob: crate::announce::AnnounceBlob::from_wire(announce.rand_hash),
@@ -1716,7 +2180,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                     // first sighting, as after an RNS path cull.
                     let route_live = self.routes.iter().any(|route| {
                         route.destination == announce.destination
-                            && now.saturating_sub(route.learned) < self.transport.route_ttl
+                            && route.live(now, self.transport.route_ttl)
                     });
                     let accepted = match self.freshness.evaluate(candidate, route_live) {
                         AnnounceFreshnessDecision::Accept(accepted) => accepted,
@@ -1743,8 +2207,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                     let routes = &self.routes;
                     let admitted = self.book.ingest_at(&announce, now, |destination| {
                         routes.iter().any(|route| {
-                            route.destination == destination
-                                && now.saturating_sub(route.learned) < route_ttl
+                            route.destination == destination && route.live(now, route_ttl)
                         })
                     }) != Ingested::Refused;
                     if !admitted {
@@ -1791,6 +2254,44 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         actions
     }
 
+    fn count_filtered(&mut self) {
+        self.transport_counters.filtered_packets =
+            self.transport_counters.filtered_packets.saturating_add(1);
+    }
+
+    /// A path request. RNS ignores a tagless one and a repeat of a target and tag it has seen
+    /// (`Transport.py` 1838-1856), and answers for a local destination with an announce on the
+    /// requesting interface alone (`Transport.py` 3452-3456). This node answers only for
+    /// itself: it keeps no announces to answer for others from.
+    fn on_path_request(
+        &mut self,
+        interface: InterfaceId,
+        request: &PathRequest,
+        now: u64,
+        actions: &mut Actions<ACTIONS>,
+    ) {
+        let fresh = request
+            .unique_tag()
+            .is_some_and(|tag| self.path_request_tags.insert(tag, now, u64::MAX));
+        if !fresh {
+            self.count_filtered();
+            return;
+        }
+        if request.target != self.destination() {
+            return;
+        }
+        let Some(blob) = self.announced_blob else {
+            return;
+        };
+        match self.try_announce(&blob, None) {
+            Ok(mut packet) => {
+                packet.context = crate::path::CTX_PATH_RESPONSE;
+                actions.push(Action::Send { interface, packet });
+            }
+            Err(_) => self.refused_payloads = self.refused_payloads.saturating_add(1),
+        }
+    }
+
     /// A peer wants a link to us.
     fn on_link_request(
         &mut self,
@@ -1827,13 +2328,21 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         // holds no RNG. It is bound to the link id and our identity, so it differs per
         // request and cannot be predicted without our private key.
         let seed = self.responder_seed(&id);
+        // No more than was asked for, and as in RNS a signalled 0 means the 500-byte default.
+        // A request below the smallest workable budget is held to that floor.
+        let asked = match link::request_trailer(packet).ok().flatten() {
+            Some(LinkTrailer { mtu: 0, .. }) | None => crate::packet::MTU as u32,
+            Some(trailer) => trailer.mtu.max(MIN_LOGICAL_MTU),
+        };
         let offered = LinkTrailer {
             mode: LinkMode::Aes256Cbc,
-            mtu: self.logical_mtu,
+            mtu: asked.min(self.logical_mtu),
         };
         if let Ok((link, proof)) = link::accept(packet, &self.identity, &seed, offered) {
             let link_id = link.id();
-            let _ = self.links.push((link, proof.clone(), now));
+            let _ = self
+                .links
+                .push((link, proof.clone(), Liveness::responder(now, packet.hops)));
             actions.push(Action::Send {
                 interface,
                 packet: proof,
@@ -1861,7 +2370,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                     .iter()
                     .position(|(link, _, _)| link.id() == link_id)
             {
-                self.links[index].2 = now;
+                self.links[index].2.on_inbound(now);
                 self.on_resource(interface, link_id, index, packet, now, actions);
             }
             return;
@@ -1869,11 +2378,11 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         let Some(index) = self
             .pending
             .iter()
-            .position(|(attempt, _)| attempt.prove(packet).is_ok())
+            .position(|(attempt, _, _)| attempt.prove(packet).is_ok())
         else {
             return;
         };
-        let (attempt, _) = self.pending.swap_remove(index);
+        let (attempt, _, opened) = self.pending.swap_remove(index);
         let Ok(link) = attempt.prove(packet) else {
             return;
         };
@@ -1882,10 +2391,24 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             return;
         }
         let link_id = link.id();
+        // The request is never retried, so the proof times exactly one round trip. The
+        // responder stays in its handshake until it hears the RTT packet. It follows the
+        // `LinkUp`, which a full action buffer must not be the one to lose; a responder
+        // takes data before the RTT packet anyway.
+        let rtt = now.saturating_sub(opened);
+        let seed = self.identity.to_secret_bytes();
+        let iv = derived_iv(&seed, link_id, &mut self.iv_counter);
+        let rtt_packet = link.rtt_packet(link_liveness::rtt_seconds(rtt), &iv);
         // Our own proof has no place here: this side was the initiator, so there is nothing
         // to re-send. The stored packet is the proof we received, kept only for symmetry.
-        let _ = self.links.push((link, packet.clone(), now));
+        let _ = self
+            .links
+            .push((link, packet.clone(), Liveness::initiator(rtt, now)));
         actions.push(Action::LinkUp { link_id });
+        actions.push(Action::Send {
+            interface,
+            packet: rtt_packet,
+        });
     }
 
     /// Traffic on an established link.
@@ -1913,6 +2436,21 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             return;
         }
 
+        // A sender asking again for a resource proof it did not hear. Answered from the
+        // proof kept for this link, before the duplicate window: the sender repeats the
+        // request verbatim, and every copy deserves an answer, up to a cap.
+        if packet.context == link::CTX_CACHE_REQUEST {
+            if let Some(proof) =
+                self.resend_kept_proof(link_id, |proof| packet.payload[..] == proof.full_hash()[..])
+            {
+                actions.push(Action::Send {
+                    interface,
+                    packet: proof,
+                });
+            }
+            return;
+        }
+
         // The far end's packet heard a second time, directly and from a relay. Dropped
         // before the liveness stamp, as the echo is: the copy is no newer than the original.
         if is_deduplicated_link_context(packet.context) {
@@ -1925,9 +2463,22 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             remember_hash(&mut self.received_link_data, hash);
         }
 
+        // Keepalives are answered here, and count as liveness only from the peer's role.
+        if packet.context == link::CTX_KEEPALIVE {
+            if self.links[index].2.on_keepalive(&packet.payload, now) {
+                actions.push(Action::Send {
+                    interface,
+                    packet: self.links[index]
+                        .0
+                        .keepalive_packet(link::KEEPALIVE_RESPONSE),
+                });
+            }
+            return;
+        }
+
         // Heard from: this is what keeps the slot. Recorded before dispatching, so a
         // resource transfer counts as liveness exactly as a keepalive does.
-        self.links[index].2 = now;
+        self.links[index].2.on_inbound(now);
 
         // Resource contexts are a transfer's business, not the link's.
         if is_resource_context(packet.context) {
@@ -1942,9 +2493,14 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             Some(Inbound::Close) => {
                 self.drop_link(index, actions);
             }
-            // Keepalives, RTT, requests and responses are not this gate's work. They are
-            // dropped rather than mishandled, and the boundary is pinned by a test so the
-            // next gate's work shows up as a change.
+            Some(Inbound::Rtt) => {
+                if let Some(rtt) = link_liveness::read_rtt(&self.links[index].0, packet) {
+                    self.links[index].2.on_rtt(rtt, now);
+                }
+            }
+            // Requests and responses are not this gate's work. They are dropped rather than
+            // mishandled, and the boundary is pinned by a test so the next gate's work shows
+            // up as a change.
             _ => {}
         }
     }
@@ -1992,8 +2548,48 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         let pos = match existing {
             Some(pos) => pos,
             None => {
+                // A re-advertisement of a resource this node already proved: the sender
+                // lost the proof and, being an older retinue, offers again rather than
+                // asking with a cache request. Answer with the kept proof instead of
+                // receiving (and delivering) the whole resource a second time.
+                if packet.context == link::CTX_RESOURCE_ADV
+                    && self
+                        .resource_proofs
+                        .iter()
+                        .any(|(id, _, _, _)| *id == link_id)
+                    && let Some(advertised) = self.links[link_index]
+                        .0
+                        .decrypt(packet)
+                        .ok()
+                        .and_then(|plain| crate::resource::Advertisement::parse(&plain).ok())
+                    && let Some(proof) = self.resend_kept_proof(link_id, |proof| {
+                        crate::resource::parse_proof(&proof.payload)
+                            .is_some_and(|(hash, _)| hash[..] == advertised.resource_hash[..])
+                    })
+                {
+                    actions.push(Action::Send {
+                        interface,
+                        packet: proof,
+                    });
+                    return;
+                }
                 if self.receivers.is_full() {
                     self.refused_offers = self.refused_offers.saturating_add(1);
+                    // Tell the sender, as RNS rejects an offer it will not take, rather than
+                    // leave it re-advertising into a full table.
+                    if packet.context == link::CTX_RESOURCE_ADV
+                        && let Some(reject) = crate::resource_transfer::reject(
+                            &self.links[link_index].0,
+                            packet,
+                            &iv(),
+                        )
+                    {
+                        self.iv_counter = counter;
+                        actions.push(Action::Send {
+                            interface,
+                            packet: reject,
+                        });
+                    }
                     return;
                 }
                 let link = self.links[link_index].0.clone();
@@ -2028,20 +2624,85 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             });
         }
 
-        if let Some(data) = self.receivers[pos].1.data() {
-            actions.push(Action::Resource {
-                link_id,
-                data: data.to_vec(),
-            });
+        if self.receivers[pos].1.is_complete() {
+            // Keep the proof a while, for the sender's cache request if it was lost.
+            if let Some(proof) = self.receivers[pos].1.proof_packet() {
+                self.resource_proofs.retain(|(id, _, _, _)| *id != link_id);
+                let _ = self.resource_proofs.push((link_id, proof, now, 0));
+            }
+            // Metadata the sender attached is not carried: a Node delivers the data, and
+            // counts the drop.
+            if let Some((data, metadata)) = self.receivers[pos].1.take_payload() {
+                if metadata.is_some() {
+                    self.dropped_metadata = self.dropped_metadata.saturating_add(1);
+                }
+                actions.push(Action::Resource { link_id, data });
+            }
             self.receivers.swap_remove(pos);
         } else if self.receivers[pos].1.failure().is_some() {
-            // A multi-segment offer, or a body past the decompression limit: its cancel
-            // went out above, and nothing further is held for it.
+            // An offer refused at its advertisement, or a body that failed to recover: its
+            // cancel went out above, and nothing further is held for it.
             self.receivers.swap_remove(pos);
             self.refused_offers = self.refused_offers.saturating_add(1);
         } else if self.receivers[pos].1.is_canceled() {
             self.receivers.swap_remove(pos);
         }
+    }
+
+    /// Keepalives, stale teardown and the responder's handshake deadline, for every link.
+    /// A link torn down here is reported as [`Action::LinkDown`] and counted as expired.
+    fn poll_liveness(&mut self, now: u64, interface: InterfaceId, actions: &mut Actions<ACTIONS>) {
+        let seed = self.identity.to_secret_bytes();
+        let mut index = 0;
+        while index < self.links.len() {
+            let (link, _, liveness) = &mut self.links[index];
+            let packet = match liveness.poll(now) {
+                None => {
+                    index += 1;
+                    continue;
+                }
+                Some(Due::Keepalive) => {
+                    actions.push(Action::Send {
+                        interface,
+                        packet: link.keepalive_packet(link::KEEPALIVE_REQUEST),
+                    });
+                    index += 1;
+                    continue;
+                }
+                Some(Due::Teardown) => {
+                    let iv = derived_iv(&seed, link.id(), &mut self.iv_counter);
+                    Some(link.close_packet(&iv))
+                }
+                Some(Due::HandshakeTimeout) => None,
+            };
+            if let Some(packet) = packet {
+                actions.push(Action::Send { interface, packet });
+            }
+            self.expired_links = self.expired_links.saturating_add(1);
+            // `drop_link` swaps the last link into `index`, which is examined next.
+            self.drop_link(index, actions);
+        }
+    }
+
+    /// The proof kept for `link_id`, if `matches` it and it has not yet been re-sent
+    /// [`PROOF_CACHE_ANSWERS`] times. The cap bounds what anyone who heard the cleartext
+    /// proof can make this node transmit by asking for it again.
+    ///
+    /// [`PROOF_CACHE_ANSWERS`]: crate::resource_transfer::PROOF_CACHE_ANSWERS
+    fn resend_kept_proof(
+        &mut self,
+        link_id: AddressHash,
+        matches: impl Fn(&Packet) -> bool,
+    ) -> Option<Packet> {
+        let (_, proof, _, answers) = self
+            .resource_proofs
+            .iter_mut()
+            .find(|(id, proof, _, _)| *id == link_id && matches(proof))?;
+        if *answers >= crate::resource_transfer::PROOF_CACHE_ANSWERS {
+            return None;
+        }
+        *answers += 1;
+        Some(proof.clone())
     }
 
     /// Drop a link and everything riding on it.
@@ -2052,6 +2713,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         // it would hold reassembly memory for a peer that is no longer there.
         self.receivers.retain(|(id, _, _)| *id != link_id);
         self.senders.retain(|(id, _, _)| *id != link_id);
+        self.resource_proofs.retain(|(id, _, _, _)| *id != link_id);
         actions.push(Action::LinkDown { link_id });
     }
 
@@ -2115,6 +2777,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         for link_id in expired.pending_links {
             actions.push(Action::LinkRequestTimedOut { link_id });
         }
+        self.poll_liveness(now, interface, &mut actions);
 
         if self.announce_due(now)
             && let Some(blob) = blob
@@ -2122,6 +2785,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             self.last_announce = Some(now);
             match self.try_announce(blob, None) {
                 Ok(packet) => {
+                    self.announced_blob = Some(*blob);
                     actions.push(Action::Send { interface, packet });
                 }
                 Err(_) => {
@@ -2151,20 +2815,38 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                 });
             }
         }
-        for index in 0..self.senders.len() {
+        let mut index = 0;
+        while index < self.senders.len() {
             if now.saturating_sub(self.senders[index].2) < RESOURCE_RETRY_INTERVAL {
+                index += 1;
                 continue;
             }
             let link_id = self.senders[index].0;
             let mut iv = || derived_iv(&seed, link_id, &mut counter);
-            let advertisement = self.senders[index].1.advertisement(&iv());
             self.senders[index].2 = now;
-            actions.push(Action::Send {
-                interface,
-                packet: advertisement,
-            });
+            let sender = &mut self.senders[index].1;
+            // Every part sent and no proof: ask the receiver's cache for it, as RNS does,
+            // and cancel once those requests are spent.
+            let packet = if !sender.awaiting_proof() {
+                sender.advertisement(&iv())
+            } else if let Some(request) = sender.cache_request() {
+                request
+            } else {
+                let cancel = sender.cancel(&iv());
+                self.senders.swap_remove(index);
+                if let Some(packet) = cancel {
+                    actions.push(Action::Send { interface, packet });
+                }
+                continue;
+            };
+            actions.push(Action::Send { interface, packet });
+            index += 1;
         }
         self.iv_counter = counter;
+        self.resource_proofs.retain(|(id, _, at, _)| {
+            now.saturating_sub(*at) < RESOURCE_PROOF_CACHE_TTL
+                && self.links.iter().any(|(link, _, _)| link.id() == *id)
+        });
 
         actions
     }
@@ -2316,7 +2998,14 @@ mod tests {
     #[test]
     fn logical_mtu_bridge_lifecycle_and_refused_request_leave_no_phantom_session() {
         let mut relay = node().with_transport_config(TransportConfig::transit());
-        relay.remember_bridge(AddressHash::from_bytes([9; 16]), 1, 2, 0);
+        relay.remember_bridge(
+            AddressHash::from_bytes([9; 16]),
+            AddressHash::from_bytes([8; 16]),
+            1,
+            2,
+            LINK_TRANSPORT_TIMEOUT,
+            0,
+        );
         assert!(relay.has_active_sessions());
         assert_eq!(
             relay.set_logical_mtu(247),
@@ -2393,7 +3082,10 @@ mod tests {
         a.ingest(IFACE, &b.announce(&blob([2; RAND_HASH_LEN]), None), 0);
         let request = sent(&a.open_link(b.destination(), IFACE, &[0x31; 64], 0).unwrap()).unwrap();
         let proof = sent(&b.ingest(IFACE, &request, 0)).unwrap();
-        let id = link_up(&a.ingest(IFACE, &proof, 0)).expect("link did not come up");
+        let up = a.ingest(IFACE, &proof, 0);
+        let id = link_up(&up).expect("link did not come up");
+        let rtt = sent(&up).expect("the initiator reports its RTT");
+        b.ingest(IFACE, &rtt, 0);
         (a, b, id)
     }
 
@@ -2867,7 +3559,7 @@ mod tests {
             DestinationName::new("retinue", ["peer"]).name_hash(),
         );
         let packet = peer.announce(&blob([4; RAND_HASH_LEN]), None);
-        assert!(relay.transit_is_new(packet.hash(), 0));
+        assert!(relay.transit_is_new(&packet, 0));
         let actions = relay.ingest(IFACE, &packet, 1);
         assert_eq!(
             actions.len(),
@@ -3533,7 +4225,8 @@ mod tests {
     ///
     /// The sender picks the advertised size, so this is the point where a peer's ambition
     /// stops being the board's problem. Without it a peer could name a resource far larger
-    /// than the board's memory and the board would try.
+    /// than the board's memory and the board would try. The refusal goes on the wire, as
+    /// RNS rejects an offer, so the sender stops rather than re-advertising.
     #[test]
     fn an_oversized_resource_is_refused_without_holding_state() {
         let (mut a, mut b, id) = linked();
@@ -3550,9 +4243,18 @@ mod tests {
         let advertisement = sent(&started).expect("an advertisement goes out");
         let answer = b.ingest(IFACE, &advertisement, 0);
 
-        assert!(answer.is_empty(), "b says nothing rather than starting");
+        let refusal = sent(&answer).expect("b rejects the offer");
+        assert_eq!(
+            refusal.context,
+            link::CTX_RESOURCE_RCL,
+            "with a receiver cancel"
+        );
+        assert_eq!(b.refused_offers(), 1);
         assert!(!b.transfer_active(id), "and holds no reassembly state");
         assert!(b.has_link(id), "while the link itself is untouched");
+
+        assert!(a.ingest(IFACE, &refusal, 1).is_empty());
+        assert!(!a.transfer_active(id), "the sender stops on the rejection");
     }
 
     /// Run a transfer from `a` to `b` until `b` proves receipt, returning that proof
@@ -3598,6 +4300,201 @@ mod tests {
             }
         }
         panic!("b never proved receipt");
+    }
+
+    /// The packets a set of actions wants sent with link context `context`.
+    fn sent_with<const N: usize>(actions: &Actions<N>, context: u8) -> Vec<Packet> {
+        actions
+            .iter()
+            .filter_map(|action| match action {
+                Action::Send { packet, .. } if packet.context == context => Some(packet.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// A lost resource proof is recovered as RNS recovers it: after a quiet retry interval
+    /// the sender asks for the proof by its packet hash, and the receiver answers from the
+    /// proof it kept, every time it is asked, rather than the whole transfer running again.
+    #[test]
+    fn a_lost_resource_proof_is_recovered_from_the_receivers_cache() {
+        let (mut a, mut b, id) = linked();
+        let proof = transfer_until_proof(&mut a, &mut b, id);
+        assert!(
+            !b.transfer_active(id),
+            "b delivered and released its receiver"
+        );
+
+        let polled = a.poll(RESOURCE_RETRY_INTERVAL, IFACE, None);
+        let [request] = sent_with(&polled, link::CTX_CACHE_REQUEST)
+            .try_into()
+            .expect("one cache request");
+        assert!(
+            sent_with(&polled, link::CTX_RESOURCE_ADV).is_empty(),
+            "not a re-offer"
+        );
+        assert_eq!(request.payload, proof.full_hash());
+
+        for _ in 0..2 {
+            let answer = b.ingest(IFACE, &request, RESOURCE_RETRY_INTERVAL);
+            assert_eq!(
+                sent(&answer),
+                Some(proof.clone()),
+                "the kept proof, byte for byte"
+            );
+        }
+        assert!(a.ingest(IFACE, &proof, RESOURCE_RETRY_INTERVAL).is_empty());
+        assert!(!a.transfer_active(id), "the proof completed a's publish");
+
+        // The kept proof expires.
+        b.poll(
+            RESOURCE_RETRY_INTERVAL + RESOURCE_PROOF_CACHE_TTL,
+            IFACE,
+            None,
+        );
+        assert!(
+            b.ingest(IFACE, &request, RESOURCE_PROOF_CACHE_TTL * 2)
+                .is_empty()
+        );
+    }
+
+    /// A sender whose proof never comes asks three times, then cancels with a sealed
+    /// initiator cancel and lets the transfer go.
+    #[test]
+    fn a_sender_without_a_proof_cancels_after_three_cache_requests() {
+        let (mut a, mut b, id) = linked();
+        let proof = transfer_until_proof(&mut a, &mut b, id);
+        // The peer is alive and answers keepalives; only the proof was lost. Without its
+        // answers the link would go stale and close before the retries ran out.
+        let peer_link = b
+            .links
+            .iter()
+            .find(|(link, _, _)| link.id() == id)
+            .unwrap()
+            .0
+            .clone();
+        let mut now = 0;
+        for _ in 0..crate::resource_transfer::PROOF_CACHE_REQUESTS {
+            now += RESOURCE_RETRY_INTERVAL;
+            a.ingest(
+                IFACE,
+                &peer_link.keepalive_packet(link::KEEPALIVE_RESPONSE),
+                now - 1,
+            );
+            let polled = a.poll(now, IFACE, None);
+            assert_eq!(sent_with(&polled, link::CTX_CACHE_REQUEST).len(), 1);
+        }
+        now += RESOURCE_RETRY_INTERVAL;
+        a.ingest(
+            IFACE,
+            &peer_link.keepalive_packet(link::KEEPALIVE_RESPONSE),
+            now - 1,
+        );
+        let polled = a.poll(now, IFACE, None);
+        let [cancel] = sent_with(&polled, link::CTX_RESOURCE_ICL)
+            .try_into()
+            .expect("one initiator cancel");
+        let (resource_hash, _) = crate::resource::parse_proof(&proof.payload).unwrap();
+        let link = &b
+            .links
+            .iter()
+            .find(|(link, _, _)| link.id() == id)
+            .unwrap()
+            .0;
+        assert_eq!(link.decrypt(&cancel).unwrap(), resource_hash);
+        assert!(!a.transfer_active(id));
+    }
+
+    /// The kept proof is re-sent a bounded number of times. A cache request is unencrypted
+    /// and anyone who heard the proof can name its hash, so without the cap a third party
+    /// could make the receiver transmit the proof for as long as it is kept.
+    #[test]
+    fn cache_request_answers_are_capped() {
+        let (mut a, mut b, id) = linked();
+        let proof = transfer_until_proof(&mut a, &mut b, id);
+        let request = sent_with(
+            &a.poll(RESOURCE_RETRY_INTERVAL, IFACE, None),
+            link::CTX_CACHE_REQUEST,
+        )
+        .pop()
+        .expect("a cache request");
+        let answered = (0..20)
+            .filter(|_| {
+                sent(&b.ingest(IFACE, &request, RESOURCE_RETRY_INTERVAL)) == Some(proof.clone())
+            })
+            .count();
+        assert_eq!(
+            answered,
+            usize::from(crate::resource_transfer::PROOF_CACHE_ANSWERS)
+        );
+    }
+
+    /// A sender that lost the proof and offers the same resource again, as an older
+    /// retinue sender does instead of a cache request, is answered with the kept proof. The
+    /// resource is not received, or delivered, a second time.
+    #[test]
+    fn a_re_advertisement_of_a_proved_resource_is_answered_from_the_kept_proof() {
+        let (mut a, mut b, id) = linked();
+        let proof = transfer_until_proof(&mut a, &mut b, id);
+        let mut counter = 0;
+        let seed = [0x42; 64];
+        let advertisement = a.senders[0]
+            .1
+            .advertisement(&derived_iv(&seed, id, &mut counter));
+        let answer = b.ingest(IFACE, &advertisement, 1);
+        assert_eq!(sent(&answer), Some(proof));
+        assert!(
+            !answer
+                .iter()
+                .any(|action| matches!(action, Action::Resource { .. })),
+            "nothing delivered again"
+        );
+        assert!(!b.transfer_active(id), "and no transfer started");
+    }
+
+    /// A resource sent with metadata is delivered as its data alone, and the dropped
+    /// metadata is counted rather than lost silently.
+    #[test]
+    fn dropped_metadata_is_counted() {
+        let (a, mut b, id) = linked();
+        let link = a
+            .links
+            .iter()
+            .find(|(link, _, _)| link.id() == id)
+            .unwrap()
+            .0
+            .clone();
+        let data = b"the data".to_vec();
+        let mut sender = ResourceSender::publish_with_metadata(
+            link,
+            &data,
+            &[0xA1, b'x'],
+            [0x5B; 4],
+            &[9; crate::token::IV_LEN],
+        )
+        .unwrap();
+        let mut counter = 0;
+        let seed = [0x43; 64];
+        let mut to_b = vec![sender.advertisement(&derived_iv(&seed, id, &mut counter))];
+        let mut delivered = None;
+        for _ in 0..16 {
+            let mut to_a = Vec::new();
+            for packet in to_b.drain(..) {
+                for action in b.ingest(IFACE, &packet, 0) {
+                    match action {
+                        Action::Send { packet, .. } => to_a.push(packet),
+                        Action::Resource { data, .. } => delivered = Some(data),
+                        _ => {}
+                    }
+                }
+            }
+            for packet in to_a {
+                to_b.extend(sender.on_packet(&packet, || derived_iv(&seed, id, &mut counter)));
+            }
+        }
+        assert_eq!(delivered, Some(data));
+        assert!(sender.is_done());
+        assert_eq!(b.dropped_metadata(), 1);
     }
 
     /// A Node proves a resource with the PROOF-type packet RNS accepts, and a Node sender
@@ -3854,12 +4751,21 @@ mod tests {
             .unwrap();
         assert!(a.transfer_active(id));
 
-        let again = sent(&a.poll(
-            RESOURCE_RETRY_INTERVAL,
-            IFACE,
-            Some(&blob([0; RAND_HASH_LEN])),
-        ))
-        .expect("the poll re-advertises the unanswered offer");
+        // The idle link's keepalive goes out on the same poll; the offer is the advertisement.
+        let again = a
+            .poll(
+                RESOURCE_RETRY_INTERVAL,
+                IFACE,
+                Some(&blob([0; RAND_HASH_LEN])),
+            )
+            .into_iter()
+            .find_map(|action| match action {
+                Action::Send { packet, .. } if packet.context == link::CTX_RESOURCE_ADV => {
+                    Some(packet)
+                }
+                _ => None,
+            })
+            .expect("the poll re-advertises the unanswered offer");
         let request = sent(&b.ingest(IFACE, &again, 0));
         assert!(request.is_some(), "and the re-offer starts the transfer");
     }
@@ -3959,7 +4865,7 @@ mod tests {
             .links
             .iter()
             .find(|(l, _, _)| l.id() == id)
-            .map(|(l, _, _)| l.keepalive_packet(0xff))
+            .map(|(l, _, _)| l.keepalive_packet(link::KEEPALIVE_RESPONSE))
             .unwrap();
 
         let mut now = 0;
@@ -3970,6 +4876,126 @@ mod tests {
             assert_eq!(a.link_count(), 1, "a live peer keeps its slot at {now}");
         }
         assert_eq!(a.expired_links(), 0, "nothing reclaimed from a live peer");
+    }
+
+    fn liveness(node: &Node<32, 8, 4>, id: AddressHash) -> Liveness {
+        node.links.iter().find(|(l, _, _)| l.id() == id).unwrap().2
+    }
+
+    fn sends(actions: Actions<8>) -> Vec<Packet> {
+        actions
+            .into_iter()
+            .filter_map(|action| match action {
+                Action::Send { packet, .. } => Some(packet),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The initiator reports the RTT it measured from request to proof, and that is what
+    /// moves an RNS responder out of its handshake. It used to send nothing.
+    #[test]
+    fn the_initiator_reports_its_measured_rtt_on_link_up() {
+        let (mut a, mut b) = pair();
+        a.ingest(IFACE, &b.announce(&blob([2; RAND_HASH_LEN]), None), 0);
+        let request = sent(
+            &a.open_link(b.destination(), IFACE, &[0x31; 64], 1_000)
+                .unwrap(),
+        )
+        .unwrap();
+        let proof = sent(&b.ingest(IFACE, &request, 1_100)).unwrap();
+        assert_eq!(liveness(&b, link::link_id(&request).unwrap()).rtt(), None);
+        let up = a.ingest(IFACE, &proof, 1_250);
+        let id = link_up(&up).unwrap();
+        let rtt = sent(&up).expect("an RTT packet goes out with the link");
+        assert_eq!(rtt.context, link::CTX_LRRTT);
+        assert_eq!(liveness(&a, id).rtt(), Some(250));
+        assert_eq!(
+            link_liveness::read_rtt(&a.links[0].0, &rtt),
+            Some(250),
+            "the packet carries the measurement",
+        );
+        b.ingest(IFACE, &rtt, 1_300);
+        assert_eq!(
+            liveness(&b, id).rtt(),
+            Some(250),
+            "max(own 200, reported 250)"
+        );
+    }
+
+    /// An idle link stays up: the initiator's keepalive requests are answered by the
+    /// responder, and each side hears the other often enough never to go stale.
+    #[test]
+    fn an_idle_link_is_kept_alive_by_keepalives() {
+        let (mut a, mut b, id) = linked();
+        let (mut requests, mut responses) = (0, 0);
+        for now in (1_000..=600_000).step_by(1_000) {
+            for packet in sends(a.poll(now, IFACE, None)) {
+                assert_eq!(packet.payload, [link::KEEPALIVE_REQUEST]);
+                requests += 1;
+                for answer in sends(b.ingest(IFACE, &packet, now)) {
+                    assert_eq!(answer.payload, [link::KEEPALIVE_RESPONSE]);
+                    responses += 1;
+                    assert!(sends(a.ingest(IFACE, &answer, now)).is_empty());
+                }
+            }
+            assert!(
+                sends(b.poll(now, IFACE, None)).is_empty(),
+                "a responder never asks"
+            );
+        }
+        assert!(a.has_link(id) && b.has_link(id));
+        assert_eq!(requests, 120, "one per 5 s interval");
+        assert_eq!(responses, 120);
+    }
+
+    /// A peer that vanishes is detected and torn down with a LINKCLOSE after two silent
+    /// keepalive intervals and the grace, instead of holding the slot for the idle timeout.
+    #[test]
+    fn a_vanished_peer_goes_stale_and_is_closed() {
+        let (mut a, mut b, id) = linked();
+        assert_eq!(sends(a.poll(5_000, IFACE, None)).len(), 1);
+        let stale = a.poll(10_000, IFACE, None);
+        assert!(!stale.iter().any(|x| matches!(x, Action::LinkDown { .. })));
+        assert!(liveness(&a, id).is_stale());
+        assert!(a.poll(14_999, IFACE, None).is_empty());
+        let down = a.poll(15_000, IFACE, None);
+        assert!(down.iter().any(|x| *x == Action::LinkDown { link_id: id }));
+        let close = sent(&down).expect("a LINKCLOSE goes out");
+        assert_eq!(close.context, link::CTX_LINKCLOSE);
+        assert!(!a.has_link(id));
+        assert_eq!(a.expired_links(), 1);
+        // The far end, if it is still there, closes on it.
+        let closed = b.ingest(IFACE, &close, 15_000);
+        assert!(
+            closed
+                .iter()
+                .any(|x| *x == Action::LinkDown { link_id: id })
+        );
+    }
+
+    /// A responder whose initiator never reports an RTT drops the link at its handshake
+    /// deadline, silently, as RNS does.
+    #[test]
+    fn a_responder_without_an_rtt_drops_the_link_at_the_handshake_deadline() {
+        let (mut a, mut b) = pair();
+        a.ingest(IFACE, &b.announce(&blob([2; RAND_HASH_LEN]), None), 0);
+        let request = sent(&a.open_link(b.destination(), IFACE, &[0x31; 64], 0).unwrap()).unwrap();
+        let _ = b.ingest(IFACE, &request, 0);
+        let id = link::link_id(&request).unwrap();
+        let deadline = link_liveness::handshake_timeout(0);
+        assert_eq!(
+            b.pause_assessment().earliest_link_expiry,
+            Some(deadline),
+            "a pause is checked against the handshake deadline",
+        );
+        assert!(b.poll(deadline - 1, IFACE, None).is_empty());
+        let down = b.poll(deadline, IFACE, None);
+        assert!(down.iter().any(|x| *x == Action::LinkDown { link_id: id }));
+        assert!(
+            sent(&down).is_none(),
+            "no LINKCLOSE for a link that never activated"
+        );
     }
 
     #[test]
@@ -4108,6 +5134,144 @@ mod tests {
         assert!(relay.peers().knows(destination.destination()));
     }
 
+    /// A relay remembers the way back for every packet it carries, and carries the proof
+    /// back once, only from the interface the packet left by, within `REVERSE_TIMEOUT`
+    /// (RNS `Transport.py` 2104-2110, 863-870, 2733-2744).
+    #[test]
+    fn transport_carries_a_single_packet_proof_back_once() {
+        const OUT: InterfaceId = IFACE + 1;
+        let (_, destination) = pair();
+        let mut relay = Node::<32, 8, 4, 4>::new(
+            PrivateIdentity::from_secret_bytes(&[0x44; 64]),
+            DestinationName::new("retinue", ["relay"]).name_hash(),
+        )
+        .with_transport_config(TransportConfig::transit());
+        relay.ingest(
+            OUT,
+            &destination.announce(&blob([0x77; RAND_HASH_LEN]), None),
+            0,
+        );
+
+        let carry = |relay: &mut Node<32, 8, 4, 4>, byte: u8, now: u64| {
+            let packet = Packet {
+                ifac: false,
+                header_type: HeaderType::Type2,
+                context_flag: false,
+                propagation: crate::packet::Propagation::Transport,
+                destination_type: crate::packet::DestinationType::Single,
+                packet_type: PacketType::Data,
+                hops: 0,
+                transport: Some(relay.identity.hash()),
+                destination: destination.destination(),
+                context: 0,
+                payload: vec![byte; 48],
+            };
+            let actions = relay.ingest(IFACE, &packet, now);
+            assert!(matches!(
+                actions.iter().next(),
+                Some(Action::Send { interface: OUT, .. })
+            ));
+            crate::proof::proof_packet(&destination.identity, &packet.full_hash(), true)
+        };
+
+        // Carried back from the egress interface, once.
+        let proof = carry(&mut relay, 1, 1);
+        let actions = relay.ingest(OUT, &proof, 2);
+        let Some(Action::Send { interface, packet }) = actions.iter().next() else {
+            panic!("the proof is carried back");
+        };
+        assert_eq!(*interface, IFACE);
+        assert_eq!(packet.hops, proof.hops + 1);
+        assert_eq!(packet.payload, proof.payload);
+        assert!(
+            relay.ingest(OUT, &proof, 3).is_empty(),
+            "the entry was consumed"
+        );
+
+        // A proof from any other interface consumes the entry without being carried.
+        let proof = carry(&mut relay, 2, 4);
+        assert!(relay.ingest(IFACE + 2, &proof, 5).is_empty());
+        assert!(relay.ingest(OUT, &proof, 6).is_empty());
+
+        // The way back is forgotten after REVERSE_TIMEOUT.
+        let proof = carry(&mut relay, 3, 10);
+        assert!(relay.ingest(OUT, &proof, 10 + REVERSE_TIMEOUT).is_empty());
+        assert_eq!(relay.transport_counters().forwarded_packets, 4);
+    }
+
+    /// The reverse table is bounded by `ROUTES`: the oldest way back gives way.
+    #[test]
+    fn reverse_table_is_bounded_by_routes() {
+        let (_, destination) = pair();
+        let mut relay = Node::<32, 8, 4, 2>::new(
+            PrivateIdentity::from_secret_bytes(&[0x44; 64]),
+            DestinationName::new("retinue", ["relay"]).name_hash(),
+        )
+        .with_transport_config(TransportConfig::transit());
+        relay.ingest(
+            IFACE + 1,
+            &destination.announce(&blob([0x77; RAND_HASH_LEN]), None),
+            0,
+        );
+        let mut proofs = vec![];
+        for byte in 0..3u8 {
+            let packet = Packet {
+                ifac: false,
+                header_type: HeaderType::Type2,
+                context_flag: false,
+                propagation: crate::packet::Propagation::Transport,
+                destination_type: crate::packet::DestinationType::Single,
+                packet_type: PacketType::Data,
+                hops: 0,
+                transport: Some(relay.identity.hash()),
+                destination: destination.destination(),
+                context: 0,
+                payload: vec![byte; 48],
+            };
+            assert!(sent(&relay.ingest(IFACE, &packet, u64::from(byte) + 1)).is_some());
+            proofs.push(crate::proof::proof_packet(
+                &destination.identity,
+                &packet.full_hash(),
+                false,
+            ));
+        }
+        assert_eq!(relay.reverse.len(), 2);
+        assert!(relay.ingest(IFACE + 1, &proofs[0], 5).is_empty());
+        assert!(sent(&relay.ingest(IFACE + 1, &proofs[1], 5)).is_some());
+        assert!(sent(&relay.ingest(IFACE + 1, &proofs[2], 5)).is_some());
+    }
+
+    /// A validly signed announce naming a known destination under a different key is
+    /// rejected before it can touch freshness, a route or a relay (RNS `Identity.py`
+    /// 569-577).
+    #[test]
+    fn an_announce_with_a_different_key_for_a_known_destination_is_rejected() {
+        let (_, destination) = pair();
+        let mut relay = Node::<32, 8, 4, 4>::new(
+            PrivateIdentity::from_secret_bytes(&[0x44; 64]),
+            DestinationName::new("retinue", ["relay"]).name_hash(),
+        )
+        .with_transport_config(TransportConfig::transit());
+        let packet = destination.announce(&blob([0x77; RAND_HASH_LEN]), None);
+        // Stand in for an earlier announce of the same destination hash under another key:
+        // a real one would need a hash collision.
+        let mut known = Announce::decode(&packet).unwrap();
+        known.identity = *PrivateIdentity::from_secret_bytes(&[0x45; 64]).public();
+        assert_eq!(relay.book.ingest(&known), Ingested::Learned);
+
+        assert!(relay.ingest(IFACE, &packet, 0).is_empty());
+        assert_eq!(relay.transport_counters().key_mismatch_announces, 1);
+        assert_eq!(relay.route_count(), 0);
+        assert_eq!(
+            relay
+                .peers()
+                .resolve(destination.destination())
+                .unwrap()
+                .identity,
+            known.identity
+        );
+    }
+
     /// A transit source addresses its own request to the relay that taught it the route, and
     /// reports that relay as the next hop until the route's TTL passes.
     #[test]
@@ -4156,8 +5320,9 @@ mod tests {
         );
     }
 
-    /// `open_link` reads the route's TTL at its own `now`: one tick before expiry it addresses
-    /// the relay, and at expiry it does not, though nothing has evicted the route yet.
+    /// `open_link` reads the route's TTL at its own `now`: one tick before expiry the route
+    /// names the relay, and at expiry the request is not addressed through it, though nothing
+    /// has evicted the route yet.
     #[test]
     fn open_link_does_not_address_via_an_expired_unevicted_route() {
         let (mut source, destination) = pair();
@@ -4175,14 +5340,12 @@ mod tests {
         );
         let expiry = learned + DEFAULT_ROUTE_TTL;
 
-        let fresh = sent(
-            &source
-                .open_link(destination.destination(), IFACE, &[0x9C; 64], expiry - 1)
-                .unwrap(),
-        )
-        .unwrap();
-        assert_eq!(fresh.header_type, HeaderType::Type2);
-        assert_eq!(fresh.transport, Some(relay.identity.hash()));
+        assert_eq!(
+            source
+                .next_hop(destination.destination(), expiry - 1)
+                .and_then(|hop| hop.via),
+            Some(relay.identity.hash())
+        );
 
         let stale = sent(
             &source
@@ -4193,6 +5356,257 @@ mod tests {
         assert_eq!(source.route_count(), 1, "the expired route is not evicted");
         assert_eq!(stale.header_type, HeaderType::Type1);
         assert_eq!(stale.transport, None);
+    }
+
+    /// A transit relay and a source that learned `destination` through it, at tick 0.
+    fn source_via_relay() -> (Node<32, 8, 4>, Node<32, 8, 4, 4>, Node<32, 8, 4>) {
+        let (mut source, destination) = pair();
+        let mut relay = Node::<32, 8, 4, 4>::new(
+            PrivateIdentity::from_secret_bytes(&[0x4B; 64]),
+            DestinationName::new("retinue", ["relay"]).name_hash(),
+        )
+        .with_transport_config(TransportConfig::transit());
+        let announce = destination.announce(&blob([0x7B; RAND_HASH_LEN]), None);
+        source.ingest(IFACE, &sent(&relay.ingest(IFACE, &announce, 0)).unwrap(), 0);
+        (source, relay, destination)
+    }
+
+    /// RNS keeps a path for a week (`PATHFINDER_E`). Thirty minutes let an older emission
+    /// back in once the route lapsed; the route now outlives a day of quiet.
+    #[test]
+    fn routes_live_for_a_week_by_default() {
+        assert_eq!(DEFAULT_ROUTE_TTL, 7 * 24 * 60 * 60 * 1_000);
+        assert_eq!(TransportConfig::none().route_ttl, DEFAULT_ROUTE_TTL);
+        assert_eq!(TransportConfig::transit().route_ttl, DEFAULT_ROUTE_TTL);
+        let (source, _, destination) = source_via_relay();
+        let day = 24 * 60 * 60 * 1_000;
+        assert!(source.next_hop(destination.destination(), day).is_some());
+        assert!(
+            source
+                .next_hop(destination.destination(), DEFAULT_ROUTE_TTL)
+                .is_none()
+        );
+    }
+
+    /// Access-point and roaming interfaces bound their routes to a day and six hours, and
+    /// never lengthen a shorter configured lifetime.
+    #[test]
+    fn interface_modes_shorten_route_lifetimes() {
+        assert_eq!(
+            InterfaceMode::Full.route_ttl(DEFAULT_ROUTE_TTL),
+            DEFAULT_ROUTE_TTL
+        );
+        assert_eq!(
+            InterfaceMode::AccessPoint.route_ttl(DEFAULT_ROUTE_TTL),
+            ACCESS_POINT_ROUTE_TTL
+        );
+        assert_eq!(InterfaceMode::Roaming.route_ttl(10), 10);
+
+        let (_, destination) = pair();
+        let mut n = node();
+        n.set_interface_mode(1, InterfaceMode::Roaming).unwrap();
+        n.set_interface_mode(2, InterfaceMode::AccessPoint).unwrap();
+        assert_eq!(n.interface_mode(1), InterfaceMode::Roaming);
+        assert_eq!(n.interface_mode(3), InterfaceMode::Full);
+        let announce = destination.announce(&blob([0x7C; RAND_HASH_LEN]), None);
+        n.ingest(1, &announce, 0);
+        assert!(
+            n.next_hop(destination.destination(), ROAMING_ROUTE_TTL - 1)
+                .is_some()
+        );
+        assert!(
+            n.next_hop(destination.destination(), ROAMING_ROUTE_TTL)
+                .is_none()
+        );
+
+        n.forget_interface(1);
+        n.ingest(
+            2,
+            &destination.announce(&blob([0x7D; RAND_HASH_LEN]), None),
+            0,
+        );
+        assert!(
+            n.next_hop(destination.destination(), ACCESS_POINT_ROUTE_TTL - 1)
+                .is_some()
+        );
+        assert!(
+            n.next_hop(destination.destination(), ACCESS_POINT_ROUTE_TTL)
+                .is_none()
+        );
+
+        // Clearing a mode frees its slot; a fifth distinct mode does not fit.
+        n.set_interface_mode(2, InterfaceMode::Full).unwrap();
+        for interface in 10..14 {
+            n.set_interface_mode(interface, InterfaceMode::Roaming)
+                .unwrap();
+        }
+        assert_eq!(
+            n.set_interface_mode(14, InterfaceMode::Roaming),
+            Err(InterfaceModeTableFull)
+        );
+    }
+
+    /// RNS refreshes a path whenever it carries a packet. A source addressing its relay, and
+    /// a relay carrying transit, each keep the route alive past its learned-at expiry.
+    #[test]
+    fn a_route_in_use_is_refreshed() {
+        let (mut source, mut relay, destination) = source_via_relay();
+        let late = DEFAULT_ROUTE_TTL - 1;
+        let request = sent(
+            &source
+                .open_link(destination.destination(), IFACE, &[0x9E; 64], late)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(request.transport, Some(relay.identity.hash()));
+        assert!(
+            source
+                .next_hop(destination.destination(), DEFAULT_ROUTE_TTL)
+                .is_some(),
+            "addressing the relay refreshed the source's route"
+        );
+
+        assert!(sent(&relay.ingest(IFACE, &request, late)).is_some());
+        assert!(
+            relay
+                .next_hop(destination.destination(), DEFAULT_ROUTE_TTL)
+                .is_some(),
+            "carrying transit refreshed the relay's route"
+        );
+    }
+
+    /// Detaching an interface takes its routes and bridges with it, so a request goes out
+    /// without a route rather than naming a relay on an interface that is gone.
+    #[test]
+    fn forgetting_an_interface_culls_its_routes_and_bridges() {
+        let (mut source, mut relay, destination) = source_via_relay();
+        relay.ingest(
+            IFACE + 1,
+            &destination.announce(&blob([0x7E; RAND_HASH_LEN]), None),
+            0,
+        );
+        relay.remember_bridge(
+            AddressHash::from_bytes([0xB1; 16]),
+            destination.destination(),
+            IFACE,
+            IFACE + 1,
+            u64::MAX,
+            0,
+        );
+        relay.remember_bridge(
+            AddressHash::from_bytes([0xB2; 16]),
+            destination.destination(),
+            IFACE,
+            IFACE + 2,
+            u64::MAX,
+            0,
+        );
+        relay.forget_interface(IFACE + 1);
+        assert_eq!(relay.route_count(), 0);
+        assert_eq!(relay.bridges.len(), 1);
+        assert_eq!(relay.bridges[0].out, IFACE + 2);
+
+        source.set_first_hop_airtime(IFACE, 64).unwrap();
+        source.forget_interface(IFACE);
+        assert_eq!(source.first_hop_airtime(IFACE), 0);
+        assert!(source.next_hop(destination.destination(), 1).is_none());
+        let request = sent(
+            &source
+                .open_link(destination.destination(), IFACE + 3, &[0x9F; 64], 1)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(request.header_type, HeaderType::Type1);
+    }
+
+    /// Two transit packets that are different are both new; the same one heard again is a
+    /// loop. The window is its own two generations, no longer the route table's four slots.
+    #[test]
+    fn the_transit_filter_outlasts_the_route_table() {
+        let mut relay = node().with_transport_config(TransportConfig::transit());
+        let packet = |n: u8| Packet {
+            packet_type: PacketType::Data,
+            header_type: HeaderType::Type1,
+            transport: None,
+            destination: AddressHash::from_bytes([n; 16]),
+            context: 0,
+            payload: vec![n],
+            ..fixture("announce_appdata.bin")
+        };
+        assert!(relay.transit_is_new(&packet(0), 0));
+        for n in 1..=TRANSPORT_DEDUP_HASHES as u8 {
+            assert!(relay.transit_is_new(&packet(n), 1));
+        }
+        assert!(
+            !relay.transit_is_new(&packet(0), 2),
+            "a full generation turns over, it is not forgotten"
+        );
+        let mut keepalive = packet(0);
+        keepalive.context = link::CTX_KEEPALIVE;
+        assert!(relay.transit_is_new(&keepalive, 3));
+        assert!(relay.transit_is_new(&keepalive, 3), "keepalives repeat");
+        assert!(
+            relay.transit_is_new(&packet(0), 2 * TRANSPORT_DEDUP_TIMEOUT + 2),
+            "a quiet relay forgets after two timeouts"
+        );
+    }
+
+    /// A packet addressed through another transport is not this node's to handle, even when
+    /// it names this node's destination: RNS filters it before dispatch.
+    #[test]
+    fn a_type_two_packet_for_another_transport_is_dropped() {
+        let (mut a, mut b) = pair();
+        a.ingest(IFACE, &b.announce(&blob([2; RAND_HASH_LEN]), None), 0);
+        let mut request =
+            sent(&a.open_link(b.destination(), IFACE, &[0x31; 64], 0).unwrap()).unwrap();
+        request.header_type = HeaderType::Type2;
+        request.transport = Some(AddressHash::from_bytes([0xEE; 16]));
+        assert!(b.ingest(IFACE, &request, 0).is_empty());
+        assert_eq!(b.transport_counters().filtered_packets, 1);
+        request.transport = Some(b.identity.hash());
+        assert!(sent(&b.ingest(IFACE, &request, 0)).is_some());
+    }
+
+    /// A node answers a path request for itself with its last announce as a path response,
+    /// on the requesting interface only, once per tag; it ignores tagless requests, requests
+    /// relayed past their first hop, and requests for anyone else.
+    #[test]
+    fn path_requests_for_this_node_are_answered_once_on_their_interface() {
+        let mut n = node();
+        let me = n.destination();
+        let request = |tag: u8| crate::path::path_request(me, &[tag; crate::path::TAG_LEN]);
+        assert!(
+            n.ingest(2, &request(1), 0).is_empty(),
+            "nothing announced yet, so nothing to answer with"
+        );
+
+        let announced = sent(&n.poll(0, 0, Some(&blob([0x5C; RAND_HASH_LEN])))).unwrap();
+        let actions = n.ingest(2, &request(2), 1);
+        let [Action::Send { interface, packet }] = actions.iter().collect::<Vec<_>>()[..] else {
+            panic!("one send expected, got {actions:?}");
+        };
+        assert_eq!(*interface, 2, "answered on the requesting interface");
+        assert_eq!(packet.packet_type, PacketType::Announce);
+        assert_eq!(packet.context, crate::path::CTX_PATH_RESPONSE);
+        assert_eq!(packet.payload, announced.payload);
+        assert!(Announce::decode(packet).is_ok());
+
+        assert!(n.ingest(3, &request(2), 2).is_empty(), "a repeated tag");
+        assert!(sent(&n.ingest(3, &request(3), 2)).is_some(), "a new tag");
+
+        let mut tagless = request(4);
+        tagless.payload.truncate(crate::hash::ADDRESS_HASH_LEN);
+        assert!(n.ingest(2, &tagless, 3).is_empty());
+        let mut far = request(5);
+        far.hops = 2;
+        assert!(n.ingest(2, &far, 3).is_empty());
+        let mut near = request(6);
+        near.hops = 1;
+        assert!(sent(&n.ingest(2, &near, 3)).is_some());
+        assert_eq!(n.transport_counters().filtered_packets, 3);
+
+        let other = crate::path::path_request(AddressHash::from_bytes([0xCD; 16]), &[7; 16]);
+        assert!(n.ingest(2, &other, 4).is_empty());
     }
 
     /// A leaf learns routes without relaying: it addresses its first relay and reaches a
@@ -4262,7 +5676,8 @@ mod tests {
         )
         .with_transport_config(TransportConfig::transit());
         let link_id = AddressHash::from_bytes([0xA3; 16]);
-        relay.remember_bridge(link_id, 1, 2, 10);
+        relay.remember_bridge(link_id, AddressHash::from_bytes([0xA4; 16]), 1, 2, 20, 10);
+        relay.bridges[0].proof_deadline = None;
         let mut packet = Packet {
             packet_type: PacketType::Data,
             header_type: HeaderType::Type1,
@@ -4274,7 +5689,7 @@ mod tests {
 
         assert!(relay.ingest(3, &packet, 20).is_empty());
         assert_eq!(relay.bridges[0].seen, 10);
-        assert!(relay.seen_transit.is_empty());
+        assert!(relay.transit_filter.current.is_empty());
 
         let to_two = relay.ingest(1, &packet, 21);
         assert!(
@@ -4292,6 +5707,326 @@ mod tests {
                 .any(|action| matches!(action, Action::Send { interface: 1, .. }))
         );
         assert_eq!(relay.transport_counters().forwarded_packets, 2);
+    }
+
+    /// Where a set of actions sends its first packet, and what.
+    fn sent_on<const N: usize>(actions: &Actions<N>) -> Option<(InterfaceId, Packet)> {
+        actions.iter().find_map(|a| match a {
+            Action::Send { interface, packet } => Some((*interface, packet.clone())),
+            _ => None,
+        })
+    }
+
+    const SOURCE_SIDE: InterfaceId = 1;
+    const DESTINATION_SIDE: InterfaceId = 2;
+
+    /// A transit relay between `source` (on [`SOURCE_SIDE`]) and `destination` (on
+    /// [`DESTINATION_SIDE`]), the relayed announce learned by the source, and the source's
+    /// type-2 request already forwarded. Returns the relay and the forwarded request.
+    fn relayed_request(
+        relay_mtu: u32,
+        source: &mut Node<32, 8, 4>,
+        destination: &Node<32, 8, 4>,
+    ) -> (Node<32, 8, 4, 4>, Packet) {
+        let mut relay = Node::<32, 8, 4, 4>::new(
+            PrivateIdentity::from_secret_bytes(&[0x44; 64]),
+            DestinationName::new("retinue", ["relay"]).name_hash(),
+        )
+        .with_transport_config(TransportConfig::transit());
+        relay.set_logical_mtu(relay_mtu).unwrap();
+        let announce = destination.announce(&blob([0x77; RAND_HASH_LEN]), None);
+        let relayed = sent(&relay.ingest(DESTINATION_SIDE, &announce, 0)).unwrap();
+        source.ingest(IFACE, &relayed, 1);
+        let mut request = sent(
+            &source
+                .open_link(destination.destination(), IFACE, &[0x99; 64], 1)
+                .unwrap(),
+        )
+        .unwrap();
+        request.header_type = HeaderType::Type2;
+        request.transport = Some(relay.identity.hash());
+        let (out, forwarded) = sent_on(&relay.ingest(SOURCE_SIDE, &request, 2)).unwrap();
+        assert_eq!(out, DESTINATION_SIDE);
+        assert_eq!(link::link_id(&forwarded), link::link_id(&request));
+        (relay, forwarded)
+    }
+
+    /// A relay that carries 247 bytes lowers the signalled MTU of a 255-byte request, and
+    /// both ends then agree on 247 rather than on frames the relay would refuse.
+    #[test]
+    fn a_relay_clamps_the_link_mtu_to_what_it_carries() {
+        let (mut source, mut destination) = pair();
+        let (mut relay, forwarded) = relayed_request(247, &mut source, &destination);
+        assert_eq!(
+            link::request_trailer(&forwarded).unwrap().map(|t| t.mtu),
+            Some(247)
+        );
+
+        let proof = sent(&destination.ingest(IFACE, &forwarded, 3)).unwrap();
+        assert_eq!(destination.links[0].0.mtu(), 247);
+        let (back, proof) = sent_on(&relay.ingest(DESTINATION_SIDE, &proof, 4)).unwrap();
+        assert_eq!(back, SOURCE_SIDE);
+        assert!(link_up(&source.ingest(IFACE, &proof, 5)).is_some());
+        assert_eq!(source.links[0].0.mtu(), 247);
+    }
+
+    /// A destination offers the smaller of its own budget and the request's, so a 247-byte
+    /// initiator is not held to a 255-byte link it cannot carry.
+    #[test]
+    fn a_responder_offers_no_more_than_was_requested() {
+        let (mut a, mut b) = pair();
+        a.set_logical_mtu(247).unwrap();
+        a.ingest(IFACE, &b.announce(&blob([2; RAND_HASH_LEN]), None), 0);
+        let request = sent(&a.open_link(b.destination(), IFACE, &[0x31; 64], 0).unwrap()).unwrap();
+        let proof = sent(&b.ingest(IFACE, &request, 0)).unwrap();
+        assert_eq!(b.links[0].0.mtu(), 247);
+        link_up(&a.ingest(IFACE, &proof, 0)).unwrap();
+        assert_eq!(a.links[0].0.mtu(), 247);
+    }
+
+    /// A bridge carries nothing until the destination proves it: early link traffic, a proof
+    /// signed by someone else, and a genuine proof from the initiator's side are all dropped.
+    #[test]
+    fn a_bridge_carries_nothing_until_the_destination_proves_it() {
+        let (mut source, mut destination) = pair();
+        let (mut relay, forwarded) = relayed_request(LINK_MTU, &mut source, &destination);
+        let link_id = link::link_id(&forwarded).unwrap();
+        let early = Packet {
+            packet_type: PacketType::Data,
+            header_type: HeaderType::Type1,
+            transport: None,
+            destination: link_id,
+            payload: b"before the proof".to_vec(),
+            ..fixture("announce_appdata.bin")
+        };
+        assert!(relay.ingest(SOURCE_SIDE, &early, 3).is_empty());
+
+        let impostor = PrivateIdentity::from_secret_bytes(&[0x66; 64]);
+        let (_, forged) = link::accept(
+            &forwarded,
+            &impostor,
+            &[0x67; 64],
+            LinkTrailer {
+                mode: LinkMode::Aes256Cbc,
+                mtu: LINK_MTU,
+            },
+        )
+        .unwrap();
+        assert!(relay.ingest(DESTINATION_SIDE, &forged, 3).is_empty());
+
+        let proof = sent(&destination.ingest(IFACE, &forwarded, 3)).unwrap();
+        assert!(relay.ingest(SOURCE_SIDE, &proof, 4).is_empty());
+        assert_eq!(relay.transport_counters().unvalidated_link_packets, 3);
+        assert!(relay.bridges[0].proof_deadline.is_some());
+
+        let (back, proof) = sent_on(&relay.ingest(DESTINATION_SIDE, &proof, 5)).unwrap();
+        assert_eq!(back, SOURCE_SIDE);
+        assert!(relay.bridges[0].proof_deadline.is_none());
+        link_up(&source.ingest(IFACE, &proof, 6)).unwrap();
+        let data = sent(&source.send(link_id, IFACE, b"after", &[0xA1; 16]).unwrap()).unwrap();
+        let (out, _) = sent_on(&relay.ingest(SOURCE_SIDE, &data, 7)).unwrap();
+        assert_eq!(out, DESTINATION_SIDE);
+    }
+
+    /// An unproved bridge lapses at its proof deadline: one per-hop allowance for each hop
+    /// still ahead, as RNS gives a carried request. A late proof is not carried.
+    #[test]
+    fn an_unproved_bridge_lapses_at_its_proof_deadline() {
+        let (mut source, mut destination) = pair();
+        let (mut relay, forwarded) = relayed_request(LINK_MTU, &mut source, &destination);
+        let proof = sent(&destination.ingest(IFACE, &forwarded, 3)).unwrap();
+        let deadline = 2 + LINK_ESTABLISHMENT_TIMEOUT_PER_HOP;
+        assert_eq!(transit_proof_timeout(0), LINK_ESTABLISHMENT_TIMEOUT_PER_HOP);
+        assert_eq!(relay.bridges[0].proof_deadline, Some(deadline));
+        assert!(relay.ingest(DESTINATION_SIDE, &proof, deadline).is_empty());
+        assert!(relay.bridges.is_empty());
+        assert_eq!(relay.transport_counters().expired_bridges, 1);
+    }
+
+    /// At capacity a new request displaces the stalest unproved bridge, never a validated
+    /// one; with every slot validated it is refused and not carried.
+    #[test]
+    fn forged_requests_cannot_displace_a_validated_bridge() {
+        let mut relay = Node::<8, 8, 4, 2>::new(
+            PrivateIdentity::from_secret_bytes(&[0x45; 64]),
+            DestinationName::new("retinue", ["relay"]).name_hash(),
+        )
+        .with_transport_config(TransportConfig::transit());
+        let id = |byte| AddressHash::from_bytes([byte; 16]);
+        assert!(relay.remember_bridge(id(1), id(0), 1, 2, 100, 0));
+        relay.bridges[0].proof_deadline = None;
+        assert!(relay.remember_bridge(id(2), id(0), 1, 2, 100, 1));
+        assert!(relay.remember_bridge(id(3), id(0), 1, 2, 100, 2));
+        assert_eq!(relay.transport_counters().evicted_bridges, 1);
+        assert!(relay.bridges.iter().any(|b| b.link_id == id(1)));
+        assert!(!relay.bridges.iter().any(|b| b.link_id == id(2)));
+
+        // A replayed request leaves a validated bridge as it was.
+        assert!(relay.remember_bridge(id(1), id(0), 3, 3, 100, 3));
+        let validated = relay.bridges.iter().find(|b| b.link_id == id(1)).unwrap();
+        assert_eq!((validated.from, validated.out, validated.seen), (1, 2, 0));
+        assert!(validated.proof_deadline.is_none());
+
+        relay
+            .bridges
+            .iter_mut()
+            .for_each(|b| b.proof_deadline = None);
+        assert!(!relay.remember_bridge(id(4), id(0), 1, 2, 100, 4));
+        assert_eq!(relay.transport_counters().refused_bridges, 1);
+        assert_eq!(relay.bridges.len(), 2);
+    }
+
+    /// The source's next type-2 link request to `destination` through `relay`.
+    fn next_request(
+        source: &mut Node<32, 8, 4>,
+        destination: &Node<32, 8, 4>,
+        relay: &Node<32, 8, 4, 4>,
+        seed: u8,
+        now: u64,
+    ) -> Packet {
+        let mut request = sent(
+            &source
+                .open_link(destination.destination(), IFACE, &[seed; 64], now)
+                .unwrap(),
+        )
+        .unwrap();
+        request.header_type = HeaderType::Type2;
+        request.transport = Some(relay.identity.hash());
+        request
+    }
+
+    /// A relay whose every slot holds a recently heard validated link carries no new request
+    /// at all; once those links have gone unheard for the RNS link timeout, the stalest one
+    /// yields and the request is carried.
+    #[test]
+    fn idle_validated_bridges_yield_but_live_ones_refuse_new_requests() {
+        let (mut source, destination) = pair();
+        let (mut relay, _) = relayed_request(LINK_MTU, &mut source, &destination);
+        let id = |byte| AddressHash::from_bytes([byte; 16]);
+        for byte in 1..4 {
+            assert!(relay.remember_bridge(id(byte), id(0), 1, 2, 100, 2));
+        }
+        relay
+            .bridges
+            .iter_mut()
+            .for_each(|b| b.proof_deadline = None);
+        relay.bridges[3].seen = 3;
+
+        let request = next_request(&mut source, &destination, &relay, 0x9A, 10);
+        assert!(sent(&relay.ingest(SOURCE_SIDE, &request, 10)).is_none());
+        assert_eq!(relay.transport_counters().refused_bridges, 1);
+        assert_eq!(relay.bridges.len(), 4);
+
+        let late = 2 + LINK_TRANSPORT_IDLE;
+        let request = next_request(&mut source, &destination, &relay, 0x9B, late);
+        let (out, carried) = sent_on(&relay.ingest(SOURCE_SIDE, &request, late)).unwrap();
+        assert_eq!(out, DESTINATION_SIDE);
+        assert_eq!(relay.transport_counters().evicted_bridges, 1);
+        let carried_id = link::link_id(&carried).unwrap();
+        assert!(relay.bridges.iter().any(|b| b.link_id == carried_id));
+        assert!(
+            relay.bridges.iter().any(|b| b.seen == 3),
+            "the most recently heard idle link stays"
+        );
+    }
+
+    /// A request the relay cannot send, for want of action space, takes no bridge slot.
+    #[test]
+    fn an_unsent_request_takes_no_bridge_slot() {
+        let (mut source, destination) = pair();
+        let mut relay = Node::<32, 0, 4, 4>::new(
+            PrivateIdentity::from_secret_bytes(&[0x44; 64]),
+            DestinationName::new("retinue", ["relay"]).name_hash(),
+        )
+        .with_transport_config(TransportConfig::transit());
+        let announce = destination.announce(&blob([0x77; RAND_HASH_LEN]), None);
+        relay.ingest(DESTINATION_SIDE, &announce, 0);
+        assert_eq!(relay.routes.len(), 1);
+        source.ingest(IFACE, &announce, 1);
+        let mut request = sent(
+            &source
+                .open_link(destination.destination(), IFACE, &[0x9F; 64], 1)
+                .unwrap(),
+        )
+        .unwrap();
+        request.header_type = HeaderType::Type2;
+        request.transport = Some(relay.identity.hash());
+        assert_eq!(relay.ingest(SOURCE_SIDE, &request, 2).overflowed(), 1);
+        assert!(relay.bridges.is_empty());
+    }
+
+    /// A request whose MTU must be lowered under a link mode this relay cannot encode is
+    /// dropped and takes no slot; one that already fits passes as it is.
+    #[test]
+    fn a_relay_drops_a_request_it_cannot_clamp() {
+        let (mut source, destination) = pair();
+        let (mut relay, _) = relayed_request(247, &mut source, &destination);
+        let mut request = next_request(&mut source, &destination, &relay, 0x9C, 3);
+        request.payload[link::LINK_KEYS_LEN] = 0xe0;
+        assert!(relay.ingest(SOURCE_SIDE, &request, 3).is_empty());
+        assert_eq!(relay.transport_counters().undecodable_link_requests, 1);
+        assert_eq!(relay.bridges.len(), 1);
+
+        let mut fitting = next_request(&mut source, &destination, &relay, 0x9D, 4);
+        let trailer = fitting.payload.len() - link::TRAILER_LEN;
+        fitting.payload[trailer..].copy_from_slice(&[0xe0, 0, 200]);
+        let (_, carried) = sent_on(&relay.ingest(SOURCE_SIDE, &fitting, 4)).unwrap();
+        assert_eq!(carried.payload[trailer..], [0xe0, 0, 200]);
+    }
+
+    /// With the destination's identity unknown, a bridge cannot check the proof's signature;
+    /// the proof is still carried only from the destination's side.
+    #[test]
+    fn without_the_destinations_identity_only_its_side_proves() {
+        let (mut source, mut destination) = pair();
+        let (mut relay, forwarded) = relayed_request(LINK_MTU, &mut source, &destination);
+        relay.book.forget(destination.destination());
+        let proof = sent(&destination.ingest(IFACE, &forwarded, 3)).unwrap();
+        assert!(relay.ingest(SOURCE_SIDE, &proof, 4).is_empty());
+        assert!(relay.bridges[0].proof_deadline.is_some());
+        let (back, _) = sent_on(&relay.ingest(DESTINATION_SIDE, &proof, 5)).unwrap();
+        assert_eq!(back, SOURCE_SIDE);
+        assert!(relay.bridges[0].proof_deadline.is_none());
+    }
+
+    /// A proof the relay does not send on, here for the hop ceiling, leaves its bridge
+    /// unvalidated; RNS marks a bridge validated only as it transmits the proof.
+    #[test]
+    fn a_proof_validates_its_bridge_only_once_carried() {
+        let (mut source, mut destination) = pair();
+        let (mut relay, forwarded) = relayed_request(LINK_MTU, &mut source, &destination);
+        let mut proof = sent(&destination.ingest(IFACE, &forwarded, 3)).unwrap();
+        proof.hops = relay.transport.max_hops;
+        assert!(relay.ingest(DESTINATION_SIDE, &proof, 4).is_empty());
+        assert_eq!(relay.transport_counters().hop_limit_dropped, 1);
+        assert!(relay.bridges[0].proof_deadline.is_some());
+    }
+
+    /// A destination treats a signalled MTU of 0 as RNS's 500-byte default, and holds a
+    /// request below the smallest workable budget to that floor.
+    #[test]
+    fn a_responder_floors_what_it_offers() {
+        let (mut a, mut b) = pair();
+        a.ingest(IFACE, &b.announce(&blob([2; RAND_HASH_LEN]), None), 0);
+        for (signalled, offered) in [(0, LINK_MTU), (1, MIN_LOGICAL_MTU)] {
+            let mut request = sent(
+                &a.open_link(b.destination(), IFACE, &[signalled as u8 + 0x40; 64], 0)
+                    .unwrap(),
+            )
+            .unwrap();
+            let trailer = request.payload.len() - link::TRAILER_LEN;
+            request.payload[trailer..].copy_from_slice(
+                &LinkTrailer {
+                    mode: LinkMode::Aes256Cbc,
+                    mtu: signalled,
+                }
+                .encode(),
+            );
+            sent(&b.ingest(IFACE, &request, 0)).unwrap();
+            let id = link::link_id(&request).unwrap();
+            let link = b.links.iter().find(|(l, ..)| l.id() == id).unwrap();
+            assert_eq!(link.0.mtu(), offered);
+        }
     }
 
     /// This is the desk half of the T114 flood: enough distinct signed announces to turn the

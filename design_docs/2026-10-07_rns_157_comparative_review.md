@@ -2,7 +2,16 @@
 
 **Date:** 2026-10-07. **Status:** Priority 0 landed on 2026-10-07: items 1-10,
 item 11's interim refusal, and the owner's ruling on Transport 11 (freshness
-tied to the route, as in RNS). Priorities 1 and 2 are open. Each adaptation is
+tied to the route, as in RNS). Priority 1 landed on 2026-10-08, with three
+items partial:
+- item 18: link lifetime is handled by item 12's liveness;
+- item 24: Node does not yet deliver metadata (a cross-crate `Action` change);
+- item 31: address-book persistence is deferred.
+
+On 2026-10-08 the route TTL also moved from 30 minutes to RNS's one week, with
+access-point and roaming caps and refresh on use. The rest of Priority 2 is open,
+together with item 23 (requests sent as Resources) and full multi-segment
+transfers. Each adaptation is
 listed in the crate's `NOTICE`, per the
 [Reticulum License adoption](2026-10-05_reticulum_license_adoption.md).
 
@@ -14,10 +23,16 @@ lanes on RNS 1.5.7 passed: live 17/17, outrider 7/7, resource 12/12, routing
 Three of them failed before the fixes. Item 36 (freshness ledger cost) was
 resolved by the freshness redesign.
 
+**P1 verification (2026-10-08):** local CI-equivalent checks passed. The live
+lanes on RNS 1.5.7 passed: live 26/26, outrider 7/7, resource 12/12, routing
+3/3. The live lane now includes the P1 gates for link liveness, transit MTU,
+path requests, single-packet proofs, resource cancel, metadata and proof
+cache, ratchet rotation, and Channel vanish.
+
 **Owner direction (2026-10-07):** align with upstream, aiming for protocol
 fidelity and feature parity in concise, efficient Rust, without porting the
-Python. The relaxed same-blob rule leaves one gap that should be closed next:
-retinue's route TTL is 30 minutes, and RNS's path expiry is one week.
+Python. The relaxed same-blob rule left the 30-minute route TTL as a gap; it was
+closed on 2026-10-08, when routes moved to RNS's one-week expiry.
 
 ## Source and provenance
 
@@ -165,7 +180,9 @@ The reviews found these to match RNS:
 - Node's link-request deadline (N3/N8).
 
 The deliberate divergences were respected: the own-echo filtering (N10, no
-Channel exemption), the 30-minute route TTL, and the two held RNS defects.
+Channel exemption) and the two held RNS defects. The 30-minute route TTL was a
+deliberate divergence when this review was written; it was aligned with RNS on
+2026-10-08.
 
 ## Suggested order
 

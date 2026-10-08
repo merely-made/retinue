@@ -61,6 +61,10 @@ pub enum Ingested {
     /// for it. The book keeps serving every destination it already knows; the shell makes
     /// room with [`AddressBook::forget`].
     Refused,
+    /// The announce names a known destination with a different public key. It is rejected
+    /// and the known key kept (RNS `Identity.validate_announce`): a valid signature from
+    /// another key over the same destination hash is a collision or a path-hijack attempt.
+    KeyMismatch,
 }
 
 /// A store of peers learned from announces, keyed by destination hash.
@@ -109,7 +113,8 @@ impl AddressBook {
     }
 
     /// Record an announce. A later announce for the same destination refreshes the entry
-    /// (app data, ratchet) and bumps the count. Because [`Announce`] only exists once its
+    /// (app data, ratchet) and bumps the count, provided it carries the same key (see
+    /// [`Ingested::KeyMismatch`]). Because [`Announce`] only exists once its
     /// signature has verified, ingesting one cannot poison the book with a forged identity.
     /// A full book still refreshes destinations it already knows, and refuses only new ones,
     /// so a flood of unknown destinations cannot displace established peers. It never
@@ -140,14 +145,25 @@ impl AddressBook {
         self.admit(announce, Some(now), protected)
     }
 
+    /// Whether `announce` names a destination this book knows under a different public key.
+    /// Such an announce must be rejected as a whole, before it can touch a route or be
+    /// relayed, as RNS rejects it during announce validation.
+    pub fn key_conflicts(&self, announce: &Announce) -> bool {
+        self.peers
+            .get(&announce.destination)
+            .is_some_and(|peer| peer.identity != announce.identity)
+    }
+
     fn admit(
         &mut self,
         announce: &Announce,
         now: Option<u64>,
         protected: impl Fn(AddressHash) -> bool,
     ) -> Ingested {
+        if self.key_conflicts(announce) {
+            return Ingested::KeyMismatch;
+        }
         if let Some(p) = self.peers.get_mut(&announce.destination) {
-            p.identity = announce.identity;
             p.name_hash = announce.name_hash;
             p.app_data = announce.app_data.clone();
             p.ratchet = announce.ratchet;
@@ -324,6 +340,39 @@ mod tests {
         let mut book = AddressBook::new();
         book.ingest(&a);
         assert!(book.resolve(a.destination).unwrap().ratchet.is_some());
+    }
+
+    /// RNS rejects an announce whose key differs from the one already known for that
+    /// destination (`Identity.py` 569-577). The book keeps the known key, app data and
+    /// ratchet untouched.
+    #[test]
+    fn a_different_key_for_a_known_destination_is_rejected() {
+        let known = announce("announce_appdata.bin");
+        let mut book = AddressBook::new();
+        book.ingest(&known);
+
+        // A real impostor would need a hash collision; stand one in by swapping the key.
+        let mut impostor = known.clone();
+        impostor.identity =
+            *crate::identity::PrivateIdentity::from_secret_bytes(&[0x7E; 64]).public();
+        impostor.app_data = b"impostor".to_vec();
+        assert!(book.key_conflicts(&impostor));
+        assert!(!book.key_conflicts(&known));
+        assert_eq!(book.ingest(&impostor), Ingested::KeyMismatch);
+        assert_eq!(
+            book.ingest_at(&impostor, 9, |_| false),
+            Ingested::KeyMismatch
+        );
+
+        let peer = book.resolve(known.destination).unwrap();
+        assert_eq!(peer.identity, known.identity);
+        assert_eq!(peer.app_data, b"retinue-r0-fixture");
+        assert!(peer.ratchet.is_none());
+        assert_eq!(peer.announces_seen, 1);
+
+        // Once forgotten, the destination can be learned afresh.
+        book.forget(known.destination);
+        assert_eq!(book.ingest(&impostor), Ingested::Learned);
     }
 
     #[test]

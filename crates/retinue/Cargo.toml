@@ -74,7 +74,15 @@ name = "ratchet_packet_vector"
 required-features = ["alloc"]
 
 [[example]]
+name = "ratchet_rotation_oracle"
+required-features = ["tokio"]
+
+[[example]]
 name = "endpoint_stream"
+required-features = ["tokio"]
+
+[[example]]
+name = "single_proof_interop"
 required-features = ["tokio"]
 
 [[example]]
@@ -82,7 +90,15 @@ name = "reliable_stream_oracle"
 required-features = ["tokio"]
 
 [[example]]
+name = "reliable_vanish_oracle"
+required-features = ["tokio"]
+
+[[example]]
 name = "library_oracle"
+required-features = ["tokio"]
+
+[[example]]
+name = "path_request_oracle"
 required-features = ["tokio"]
 
 [[example]]
@@ -228,6 +244,10 @@ required-features = ["tokio"]
 
 [[test]]
 name = "endpoint_link_echo"
+required-features = ["tokio"]
+
+[[test]]
+name = "endpoint_link_liveness"
 required-features = ["tokio"]
 
 [[test]]
