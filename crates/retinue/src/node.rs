@@ -328,6 +328,14 @@ pub struct FreshnessPolicy {
 }
 
 impl FreshnessPolicy {
+    /// Freshness belongs to routes, and evicting a row drops its route, so the table must
+    /// never be the tighter bound: it covers every route (and every known peer). The route
+    /// table's own eviction then decides which route goes. A row left behind for an evicted
+    /// route is harmless, because without a live route an announce is a first sighting.
+    pub const fn for_node(peers: usize, routes: usize) -> Self {
+        Self::for_peers(if peers > routes { peers } else { routes })
+    }
+
     pub const fn for_peers(peers: usize) -> Self {
         Self {
             // `AddressBook` can be instantiated with PEERS == 0 for a deliberately
@@ -751,9 +759,9 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             refused_payloads: 0,
             transport: TransportConfig::none(),
             routes: BoundedVec::new(),
-            freshness_policy: FreshnessPolicy::for_peers(PEERS),
+            freshness_policy: FreshnessPolicy::for_node(PEERS, ROUTES),
             freshness: AnnounceFreshness::new(AnnounceFreshnessConfig {
-                destination_capacity: PEERS.max(1),
+                destination_capacity: FreshnessPolicy::for_node(PEERS, ROUTES).max_destinations,
                 blob_capacity: 8,
             })
             .expect("nonzero fallback freshness capacity"),

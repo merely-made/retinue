@@ -13,7 +13,55 @@ adapted into this crate; see the repository's
 is carried in LICENSE. Each adapted portion is listed below with its upstream
 revision, file and line range, and target file.
 
-Adapted from RNS: none yet.
+### Adapted from RNS
+
+All entries were read from RNS 1.5.7 (PyPI wheel `rns-1.5.7-py3-none-any.whl`,
+SHA-256 0e4aaf8cc47f770da34572d2215b45fea900e104b009551600eb9741a41faddf). The
+behaviour was adopted and the Rust is written for this crate; no Python was
+translated line by line. The findings are recorded in
+`design_docs/2026-10-07_rns_157_comparative_review.md`.
+
+- Resource proofs are PROOF-type packets, and a Node routes them to its sender.
+  RNS `Resource.py` 765-777, `Link.py` 1157-1164.
+  Targets: `src/resource_transfer.rs`, `src/node.rs`.
+- Received bz2 is bounded at 64 MiB by default and cancels with RESOURCE_RCL.
+  RNS `Resource.py` 123-125, 368, 698-705, 1090-1100.
+  Targets: `src/resource.rs`, `src/resource_transfer.rs`.
+- Multi-segment advertisements are refused with a sealed RESOURCE_RCL carrying
+  the resource hash. RNS `Resource.py` 155-165, 274-339, 1090-1136;
+  `Link.py` 1112-1126.
+  Targets: `src/resource_transfer.rs`, `src/node.rs`, `src/endpoint.rs`.
+- Link data is proved with the link's keys: the initiator's ephemeral Ed25519
+  key, and the responder's identity key, which is verified from link-request
+  bytes 32..64. RNS `Link.py` 186-189, 274-285, 326-331, 378-408, 970-992,
+  1189-1196; `Packet.py` 338-343, 449-458.
+  Targets: `src/link.rs`, `src/reliable.rs`, `src/endpoint.rs`.
+- LINKCLOSE closes a link only when its payload decrypts to the link id.
+  RNS `Link.py` 674-683.
+  Target: `src/endpoint.rs`.
+- The Channel send window is bounded by sequence span as well as by count.
+  RNS `Channel.py` 357-369, `Link.py` 1147-1154.
+  Target: `src/channel.rs`.
+- Buffer consumes only stream-data messages (0xFF00). RNS `Channel.py` 118-128
+  and 343-349, `Buffer.py` 151-165. RNS's raise on unregistered types was not
+  adopted.
+  Targets: `src/channel.rs`, `src/reliable.rs`.
+- The IFAC flag is refused on plain interfaces and is never set except by
+  sealing. RNS `Transport.py` 1271-1290, 1765-1784.
+  Targets: `src/packet.rs`, `src/endpoint.rs`, `src/node.rs`.
+- The address book evicts its least recently heard idle peer, and route learning
+  and relaying no longer depend on book admission. RNS `Transport.py` 957-978,
+  1169-1176.
+  Targets: `src/address_book.rs`, `src/node.rs`, `src/endpoint.rs`.
+- Path responses are learned but never relayed. RNS `Transport.py` 2303, 2351.
+  Targets: `src/node.rs`, `src/endpoint.rs`.
+- An Endpoint ignores echoes of its own announces. RNS `Transport.py` 2177, 2211.
+  Target: `src/endpoint.rs`.
+- Announce freshness is tied to the route: a same-blob announce is a first
+  sighting once the route has gone, and a live route admits only a later
+  emission. RNS `Transport.py` 957-978, 1086-1090, 2207-2296, 2340-2349,
+  3219-3226, 3459-3530, 3729-3742.
+  Targets: `src/announce_freshness.rs`, `src/node.rs`, `src/endpoint.rs`.
 
 ## Prns
 
