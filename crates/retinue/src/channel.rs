@@ -42,7 +42,7 @@ pub const SEQ_MODULUS: u32 = 65536;
 /// Dynamic send-window constants, from RNS's `Channel` (1.5.7 `Channel.py` 200-245). The
 /// window bounds unacknowledged envelopes in flight. It grows by one per proof up to
 /// `window_max`, and `window_max` itself is promoted to the next RTT tier after
-/// [`FAST_RATE_THRESHOLD`] proofs below that tier's RTT; each timeout shrinks the window by
+/// `FAST_RATE_THRESHOLD` proofs below that tier's RTT; each timeout shrinks the window by
 /// one. It is a *local* send-rate policy, never on the wire, so matching RNS's tiers is a
 /// tuning choice, interoperable either way. `new` starts at [`WINDOW_INITIAL`].
 pub const WINDOW_INITIAL: u32 = 2;
@@ -522,7 +522,7 @@ impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize>
     /// proves each packet individually, so this frees exactly one sequence. `now` lets
     /// the dynamic window measure RTT.
     ///
-    /// Each proof opens the window by one up to `window_max`, and [`FAST_RATE_THRESHOLD`]
+    /// Each proof opens the window by one up to `window_max`, and `FAST_RATE_THRESHOLD`
     /// proofs inside a faster RTT tier promote `window_max` and `window_min` to that tier
     /// (RNS `_packet_tx_op`). RTT is sampled only from envelopes sent once (Karn's rule): a
     /// proof of a retransmitted envelope cannot say which transmission it answers. The first
