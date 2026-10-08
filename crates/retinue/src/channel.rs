@@ -325,7 +325,19 @@ impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize>
         // Fill the window with fresh data. The window is clamped to WINDOW at construction,
         // so the table has room, but the guard keeps that a local fact rather than an
         // assumption about a constructor three functions away.
-        while (self.outstanding.len() as u32) < self.window && !self.outstanding.is_full() {
+        //
+        // The window also bounds the sequence *span*, not just the count. An RNS receiver
+        // drops any envelope more than WINDOW_MAX past its next expected sequence, yet the
+        // link has already proved it, so the sender retires data that was never delivered.
+        // Counting only unproved envelopes lets a lost one fall far behind while proved
+        // successors keep the count low. A new sequence is assigned only while it stays
+        // within WINDOW_MAX of the oldest unproved one. The oldest cannot change inside
+        // this loop: everything assigned here is newer.
+        let oldest = self.oldest_outstanding();
+        while (self.outstanding.len() as u32) < self.window
+            && !self.outstanding.is_full()
+            && u32::from(self.send_next.wrapping_sub(oldest)) < WINDOW_MAX
+        {
             let Some(payload) = self.outgoing.pop_front() else {
                 break;
             };
@@ -376,6 +388,16 @@ impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize>
         }
 
         out
+    }
+
+    /// The oldest unproved sequence, or `send_next` when nothing is in flight. Age is the
+    /// wrapping distance back from `send_next`, so this holds across the 16-bit wrap.
+    fn oldest_outstanding(&self) -> u16 {
+        self.outstanding
+            .keys()
+            .copied()
+            .max_by_key(|&seq| self.send_next.wrapping_sub(seq))
+            .unwrap_or(self.send_next)
     }
 
     /// Release an outstanding sequence: its packet's proof arrived. Selective — RNS
