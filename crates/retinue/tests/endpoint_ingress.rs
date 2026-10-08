@@ -364,3 +364,157 @@ async fn announce_ingress_burst_is_bounded_attributed_and_does_not_silence_a_nei
         "the fresh repeat is not re-broadcast after its destination rate block"
     );
 }
+
+/// A raw interface into `hub` that sends crafted link requests and collects the proofs.
+struct RequestWire {
+    out: retinue::endpoint::OutboundPackets,
+    sink: retinue::endpoint::InterfaceSink,
+}
+
+impl RequestWire {
+    fn new(hub: &Endpoint) -> Self {
+        let (out, sink) = hub.attach_interface().split();
+        Self { out, sink }
+    }
+
+    /// Send one link request for `destination` with ephemeral `seed`, returning the
+    /// initiator half that can verify its proof.
+    fn request(
+        &self,
+        destination: retinue::hash::AddressHash,
+        server: retinue::identity::Identity,
+        seed: u16,
+    ) -> retinue::link::PendingLink {
+        use retinue::link::{LinkMode, LinkTrailer, PendingLink};
+        let mut ephemeral = [0x77u8; 64];
+        ephemeral[..2].copy_from_slice(&seed.to_be_bytes());
+        let (pending, request) = PendingLink::open(
+            destination,
+            server,
+            &ephemeral,
+            LinkTrailer {
+                mode: LinkMode::Aes256Cbc,
+                mtu: 500,
+            },
+        );
+        assert!(
+            self.sink.deliver(request),
+            "the hub's router took the request"
+        );
+        pending
+    }
+
+    /// Every proof the hub sends until the wire has been quiet for a moment.
+    async fn proofs(&mut self) -> Vec<retinue::Packet> {
+        let mut proofs = Vec::new();
+        while let Ok(Some(pkt)) =
+            tokio::time::timeout(Duration::from_millis(300), self.out.recv()).await
+        {
+            if pkt.packet_type == retinue::packet::PacketType::Proof {
+                proofs.push(pkt);
+            }
+        }
+        proofs
+    }
+}
+
+fn inbound_links(ep: &Endpoint) -> usize {
+    ep.link_facts()
+        .iter()
+        .filter(|f| f.direction == retinue::endpoint::LinkDirection::Inbound)
+        .count()
+}
+
+/// A flood of link requests cannot raise the inbound link count past its caps (review #18).
+///
+/// Every valid request used to get a proof, tasks, and buffers, without limit. Requests past
+/// the total or per-destination cap are now refused unproved and counted, and a slot frees
+/// when its link closes.
+#[tokio::test]
+async fn a_link_request_flood_stays_at_the_inbound_caps() {
+    use retinue::endpoint::InboundLinkLimits;
+
+    let hub_id = PrivateIdentity::from_secret_bytes(&[0x61; 64]);
+    let hub = Endpoint::new(hub_id.clone());
+    hub.set_inbound_link_limits(InboundLinkLimits {
+        total: 5,
+        per_destination: 3,
+    });
+    let busy = DestinationName::new("flood", ["busy"]);
+    let quiet = DestinationName::new("flood", ["quiet"]);
+    let busy_dest = busy.destination_hash(hub_id.public());
+    let quiet_dest = quiet.destination_hash(hub_id.public());
+    hub.register(busy, b"");
+    hub.register(quiet, b"");
+    let server = *hub_id.public();
+
+    let mut wire = RequestWire::new(&hub);
+    let mut busy_links = Vec::new();
+    for seed in 0..20 {
+        busy_links.push(wire.request(busy_dest, server, seed));
+    }
+    let proofs = wire.proofs().await;
+    assert_eq!(proofs.len(), 3, "one destination stops at its own cap");
+    assert_eq!(inbound_links(&hub), 3);
+    assert_eq!(hub.inbound_links_refused(), 17);
+
+    for seed in 100..120 {
+        wire.request(quiet_dest, server, seed);
+    }
+    assert_eq!(
+        wire.proofs().await.len(),
+        2,
+        "the total cap binds across destinations"
+    );
+    assert_eq!(inbound_links(&hub), 5);
+    assert_eq!(hub.inbound_links_refused(), 17 + 18);
+
+    // Close one busy link from the initiator side: its slot frees for a new request.
+    let proof = &proofs[0];
+    let link = busy_links
+        .iter()
+        .find_map(|pending| {
+            (pending.link_id() == proof.destination)
+                .then(|| pending.prove(proof).expect("a genuine proof"))
+        })
+        .expect("the proof answers one of our requests");
+    assert!(wire.sink.deliver(link.close_packet(&[0x42; 16])));
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(inbound_links(&hub), 4, "the closed link released its slot");
+    wire.request(busy_dest, server, 999);
+    assert_eq!(wire.proofs().await.len(), 1, "and a new request takes it");
+    assert_eq!(inbound_links(&hub), 5);
+}
+
+/// Accepted links wait in a bounded queue: a destination nobody accepts from cannot
+/// accumulate links without limit, whatever the link caps allow.
+#[tokio::test]
+async fn unaccepted_links_are_bounded_by_the_accept_queue() {
+    use retinue::endpoint::InboundLinkLimits;
+
+    let hub_id = PrivateIdentity::from_secret_bytes(&[0x62; 64]);
+    let hub = Endpoint::new(hub_id.clone());
+    hub.set_inbound_link_limits(InboundLinkLimits {
+        total: 1_000,
+        per_destination: 1_000,
+    });
+    let name = DestinationName::new("flood", ["unread"]);
+    let dest = name.destination_hash(hub_id.public());
+    hub.register(name, b"");
+
+    let mut wire = RequestWire::new(&hub);
+    for seed in 0..100 {
+        wire.request(dest, *hub_id.public(), seed);
+    }
+    let admitted = wire.proofs().await.len();
+    assert_eq!(admitted, 64, "the accept queue holds 64 links");
+    assert_eq!(hub.inbound_links_refused(), 36);
+
+    // Taking one from the queue makes room for one more.
+    let _stream = tokio::time::timeout(Duration::from_secs(1), hub.accept())
+        .await
+        .expect("a queued link is ready")
+        .unwrap();
+    wire.request(dest, *hub_id.public(), 500);
+    assert_eq!(wire.proofs().await.len(), 1);
+}

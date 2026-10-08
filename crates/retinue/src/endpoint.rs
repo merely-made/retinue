@@ -94,6 +94,14 @@ const DEFAULT_RELIABLE_INITIAL_RTT_MS: u64 = 750;
 /// can lower it without changing the wire format.
 const DEFAULT_RELIABLE_MAX_WINDOW: u32 = crate::channel::WINDOW_MAX;
 
+/// Packets or chunks queued for one link's driver or stream relay. Past this the router
+/// drops further link traffic, as a full medium would, instead of buffering without bound.
+const LINK_QUEUE: usize = 256;
+
+/// Accepted links waiting for the application, per accept queue. Link requests that would
+/// overflow it are refused before any link state is created.
+const ACCEPT_QUEUE: usize = 64;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Lifecycle {
     Running,
@@ -535,7 +543,7 @@ pub struct ResourceSession {
     shared: Arc<Shared>,
     link: Link,
     iface: InterfaceId,
-    packets: mpsc::UnboundedReceiver<Packet>,
+    packets: mpsc::Receiver<Packet>,
     config: ResourceTransferConfig,
     identified_peer: Option<Identity>,
 }
@@ -1095,6 +1103,26 @@ pub enum LinkFactKind {
     BestEffort,
     Reliable,
     Resource,
+}
+
+/// Caps on live inbound links. A link request past either cap is refused (not proved), so
+/// a flood of requests cannot make the endpoint spawn tasks and buffers without bound.
+/// Slots free when a link closes or its stream is dropped.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InboundLinkLimits {
+    /// Live inbound links across every destination this endpoint serves.
+    pub total: usize,
+    /// Live inbound links to any one destination.
+    pub per_destination: usize,
+}
+
+impl Default for InboundLinkLimits {
+    fn default() -> Self {
+        Self {
+            total: 256,
+            per_destination: 64,
+        }
+    }
 }
 
 /// Remote facts authenticated by link setup or a later IDENTIFY.
@@ -1948,18 +1976,12 @@ struct LinkEntry {
 enum LinkKind {
     /// The router decrypts each data packet and forwards the plaintext (right for TCP,
     /// where the medium never drops).
-    BestEffort {
-        inbound: mpsc::UnboundedSender<Vec<u8>>,
-    },
+    BestEffort { inbound: mpsc::Sender<Vec<u8>> },
     /// The router forwards raw channel-data and proof packets to the reliable driver task,
     /// which orders them, proves receipts, and drives retransmission (for lossy media).
-    Reliable {
-        packets: mpsc::UnboundedSender<Packet>,
-    },
+    Reliable { packets: mpsc::Sender<Packet> },
     /// Raw resource control, part, and proof packets are handed to a resource session.
-    Resource {
-        packets: mpsc::UnboundedSender<Packet>,
-    },
+    Resource { packets: mpsc::Sender<Packet> },
 }
 
 impl LinkKind {
@@ -2036,13 +2058,13 @@ struct Shared {
     /// The router's inbound channel: every interface's reader feeds `(interface, packet)`.
     router_tx: mpsc::Sender<(InterfaceId, Packet)>,
     /// Inbound accepted links (stream + destination), surfaced to `accept`.
-    accepted_tx: mpsc::UnboundedSender<Accepted>,
+    accepted_tx: mpsc::Sender<Accepted>,
     /// Inbound accepted reliable links, surfaced to `accept_reliable_on_any`. Registered
     /// eagerly (the peer identity is learned from the initiator's IDENTIFY, not needed up
     /// front).
-    reliable_accepted_tx: mpsc::UnboundedSender<Accepted>,
+    reliable_accepted_tx: mpsc::Sender<Accepted>,
     /// Inbound resource links, surfaced to `accept_resource`.
-    resource_accepted_tx: mpsc::UnboundedSender<AcceptedResource>,
+    resource_accepted_tx: mpsc::Sender<AcceptedResource>,
     /// Validated announces, surfaced to `announcements`.
     announce_tx: mpsc::UnboundedSender<PeerAnnounce>,
     /// Monotonic order assigned only after an announce passes validation and admission.
@@ -2078,6 +2100,12 @@ struct Shared {
     /// Proofs for recently accepted link requests, keyed by link id. Replaying the same
     /// proof avoids creating a second stream when only the first proof was lost.
     inbound_link_proofs: Mutex<HashMap<AddressHash, (Packet, Instant)>>,
+    /// Live inbound links, link id to the destination it was requested for, counted against
+    /// `inbound_limits`. Entries leave with the link (`remove_link`).
+    inbound_links: Mutex<HashMap<AddressHash, AddressHash>>,
+    inbound_limits: Mutex<InboundLinkLimits>,
+    /// Link requests refused at a cap or a full accept queue.
+    inbound_links_refused: AtomicU64,
     /// Learned routes: destination → the interface to reach it and its hop count. Populated
     /// from announces.
     path_table: Mutex<HashMap<AddressHash, PathEntry>>,
@@ -2176,6 +2204,15 @@ impl Shared {
             let removed = self.links.lock().unwrap().remove(&id).is_some();
             ((), removed)
         });
+        self.inbound_links.lock().unwrap().remove(&id);
+    }
+
+    /// Whether one more inbound link to `destination` fits the caps.
+    fn inbound_link_room(&self, destination: AddressHash) -> bool {
+        let limits = *self.inbound_limits.lock().unwrap();
+        let links = self.inbound_links.lock().unwrap();
+        links.len() < limits.total
+            && links.values().filter(|d| **d == destination).count() < limits.per_destination
     }
 
     fn is_running(&self) -> bool {
@@ -2664,9 +2701,9 @@ impl Shared {
 /// while another drives `accept`/`next_announcement`.
 pub struct Endpoint {
     shared: Arc<Shared>,
-    accepted_rx: AsyncMutex<mpsc::UnboundedReceiver<Accepted>>,
-    reliable_accepted_rx: AsyncMutex<mpsc::UnboundedReceiver<Accepted>>,
-    resource_accepted_rx: AsyncMutex<mpsc::UnboundedReceiver<AcceptedResource>>,
+    accepted_rx: AsyncMutex<mpsc::Receiver<Accepted>>,
+    reliable_accepted_rx: AsyncMutex<mpsc::Receiver<Accepted>>,
+    resource_accepted_rx: AsyncMutex<mpsc::Receiver<AcceptedResource>>,
     announce_rx: AsyncMutex<mpsc::UnboundedReceiver<PeerAnnounce>>,
     single_rx: AsyncMutex<mpsc::UnboundedReceiver<ReceivedSingle>>,
 }
@@ -2688,14 +2725,27 @@ async fn recv_until_closed<T>(
     shared: &Arc<Shared>,
     receiver: &AsyncMutex<mpsc::UnboundedReceiver<T>>,
 ) -> io::Result<T> {
+    until_closed(shared, async { receiver.lock().await.recv().await }).await
+}
+
+/// [`recv_until_closed`] for a bounded accept queue.
+async fn accept_until_closed<T>(
+    shared: &Arc<Shared>,
+    receiver: &AsyncMutex<mpsc::Receiver<T>>,
+) -> io::Result<T> {
+    until_closed(shared, async { receiver.lock().await.recv().await }).await
+}
+
+async fn until_closed<T>(
+    shared: &Arc<Shared>,
+    recv: impl std::future::Future<Output = Option<T>>,
+) -> io::Result<T> {
     let closed = shared.closed_notify.notified();
     if shared.is_closed() {
         return Err(endpoint_closed());
     }
     tokio::select! {
-        value = async {
-            receiver.lock().await.recv().await
-        } => {
+        value = recv => {
             if shared.is_closed() {
                 Err(endpoint_closed())
             } else {
@@ -2721,10 +2771,10 @@ impl Endpoint {
         freshness_policy: AnnounceFreshnessPolicy,
     ) -> Result<Self, AnnounceFreshnessConfigError> {
         let (router_tx, mut router_rx) = mpsc::channel::<(InterfaceId, Packet)>(ROUTER_QUEUE);
-        let (accepted_tx, accepted_rx) = mpsc::unbounded_channel::<Accepted>();
-        let (reliable_accepted_tx, reliable_accepted_rx) = mpsc::unbounded_channel::<Accepted>();
+        let (accepted_tx, accepted_rx) = mpsc::channel::<Accepted>(ACCEPT_QUEUE);
+        let (reliable_accepted_tx, reliable_accepted_rx) = mpsc::channel::<Accepted>(ACCEPT_QUEUE);
         let (resource_accepted_tx, resource_accepted_rx) =
-            mpsc::unbounded_channel::<AcceptedResource>();
+            mpsc::channel::<AcceptedResource>(ACCEPT_QUEUE);
         let (announce_tx, announce_rx) = mpsc::unbounded_channel::<PeerAnnounce>();
         let (single_tx, single_rx) = mpsc::unbounded_channel::<ReceivedSingle>();
 
@@ -2758,6 +2808,9 @@ impl Endpoint {
             link_setup_retry_ms: AtomicU64::new(DEFAULT_LINK_SETUP_RETRY_MS),
             link_mtu: AtomicU32::new(DEFAULT_LINK_MTU),
             inbound_link_proofs: Mutex::new(HashMap::new()),
+            inbound_links: Mutex::new(HashMap::new()),
+            inbound_limits: Mutex::new(InboundLinkLimits::default()),
+            inbound_links_refused: AtomicU64::new(0),
             path_table: Mutex::new(HashMap::new()),
             seen_announces: Mutex::new((HashSet::new(), VecDeque::new())),
             link_packets: Mutex::new(LinkPacketMemory::new()),
@@ -3107,6 +3160,23 @@ impl Endpoint {
     /// What routing has done since this endpoint started: forwarded, refused, and dropped.
     pub fn routing_counters(&self) -> RoutingCounters {
         self.shared.routing_stats.snapshot()
+    }
+
+    /// Cap live inbound links, in total and per destination. Links already up are kept;
+    /// the caps govern new requests.
+    pub fn set_inbound_link_limits(&self, limits: InboundLinkLimits) {
+        *self.shared.inbound_limits.lock().unwrap() = limits;
+    }
+
+    /// The current inbound link caps.
+    pub fn inbound_link_limits(&self) -> InboundLinkLimits {
+        *self.shared.inbound_limits.lock().unwrap()
+    }
+
+    /// Link requests refused since this endpoint started, because a cap or the accept queue
+    /// was full.
+    pub fn inbound_links_refused(&self) -> u64 {
+        self.shared.inbound_links_refused.load(Ordering::Relaxed)
     }
 
     /// Spread announce relays over a random delay of `0..=max`, instead of relaying the
@@ -3831,7 +3901,7 @@ impl Endpoint {
     /// Wait for the next inbound link, with the destination it targeted (an ALPN maps to a
     /// destination, so a host can dispatch by protocol).
     pub async fn accept_on_any(&self) -> io::Result<Accepted> {
-        recv_until_closed(&self.shared, &self.accepted_rx).await
+        accept_until_closed(&self.shared, &self.accepted_rx).await
     }
 
     /// Wait for the next inbound **reliable** link (to a destination registered with
@@ -3845,12 +3915,12 @@ impl Endpoint {
     /// Wait for the next inbound reliable link, retaining the destination and
     /// physical interface on which its request arrived.
     pub async fn accept_reliable_on_any(&self) -> io::Result<Accepted> {
-        recv_until_closed(&self.shared, &self.reliable_accepted_rx).await
+        accept_until_closed(&self.shared, &self.reliable_accepted_rx).await
     }
 
     /// Wait for an inbound resource link, including the destination it targeted.
     pub async fn accept_resource(&self) -> io::Result<AcceptedResource> {
-        recv_until_closed(&self.shared, &self.resource_accepted_rx).await
+        accept_until_closed(&self.shared, &self.resource_accepted_rx).await
     }
 
     /// The next validated announce, for building a host peer-id to destination map.
@@ -3882,6 +3952,7 @@ impl Endpoint {
             links.clear();
             ((), had_links)
         });
+        self.shared.inbound_links.lock().unwrap().clear();
         // Close every interface's outbound scheduler so a caller-driven pump parked in
         // `next_outbound` wakes and sees the end, rather than waiting on a sender that will
         // never come. (The channel this replaced ended implicitly when its sender dropped.)
@@ -4498,6 +4569,18 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                         return;
                     }
                 }
+                // Refuse a new link past the inbound caps or a full accept queue before any
+                // key agreement, task, or buffer is spent on it. The router is the only
+                // producer on the accept queues, so room seen here is still there below.
+                let accept_room = match kind {
+                    RegistrationKind::Reliable => shared.reliable_accepted_tx.capacity(),
+                    RegistrationKind::Resource => shared.resource_accepted_tx.capacity(),
+                    RegistrationKind::BestEffort => shared.accepted_tx.capacity(),
+                };
+                if accept_room == 0 || !shared.inbound_link_room(dest) {
+                    shared.inbound_links_refused.fetch_add(1, Ordering::Relaxed);
+                    return;
+                }
                 let ephemeral = ephemeral_seed();
                 let configured_mtu = shared.link_mtu.load(Ordering::Relaxed);
                 let requested_mtu = pkt
@@ -4531,6 +4614,8 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                         }
                         cache.insert(link.id(), (proof.clone(), Instant::now()));
                     }
+                    let link_id = link.id();
+                    shared.inbound_links.lock().unwrap().insert(link_id, dest);
                     shared.send_on(iface, proof);
                     match kind {
                         RegistrationKind::Reliable => {
@@ -4545,7 +4630,7 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                                 LinkDirection::Inbound,
                                 LinkRemoteFact::default(),
                             ) {
-                                let _ = shared.reliable_accepted_tx.send(Accepted {
+                                let _ = shared.reliable_accepted_tx.try_send(Accepted {
                                     stream,
                                     destination: dest,
                                     interface: iface,
@@ -4560,11 +4645,13 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                                 LinkDirection::Inbound,
                                 LinkRemoteFact::default(),
                             ) {
-                                let _ = shared.resource_accepted_tx.send(AcceptedResource {
+                                let _ = shared.resource_accepted_tx.try_send(AcceptedResource {
                                     session,
                                     destination: dest,
                                     interface: iface,
                                 });
+                            } else {
+                                shared.remove_link(link_id);
                             }
                         }
                         RegistrationKind::BestEffort => {
@@ -4575,7 +4662,7 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                                 LinkDirection::Inbound,
                                 LinkRemoteFact::default(),
                             ) {
-                                let _ = shared.accepted_tx.send(Accepted {
+                                let _ = shared.accepted_tx.try_send(Accepted {
                                     stream,
                                     destination: dest,
                                     interface: iface,
@@ -4619,7 +4706,7 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                         LinkKind::BestEffort { .. } => None,
                     });
                 if let Some(packets) = packets {
-                    let _ = packets.send(pkt);
+                    let _ = packets.try_send(pkt);
                 }
             }
         }
@@ -4656,11 +4743,11 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
             }
             if let Some(packets) = raw {
                 // The reliable or resource driver owns this packet; hand it over raw.
-                let _ = packets.send(pkt);
+                let _ = packets.try_send(pkt);
             } else if let Some((link, inbound)) = best {
                 match link.receive(&pkt) {
                     Some(Inbound::Data(bytes)) => {
-                        let _ = inbound.send(bytes);
+                        let _ = inbound.try_send(bytes);
                     }
                     Some(Inbound::Close) => {
                         // The peer closed the link: drop its entry so the inbound
@@ -4778,7 +4865,7 @@ fn register_resource_session(
         shared.send_on(iface, link.close_packet(&next_iv()));
         return None;
     }
-    let (packet_tx, packets) = mpsc::unbounded_channel();
+    let (packet_tx, packets) = mpsc::channel(LINK_QUEUE);
     shared.write_diagnostic(|| {
         shared.links.lock().unwrap().insert(
             link.id(),
@@ -4813,7 +4900,7 @@ fn register_stream(
 ) -> Option<LinkStream> {
     let (mine, theirs) = tokio::io::duplex(DUPLEX_BUF);
     let (mut read_half, mut write_half) = tokio::io::split(theirs);
-    let (inbound_tx, mut inbound_rx) = mpsc::unbounded_channel::<Vec<u8>>();
+    let (inbound_tx, mut inbound_rx) = mpsc::channel::<Vec<u8>>(LINK_QUEUE);
     let link_id = link.id();
     let write_chunk = write_chunk_for_mtu(link.mtu());
 
@@ -4861,6 +4948,8 @@ fn register_stream(
                     // peer's read side sees EOF. This is what lets a read-to-end
                     // protocol (e.g. gemini) end a response by closing the stream.
                     iv_shared.send_on(iface, out_link.close_packet(&next_iv()));
+                    // A closed link no longer counts against the inbound caps.
+                    iv_shared.inbound_links.lock().unwrap().remove(&link_id);
                     break;
                 }
                 Ok(n) => {
@@ -4908,7 +4997,7 @@ fn register_reliable_stream(
 ) -> Option<LinkStream> {
     let (mine, theirs) = tokio::io::duplex(DUPLEX_BUF);
     let (mut read_half, mut write_half) = tokio::io::split(theirs);
-    let (pkt_tx, mut pkt_rx) = mpsc::unbounded_channel::<Packet>();
+    let (pkt_tx, mut pkt_rx) = mpsc::channel::<Packet>(LINK_QUEUE);
     let link_id = link.id();
 
     shared.write_diagnostic(|| {
