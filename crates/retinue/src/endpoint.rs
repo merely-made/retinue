@@ -4921,7 +4921,11 @@ fn register_reliable_stream(
                                 break;
                             }
                         }
-                    } else if pkt.context == CTX_LINKCLOSE {
+                    } else if pkt.context == CTX_LINKCLOSE
+                        && close_link.receive(&pkt) == Some(Inbound::Close)
+                    {
+                        // Only a close that decrypts to the link id is the peer's: anyone
+                        // can put this context on a packet addressed to the link.
                         let _ = write_half.shutdown().await;
                         break;
                     }
@@ -5194,6 +5198,75 @@ mod tests {
             }
         }
         assert_eq!(proof_count, 1, "the oversized frame itself is not proved");
+    }
+
+    /// A LINKCLOSE is the peer's only if it decrypts to the link id. One with the right
+    /// context and address but a garbage payload is anybody's, and must not end the stream;
+    /// the genuine close still does.
+    #[tokio::test]
+    async fn a_forged_link_close_leaves_a_reliable_stream_open() {
+        use crate::channel::{Envelope, STREAM_MSGTYPE, StreamFrame};
+        use crate::link::{PendingLink, accept};
+
+        let server_id = PrivateIdentity::from_secret_bytes(&[0x71; 64]);
+        let endpoint = Endpoint::new(server_id.clone());
+        let iface = endpoint.attach_interface();
+        let dest =
+            DestinationName::new("retinue", ["forged-close"]).destination_hash(server_id.public());
+        let trailer = LinkTrailer {
+            mode: LinkMode::Aes256Cbc,
+            mtu: 500,
+        };
+        let (pending, request) = PendingLink::open(dest, *server_id.public(), &[0x73; 64], trailer);
+        let (server_link, proof) = accept(&request, &server_id, &[0x74; 64], trailer).unwrap();
+        let client_link = pending.prove(&proof).unwrap();
+        let mut stream = register_reliable_stream(
+            &endpoint.shared,
+            server_link,
+            iface.id(),
+            None,
+            LinkDirection::Inbound,
+            LinkRemoteFact {
+                destination: Some(dest),
+                identity: None,
+            },
+        )
+        .unwrap();
+        let sink = iface.sink();
+
+        let forged = client_link.framed_packet(CTX_LINKCLOSE, vec![0xA5; 48]);
+        assert!(sink.deliver(forged));
+        let frame = client_link.sealed_packet(
+            CTX_CHANNEL,
+            &Envelope {
+                msgtype: STREAM_MSGTYPE,
+                sequence: 0,
+                payload: StreamFrame {
+                    stream_id: 0,
+                    eof: false,
+                    compressed: false,
+                    data: b"still open".to_vec(),
+                }
+                .encode(),
+            }
+            .encode(),
+            &[0x01; IV_LEN],
+        );
+        assert!(sink.deliver(frame));
+        let mut got = [0u8; 10];
+        tokio::time::timeout(Duration::from_secs(2), stream.read_exact(&mut got))
+            .await
+            .expect("the stream still delivers")
+            .expect("the forged close did not end the stream");
+        assert_eq!(&got, b"still open");
+
+        assert!(sink.deliver(client_link.close_packet(&[0x02; IV_LEN])));
+        let mut rest = Vec::new();
+        tokio::time::timeout(Duration::from_secs(2), stream.read_to_end(&mut rest))
+            .await
+            .expect("a genuine close ends the stream")
+            .unwrap();
+        assert!(rest.is_empty());
     }
 
     #[tokio::test]
