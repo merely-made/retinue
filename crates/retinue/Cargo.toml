@@ -231,6 +231,10 @@ name = "endpoint_link_echo"
 required-features = ["tokio"]
 
 [[test]]
+name = "endpoint_link_liveness"
+required-features = ["tokio"]
+
+[[test]]
 name = "endpoint_shutdown"
 required-features = ["tokio"]
 

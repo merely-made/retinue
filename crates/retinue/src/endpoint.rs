@@ -23,7 +23,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -51,6 +51,7 @@ use crate::iface::hdlc::{Deframer, frame};
 use crate::link::{
     self, CTX_CHANNEL, CTX_LINKCLOSE, CTX_LINKIDENTIFY, Inbound, Link, LinkMode, LinkTrailer,
 };
+use crate::link_liveness::{self, Due, Liveness};
 use crate::packet::{DestinationType, Packet, PacketType};
 use crate::ratchet::RatchetStore;
 use crate::reliable::ReliableChannel;
@@ -59,24 +60,23 @@ use crate::resource::RANDOM_HASH_LEN;
 use crate::resource_transfer::{ResourceReceiver, ResourceSender};
 use crate::token::{IV_LEN, TOKEN_OVERHEAD};
 
-/// Largest plaintext chunk per link data packet. Kept under `ENCRYPTED_MDU` (383) so the
-/// encrypted token plus header always fits the MTU.
-const WRITE_CHUNK: usize = crate::packet::ENCRYPTED_MDU - 16;
+/// RNS's link MDU (`Link.py` 73, 512-514): the largest plaintext whose CBC-padded token and
+/// minimal header fit `mtu` with RNS's one-byte IFAC reserve. 431 at MTU 500. A longer
+/// access code is accounted for by the interface's frame limit, which counts it.
+const fn link_mdu(mtu: usize) -> usize {
+    const IFAC_MIN_SIZE: usize = 1;
+    let room = mtu.saturating_sub(IFAC_MIN_SIZE + crate::packet::HEADER_MIN_LEN + TOKEN_OVERHEAD);
+    (room / 16 * 16).saturating_sub(1)
+}
 
-/// Largest best-effort stream plaintext whose padded encrypted token and
-/// Reticulum header fit the MTU negotiated for this link.
-///
-/// CBC always adds at least one padding byte and rounds to a 16-byte block.
-/// Keep the ordinary 500-byte path at its existing conservative ceiling while
-/// shrinking radio links enough that the interface driver never has to reject
-/// a packet after `AsyncWrite` already accepted its bytes.
+/// Largest plaintext per link data packet at Reticulum's MTU.
+const WRITE_CHUNK: usize = link_mdu(crate::packet::MTU);
+
+/// Largest single-packet link plaintext (data, request or response) at the MTU negotiated
+/// for this link, so the interface driver never has to reject a packet after `AsyncWrite`
+/// already accepted its bytes.
 fn write_chunk_for_mtu(mtu: u32) -> usize {
-    let payload_room = (mtu as usize)
-        .saturating_sub(crate::packet::HEADER_MIN_LEN)
-        .min(crate::packet::MDU);
-    let ciphertext_room = payload_room.saturating_sub(TOKEN_OVERHEAD);
-    let padded_plaintext = (ciphertext_room / 16) * 16;
-    padded_plaintext.saturating_sub(1).clamp(1, WRITE_CHUNK)
+    link_mdu(mtu as usize).clamp(1, WRITE_CHUNK)
 }
 
 /// In-memory buffer for a stream's inbound side.
@@ -127,10 +127,9 @@ const IDENTIFY_MAX_SENDS: u32 = 4;
 /// otherwise leaves the publisher waiting after the receiver has already recovered the data.
 const RESOURCE_PROOF_MAX_SENDS: u32 = 4;
 
-/// How long [`Endpoint::open`] waits for a link proof before giving up. Multi-hop setup can
-/// be slow, so this is generous; it exists to bound a setup that will otherwise never
-/// complete (a peer that never proves) rather than to hang the caller forever.
-const LINK_SETUP_TIMEOUT: Duration = Duration::from_secs(15);
+/// How often the link watchdog advances every link's keepalive, staleness and handshake
+/// timers (see [`crate::link_liveness`]). The shortest keepalive interval is 5 s.
+const LINK_WATCHDOG_TICK: Duration = Duration::from_millis(500);
 
 /// Default interval between identical link-request transmissions while setup is pending.
 const DEFAULT_LINK_SETUP_RETRY_MS: u64 = 2_000;
@@ -374,6 +373,8 @@ pub struct LinkStream {
     inner: DuplexStream,
     /// Set by the reliable driver before it drops its duplex half on decode failure.
     receive_error: Option<Arc<Mutex<Option<StreamDecodeError>>>>,
+    /// Set when the link watchdog dropped the link: its end is then a timeout.
+    lost: Arc<AtomicBool>,
     /// The link id, exposed for diagnostics.
     link_id: AddressHash,
     /// The interface this link arrived on (inbound) or was opened over (outbound).
@@ -424,6 +425,11 @@ impl AsyncRead for LinkStream {
                         }
                     };
                     Poll::Ready(Err(io::Error::new(io::ErrorKind::InvalidData, message)))
+                } else if self.lost.load(Ordering::Acquire) {
+                    Poll::Ready(Err(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "link timed out: the peer stopped answering",
+                    )))
                 } else {
                     Poll::Ready(Ok(()))
                 }
@@ -1910,10 +1916,13 @@ struct LinkEntry {
     kind: LinkKind,
     /// The interface this link's traffic goes out on. Recorded for routing (R7), where a
     /// forwarded link's return traffic must go back the way it came.
-    #[allow(dead_code)]
     iface: InterfaceId,
     direction: LinkDirection,
     remote: LinkRemoteFact,
+    /// Keepalive, staleness and handshake timers, advanced by the link watchdog.
+    liveness: Liveness,
+    /// Set when the watchdog drops the link, so its stream reports a timeout, not an end.
+    lost: Arc<AtomicBool>,
 }
 
 /// The delivery discipline of a link's stream, chosen when the stream is registered.
@@ -2045,6 +2054,8 @@ struct Shared {
     reliable_decoded_frame_limit: AtomicUsize,
     /// Link-request retry interval for subsequently opened links.
     link_setup_retry_ms: AtomicU64,
+    /// Per-interface first-hop airtime allowances, in milliseconds, for link setup deadlines.
+    first_hop_airtime_ms: Mutex<HashMap<InterfaceId, u64>>,
     /// MTU requested and offered by subsequently established links.
     link_mtu: AtomicU32,
     /// Proofs for recently accepted link requests, keyed by link id. Replaying the same
@@ -2150,6 +2161,11 @@ impl Shared {
         });
     }
 
+    /// The monotonic millisecond clock link liveness runs on.
+    fn link_clock_ms(&self) -> u64 {
+        self.announce_admission_now_ms()
+    }
+
     fn is_running(&self) -> bool {
         *self.lifecycle.lock().unwrap() == Lifecycle::Running
     }
@@ -2213,6 +2229,7 @@ impl Shared {
                 false
             };
             drop(interfaces);
+            self.first_hop_airtime_ms.lock().unwrap().remove(&id);
             self.announce_admission.lock().unwrap().forget_interface(id);
             self.held_announces
                 .lock()
@@ -2728,6 +2745,7 @@ impl Endpoint {
             reliable_max_window: AtomicU32::new(DEFAULT_RELIABLE_MAX_WINDOW),
             reliable_decoded_frame_limit: AtomicUsize::new(DEFAULT_DECODED_FRAME_LIMIT),
             link_setup_retry_ms: AtomicU64::new(DEFAULT_LINK_SETUP_RETRY_MS),
+            first_hop_airtime_ms: Mutex::new(HashMap::new()),
             link_mtu: AtomicU32::new(DEFAULT_LINK_MTU),
             inbound_link_proofs: Mutex::new(HashMap::new()),
             path_table: Mutex::new(HashMap::new()),
@@ -2764,6 +2782,15 @@ impl Endpoint {
                     continue;
                 }
                 route(&router, iface, pkt);
+            }
+        });
+        let watchdog = Arc::clone(&shared);
+        track(&shared, async move {
+            let mut tick = tokio::time::interval(LINK_WATCHDOG_TICK);
+            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                tick.tick().await;
+                watch_links(&watchdog);
             }
         });
 
@@ -3097,7 +3124,8 @@ impl Endpoint {
         self.shared.relay_jitter_ms.store(ms, Ordering::Relaxed);
     }
 
-    /// Set the first reliable-channel RTT estimate for subsequently opened links.
+    /// Set the first reliable-channel RTT estimate for subsequently opened links. It is a
+    /// floor under the RTT an initiator measures at setup, and a responder's whole estimate.
     /// Slow half-duplex radios should include their queue and proof turnaround time.
     pub fn set_reliable_initial_rtt(&self, rtt: Duration) {
         let millis = rtt.as_millis().clamp(1, u128::from(u64::MAX)) as u64;
@@ -3138,6 +3166,20 @@ impl Endpoint {
         self.shared
             .link_setup_retry_ms
             .store(millis, Ordering::Relaxed);
+    }
+
+    /// Set the first-hop airtime allowance added to the setup deadline of links opened over
+    /// `iface`: the time its medium needs to carry one 500-byte MTU
+    /// ([`crate::node::first_hop_airtime`] computes it from a bitrate). Zero, the default,
+    /// suits an unbounded medium such as TCP.
+    pub fn set_first_hop_airtime(&self, iface: InterfaceId, allowance: Duration) {
+        let millis = allowance.as_millis().min(u128::from(u64::MAX)) as u64;
+        let mut airtime = self.shared.first_hop_airtime_ms.lock().unwrap();
+        if millis == 0 {
+            airtime.remove(&iface);
+        } else {
+            airtime.insert(iface, millis);
+        }
     }
 
     /// Set the MTU requested and offered by subsequently established links.
@@ -3504,11 +3546,12 @@ impl Endpoint {
     /// Open a best-effort link to a destination and return its stream. `peer` is the
     /// destination's identity (learned from an announce, e.g. via [`resolve`](Self::resolve)).
     pub async fn open(&self, dest: AddressHash, peer: Identity) -> io::Result<LinkStream> {
-        let (link, iface) = self.establish(dest, peer).await?;
+        let (link, iface, liveness) = self.establish(dest, peer).await?;
         register_stream(
             &self.shared,
             link,
             iface,
+            liveness,
             LinkDirection::Outbound,
             LinkRemoteFact {
                 destination: Some(dest),
@@ -3524,11 +3567,12 @@ impl Endpoint {
     /// it. As the initiator, the reliable driver IDENTIFYs us to the responder so it can
     /// validate our proofs in turn.
     pub async fn open_reliable(&self, dest: AddressHash, peer: Identity) -> io::Result<LinkStream> {
-        let (link, iface) = self.establish(dest, peer).await?;
+        let (link, iface, liveness) = self.establish(dest, peer).await?;
         register_reliable_stream(
             &self.shared,
             link,
             iface,
+            liveness,
             Some(peer),
             LinkDirection::Outbound,
             LinkRemoteFact {
@@ -3545,11 +3589,12 @@ impl Endpoint {
         dest: AddressHash,
         peer: Identity,
     ) -> io::Result<ResourceSession> {
-        let (link, iface) = self.establish(dest, peer).await?;
+        let (link, iface, liveness) = self.establish(dest, peer).await?;
         register_resource_session(
             &self.shared,
             link,
             iface,
+            liveness,
             LinkDirection::Outbound,
             LinkRemoteFact {
                 destination: Some(dest),
@@ -3609,12 +3654,13 @@ impl Endpoint {
         data: &[u8],
         config: ResourceTransferConfig,
     ) -> io::Result<PayloadMode> {
-        let (link, iface) = self.establish(dest, peer).await?;
+        let (link, iface, liveness) = self.establish(dest, peer).await?;
         if data.len() <= write_chunk_for_mtu(link.mtu()) {
             let mut stream = register_stream(
                 &self.shared,
                 link,
                 iface,
+                liveness,
                 LinkDirection::Outbound,
                 LinkRemoteFact {
                     destination: Some(dest),
@@ -3631,6 +3677,7 @@ impl Endpoint {
                 &self.shared,
                 link,
                 iface,
+                liveness,
                 LinkDirection::Outbound,
                 LinkRemoteFact {
                     destination: Some(dest),
@@ -3685,13 +3732,35 @@ impl Endpoint {
         session.fetch().await
     }
 
+    /// How long a link request to `dest` waits for its proof: Node's deadline for the
+    /// route's hop count plus the first-hop airtime of the interface it leaves by, or of the
+    /// slowest interface when it is broadcast for want of a route.
+    fn link_setup_timeout(&self, dest: AddressHash) -> Duration {
+        let route = self.route_to(dest);
+        let first_hop = {
+            let airtime = self.shared.first_hop_airtime_ms.lock().unwrap();
+            match route {
+                Some((iface, _)) => airtime.get(&iface).copied().unwrap_or(0),
+                None => airtime.values().copied().max().unwrap_or(0),
+            }
+        };
+        let hops = route.map_or(0, |(_, hops)| hops);
+        Duration::from_millis(crate::node::link_request_timeout(hops).saturating_add(first_hop))
+    }
+
     /// Establish a link to `dest` (whose identity is `peer`), returning it with the interface
-    /// its proof arrived on. The stream discipline is chosen by the caller.
+    /// its proof arrived on and its liveness timers. The stream discipline is chosen by the
+    /// caller.
+    ///
+    /// Setup waits [`crate::node::link_request_timeout`] for the route's hop count, plus the
+    /// outgoing interface's first-hop airtime ([`Endpoint::set_first_hop_airtime`]). On
+    /// timeout an endpoint that is not a transport forgets the route and asks for a new path,
+    /// within the path-request budget, as RNS does (`Transport.py` 697-725).
     async fn establish(
         &self,
         dest: AddressHash,
         peer: Identity,
-    ) -> io::Result<(Link, InterfaceId)> {
+    ) -> io::Result<(Link, InterfaceId, Liveness)> {
         if !self.shared.is_running() {
             return Err(endpoint_closed());
         }
@@ -3731,12 +3800,17 @@ impl Endpoint {
             Some(iface) => self.shared.send_on(iface, request.clone()),
             None => self.shared.broadcast(request.clone()),
         };
+        let setup_timeout = self.link_setup_timeout(dest);
+        // The proof's arrival measures the RTT from this first transmission. A proof after a
+        // retry cannot say which copy it answers (Karn), so the measurement keeps this
+        // conservative bound rather than guessing the shorter one.
+        let sent_at = tokio::time::Instant::now();
         send_request();
 
         let retry = Duration::from_millis(self.shared.link_setup_retry_ms.load(Ordering::Relaxed));
         let mut retries = tokio::time::interval_at(tokio::time::Instant::now() + retry, retry);
         retries.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        let deadline = tokio::time::sleep(LINK_SETUP_TIMEOUT);
+        let deadline = tokio::time::sleep(setup_timeout);
         let closed = self.shared.closed_notify.notified();
         tokio::pin!(deadline);
         tokio::pin!(rx);
@@ -3748,20 +3822,21 @@ impl Endpoint {
         loop {
             tokio::select! {
                 result = &mut rx => match result {
-                    Ok(established) => {
+                    Ok((link, iface)) => {
                         guard.armed = false; // router removed both entries on success
                         if self.shared.is_running() {
                             // The responder does not activate an inbound link until the
                             // initiator reports its measured RTT. Keep this ahead of any
                             // application packet emitted by the returned session.
-                            self.shared.send_on(
-                                established.1,
-                                established.0.rtt_packet(0.05, &next_iv()),
-                            );
-                            return Ok(established);
+                            let rtt = sent_at.elapsed();
+                            self.shared
+                                .send_on(iface, link.rtt_packet(rtt.as_secs_f32(), &next_iv()));
+                            let rtt_ms = rtt.as_millis().min(u128::from(u64::MAX)) as u64;
+                            let liveness =
+                                Liveness::initiator(rtt_ms, self.shared.link_clock_ms());
+                            return Ok((link, iface, liveness));
                         }
-                        self.shared
-                            .send_on(established.1, established.0.close_packet(&next_iv()));
+                        self.shared.send_on(iface, link.close_packet(&next_iv()));
                         return Err(endpoint_closed());
                     }
                     Err(_) => return Err(io::Error::new(
@@ -3770,10 +3845,13 @@ impl Endpoint {
                     )),
                 },
                 _ = retries.tick() => send_request(),
-                _ = &mut deadline => return Err(io::Error::new(
-                    io::ErrorKind::TimedOut,
-                    "link setup timed out",
-                )),
+                _ = &mut deadline => {
+                    if !self.shared.routing.lock().unwrap().forward_packets {
+                        self.shared.forget_path(dest);
+                        self.request_path(dest);
+                    }
+                    return Err(io::Error::new(io::ErrorKind::TimedOut, "link setup timed out"));
+                }
                 _ = &mut closed => return Err(endpoint_closed()),
             }
         }
@@ -4308,6 +4386,79 @@ fn process_verified_announce(
     }
 }
 
+/// Advance every link's liveness timers: send due keepalives, and drop links that went
+/// stale (with a LINKCLOSE) or whose initiator never reported an RTT. A dropped link's
+/// stream reads end in [`io::ErrorKind::TimedOut`], its session's in
+/// [`io::ErrorKind::BrokenPipe`].
+fn watch_links(shared: &Shared) {
+    let now = shared.link_clock_ms();
+    let sends = shared.write_diagnostic(|| {
+        let mut links = shared.links.lock().unwrap();
+        let mut sends = Vec::new();
+        let mut lost = Vec::new();
+        for (id, entry) in links.iter_mut() {
+            match entry.liveness.poll(now) {
+                None => {}
+                Some(Due::Keepalive) => sends.push((
+                    entry.iface,
+                    entry.link.keepalive_packet(link::KEEPALIVE_REQUEST),
+                )),
+                Some(Due::Teardown) => {
+                    sends.push((entry.iface, entry.link.close_packet(&next_iv())));
+                    lost.push(*id);
+                }
+                Some(Due::HandshakeTimeout) => lost.push(*id),
+            }
+        }
+        for id in &lost {
+            if let Some(entry) = links.remove(id) {
+                entry.lost.store(true, Ordering::Release);
+            }
+        }
+        (sends, !lost.is_empty())
+    });
+    for (iface, packet) in sends {
+        shared.send_on_class(iface, packet, TrafficClass::Control);
+    }
+}
+
+/// Feed an inbound packet on one of our links to its liveness timers, answering a keepalive
+/// request when due. Returns whether the packet was liveness upkeep (a keepalive or the RTT
+/// packet), which nothing else consumes.
+fn note_link_inbound(shared: &Shared, pkt: &Packet) -> bool {
+    let now = shared.link_clock_ms();
+    let reply = {
+        let mut links = shared.links.lock().unwrap();
+        let Some(entry) = links.get_mut(&pkt.destination) else {
+            return false;
+        };
+        match pkt.context {
+            link::CTX_KEEPALIVE if pkt.packet_type == PacketType::Data => {
+                entry.liveness.on_keepalive(&pkt.payload, now).then(|| {
+                    (
+                        entry.iface,
+                        entry.link.keepalive_packet(link::KEEPALIVE_RESPONSE),
+                    )
+                })
+            }
+            link::CTX_LRRTT if pkt.packet_type == PacketType::Data => {
+                if let Some(rtt) = link_liveness::read_rtt(&entry.link, pkt) {
+                    entry.liveness.on_rtt(rtt, now);
+                }
+                None
+            }
+            _ => {
+                entry.liveness.on_inbound(now);
+                return false;
+            }
+        }
+    };
+    if let Some((iface, packet)) = reply {
+        shared.send_on_class(iface, packet, TrafficClass::Control);
+    }
+    true
+}
+
 /// Dispatch one inbound packet that arrived on `iface`.
 fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
     // A path request for a destination we own: answer it with a path response (an announce
@@ -4488,6 +4639,7 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                         cache.insert(link.id(), (proof.clone(), Instant::now()));
                     }
                     shared.send_on(iface, proof);
+                    let liveness = Liveness::responder(shared.link_clock_ms(), pkt.hops);
                     match kind {
                         RegistrationKind::Reliable => {
                             // Register eagerly with no peer yet: the driver learns the
@@ -4496,6 +4648,7 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                                 shared,
                                 link,
                                 iface,
+                                liveness,
                                 None,
                                 LinkDirection::Inbound,
                                 LinkRemoteFact::default(),
@@ -4512,6 +4665,7 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                                 shared,
                                 link,
                                 iface,
+                                liveness,
                                 LinkDirection::Inbound,
                                 LinkRemoteFact::default(),
                             ) {
@@ -4527,6 +4681,7 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                                 shared,
                                 link,
                                 iface,
+                                liveness,
                                 LinkDirection::Inbound,
                                 LinkRemoteFact::default(),
                             ) {
@@ -4573,6 +4728,7 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                         }
                         LinkKind::BestEffort { .. } => None,
                     });
+                note_link_inbound(shared, &pkt);
                 if let Some(packets) = packets {
                     let _ = packets.send(pkt);
                 }
@@ -4606,6 +4762,10 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                 };
                 if let Some(counter) = dropped {
                     counter.fetch_add(1, Ordering::Relaxed);
+                    return;
+                }
+                // Heard from the peer. Keepalives and the RTT packet end here.
+                if note_link_inbound(shared, &pkt) {
                     return;
                 }
             }
@@ -4726,6 +4886,7 @@ fn register_resource_session(
     shared: &Arc<Shared>,
     link: Link,
     iface: InterfaceId,
+    liveness: Liveness,
     direction: LinkDirection,
     remote: LinkRemoteFact,
 ) -> Option<ResourceSession> {
@@ -4743,6 +4904,8 @@ fn register_resource_session(
                 iface,
                 direction,
                 remote,
+                liveness,
+                lost: Arc::default(),
             },
         );
         ((), true)
@@ -4763,6 +4926,7 @@ fn register_stream(
     shared: &Arc<Shared>,
     link: Link,
     iface: InterfaceId,
+    liveness: Liveness,
     direction: LinkDirection,
     remote: LinkRemoteFact,
 ) -> Option<LinkStream> {
@@ -4771,6 +4935,7 @@ fn register_stream(
     let (inbound_tx, mut inbound_rx) = mpsc::unbounded_channel::<Vec<u8>>();
     let link_id = link.id();
     let write_chunk = write_chunk_for_mtu(link.mtu());
+    let lost = Arc::new(AtomicBool::new(false));
 
     shared.write_diagnostic(|| {
         shared.links.lock().unwrap().insert(
@@ -4783,6 +4948,8 @@ fn register_stream(
                 iface,
                 direction,
                 remote,
+                liveness,
+                lost: Arc::clone(&lost),
             },
         );
         ((), true)
@@ -4807,10 +4974,17 @@ fn register_stream(
     // duplex to EOF, so an orderly shutdown can wait for exactly that.
     let out_link = link;
     let iv_shared = Arc::clone(shared);
+    let out_lost = Arc::clone(&lost);
     let outbound_started = track_drainable(shared, async move {
         let mut buf = vec![0u8; write_chunk];
         loop {
-            match read_half.read(&mut buf).await {
+            let read = read_half.read(&mut buf).await;
+            // The watchdog dropped the link and already sent its close: stop, so the
+            // writer sees a broken pipe instead of feeding a link nobody hears.
+            if out_lost.load(Ordering::Acquire) {
+                break;
+            }
+            match read {
                 Ok(0) | Err(_) => {
                     // The stream was shut down or dropped: close the link so the
                     // peer's read side sees EOF. This is what lets a read-to-end
@@ -4834,6 +5008,7 @@ fn register_stream(
     Some(LinkStream {
         inner: mine,
         receive_error: None,
+        lost,
         link_id,
         iface,
     })
@@ -4852,6 +5027,7 @@ fn register_reliable_stream(
     shared: &Arc<Shared>,
     link: Link,
     iface: InterfaceId,
+    liveness: Liveness,
     peer: Option<Identity>,
     direction: LinkDirection,
     remote: LinkRemoteFact,
@@ -4860,6 +5036,13 @@ fn register_reliable_stream(
     let (mut read_half, mut write_half) = tokio::io::split(theirs);
     let (pkt_tx, mut pkt_rx) = mpsc::unbounded_channel::<Packet>();
     let link_id = link.id();
+    let lost = Arc::new(AtomicBool::new(false));
+    // The configured RTT is a floor under the one measured at setup: a responder has no
+    // measurement yet, and a slow radio's data turnaround can exceed its setup round trip.
+    let initial_rtt_ms = shared
+        .reliable_initial_rtt_ms
+        .load(Ordering::Relaxed)
+        .max(liveness.rtt().unwrap_or(0));
 
     shared.write_diagnostic(|| {
         shared.links.lock().unwrap().insert(
@@ -4870,6 +5053,8 @@ fn register_reliable_stream(
                 iface,
                 direction,
                 remote,
+                liveness,
+                lost: Arc::clone(&lost),
             },
         );
         ((), true)
@@ -4880,7 +5065,6 @@ fn register_reliable_stream(
     // the responder's duplicate window does not count it (Ruling 72).
     let identify_link = peer.is_some().then(|| link.clone());
     let close_link = link.clone();
-    let initial_rtt_ms = shared.reliable_initial_rtt_ms.load(Ordering::Relaxed);
     let max_window = shared.reliable_max_window.load(Ordering::Relaxed);
     let decoded_frame_limit = shared.reliable_decoded_frame_limit.load(Ordering::Relaxed);
     let receive_error = Arc::new(Mutex::new(None));
@@ -5065,6 +5249,7 @@ fn register_reliable_stream(
     Some(LinkStream {
         inner: mine,
         receive_error: Some(receive_error),
+        lost,
         link_id,
         iface,
     })
@@ -5193,6 +5378,7 @@ mod tests {
             &endpoint.shared,
             server_link,
             iface.id(),
+            Liveness::responder(0, 0),
             None,
             LinkDirection::Inbound,
             LinkRemoteFact {
@@ -5288,6 +5474,7 @@ mod tests {
             &endpoint.shared,
             server_link,
             iface.id(),
+            Liveness::responder(0, 0),
             None,
             LinkDirection::Inbound,
             LinkRemoteFact {
@@ -5340,6 +5527,7 @@ mod tests {
         let mut stream = LinkStream {
             inner: mine,
             receive_error: Some(Arc::clone(&error)),
+            lost: Arc::default(),
             link_id: AddressHash::from_bytes([7; 16]),
             iface: 0,
         };
@@ -6244,6 +6432,7 @@ mod tests {
             &ep.shared,
             link,
             interface,
+            Liveness::responder(0, 0),
             LinkDirection::Inbound,
             LinkRemoteFact::default(),
         )
