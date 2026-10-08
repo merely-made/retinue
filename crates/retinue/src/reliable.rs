@@ -16,7 +16,7 @@
 //!   `buffer_wire.json`).
 //! - Each envelope rides a link data packet under context [`CTX_CHANNEL`], sealed with the
 //!   link keys.
-//! - The **ack is the link packet proof** ([`Link::data_proof`] / [`Link::verify_data_proof`],
+//! - The **ack is the link packet proof** ([`Link::prove_packet`] / [`Link::validate_proof`],
 //!   gold-tested against `rns_link_proof.json`): a received packet is proved back, and an
 //!   inbound proof names the packet it acknowledges by hash, releasing that sequence.
 //!
@@ -56,12 +56,14 @@ pub struct ReliableChannel<
 > {
     link: Link,
     buffer: Buffer<WINDOW, QUEUE, REORDER, READ_BYTES>,
-    /// Our identity — signs the proofs of packets we receive.
+    /// Our identity. Proofs are signed with the link's own key, not this; it is kept so an
+    /// echo of our own IDENTIFY is never taken for the peer's.
     prover: PrivateIdentity,
-    /// The peer's identity — validates the proofs of packets we sent. `None` until it is
-    /// known: an initiator holds the destination's identity from the announce; a responder
-    /// learns the initiator's from the IDENTIFY it sends ([`on_identify`](Self::on_identify)).
-    /// Until it is set, the peer's proofs cannot be validated, so nothing we send is released.
+    /// The peer's identity. `None` until it is known: an initiator holds the destination's
+    /// identity from the announce; a responder learns the initiator's from the IDENTIFY it
+    /// sends ([`on_identify`](Self::on_identify)). Proofs are validated against the link's
+    /// peer key without it; an IDENTIFY'd identity is also accepted as a proof key, for older
+    /// retinue initiators that signed with their long-term identity.
     peer: Option<Identity>,
     /// Full hash of each channel packet we put on the wire, to its sequence. An inbound
     /// proof carries the hash; this maps it back to the sequence to release.
@@ -121,7 +123,8 @@ impl<
 
     /// A reliable channel whose peer is not yet known — a responder, which learns the
     /// initiator's identity from the IDENTIFY it sends (feed packets to
-    /// [`on_identify`](Self::on_identify)). Until then its proofs are not validated.
+    /// [`on_identify`](Self::on_identify)). Its proofs validate against the link's peer key
+    /// whether or not it identifies.
     pub fn accepting(link: Link, prover: PrivateIdentity) -> Self {
         Self::build(link, prover, None, None, None)
     }
@@ -258,16 +261,19 @@ impl<
         self.buffer
             .receive_error()
             .is_none()
-            .then(|| self.link.data_proof(packet, &self.prover))
+            .then(|| self.link.prove_packet(packet))
     }
 
-    /// Feed an inbound proof: if it validates against the peer's identity and names a packet
+    /// Feed an inbound proof: if it validates against the peer's link key and names a packet
     /// we sent, release that sequence. Returns whether it matched an outstanding packet.
     pub fn on_proof(&mut self, proof: &Packet, now: u64) -> bool {
-        let hash = match &self.peer {
-            Some(peer) => self.link.verify_data_proof(proof, peer),
-            None => None, // peer not yet identified: cannot validate its proofs
-        };
+        // Transitional: an older retinue initiator proves with its long-term identity, which
+        // a responder only knows once that initiator has sent IDENTIFY.
+        let hash = self.link.validate_proof(proof).or_else(|| {
+            self.peer
+                .as_ref()
+                .and_then(|peer| self.link.verify_data_proof(proof, peer))
+        });
         let Some(hash) = hash else {
             return false;
         };
@@ -746,11 +752,10 @@ mod tests {
         assert!(client.on_proof(&real, 2), "genuine proof accepted");
     }
 
-    #[test]
-    fn a_responder_validates_proofs_only_after_identify() {
-        // A responder starts without the initiator's identity, so it cannot validate the
-        // initiator's proofs of the data the responder sends. After the initiator's IDENTIFY,
-        // it learns the identity and the same proof is accepted.
+    /// Initiator and responder channels over one link, as an endpoint builds them: the
+    /// responder does not know the initiator. Also returns the link request, whose bytes
+    /// 32..64 are the initiator's ephemeral Ed25519 key, and the initiator's identity.
+    fn unidentified_pair() -> (ReliableChannel, ReliableChannel, Packet, PrivateIdentity) {
         let server_id = PrivateIdentity::from_secret_bytes(&[0x22; 64]);
         let client_id = PrivateIdentity::from_secret_bytes(&[0x11; 64]);
         let trailer = LinkTrailer {
@@ -761,51 +766,109 @@ mod tests {
         let (pending, request) = PendingLink::open(dest, *server_id.public(), &[0x33; 64], trailer);
         let (responder_link, proof) = accept(&request, &server_id, &[0x99; 64], trailer).unwrap();
         let initiator_link = pending.prove(&proof).unwrap();
-
-        // Server accepts without knowing the client; the client already knows the server.
         let server_pub = *server_id.public();
-        let mut server: ReliableChannel = ReliableChannel::accepting(responder_link, server_id);
-        let mut client: ReliableChannel =
-            ReliableChannel::new(initiator_link, client_id.clone(), server_pub);
+        (
+            ReliableChannel::new(initiator_link, client_id.clone(), server_pub),
+            ReliableChannel::accepting(responder_link, server_id),
+            request,
+            client_id,
+        )
+    }
 
-        // The server sends a message; the client receives it and proves it back.
-        assert_eq!(
-            server.write(b"a message from the server"),
-            b"a message from the server".len(),
-            "the send queue took every byte"
-        );
+    /// One message from the server, as the packet it put on the wire.
+    fn server_sends(server: &mut ReliableChannel) -> Packet {
+        assert_eq!(server.write(b"from the server"), 15);
         let mut ivc = 0u64;
-        let mut iv = || {
-            ivc += 1;
-            let mut v = [0u8; IV_LEN];
-            v[..8].copy_from_slice(&ivc.to_le_bytes());
-            v
-        };
-        let sent = server.poll_transmit(0, &mut iv);
-        assert!(!sent.is_empty());
+        let mut sent = server.poll_transmit(0, counting_iv(&mut ivc));
+        assert_eq!(sent.len(), 1);
+        sent.remove(0)
+    }
+
+    /// An RNS initiator proves link data with the ephemeral key from its link request and
+    /// never needs to IDENTIFY for that. A responder must take the key from the request, or
+    /// nothing it sends to an RNS peer is ever released.
+    #[test]
+    fn a_responder_releases_an_ephemeral_proof_without_identify() {
+        let (_client, mut server, _request, _) = unidentified_pair();
+        let sent = server_sends(&mut server);
+
+        // Built as RNS builds it: the explicit proof, signed by the initiator's ephemeral
+        // seed (the one `PendingLink::open` was given).
+        let ephemeral = PrivateIdentity::from_secret_bytes(&[0x33; 64]);
+        let proof = crate::link::data_proof_packet(server.link_id(), &sent.full_hash(), &ephemeral);
+
+        assert!(server.peer().is_none(), "the initiator never identified");
+        assert!(
+            server.on_proof(&proof, 1),
+            "the ephemeral proof is accepted"
+        );
+        assert!(server.send_idle(), "the server's packet is released");
+    }
+
+    /// The initiator proves with its ephemeral key, which the responder reads out of the
+    /// request, and not with its long-term identity.
+    #[test]
+    fn an_initiator_proves_with_its_ephemeral_key() {
+        let (mut client, mut server, request, client_id) = unidentified_pair();
+        let sent = server_sends(&mut server);
         let proof = client
-            .on_data_packet(&sent[0])
+            .on_data_packet(&sent)
             .expect("client proves the server's packet");
 
-        // Before identify the server cannot validate the client's proof, so it is not released.
-        assert!(server.peer().is_none(), "no peer yet");
-        assert!(
-            !server.on_proof(&proof, 1),
-            "proof rejected before identify"
+        let request_key = Identity::from_public_bytes(&request.payload[..64].try_into().unwrap())
+            .expect("request keys parse");
+        let link_id = client.link_id();
+        assert_eq!(
+            crate::link::read_data_proof(link_id, &proof, &request_key),
+            Some(sent.full_hash()),
+            "signed by the key in request bytes 32..64"
         );
-        assert!(
-            !server.send_idle(),
-            "the server's packet is still outstanding"
+        assert_eq!(
+            crate::link::read_data_proof(link_id, &proof, client_id.public()),
+            None,
+            "not signed by the initiator's long-term identity"
         );
+        assert!(server.on_proof(&proof, 1), "the responder releases it");
+    }
 
-        // The client identifies; now the server learns it and accepts the same proof.
+    /// The responder proves with its destination identity, which an initiator knows from
+    /// the announce.
+    #[test]
+    fn a_responder_proves_with_its_identity() {
+        let (mut client, mut server, _request, _) = unidentified_pair();
+        assert_eq!(client.write(b"to the server"), 13);
+        let mut ivc = 0u64;
+        let sent = client.poll_transmit(0, counting_iv(&mut ivc));
+        let proof = server.on_data_packet(&sent[0]).expect("server proves");
+        let server_pub = *PrivateIdentity::from_secret_bytes(&[0x22; 64]).public();
+        assert_eq!(
+            crate::link::read_data_proof(client.link_id(), &proof, &server_pub),
+            Some(sent[0].full_hash())
+        );
+        assert!(client.on_proof(&proof, 1), "the initiator releases it");
+    }
+
+    /// Transitional: an older retinue initiator proves with its long-term identity. A
+    /// responder accepts that once the initiator has identified, and not before.
+    #[test]
+    fn a_responder_accepts_a_long_term_proof_after_identify() {
+        let (client, mut server, _request, client_id) = unidentified_pair();
+        let sent = server_sends(&mut server);
+        let legacy = client.link.data_proof(&sent, &client_id);
+
+        assert!(
+            !server.on_proof(&legacy, 1),
+            "a long-term proof needs an identity to check it against"
+        );
+        assert!(!server.send_idle());
+
         let id_packet = client.link.identify_packet(&client_id, &[0x07; IV_LEN]);
         assert!(server.on_identify(&id_packet), "server learns the client");
         assert_eq!(
             server.peer().map(|p| p.hash()),
             Some(client_id.public().hash())
         );
-        assert!(server.on_proof(&proof, 2), "proof accepted after identify");
+        assert!(server.on_proof(&legacy, 2), "accepted after identify");
         assert!(server.send_idle(), "the server's packet is now released");
     }
 

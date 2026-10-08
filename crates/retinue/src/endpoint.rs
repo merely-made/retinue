@@ -4796,11 +4796,11 @@ fn register_stream(
 /// link-proof acks (see [`crate::reliable`]). A single driver task owns the
 /// [`ReliableChannel`] and pumps it — app writes in, ordered bytes out, a proof per
 /// delivered packet, an inbound proof releasing its sequence, and retransmits on a clock —
-/// so the stream stays honest over a lossy interface. `peer` is the identity whose proofs
-/// this side validates: `Some` for an initiator (the destination's identity from its
-/// announce), `None` for a responder, which learns the initiator's identity from the IDENTIFY
-/// the initiator sends. An initiator also sends its own IDENTIFY so the responder can validate
-/// it in turn.
+/// so the stream stays honest over a lossy interface. `peer` is the remote identity: `Some`
+/// for an initiator (the destination's identity from its announce), `None` for a responder,
+/// which learns the initiator's identity from the IDENTIFY the initiator sends. Proofs are
+/// validated against the link's own peer key either way. An initiator sends its IDENTIFY so
+/// the responder learns who it is.
 fn register_reliable_stream(
     shared: &Arc<Shared>,
     link: Link,
@@ -4828,7 +4828,7 @@ fn register_reliable_stream(
         ((), true)
     });
 
-    // An initiator (known peer) identifies itself so the responder can validate our proofs.
+    // An initiator (known peer) identifies itself so the responder learns who it is.
     // Each send is sealed under a fresh IV, so a re-send is a new packet with a new hash and
     // the responder's duplicate window does not count it (Ruling 72).
     let identify_link = peer.is_some().then(|| link.clone());
@@ -4862,7 +4862,7 @@ fn register_reliable_stream(
     let driver_receive_error = Arc::clone(&receive_error);
     let drv = Arc::clone(shared);
     let driver_started = track_drainable(shared, async move {
-        // Identify to the responder so it can validate our proofs. RNS sends this once; we
+        // Identify to the responder so it learns who we are. RNS sends this once; we
         // re-send it over the first few ticks (in the clock arm below) so a dropped one still
         // lands on a lossy medium.
         if let Some(id_link) = &identify_link {
@@ -4916,8 +4916,8 @@ fn register_reliable_stream(
                             peer_done = true;
                         }
                     } else if pkt.context == CTX_LINKIDENTIFY {
-                        // The peer (an initiator) identified itself: learn its identity so we
-                        // can validate its proofs of the data we send back.
+                        // The peer (an initiator) identified itself: learn its identity, which
+                        // also validates proofs from older retinue initiators.
                         if rc.on_identify(&pkt)
                             && let Some(identity) = rc.peer().copied()
                         {
@@ -4938,7 +4938,11 @@ fn register_reliable_stream(
                                 break;
                             }
                         }
-                    } else if pkt.context == CTX_LINKCLOSE {
+                    } else if pkt.context == CTX_LINKCLOSE
+                        && close_link.receive(&pkt) == Some(Inbound::Close)
+                    {
+                        // Only a close that decrypts to the link id is the peer's: anyone
+                        // can put this context on a packet addressed to the link.
                         let _ = write_half.shutdown().await;
                         break;
                     }
@@ -5211,6 +5215,75 @@ mod tests {
             }
         }
         assert_eq!(proof_count, 1, "the oversized frame itself is not proved");
+    }
+
+    /// A LINKCLOSE is the peer's only if it decrypts to the link id. One with the right
+    /// context and address but a garbage payload is anybody's, and must not end the stream;
+    /// the genuine close still does.
+    #[tokio::test]
+    async fn a_forged_link_close_leaves_a_reliable_stream_open() {
+        use crate::channel::{Envelope, STREAM_MSGTYPE, StreamFrame};
+        use crate::link::{PendingLink, accept};
+
+        let server_id = PrivateIdentity::from_secret_bytes(&[0x71; 64]);
+        let endpoint = Endpoint::new(server_id.clone());
+        let iface = endpoint.attach_interface();
+        let dest =
+            DestinationName::new("retinue", ["forged-close"]).destination_hash(server_id.public());
+        let trailer = LinkTrailer {
+            mode: LinkMode::Aes256Cbc,
+            mtu: 500,
+        };
+        let (pending, request) = PendingLink::open(dest, *server_id.public(), &[0x73; 64], trailer);
+        let (server_link, proof) = accept(&request, &server_id, &[0x74; 64], trailer).unwrap();
+        let client_link = pending.prove(&proof).unwrap();
+        let mut stream = register_reliable_stream(
+            &endpoint.shared,
+            server_link,
+            iface.id(),
+            None,
+            LinkDirection::Inbound,
+            LinkRemoteFact {
+                destination: Some(dest),
+                identity: None,
+            },
+        )
+        .unwrap();
+        let sink = iface.sink();
+
+        let forged = client_link.framed_packet(CTX_LINKCLOSE, vec![0xA5; 48]);
+        assert!(sink.deliver(forged));
+        let frame = client_link.sealed_packet(
+            CTX_CHANNEL,
+            &Envelope {
+                msgtype: STREAM_MSGTYPE,
+                sequence: 0,
+                payload: StreamFrame {
+                    stream_id: 0,
+                    eof: false,
+                    compressed: false,
+                    data: b"still open".to_vec(),
+                }
+                .encode(),
+            }
+            .encode(),
+            &[0x01; IV_LEN],
+        );
+        assert!(sink.deliver(frame));
+        let mut got = [0u8; 10];
+        tokio::time::timeout(Duration::from_secs(2), stream.read_exact(&mut got))
+            .await
+            .expect("the stream still delivers")
+            .expect("the forged close did not end the stream");
+        assert_eq!(&got, b"still open");
+
+        assert!(sink.deliver(client_link.close_packet(&[0x02; IV_LEN])));
+        let mut rest = Vec::new();
+        tokio::time::timeout(Duration::from_secs(2), stream.read_to_end(&mut rest))
+            .await
+            .expect("a genuine close ends the stream")
+            .unwrap();
+        assert!(rest.is_empty());
     }
 
     #[tokio::test]
