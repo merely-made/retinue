@@ -62,7 +62,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     let receipt = send_opportunistic(&endpoint, &identity, &peer, &payload)?;
     println!("MESSAGE_ID {}", hex::encode(receipt.message_id));
-    println!("RATCHET {}", receipt.ratchet_id);
+    match receipt.ratchet_id {
+        Some(ratchet_id) => println!("RATCHET {ratchet_id}"),
+        None => println!("RATCHET none"),
+    }
     println!("QUEUED {}", receipt.queued_interfaces);
 
     announcer.abort();

@@ -112,6 +112,8 @@ pub mod packet;
 #[cfg(feature = "alloc")]
 pub mod path;
 #[cfg(feature = "alloc")]
+pub mod proof;
+#[cfg(feature = "alloc")]
 pub mod ratchet;
 #[cfg(feature = "alloc")]
 pub mod reliable;
