@@ -1,8 +1,23 @@
 # RNS 1.5.7 comparative review
 
-**Date:** 2026-10-07. **Status:** findings; nothing adopted yet. The owner picks
-what to adapt, and each adaptation is listed in the crate's `NOTICE`, per the
+**Date:** 2026-10-07. **Status:** Priority 0 landed on 2026-10-07: items 1-10,
+item 11's interim refusal, and the owner's ruling on Transport 11 (freshness
+tied to the route, as in RNS). Priorities 1 and 2 are open. Each adaptation is
+listed in the crate's `NOTICE`, per the
 [Reticulum License adoption](2026-10-05_reticulum_license_adoption.md).
+
+**P0 verification (2026-10-07):** local CI-equivalent checks passed. The live
+lanes on RNS 1.5.7 passed: live 17/17, outrider 7/7, resource 12/12, routing
+3/3. The live lane now includes four library-path gates:
+`interop_library_resource_recv`, `interop_library_resource_send`,
+`interop_reliable_responder_send` and `interop_reliable_initiator_proofs`.
+Three of them failed before the fixes. Item 36 (freshness ledger cost) was
+resolved by the freshness redesign.
+
+**Owner direction (2026-10-07):** align with upstream, aiming for protocol
+fidelity and feature parity in concise, efficient Rust, without porting the
+Python. The relaxed same-blob rule leaves one gap that should be closed next:
+retinue's route TTL is 30 minutes, and RNS's path expiry is one week.
 
 ## Source and provenance
 
