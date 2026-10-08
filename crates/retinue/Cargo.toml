@@ -82,6 +82,10 @@ name = "reliable_stream_oracle"
 required-features = ["tokio"]
 
 [[example]]
+name = "reliable_vanish_oracle"
+required-features = ["tokio"]
+
+[[example]]
 name = "library_oracle"
 required-features = ["tokio"]
 
