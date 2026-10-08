@@ -372,8 +372,8 @@ const PATH_REQUEST_GLOBAL_MAX: usize = 8;
 /// back in. Dropping the stream ends its relay.
 pub struct LinkStream {
     inner: DuplexStream,
-    /// Set by the reliable driver before it drops its duplex half on decode failure.
-    receive_error: Option<Arc<Mutex<Option<StreamDecodeError>>>>,
+    /// Set by the reliable driver before it drops its duplex half on a terminal failure.
+    receive_error: Option<Arc<Mutex<Option<StreamFault>>>>,
     /// The link id, exposed for diagnostics.
     link_id: AddressHash,
     /// The interface this link arrived on (inbound) or was opened over (outbound).
@@ -397,6 +397,23 @@ impl LinkStream {
     }
 }
 
+/// Why a reliable stream ended badly. Its driver records this before dropping its duplex
+/// half, so the reader sees an error instead of a clean end of stream.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StreamFault {
+    /// A received frame could not be decoded.
+    Decode(StreamDecodeError),
+    /// A sent packet went unproved through every try, so the link was closed (RNS tears a
+    /// link down when its channel times out).
+    Unacknowledged,
+}
+
+impl From<StreamDecodeError> for StreamFault {
+    fn from(error: StreamDecodeError) -> Self {
+        Self::Decode(error)
+    }
+}
+
 impl AsyncRead for LinkStream {
     fn poll_read(
         mut self: Pin<&mut Self>,
@@ -414,16 +431,27 @@ impl AsyncRead for LinkStream {
                     .as_ref()
                     .and_then(|state| *state.lock().unwrap())
                 {
-                    let message = match error {
-                        StreamDecodeError::UnsupportedCompression => {
-                            "compressed stream frame unsupported"
-                        }
-                        StreamDecodeError::InvalidCompression => "invalid compressed stream frame",
-                        StreamDecodeError::DecodedFrameLimitExceeded { .. } => {
-                            "decoded stream frame limit exceeded"
-                        }
+                    let (kind, message) = match error {
+                        StreamFault::Decode(StreamDecodeError::UnsupportedCompression) => (
+                            io::ErrorKind::InvalidData,
+                            "compressed stream frame unsupported",
+                        ),
+                        StreamFault::Decode(StreamDecodeError::InvalidCompression) => (
+                            io::ErrorKind::InvalidData,
+                            "invalid compressed stream frame",
+                        ),
+                        StreamFault::Decode(StreamDecodeError::DecodedFrameLimitExceeded {
+                            ..
+                        }) => (
+                            io::ErrorKind::InvalidData,
+                            "decoded stream frame limit exceeded",
+                        ),
+                        StreamFault::Unacknowledged => (
+                            io::ErrorKind::TimedOut,
+                            "reliable link closed: a packet went unproved through every retry",
+                        ),
                     };
-                    Poll::Ready(Err(io::Error::new(io::ErrorKind::InvalidData, message)))
+                    Poll::Ready(Err(io::Error::new(kind, message)))
                 } else {
                     Poll::Ready(Ok(()))
                 }
@@ -3524,12 +3552,13 @@ impl Endpoint {
     /// it. As the initiator, the reliable driver IDENTIFYs us to the responder so it can
     /// validate our proofs in turn.
     pub async fn open_reliable(&self, dest: AddressHash, peer: Identity) -> io::Result<LinkStream> {
-        let (link, iface) = self.establish(dest, peer).await?;
+        let (link, iface, rtt) = self.establish_timed(dest, peer).await?;
         register_reliable_stream(
             &self.shared,
             link,
             iface,
             Some(peer),
+            Some(rtt),
             LinkDirection::Outbound,
             LinkRemoteFact {
                 destination: Some(dest),
@@ -3692,6 +3721,17 @@ impl Endpoint {
         dest: AddressHash,
         peer: Identity,
     ) -> io::Result<(Link, InterfaceId)> {
+        let (link, iface, _) = self.establish_timed(dest, peer).await?;
+        Ok((link, iface))
+    }
+
+    /// [`establish`](Self::establish), also returning the link's RTT: the time from the last
+    /// request sent to its proof (RNS `Link.rtt` on the initiator).
+    async fn establish_timed(
+        &self,
+        dest: AddressHash,
+        peer: Identity,
+    ) -> io::Result<(Link, InterfaceId, Duration)> {
         if !self.shared.is_running() {
             return Err(endpoint_closed());
         }
@@ -3727,11 +3767,14 @@ impl Endpoint {
         // Send the request toward the destination: on the interface the path table names
         // (addressed via its transport node if remote), or broadcast if we have no route yet
         // (a directly-connected peer).
-        let send_request = || match self.shared.path_iface(dest) {
-            Some(iface) => self.shared.send_on(iface, request.clone()),
-            None => self.shared.broadcast(request.clone()),
+        let send_request = || {
+            match self.shared.path_iface(dest) {
+                Some(iface) => self.shared.send_on(iface, request.clone()),
+                None => self.shared.broadcast(request.clone()),
+            }
+            Instant::now()
         };
-        send_request();
+        let mut requested_at = send_request();
 
         let retry = Duration::from_millis(self.shared.link_setup_retry_ms.load(Ordering::Relaxed));
         let mut retries = tokio::time::interval_at(tokio::time::Instant::now() + retry, retry);
@@ -3754,11 +3797,12 @@ impl Endpoint {
                             // The responder does not activate an inbound link until the
                             // initiator reports its measured RTT. Keep this ahead of any
                             // application packet emitted by the returned session.
+                            let rtt = requested_at.elapsed();
                             self.shared.send_on(
                                 established.1,
-                                established.0.rtt_packet(0.05, &next_iv()),
+                                established.0.rtt_packet(rtt.as_secs_f32(), &next_iv()),
                             );
-                            return Ok(established);
+                            return Ok((established.0, established.1, rtt));
                         }
                         self.shared
                             .send_on(established.1, established.0.close_packet(&next_iv()));
@@ -3769,7 +3813,7 @@ impl Endpoint {
                         "link setup dropped",
                     )),
                 },
-                _ = retries.tick() => send_request(),
+                _ = retries.tick() => requested_at = send_request(),
                 _ = &mut deadline => return Err(io::Error::new(
                     io::ErrorKind::TimedOut,
                     "link setup timed out",
@@ -4497,6 +4541,7 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                                 link,
                                 iface,
                                 None,
+                                None,
                                 LinkDirection::Inbound,
                                 LinkRemoteFact::default(),
                             ) {
@@ -4848,11 +4893,16 @@ fn register_stream(
 /// which learns the initiator's identity from the IDENTIFY the initiator sends. Proofs are
 /// validated against the link's own peer key either way. An initiator sends its IDENTIFY so
 /// the responder learns who it is.
+///
+/// `link_rtt` is the handshake RTT an initiator measured. The channel times its retransmits
+/// by it, as RNS times its channel by the link's RTT; a responder takes the RTT from the
+/// initiator's RTT packet instead, and until then uses the configured estimate.
 fn register_reliable_stream(
     shared: &Arc<Shared>,
     link: Link,
     iface: InterfaceId,
     peer: Option<Identity>,
+    link_rtt: Option<Duration>,
     direction: LinkDirection,
     remote: LinkRemoteFact,
 ) -> Option<LinkStream> {
@@ -4880,7 +4930,10 @@ fn register_reliable_stream(
     // the responder's duplicate window does not count it (Ruling 72).
     let identify_link = peer.is_some().then(|| link.clone());
     let close_link = link.clone();
-    let initial_rtt_ms = shared.reliable_initial_rtt_ms.load(Ordering::Relaxed);
+    let initial_rtt_ms = link_rtt.map_or_else(
+        || shared.reliable_initial_rtt_ms.load(Ordering::Relaxed),
+        |rtt| u64::try_from(rtt.as_millis()).unwrap_or(u64::MAX),
+    );
     let max_window = shared.reliable_max_window.load(Ordering::Relaxed);
     let decoded_frame_limit = shared.reliable_decoded_frame_limit.load(Ordering::Relaxed);
     let receive_error = Arc::new(Mutex::new(None));
@@ -4908,6 +4961,8 @@ fn register_reliable_stream(
         .expect("endpoint validates the decoded frame limit");
     let driver_receive_error = Arc::clone(&receive_error);
     let drv = Arc::clone(shared);
+    // A responder's proof has just gone out; the initiator's RTT packet answers it.
+    let registered_at = Instant::now();
     let driver_started = track_drainable(shared, async move {
         // Identify to the responder so it learns who we are. RNS sends this once; we
         // re-send it over the first few ticks (in the clock arm below) so a dropped one still
@@ -4952,7 +5007,7 @@ fn register_reliable_stream(
                             }
                         }
                         if let Some(error) = rc.receive_error() {
-                            *driver_receive_error.lock().unwrap() = Some(error);
+                            *driver_receive_error.lock().unwrap() = Some(error.into());
                             drv.send_on(iface, close_link.close_packet(&next_iv()));
                             break 'driver;
                         }
@@ -4985,6 +5040,10 @@ fn register_reliable_stream(
                                 break;
                             }
                         }
+                    } else if pkt.context == link::CTX_LRRTT {
+                        // Time the channel by the link's RTT, as RNS does, not a guess.
+                        let measured = registered_at.elapsed().as_millis();
+                        rc.on_rtt_packet(&pkt, u64::try_from(measured).unwrap_or(u64::MAX));
                     } else if pkt.context == CTX_LINKCLOSE
                         && close_link.receive(&pkt) == Some(Inbound::Close)
                     {
@@ -5040,6 +5099,13 @@ fn register_reliable_stream(
             // window, plus retransmits past their timeout.
             for pkt in rc.poll_transmit(clock, next_iv) {
                 drv.send_on(iface, pkt);
+            }
+            // A packet went unproved through every try: the peer is gone. Fail the stream
+            // and close the link, as RNS tears its link down when the channel times out.
+            if rc.channel_error().is_some() {
+                *driver_receive_error.lock().unwrap() = Some(StreamFault::Unacknowledged);
+                drv.send_on(iface, close_link.close_packet(&next_iv()));
+                break;
             }
 
             // The stream is fully done only when our side finished sending (write closed and
@@ -5194,6 +5260,7 @@ mod tests {
             server_link,
             iface.id(),
             None,
+            None,
             LinkDirection::Inbound,
             LinkRemoteFact {
                 destination: Some(dest),
@@ -5289,6 +5356,7 @@ mod tests {
             server_link,
             iface.id(),
             None,
+            None,
             LinkDirection::Inbound,
             LinkRemoteFact {
                 destination: Some(dest),
@@ -5375,7 +5443,8 @@ mod tests {
             .await
             .expect("reader reaches Pending after prefix")
             .unwrap();
-        *error.lock().unwrap() = Some(StreamDecodeError::DecodedFrameLimitExceeded { limit: 32 });
+        *error.lock().unwrap() =
+            Some(StreamDecodeError::DecodedFrameLimitExceeded { limit: 32 }.into());
         drop(driver_half); // closing the duplex half wakes an already-pending reader
         let (result, got) = tokio::time::timeout(Duration::from_secs(1), reader)
             .await

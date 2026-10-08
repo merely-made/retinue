@@ -247,8 +247,8 @@ mod model_tests {
     /// A lost envelope must hold the send window, not just its count (review #5).
     ///
     /// An RNS receiver drops anything more than `WINDOW_MAX` past its next expected
-    /// sequence, after the link has already proved it. Here every transmission of
-    /// sequence 0 is lost while its successors cross a seeded lossy pipe and are proved,
+    /// sequence, after the link has already proved it. Here the first three transmissions
+    /// of sequence 0 are lost while its successors cross a seeded lossy pipe and are proved,
     /// so the count of unproved envelopes stays small. The sender must still never emit a
     /// sequence `WINDOW_MAX` or more past the oldest unproved one. Once sequence 0 gets
     /// through, everything is delivered in order.
@@ -267,7 +267,7 @@ mod model_tests {
         let mut unproved: Vec<u16> = Vec::new();
         let mut got: Vec<u8> = Vec::new();
         let mut highest = 0u16;
-        let release_at = 2_000u64;
+        let mut first_sends = 0u32;
 
         for now in 0..200_000u64 {
             for e in tx.poll_transmit(now) {
@@ -282,8 +282,18 @@ mod model_tests {
                 if !unproved.contains(&e.sequence) {
                     unproved.push(e.sequence);
                 }
+                let lost = e.sequence == 0 && first_sends < 3;
+                if e.sequence == 0 {
+                    first_sends += 1;
+                    if first_sends == 4 {
+                        assert_eq!(
+                            u32::from(highest),
+                            WINDOW_MAX - 1,
+                            "the sender ran up to the span bound and stopped there"
+                        );
+                    }
+                }
                 highest = highest.max(e.sequence);
-                let lost = e.sequence == 0 && now < release_at;
                 if !lost && !fwd.should_drop() {
                     to_rx.push((now + 1 + fwd.delay_ms(), e));
                 }
@@ -309,13 +319,6 @@ mod model_tests {
                     true
                 }
             });
-            if now == release_at - 1 {
-                assert_eq!(
-                    u32::from(highest),
-                    WINDOW_MAX - 1,
-                    "the sender ran up to the span bound and stopped there"
-                );
-            }
             while let Some(m) = rx.recv() {
                 got.push(m[0]);
             }
@@ -323,10 +326,59 @@ mod model_tests {
                 break;
             }
         }
+        assert!(
+            first_sends >= 4,
+            "sequence 0 was retransmitted past its losses"
+        );
         assert_eq!(
             got,
             (0..messages).map(|i| i as u8).collect::<Vec<_>>(),
             "everything delivers in order once the lost envelope gets through"
         );
+    }
+
+    /// A dead link fails the channel; it does not retransmit forever (review #15).
+    ///
+    /// With every packet lost, RNS sends each envelope at most five times, backing off
+    /// between tries, then gives up and tears the link down. The same holds here on a
+    /// virtual clock: no sequence goes out more than `DEFAULT_MAX_TRIES` times, and the
+    /// channel ends in a terminal error rather than spinning.
+    #[test]
+    fn total_loss_gives_up_after_five_tries_per_sequence() {
+        use crate::channel::{ChannelError, DEFAULT_MAX_TRIES};
+        use alloc::collections::BTreeMap;
+
+        let mut tx: Channel = Channel::with_initial_rtt(STREAM_MSGTYPE, 50);
+        for i in 0..20u8 {
+            tx.send(vec![i]).expect("the send queue has room");
+        }
+        let mut wire = LossModel::new(9).drop_per_mille(1000);
+        let mut sends: BTreeMap<u16, u8> = BTreeMap::new();
+        let mut failed_at = None;
+        for now in 0..10_000_000u64 {
+            for e in tx.poll_transmit(now) {
+                *sends.entry(e.sequence).or_default() += 1;
+                assert!(wire.should_drop(), "total loss drops everything");
+            }
+            if tx.error().is_some() {
+                failed_at = Some(now);
+                break;
+            }
+        }
+        assert!(failed_at.is_some(), "the channel must give up");
+        assert!(
+            matches!(
+                tx.error(),
+                Some(ChannelError::RetriesExhausted { sequence }) if sequence < 2
+            ),
+            "the first window's envelopes run out of tries: {:?}",
+            tx.error()
+        );
+        assert!(
+            sends.values().all(|&n| n <= DEFAULT_MAX_TRIES),
+            "no sequence went out more than five times: {sends:?}"
+        );
+        assert_eq!(sends.values().max(), Some(&DEFAULT_MAX_TRIES));
+        assert!(tx.poll_transmit(u64::MAX).is_empty(), "and it stays quiet");
     }
 }

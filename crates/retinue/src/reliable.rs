@@ -237,6 +237,10 @@ impl<
             }
             out.push(packet);
         }
+        // A failed channel sends nothing more, so no recorded hash can be proved.
+        if self.buffer.channel_error().is_some() {
+            self.sent.clear();
+        }
         out
     }
 
@@ -326,6 +330,42 @@ impl<
         self.buffer.send_idle()
     }
 
+    /// Feed the link's RTT packet (context [`CTX_LRRTT`](crate::link::CTX_LRRTT)), which an
+    /// initiator sends a responder right after the proof. Like RNS, take the larger of the
+    /// RTT it reports and `measured`, the responder's own time from proof to this packet, and
+    /// start the channel's timeouts from that rather than a guess. Both in milliseconds.
+    /// Returns whether the packet decrypted to an RTT.
+    pub fn on_rtt_packet(&mut self, packet: &Packet, measured: u64) -> bool {
+        let Ok(plain) = self.link.decrypt(packet) else {
+            return false;
+        };
+        // RNS packs a MessagePack float: float64 (0xcb) from Python, float32 (0xca) allowed.
+        let seconds = match plain.split_first() {
+            Some((0xcb, b)) => b.try_into().map(f64::from_be_bytes).ok(),
+            Some((0xca, b)) => b.try_into().map(f32::from_be_bytes).ok().map(f64::from),
+            _ => None,
+        };
+        let Some(seconds) = seconds.filter(|s| s.is_finite() && *s >= 0.0) else {
+            return false;
+        };
+        // Saturating float-to-int cast: an absurd report clamps rather than wraps.
+        let reported = (seconds * 1000.0) as u64;
+        self.buffer.set_initial_rtt(reported.max(measured));
+        true
+    }
+
+    /// Set how many times one channel packet may go on the wire before the channel fails
+    /// (RNS's limit, [`DEFAULT_MAX_TRIES`](crate::channel::DEFAULT_MAX_TRIES), by default).
+    pub fn set_max_tries(&mut self, tries: u8) {
+        self.buffer.set_max_tries(tries);
+    }
+
+    /// Why the channel stopped, once it has: a packet went unproved through every try. The
+    /// link is dead then, and the caller should close it, as RNS tears its link down.
+    pub fn channel_error(&self) -> Option<crate::channel::ChannelError> {
+        self.buffer.channel_error()
+    }
+
     /// The current send window (diagnostics).
     pub fn window(&self) -> u32 {
         self.buffer.window()
@@ -341,6 +381,7 @@ impl<
 mod tests {
     use super::*;
     use crate::capacity::small_types::SmallReliableChannel;
+    use crate::channel::DEFAULT_MAX_TRIES;
     use crate::destination::DestinationName;
     use crate::link::{LinkMode, LinkTrailer, PendingLink, accept};
     use crate::lossy::LossModel;
@@ -628,8 +669,9 @@ mod tests {
     /// Drive `client`'s payload to `server` over a lossy pipe on a virtual clock: channel
     /// packets forward (subject to loss), proofs back (subject to loss), retransmits on the
     /// clock. Asserts exact, in-order reconstruction and that the server saw eof.
-    fn drive_over_loss(drop_per_mille: u32, max_delay: u64, seed: u64, len: usize) {
+    fn drive_over_loss(drop_per_mille: u32, max_delay: u64, seed: u64, len: usize, tries: u8) {
         let (mut client, mut server) = pair();
+        client.set_max_tries(tries);
         let payload: Vec<u8> = (0..len as u32)
             .map(|i| (i.wrapping_mul(31).wrapping_add(7)) as u8)
             .collect();
@@ -695,26 +737,59 @@ mod tests {
             "reliable stream must reconstruct exactly over loss"
         );
         assert!(server.recv_finished(), "server saw the client's eof");
+        assert_eq!(client.channel_error(), None, "the sender never gave up");
+        assert!(client.send_idle(), "and every packet was proved");
     }
 
     #[test]
     fn reliable_stream_is_faithful_without_loss() {
-        drive_over_loss(0, 0, 1, 5000);
+        drive_over_loss(0, 0, 1, 5000, DEFAULT_MAX_TRIES);
     }
 
+    /// At 30% loss each way one try fails half the time, so five tries lose about one
+    /// packet in thirty and RNS would usually tear a 5000-byte stream down. The limit is
+    /// raised to exercise retransmission at that loss; 25% below keeps RNS's five.
     #[test]
     fn reliable_stream_survives_drop() {
-        drive_over_loss(300, 0, 7, 5000);
+        drive_over_loss(300, 0, 7, 5000, 64);
     }
 
     #[test]
     fn reliable_stream_survives_drop_reorder_and_delay() {
-        drive_over_loss(250, 6, 42, 4000);
+        drive_over_loss(250, 6, 42, 4000, DEFAULT_MAX_TRIES);
     }
 
+    /// RNS's five tries would give up at 60% loss each way (a round trip succeeds 16% of
+    /// the time), so this raises the limit to exercise recovery at that loss.
     #[test]
     fn reliable_stream_survives_heavy_loss() {
-        drive_over_loss(600, 3, 99, 3000);
+        drive_over_loss(600, 3, 99, 3000, 64);
+    }
+
+    /// A responder times its channel by the link RTT, as RNS does: the larger of what the
+    /// initiator's RTT packet reports and its own proof-to-packet measurement.
+    #[test]
+    fn the_rtt_packet_seeds_the_responder_channel() {
+        let (client, mut server) = pair();
+        assert_eq!(server.buffer.rtt(), 750, "the medium-tier guess until told");
+        let iv = [0x5a; IV_LEN];
+        assert!(server.on_rtt_packet(&client.link.rtt_packet(0.3, &iv), 100));
+        assert_eq!(
+            server.buffer.rtt(),
+            300,
+            "the initiator's report, when larger"
+        );
+        let (client, mut server) = pair();
+        assert!(server.on_rtt_packet(&client.link.rtt_packet(0.01, &iv), 120));
+        assert_eq!(server.buffer.rtt(), 120, "our own measurement, when larger");
+        let forged = client
+            .link
+            .sealed_packet(crate::link::CTX_LRRTT, b"not a float", &iv);
+        assert!(
+            !server.on_rtt_packet(&forged, 5),
+            "anything but a float is ignored"
+        );
+        assert_eq!(server.buffer.rtt(), 120);
     }
 
     #[test]
