@@ -199,17 +199,26 @@ pub fn request_trailer(request: &Packet) -> Result<Option<LinkTrailer>> {
 
 /// Lower the MTU a link request signals to at most `limit`: what a transport hop can carry
 /// between its two interfaces, or what a destination's receiving interface can. The link id
-/// covers only the keys, so it is unchanged. A request without a trailer is left alone; an
-/// undecodable one is an error, and RNS drops such a request.
+/// covers only the keys, so it is unchanged. A request without a trailer, or one that already
+/// fits, passes untouched whatever mode it signals. As in RNS, only a request that must be
+/// re-encoded under a mode this side does not know is an error, and is dropped.
 pub fn clamp_request_mtu(request: &mut Packet, limit: u32) -> Result<()> {
-    if let Some(trailer) = request_trailer(request)?
-        && trailer.mtu > limit
-    {
-        let clamped = LinkTrailer {
+    let Some(bytes) = request
+        .payload
+        .get_mut(LINK_KEYS_LEN..)
+        .and_then(|bytes| <&mut [u8; TRAILER_LEN]>::try_from(bytes).ok())
+    else {
+        return Ok(());
+    };
+    let signalled =
+        (u32::from(bytes[0]) << 16 | u32::from(bytes[1]) << 8 | u32::from(bytes[2])) & MAX_MTU;
+    if signalled > limit {
+        let trailer = LinkTrailer::decode(bytes)?;
+        *bytes = LinkTrailer {
             mtu: limit,
             ..trailer
-        };
-        request.payload[LINK_KEYS_LEN..].copy_from_slice(&clamped.encode());
+        }
+        .encode();
     }
     Ok(())
 }
@@ -1219,6 +1228,9 @@ mod tests {
 
         let mut undecodable = request.clone();
         undecodable.payload[LINK_KEYS_LEN] = 0xe0;
+        let before = undecodable.payload.clone();
+        clamp_request_mtu(&mut undecodable, 500).expect("a fitting request passes unread");
+        assert_eq!(undecodable.payload, before);
         assert!(clamp_request_mtu(&mut undecodable, 255).is_err());
     }
 
