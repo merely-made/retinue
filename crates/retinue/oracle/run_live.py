@@ -32,6 +32,7 @@ GATES = (
     "interop_reliable_initiator_proofs.py",
     "interop_transport_node.py",
     "interop_link_liveness.py",
+    "interop_transit_mtu.py",
 )
 
 
