@@ -31,6 +31,7 @@ GATES = (
     "interop_reliable_responder_send.py",
     "interop_reliable_initiator_proofs.py",
     "interop_transport_node.py",
+    "interop_path_request.py",
 )
 
 

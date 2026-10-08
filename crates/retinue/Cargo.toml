@@ -86,6 +86,10 @@ name = "library_oracle"
 required-features = ["tokio"]
 
 [[example]]
+name = "path_request_oracle"
+required-features = ["tokio"]
+
+[[example]]
 name = "gemini_over_reticulum"
 required-features = ["tokio"]
 
