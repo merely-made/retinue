@@ -44,6 +44,7 @@ use alloc::string::ToString;
 use alloc::vec;
 use alloc::vec::Vec;
 
+use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use x25519_dalek::PublicKey as XPublicKey;
 
 use crate::hash::{ADDRESS_HASH_LEN, AddressHash};
@@ -313,11 +314,16 @@ impl PendingLink {
         let shared = self.ephemeral.diffie_hellman(&XPublicKey::from(peer_eph));
         let keys = DerivedKeys::derive(&shared, self.link_id);
 
+        // The initiator proves link data with the ephemeral Ed25519 key it put in the
+        // request, and the destination proves with its identity key, which is what the
+        // proof above was just verified against.
         Ok(Link {
             id: self.link_id,
             keys,
             mode: agreed.mode,
             mtu: agreed.mtu,
+            signer: signing_seed(&self.ephemeral),
+            peer_signer: *self.peer.ed25519_bytes(),
         })
     }
 }
@@ -347,6 +353,11 @@ pub fn accept(
 
     let id = link_id(request)?;
     let peer_eph_x: [u8; KEY_LEN] = request.payload[..KEY_LEN]
+        .try_into()
+        .expect("checked length");
+    // The initiator's ephemeral Ed25519 key, which signs its link-data proofs. Taking it
+    // from the request is what lets us validate those proofs without an IDENTIFY.
+    let peer_signer: [u8; KEY_LEN] = request.payload[KEY_LEN..LINK_KEYS_LEN]
         .try_into()
         .expect("checked length");
 
@@ -392,6 +403,8 @@ pub fn accept(
             keys,
             mode: offered.mode,
             mtu: offered.mtu,
+            signer: signing_seed(destination),
+            peer_signer,
         },
         proof,
     ))
@@ -425,10 +438,18 @@ pub fn data_proof_packet(
     proven_full_hash: &[u8; 32],
     prover: &PrivateIdentity,
 ) -> Packet {
-    let signature = prover.sign(proven_full_hash);
+    explicit_proof_packet(link_id, proven_full_hash, &prover.sign(proven_full_hash))
+}
+
+/// The explicit proof wire, whichever key made `signature`.
+fn explicit_proof_packet(
+    link_id: AddressHash,
+    proven_full_hash: &[u8; 32],
+    signature: &[u8; SIGNATURE_LEN],
+) -> Packet {
     let mut payload = Vec::with_capacity(DATA_PROOF_LEN);
     payload.extend_from_slice(proven_full_hash);
-    payload.extend_from_slice(&signature);
+    payload.extend_from_slice(signature);
     Packet {
         ifac: false,
         header_type: HeaderType::Type1,
@@ -448,6 +469,15 @@ pub fn data_proof_packet(
 /// the proven packet's full 32-byte hash if the proof is well-formed and correctly signed,
 /// else `None`. The inverse of [`data_proof_packet`].
 pub fn read_data_proof(link_id: AddressHash, proof: &Packet, peer: &Identity) -> Option<[u8; 32]> {
+    let (full_hash, signature) = split_data_proof(link_id, proof)?;
+    peer.verify(&full_hash, &signature).then_some(full_hash)
+}
+
+/// The proven hash and signature of a well-formed explicit proof for `link_id`, unverified.
+fn split_data_proof(
+    link_id: AddressHash,
+    proof: &Packet,
+) -> Option<([u8; 32], [u8; SIGNATURE_LEN])> {
     if proof.packet_type != PacketType::Proof
         || proof.destination != link_id
         || proof.payload.len() != DATA_PROOF_LEN
@@ -456,7 +486,14 @@ pub fn read_data_proof(link_id: AddressHash, proof: &Packet, peer: &Identity) ->
     }
     let full_hash: [u8; 32] = proof.payload[..32].try_into().ok()?;
     let signature: [u8; SIGNATURE_LEN] = proof.payload[32..].try_into().ok()?;
-    peer.verify(&full_hash, &signature).then_some(full_hash)
+    Some((full_hash, signature))
+}
+
+/// The Ed25519 seed half of an identity's 64-byte secret.
+fn signing_seed(identity: &PrivateIdentity) -> [u8; KEY_LEN] {
+    identity.to_secret_bytes()[KEY_LEN..]
+        .try_into()
+        .expect("the Ed25519 half of 64 bytes is 32")
 }
 
 /// What an inbound link-layer packet is, once matched to a link by its id.
@@ -487,14 +524,24 @@ pub enum Inbound {
 /// ECDH and no ephemeral prefix, because the forward secrecy already lives in the ephemeral
 /// key exchange that established the link. This is why links carry no ratchet.
 ///
-/// `Clone` is cheap (an id and two 32-byte keys) and lets a stream own a sealing handle to
-/// the same link the router reads from.
+/// Each side also holds the two keys of link-data proofs, as RNS does: the initiator signs
+/// with the ephemeral Ed25519 key from its request, the responder with its destination
+/// identity. Both are kept as 32-byte seeds rather than expanded keys, so a link costs a
+/// board 64 bytes for them, not several hundred.
+///
+/// `Clone` is cheap (an id and a handful of 32-byte keys) and lets a stream own a sealing
+/// handle to the same link the router reads from.
 #[derive(Clone)]
 pub struct Link {
     id: AddressHash,
     keys: DerivedKeys,
     mode: LinkMode,
     mtu: u32,
+    /// Ed25519 seed this side proves link data with.
+    signer: [u8; KEY_LEN],
+    /// Ed25519 public key the peer proves link data with. Not checked to be a valid point
+    /// when the link forms: a bad one only means the peer's proofs never verify.
+    peer_signer: [u8; KEY_LEN],
 }
 
 impl Link {
@@ -573,24 +620,46 @@ impl Link {
 
     /// Build a link-data **proof** for a received proof-requesting packet — the ack a
     /// [`Channel`](crate::channel::Channel) treats as delivery. Signs `proven`'s full
-    /// 32-byte hash with `prover`'s identity and wraps it in the explicit proof
-    /// [`data_proof_packet`] addressed to this link. The peer validates it against the
-    /// identity it knows for us.
+    /// 32-byte hash with this side's link signing key and wraps it in the explicit proof
+    /// [`data_proof_packet`] addressed to this link: the ephemeral key from the request
+    /// for an initiator, the destination identity for a responder. That is the key an RNS
+    /// peer validates against; see [`validate_proof`](Self::validate_proof).
+    pub fn prove_packet(&self, proven: &Packet) -> Packet {
+        let hash = proven.full_hash();
+        let signature = SigningKey::from_bytes(&self.signer).sign(&hash).to_bytes();
+        explicit_proof_packet(self.id, &hash, &signature)
+    }
+
+    /// Validate the peer's link-data proof against its link signing key (the initiator's
+    /// ephemeral key, or the destination's identity), returning the full hash of the packet
+    /// it acknowledges, or `None` if it is not a well-formed, correctly-signed proof for this
+    /// link. The inverse of [`prove_packet`](Self::prove_packet).
+    pub fn validate_proof(&self, proof: &Packet) -> Option<[u8; 32]> {
+        let (full_hash, signature) = split_data_proof(self.id, proof)?;
+        let key = VerifyingKey::from_bytes(&self.peer_signer).ok()?;
+        key.verify_strict(&full_hash, &Signature::from_bytes(&signature))
+            .is_ok()
+            .then_some(full_hash)
+    }
+
+    /// Build a link-data proof signed by an explicit `prover` rather than this side's link
+    /// signing key. RNS never does this; [`prove_packet`](Self::prove_packet) is the
+    /// interoperable form.
     pub fn data_proof(&self, proven: &Packet, prover: &PrivateIdentity) -> Packet {
         data_proof_packet(self.id, &proven.full_hash(), prover)
     }
 
-    /// Validate an inbound link-data proof against `peer`'s identity, returning the full
-    /// hash of the packet it acknowledges (for the sender to match to an outstanding
-    /// sequence), or `None` if it is not a well-formed, correctly-signed proof for this
-    /// link. The inverse of [`data_proof`](Self::data_proof).
+    /// Validate an inbound link-data proof against an explicit `peer` identity rather than
+    /// the peer's link signing key. Returns the proven hash as
+    /// [`validate_proof`](Self::validate_proof) does. Kept for proofs from older retinue
+    /// initiators, which signed with their IDENTIFY'd long-term identity.
     pub fn verify_data_proof(&self, proof: &Packet, peer: &Identity) -> Option<[u8; 32]> {
         read_data_proof(self.id, proof, peer)
     }
 
     /// Build a link **IDENTIFY** packet: sealed `public_key(64) || Ed25519_sign(link_id ||
     /// public_key)(64)` under context [`CTX_LINKIDENTIFY`]. An initiator sends this so the
-    /// responder learns its identity (and can then validate the initiator's data proofs). The
+    /// responder learns its identity. It does not change the link's proof keys. The
     /// signature binds the identity to *this* link, so an identify captured on one link cannot
     /// be replayed on another. RNS 1.3.8's exact wire (captured in `link_identify.json`).
     pub fn identify_packet(&self, me: &PrivateIdentity, iv: &[u8; IV_LEN]) -> Packet {
@@ -878,6 +947,65 @@ mod tests {
         let mut foreign = link.keepalive_packet(KEEPALIVE_REQUEST);
         foreign.destination = AddressHash::from_bytes([0xAB; 16]);
         assert_eq!(link.receive(&foreign), None);
+    }
+
+    /// Link-data proofs use RNS's keys in both directions: the initiator signs with the
+    /// ephemeral key from its request, the responder with its destination identity, and
+    /// each side validates the other's with no IDENTIFY.
+    #[test]
+    fn link_data_proofs_use_the_link_keys() {
+        let dest_identity = PrivateIdentity::from_secret_bytes(&[0x11; 64]);
+        let trailer = LinkTrailer {
+            mode: LinkMode::Aes256Cbc,
+            mtu: 500,
+        };
+        let (pending, request) = PendingLink::open(
+            DestinationName::new("retinue", ["test"]).destination_hash(dest_identity.public()),
+            *dest_identity.public(),
+            &[0x33; 64],
+            trailer,
+        );
+        let (responder, proof) = accept(&request, &dest_identity, &[0x99; 64], trailer).unwrap();
+        let initiator = pending.prove(&proof).unwrap();
+        let ephemeral = PrivateIdentity::from_secret_bytes(&[0x33; 64]);
+        assert_eq!(
+            &request.payload[KEY_LEN..LINK_KEYS_LEN],
+            ephemeral.public().ed25519_bytes(),
+            "request bytes 32..64 are the ephemeral Ed25519 key"
+        );
+
+        let to_responder = initiator.data_packet(b"up", &[0x01; IV_LEN]);
+        let up = initiator.prove_packet(&to_responder);
+        assert_eq!(
+            up.encode(),
+            data_proof_packet(initiator.id(), &to_responder.full_hash(), &ephemeral).encode(),
+            "the initiator signs with its ephemeral key"
+        );
+        assert_eq!(
+            responder.validate_proof(&up),
+            Some(to_responder.full_hash())
+        );
+
+        let to_initiator = responder.data_packet(b"down", &[0x02; IV_LEN]);
+        let down = responder.prove_packet(&to_initiator);
+        assert_eq!(
+            down.encode(),
+            data_proof_packet(responder.id(), &to_initiator.full_hash(), &dest_identity).encode(),
+            "the responder signs with its identity"
+        );
+        assert_eq!(
+            initiator.validate_proof(&down),
+            Some(to_initiator.full_hash())
+        );
+
+        // Neither side takes its own proof, or a stranger's, for the peer's.
+        assert_eq!(initiator.validate_proof(&up), None);
+        assert_eq!(responder.validate_proof(&down), None);
+        let stranger = PrivateIdentity::from_secret_bytes(&[0x55; 64]);
+        assert_eq!(
+            responder.validate_proof(&initiator.data_proof(&to_responder, &stranger)),
+            None
+        );
     }
 
     /// Gold test: retinue builds the exact link-data proof RNS 1.3.8 emitted for a packet

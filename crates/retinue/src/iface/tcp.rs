@@ -136,10 +136,16 @@ impl TcpInterface {
     }
 
     /// Read until a whole packet arrives, and decode it.
+    ///
+    /// Without IFAC, a frame carrying the IFAC flag is refused with
+    /// [`crate::Error::BadIfac`], as RNS refuses it.
     pub async fn recv(&mut self) -> Result<Packet, RecvError> {
         let raw = self.recv_frame().await?;
         let logical = match &self.ifac {
             Some(ifac) => ifac.open(&raw).map_err(RecvError::Wire)?,
+            None if raw.first().is_some_and(|flags| flags & 0x80 != 0) => {
+                return Err(RecvError::Wire(crate::Error::BadIfac));
+            }
             None => raw,
         };
         Packet::decode(&logical).map_err(RecvError::Wire)

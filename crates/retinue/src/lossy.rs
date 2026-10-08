@@ -228,6 +228,8 @@ mod tests {
 mod model_tests {
     // `no_std` crate: Vec comes from alloc, not the std prelude.
     use super::LossModel;
+    use crate::channel::{Channel, Envelope, STREAM_MSGTYPE, WINDOW_MAX};
+    use alloc::vec;
     use alloc::vec::Vec;
 
     #[test]
@@ -240,5 +242,91 @@ mod model_tests {
         };
         assert_eq!(run(42), run(42), "same seed is reproducible");
         assert_ne!(run(42), run(43), "different seeds diverge");
+    }
+
+    /// A lost envelope must hold the send window, not just its count (review #5).
+    ///
+    /// An RNS receiver drops anything more than `WINDOW_MAX` past its next expected
+    /// sequence, after the link has already proved it. Here every transmission of
+    /// sequence 0 is lost while its successors cross a seeded lossy pipe and are proved,
+    /// so the count of unproved envelopes stays small. The sender must still never emit a
+    /// sequence `WINDOW_MAX` or more past the oldest unproved one. Once sequence 0 gets
+    /// through, everything is delivered in order.
+    #[test]
+    fn a_lost_envelope_bounds_the_send_span() {
+        let messages = 200u16;
+        let mut tx: Channel = Channel::with_initial_rtt(STREAM_MSGTYPE, 1);
+        let mut rx: Channel = Channel::with_initial_rtt(STREAM_MSGTYPE, 1);
+        for i in 0..messages {
+            tx.send(vec![i as u8]).expect("the send queue has room");
+        }
+        let mut fwd = LossModel::new(5).drop_per_mille(150).max_delay_ms(3);
+        let mut bwd = LossModel::new(6).drop_per_mille(150).max_delay_ms(3);
+        let mut to_rx: Vec<(u64, Envelope)> = Vec::new();
+        let mut to_tx: Vec<(u64, u16)> = Vec::new();
+        let mut unproved: Vec<u16> = Vec::new();
+        let mut got: Vec<u8> = Vec::new();
+        let mut highest = 0u16;
+        let release_at = 2_000u64;
+
+        for now in 0..200_000u64 {
+            for e in tx.poll_transmit(now) {
+                // The oldest unproved sequence is 0 until it is delivered; sequences never
+                // wrap in this run, so a plain comparison is exact.
+                let oldest = unproved.iter().copied().min().unwrap_or(e.sequence);
+                assert!(
+                    u32::from(e.sequence - oldest) < WINDOW_MAX,
+                    "sent sequence {} with {oldest} still unproved",
+                    e.sequence
+                );
+                if !unproved.contains(&e.sequence) {
+                    unproved.push(e.sequence);
+                }
+                highest = highest.max(e.sequence);
+                let lost = e.sequence == 0 && now < release_at;
+                if !lost && !fwd.should_drop() {
+                    to_rx.push((now + 1 + fwd.delay_ms(), e));
+                }
+            }
+            let mut still = Vec::new();
+            for (t, e) in core::mem::take(&mut to_rx) {
+                if t <= now {
+                    let seq = e.sequence;
+                    if rx.handle(e) && !bwd.should_drop() {
+                        to_tx.push((now + 1 + bwd.delay_ms(), seq));
+                    }
+                } else {
+                    still.push((t, e));
+                }
+            }
+            to_rx = still;
+            to_tx.retain(|&(t, seq)| {
+                if t <= now {
+                    tx.on_proof(seq, now);
+                    unproved.retain(|&s| s != seq);
+                    false
+                } else {
+                    true
+                }
+            });
+            if now == release_at - 1 {
+                assert_eq!(
+                    u32::from(highest),
+                    WINDOW_MAX - 1,
+                    "the sender ran up to the span bound and stopped there"
+                );
+            }
+            while let Some(m) = rx.recv() {
+                got.push(m[0]);
+            }
+            if got.len() == usize::from(messages) && tx.send_idle() {
+                break;
+            }
+        }
+        assert_eq!(
+            got,
+            (0..messages).map(|i| i as u8).collect::<Vec<_>>(),
+            "everything delivers in order once the lost envelope gets through"
+        );
     }
 }
