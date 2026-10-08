@@ -23,6 +23,12 @@ lanes on RNS 1.5.7 passed: live 17/17, outrider 7/7, resource 12/12, routing
 Three of them failed before the fixes. Item 36 (freshness ledger cost) was
 resolved by the freshness redesign.
 
+**P1 verification (2026-10-08):** local CI-equivalent checks passed. The live
+lanes on RNS 1.5.7 passed: live 26/26, outrider 7/7, resource 12/12, routing
+3/3. The live lane now includes the P1 gates for link liveness, transit MTU,
+path requests, single-packet proofs, resource cancel, metadata and proof
+cache, ratchet rotation, and Channel vanish.
+
 **Owner direction (2026-10-07):** align with upstream, aiming for protocol
 fidelity and feature parity in concise, efficient Rust, without porting the
 Python. The relaxed same-blob rule left the 30-minute route TTL as a gap; it was
