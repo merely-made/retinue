@@ -26,6 +26,10 @@ GATES = (
     "interop_resource_send.py",
     "interop_send_large.py",
     "interop_send_multiseg.py",
+    "interop_library_resource_recv.py",
+    "interop_library_resource_send.py",
+    "interop_reliable_responder_send.py",
+    "interop_reliable_initiator_proofs.py",
     "interop_transport_node.py",
 )
 
