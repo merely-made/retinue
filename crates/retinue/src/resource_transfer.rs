@@ -63,6 +63,12 @@ use crate::token::IV_LEN;
 /// cache request. RNS resets `retries_left` to 3 on entering `AWAITING_PROOF`.
 pub const PROOF_CACHE_REQUESTS: u8 = 3;
 
+/// How many times a receiver re-sends one kept proof, to cache requests or to a
+/// re-advertisement of the resource it proved: every request an honest sender makes, with
+/// room for a lost answer. The request is unencrypted and anyone who heard the proof can
+/// name its hash, so the cap bounds what a third party can make the receiver transmit.
+pub const PROOF_CACHE_ANSWERS: u8 = PROOF_CACHE_REQUESTS + 2;
+
 /// Decides whether to accept an advertised resource, as an RNS link's `ACCEPT_APP`
 /// callback does: it sees the advertisement (sizes, part count, flags) before any part is
 /// requested. A refused offer is answered with a receiver cancel.
@@ -178,6 +184,12 @@ impl ResourceSender {
         if has_metadata {
             out = out.with_metadata();
         }
+        Self::from_outgoing(link, out)
+    }
+
+    /// A sender for an already-built resource, its advertised hashmap window fitted to the
+    /// link MTU.
+    fn from_outgoing(link: Link, out: Outgoing) -> Self {
         let mtu = link.mtu() as usize;
         let mut hash_window = out
             .total_parts()
@@ -252,8 +264,12 @@ impl ResourceSender {
                     };
                     out.push(self.link.framed_packet(CTX_RESOURCE, part.to_vec()));
                     self.served_parts += 1;
-                    if !core::mem::replace(&mut self.sent[index], true) {
-                        self.unsent -= 1;
+                    // A byte-identical part elsewhere shares this map hash, and this copy
+                    // serves its slot too.
+                    for copy in self.out.copies_of(index) {
+                        if !core::mem::replace(&mut self.sent[copy], true) {
+                            self.unsent -= 1;
+                        }
                     }
                 }
                 // An exhausted request wants the next slice of the hashmap.
@@ -491,7 +507,12 @@ impl ResourceReceiver {
                     .as_ref()
                     .is_none_or(|current| current.resource_hash()[..] != adv.resource_hash[..]);
                 if !is_new {
-                    return self.next_requests(&mut iv);
+                    // A re-sent offer of the resource already proved means the sender lost
+                    // the proof: send it again rather than nothing.
+                    return match self.proof_packet() {
+                        Some(proof) => vec![proof],
+                        None => self.next_requests(&mut iv),
+                    };
                 }
                 let response_request_id = if adv.flags & FLAG_RESPONSE != 0 {
                     let Some(request_id) = adv.q.as_deref() else {
@@ -1206,6 +1227,41 @@ mod tests {
         sender.on_packet(&proof, &mut ivg);
         assert!(sender.is_done());
         assert!(!sender.awaiting_proof());
+    }
+
+    /// A receiver that already proved a resource answers a re-sent offer of it with the
+    /// proof again: the sender lost it. Before, it answered nothing, and an older sender
+    /// that re-advertises rather than asking its peer's cache never completed.
+    #[test]
+    fn a_re_advertisement_of_a_proved_resource_is_answered_with_the_proof() {
+        let mut ivg = iv_gen();
+        let (sender, mut receiver, proof) = transfer_until_proof(&payload(3000), &mut ivg);
+        let answer = receiver.on_packet(&sender.advertisement(&ivg()), &mut ivg);
+        assert_eq!(answer, vec![proof]);
+    }
+
+    /// Byte-identical parts share a map hash, and serving one serves every slot it fills.
+    /// Before, only the first slot counted as sent, so a sender holding such parts never
+    /// reached `awaiting_proof` and never asked for a lost proof.
+    #[test]
+    fn serving_a_repeated_part_counts_every_slot_it_fills() {
+        let (send_link, recv_link) = link_pair();
+        let mut ivg = iv_gen();
+        let part_size = 100;
+        let mut token = vec![0_u8; 3 * part_size];
+        token[part_size] = 1; // parts 0 and 2 are identical, part 1 differs
+        let out = Outgoing::from_token(b"data", token, [1, 2, 3, 4], false, part_size);
+        let mut sender = ResourceSender::from_outgoing(send_link, out);
+        let plain = recv_link.decrypt(&sender.advertisement(&ivg())).unwrap();
+        let incoming = Incoming::new(&Advertisement::parse(&plain).unwrap()).unwrap();
+        let mut wanted = incoming.missing_known();
+        assert_eq!(wanted.len(), 3);
+        assert_eq!(wanted[0], wanted[2], "the identical parts share a hash");
+        // A receiver asks once for the shared hash.
+        wanted.truncate(2);
+        let request = recv_link.sealed_packet(CTX_RESOURCE_REQ, &incoming.request(&wanted), &ivg());
+        assert_eq!(sender.on_packet(&request, &mut ivg).len(), 2);
+        assert!(sender.awaiting_proof(), "all three slots were served");
     }
 
     /// A proof that names another resource does not complete the publisher.

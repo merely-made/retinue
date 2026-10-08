@@ -1,7 +1,8 @@
 """Resource proof recovery gate: a lost proof is asked for again with a cache request.
 
 Stock RNS sends a Resource to Retinue's Endpoint, as in interop_library_resource_recv.py,
-but the relay in front of Retinue drops the first resource proof Retinue sends. An RNS
+but the relay in front of Retinue drops every resource proof Retinue sends (the one sent at
+completion and the copies queued behind it) until RNS sends a cache request. An RNS
 sender that has sent every part and heard no proof sends a CACHE_REQUEST naming the full
 hash of the proof it expects (`Resource.py` watchdog, AWAITING_PROOF); Retinue keeps the
 proof it sent per link and answers the request with it.
@@ -108,7 +109,7 @@ def main() -> int:
         print(f"Proofs dropped {dropped}, delivered {proofs}; cache requests RNS sent "
               f"{len(sent_cache_requests)}, Retinue heard {requests_seen}")
         ok = verdict("Retinue library received the exact bytes", bytes_ok, f"{LENGTH} bytes")
-        ok &= verdict("the relay dropped the first proof", dropped == 1, str(dropped))
+        ok &= verdict("the relay dropped the proofs sent at completion", dropped >= 1, str(dropped))
         ok &= verdict("RNS asked for the proof with a cache request",
                       len(sent_cache_requests) >= 1 and requests_seen >= 1,
                       f"{len(sent_cache_requests)} sent, {requests_seen} heard")

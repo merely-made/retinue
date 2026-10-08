@@ -1012,6 +1012,11 @@ impl Outgoing {
     /// `total_data_size` bytes and whose identity is `original_hash` (the FIRST segment's
     /// hash, shared across all segments so the receiver groups them). The advertisement's
     /// `i`/`l`/`d`/`o` fields carry these. Verified against RNS 1.3.8.
+    ///
+    /// The first segment's identity is its own [`resource_hash`](Self::resource_hash), so
+    /// for `index == 1` that is used whatever `original_hash` says: a re-drawn random hash
+    /// changes it from one computed up front. Take the later segments' `original_hash`
+    /// from the first segment's `resource_hash()`.
     pub fn with_segment(
         mut self,
         index: i64,
@@ -1022,7 +1027,7 @@ impl Outgoing {
         self.segment_index = index;
         self.total_segments = total;
         self.total_data_size = total_data_size;
-        self.original_hash = original_hash;
+        self.original_hash = if index == 1 { self.hash } else { original_hash };
         self
     }
 
@@ -1094,6 +1099,14 @@ impl Outgoing {
             .iter()
             .take_while(move |(h, _)| *h == m)
             .map(|&(_, i)| i)
+    }
+
+    /// The indices of every part sharing part `index`'s map hash, `index` among them. Map
+    /// hashes are unique but for byte-identical parts, so serving any one of them serves
+    /// them all.
+    pub fn copies_of(&self, index: usize) -> impl Iterator<Item = usize> + '_ {
+        let m = self.map_hashes.get(index).copied();
+        m.into_iter().flat_map(|m| self.indices_of(m))
     }
 
     /// The indices of the parts a request names, in request order. A hash this sender does
@@ -1673,20 +1686,17 @@ mod tests {
         let data: Vec<u8> = (0..90_000u32)
             .map(|i| (i.wrapping_mul(2_654_435_761) >> 8) as u8)
             .collect();
-        let seg0_rh = [1u8, 2, 3, 4];
-        let original = resource_hash(&data[..SEG.min(data.len())], &seg0_rh);
+        let mut original_hash = None;
 
         let mut assembled = Vec::new();
         let total_segs = data.chunks(SEG).count() as i64;
         for (idx, chunk) in data.chunks(SEG).enumerate() {
             let rh = [(idx as u8) + 1, 2, 3, 4];
             let token = send_link.seal(&content(chunk, &rh), &[7u8; 16]);
-            let mut out = Outgoing::new(chunk, &token, rh, false).with_segment(
-                idx as i64 + 1,
-                total_segs,
-                data.len() as u64,
-                original,
-            );
+            let out = Outgoing::new(chunk, &token, rh, false);
+            // The shared identity is the first segment's hash as built.
+            let original = *original_hash.get_or_insert(out.resource_hash());
+            let mut out = out.with_segment(idx as i64 + 1, total_segs, data.len() as u64, original);
             // Check the advertisement carries the shared identity and total size.
             let adv = out.advertisement();
             assert_eq!(adv.original_hash, original.to_vec());
@@ -1810,6 +1820,22 @@ mod tests {
         assert_eq!(drive(&mut out, &mut inc), token);
     }
 
+    /// The first segment's identity is its own hash, whatever the caller computed up front:
+    /// a random hash re-drawn on a map-hash collision changes the resource hash, and a stale
+    /// `original_hash` would keep RNS from grouping the segments.
+    #[test]
+    fn the_first_segment_is_its_own_identity() {
+        let token = vec![7_u8; SDU * 3];
+        let out = Outgoing::new(b"data", &token, [5, 6, 7, 8], false);
+        let hash = out.resource_hash();
+        let first = out.with_segment(1, 2, 8, [0; 32]).advertisement();
+        assert_eq!(first.original_hash, hash.to_vec());
+        let second = Outgoing::new(b"more", &token, [9, 6, 7, 8], false)
+            .with_segment(2, 2, 8, hash)
+            .advertisement();
+        assert_eq!(second.original_hash, hash.to_vec());
+    }
+
     /// Byte-identical parts share a map hash harmlessly. Across hashmap segments the
     /// repeat used to be dropped from the receiver's map, which then never filled.
     #[test]
@@ -1829,6 +1855,11 @@ mod tests {
             out.random_hash(),
             [5, 6, 7, 8],
             "identical parts need no re-draw"
+        );
+        assert_eq!(
+            out.copies_of(3).collect::<Vec<_>>(),
+            [3, HASHMAP_MAX_PARTS + 6],
+            "either copy serves both slots"
         );
         let mut inc = Incoming::new(&out.advertisement()).unwrap();
         assert_eq!(drive(&mut out, &mut inc), token);

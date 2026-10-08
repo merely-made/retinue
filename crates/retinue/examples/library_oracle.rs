@@ -13,8 +13,8 @@
 //! - `stream-open LEN SEED` (`interop_reliable_initiator_proofs.py`): an
 //!   [`Endpoint::open_reliable`] stream reads what an RNS responder's Channel sends.
 //! - `resource-recv-drop-proof LEN SEED` (`interop_resource_proof_cache.py`): as
-//!   `resource-recv`, but the relay drops the first resource proof toward RNS, so RNS has
-//!   to recover it with a cache request.
+//!   `resource-recv`, but the relay drops every resource proof toward RNS until RNS sends a
+//!   cache request, so RNS has to recover the proof with one.
 //! - `resource-meta LEN SEED` (`interop_resource_metadata.py`): RNS sends a Resource with
 //!   metadata and [`ResourceSession::receive`] takes it; then a [`ResourceSession`] opened
 //!   to RNS publishes one with [`ResourceSession::publish_with_metadata`].
@@ -30,6 +30,7 @@
 
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -38,7 +39,7 @@ use retinue::endpoint::{Endpoint, ReceivedPayload, ResourceSession, ResourceTran
 use retinue::hash::{AddressHash, full_hash};
 use retinue::identity::PrivateIdentity;
 use retinue::iface::hdlc::{Deframer, frame};
-use retinue::link::CTX_RESOURCE_PRF;
+use retinue::link::{CTX_CACHE_REQUEST, CTX_RESOURCE_PRF};
 use retinue::packet::{Packet, PacketType};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -78,26 +79,40 @@ fn type_name(packet_type: PacketType) -> &'static str {
     }
 }
 
-/// Copy one direction verbatim, tallying a deframed copy of every packet.
-///
-/// With `drop_first_proof`, the direction is instead re-framed packet by packet and the
-/// first resource proof is left out, tallied as `Dropped`.
+/// How a relay direction treats resource proofs and cache requests, for the proof-cache
+/// gate. Both directions share the flag that says a cache request has been heard.
+#[derive(Clone)]
+enum ProofFilter {
+    /// Copy everything verbatim.
+    None,
+    /// Re-frame packet by packet, leaving out (and tallying as `Dropped`) every resource
+    /// proof until the flag is set.
+    DropUntilAsked(Arc<AtomicBool>),
+    /// Copy verbatim, setting the flag on the first cache request.
+    MarkAsked(Arc<AtomicBool>),
+}
+
+/// Copy one direction verbatim, tallying a deframed copy of every packet, and filtering
+/// resource proofs as `filter` says.
 async fn relay(
     mut from: tokio::net::tcp::OwnedReadHalf,
     mut to: tokio::net::tcp::OwnedWriteHalf,
     direction: &'static str,
     tally: Tally,
-    mut drop_first_proof: bool,
+    filter: ProofFilter,
 ) {
     let mut deframer = Deframer::new();
     let mut buf = vec![0_u8; 8192];
-    let filtering = drop_first_proof;
+    let filtering = matches!(filter, ProofFilter::DropUntilAsked(_));
     loop {
         let n = match from.read(&mut buf).await {
             Ok(0) | Err(_) => break,
             Ok(n) => n,
         };
-        if !filtering && to.write_all(&buf[..n]).await.is_err() {
+        // A cache request is marked before it is passed on, so the answer it draws can
+        // never reach the other direction ahead of the mark.
+        let marking = matches!(filter, ProofFilter::MarkAsked(_));
+        if !filtering && !marking && to.write_all(&buf[..n]).await.is_err() {
             break;
         }
         for raw in deframer.push(&buf[..n]) {
@@ -105,11 +120,16 @@ async fn relay(
                 continue;
             };
             let mut kind = type_name(packet.packet_type);
-            if drop_first_proof
+            if let ProofFilter::MarkAsked(asked) = &filter
+                && packet.context == CTX_CACHE_REQUEST
+            {
+                asked.store(true, Ordering::Release);
+            }
+            if let ProofFilter::DropUntilAsked(asked) = &filter
+                && !asked.load(Ordering::Acquire)
                 && packet.packet_type == PacketType::Proof
                 && packet.context == CTX_RESOURCE_PRF
             {
-                drop_first_proof = false;
                 kind = "Dropped";
             } else if filtering && to.write_all(&frame(&raw)).await.is_err() {
                 return;
@@ -120,6 +140,9 @@ async fn relay(
                 .entry((direction, kind, packet.context))
                 .or_default() += 1;
         }
+        if marking && to.write_all(&buf[..n]).await.is_err() {
+            break;
+        }
     }
     let _ = to.shutdown().await;
 }
@@ -129,26 +152,29 @@ async fn tap(
     listener: TcpListener,
     inner: SocketAddr,
     tally: Tally,
-    drop_first_proof: bool,
+    drop_proofs: bool,
 ) -> std::io::Result<()> {
     let (outer, _) = listener.accept().await?;
     let endpoint_side = TcpStream::connect(inner).await?;
     let (outer_read, outer_write) = outer.into_split();
     let (inner_read, inner_write) = endpoint_side.into_split();
+    let (to_retinue, to_rns) = if drop_proofs {
+        let asked = Arc::new(AtomicBool::new(false));
+        (
+            ProofFilter::MarkAsked(Arc::clone(&asked)),
+            ProofFilter::DropUntilAsked(asked),
+        )
+    } else {
+        (ProofFilter::None, ProofFilter::None)
+    };
     tokio::spawn(relay(
         outer_read,
         inner_write,
         "to_retinue",
         tally.clone(),
-        false,
+        to_retinue,
     ));
-    tokio::spawn(relay(
-        inner_read,
-        outer_write,
-        "to_rns",
-        tally,
-        drop_first_proof,
-    ));
+    tokio::spawn(relay(inner_read, outer_write, "to_rns", tally, to_rns));
     Ok(())
 }
 

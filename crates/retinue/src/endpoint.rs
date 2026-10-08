@@ -56,7 +56,7 @@ use crate::ratchet::RatchetStore;
 use crate::reliable::ReliableChannel;
 use crate::request::{Request, Response};
 use crate::resource::{Advertisement, RANDOM_HASH_LEN};
-use crate::resource_transfer::{ResourceReceiver, ResourceSender};
+use crate::resource_transfer::{PROOF_CACHE_ANSWERS, ResourceReceiver, ResourceSender};
 use crate::token::{IV_LEN, TOKEN_OVERHEAD};
 
 /// Largest plaintext chunk per link data packet. Kept under `ENCRYPTED_MDU` (383) so the
@@ -121,6 +121,13 @@ const MIN_LINK_MTU: u32 = 247;
 /// protocol has no IDENTIFY ack, so we simply re-send it a bounded few times, which survives
 /// realistic early loss without ever spinning.
 const IDENTIFY_MAX_SENDS: u32 = 4;
+
+/// How many copies of a completed Resource receipt are sent when the receiving call
+/// returns: the one completion sent, and the rest queued behind it. A receiver commonly
+/// drops its session, and with it the link and its kept proof, as soon as it has the data,
+/// after which a publisher's cache request has nothing to answer it. RNS sends one proof
+/// and ignores a proof for a resource already concluded, so the copies cost only airtime.
+const RESOURCE_PROOF_MAX_SENDS: u32 = 3;
 
 /// How long [`Endpoint::open`] waits for a link proof before giving up. Multi-hop setup can
 /// be slow, so this is generous; it exists to bound a setup that will otherwise never
@@ -670,11 +677,22 @@ impl ResourceSession {
                         if !publishing.has_started() {
                             shared.send_on(iface, publishing.advertisement(&next_iv()));
                         } else if quiet.is_multiple_of(PROOF_WAIT_RETRIES)
-                            && let Some(request) = publishing.cache_request()
+                            && publishing.awaiting_proof()
                         {
                             // Every part went out and no proof came back: ask the
-                            // receiver to re-send it, as RNS asks its peer's cache.
-                            shared.send_on(iface, request);
+                            // receiver to re-send it, as RNS asks its peer's cache, and
+                            // once those requests are spent give up and say so.
+                            if let Some(request) = publishing.cache_request() {
+                                shared.send_on(iface, request);
+                            } else {
+                                if let Some(cancel) = publishing.cancel(&next_iv()) {
+                                    shared.send_on(iface, cancel);
+                                }
+                                return Err(io::Error::new(
+                                    io::ErrorKind::TimedOut,
+                                    "resource proof never arrived",
+                                ));
+                            }
                         }
                     }
                 }
@@ -733,7 +751,7 @@ impl ResourceSession {
                             shared.send_on(iface, outbound);
                         }
                         if receiving.is_complete() {
-                            keep_resource_proof(&shared, link.id(), receiving);
+                            keep_resource_proof(&shared, iface, link.id(), receiving);
                             return Ok(());
                         }
                         resource_receive_ended(receiving)?;
@@ -827,7 +845,7 @@ impl ResourceSession {
                             shared.send_on(iface, outbound);
                         }
                         if receiving.is_complete() {
-                            keep_resource_proof(&shared, link.id(), receiving);
+                            keep_resource_proof(&shared, iface, link.id(), receiving);
                             return Ok((identified, None));
                         }
                         resource_receive_ended(receiving)?;
@@ -1072,7 +1090,7 @@ impl ResourceSession {
                             shared.send_on(iface, outbound);
                         }
                         if receiving.is_complete() {
-                            keep_resource_proof(&shared, link.id(), receiving);
+                            keep_resource_proof(&shared, iface, link.id(), receiving);
                             let advertised_id = receiving.response_request_id().map(AddressHash::from_bytes);
                             let (packed, metadata) = receiving
                                 .take_payload()
@@ -1156,10 +1174,19 @@ fn resource_receive_ended(receiver: &ResourceReceiver) -> io::Result<()> {
     }
 }
 
-/// Keep a completed receiver's proof for its link, so the router can answer the sender's
-/// cache request if the proof sent with completion was lost.
-fn keep_resource_proof(shared: &Shared, link: AddressHash, receiver: &ResourceReceiver) {
+/// Settle a completed receiver's proof: queue the copies after the one sent with
+/// completion (see [`RESOURCE_PROOF_MAX_SENDS`]), and keep it for its link so the router
+/// can answer the sender's cache request, or its re-advertisement, if every copy was lost.
+fn keep_resource_proof(
+    shared: &Shared,
+    iface: InterfaceId,
+    link: AddressHash,
+    receiver: &ResourceReceiver,
+) {
     if let Some(proof) = receiver.proof_packet() {
+        for _ in 1..RESOURCE_PROOF_MAX_SENDS {
+            shared.send_on(iface, proof.clone());
+        }
         shared.keep_resource_proof(link, proof);
     }
 }
@@ -2193,9 +2220,10 @@ struct Shared {
     /// Proofs for recently accepted link requests, keyed by link id. Replaying the same
     /// proof avoids creating a second stream when only the first proof was lost.
     inbound_link_proofs: Mutex<HashMap<AddressHash, (Packet, Instant)>>,
-    /// The last resource proof sent on each link, with when, answered to a publisher's
-    /// cache request for [`RESOURCE_PROOF_CACHE_TTL`].
-    resource_proofs: Mutex<HashMap<AddressHash, (Packet, Instant)>>,
+    /// The last resource proof sent on each link, with when and how many times it has been
+    /// re-sent, answered to a publisher's cache request (or re-advertisement) for
+    /// [`RESOURCE_PROOF_CACHE_TTL`], at most [`PROOF_CACHE_ANSWERS`] times.
+    resource_proofs: Mutex<HashMap<AddressHash, (Packet, Instant, u8)>>,
     /// Learned routes: destination → the interface to reach it and its hop count. Populated
     /// from announces.
     path_table: Mutex<HashMap<AddressHash, PathEntry>>,
@@ -2301,16 +2329,49 @@ impl Shared {
     fn keep_resource_proof(&self, link: AddressHash, proof: Packet) {
         let now = Instant::now();
         let mut proofs = self.resource_proofs.lock().unwrap();
-        proofs.retain(|_, (_, kept)| now.duration_since(*kept) < RESOURCE_PROOF_CACHE_TTL);
-        proofs.insert(link, (proof, now));
+        proofs.retain(|_, (_, kept, _)| now.duration_since(*kept) < RESOURCE_PROOF_CACHE_TTL);
+        proofs.insert(link, (proof, now, 0));
     }
 
-    /// The resource proof kept for `link` whose full hash a cache request names.
-    fn cached_resource_proof(&self, link: AddressHash, requested: &[u8]) -> Option<Packet> {
-        let proofs = self.resource_proofs.lock().unwrap();
-        let (proof, kept) = proofs.get(&link)?;
-        (kept.elapsed() < RESOURCE_PROOF_CACHE_TTL && proof.full_hash()[..] == *requested)
-            .then(|| proof.clone())
+    /// The resource proof kept for `link`, to re-send, if `matches` it, it has not expired,
+    /// and it has been re-sent fewer than [`PROOF_CACHE_ANSWERS`] times. The cap bounds what
+    /// anyone who heard the cleartext proof can make this endpoint transmit.
+    fn resend_resource_proof(
+        &self,
+        link: AddressHash,
+        matches: impl FnOnce(&Packet) -> bool,
+    ) -> Option<Packet> {
+        let mut proofs = self.resource_proofs.lock().unwrap();
+        let (proof, kept, answers) = proofs.get_mut(&link)?;
+        if kept.elapsed() >= RESOURCE_PROOF_CACHE_TTL
+            || *answers >= PROOF_CACHE_ANSWERS
+            || !matches(proof)
+        {
+            return None;
+        }
+        *answers += 1;
+        Some(proof.clone())
+    }
+
+    /// The kept proof to re-send for a resource advertisement on `link` naming the
+    /// resource it proves: an older retinue sender that lost the proof offers again
+    /// rather than asking with a cache request.
+    fn proof_for_advertisement(&self, link: AddressHash, advertisement: &Packet) -> Option<Packet> {
+        if !self.resource_proofs.lock().unwrap().contains_key(&link) {
+            return None;
+        }
+        let entry = self
+            .links
+            .lock()
+            .unwrap()
+            .get(&link)
+            .map(|e| e.link.clone())?;
+        let plain = entry.decrypt(advertisement).ok()?;
+        let advertised = Advertisement::parse(&plain).ok()?;
+        self.resend_resource_proof(link, |proof| {
+            crate::resource::parse_proof(&proof.payload)
+                .is_some_and(|(hash, _)| hash[..] == advertised.resource_hash[..])
+        })
     }
 
     fn is_running(&self) -> bool {
@@ -4777,10 +4838,19 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                 // packet cache. Cache requests are exempt from the duplicate window above,
                 // because a publisher repeats them verbatim.
                 if pkt.context == link::CTX_CACHE_REQUEST {
-                    if let Some(proof) = shared.cached_resource_proof(pkt.destination, &pkt.payload)
-                    {
+                    if let Some(proof) = shared.resend_resource_proof(pkt.destination, |proof| {
+                        proof.full_hash()[..] == pkt.payload[..]
+                    }) {
                         shared.send_on(iface, proof);
                     }
+                    return;
+                }
+                // The same resource offered again after this side proved it: its proof
+                // was lost. Answer with the kept one rather than receive it all again.
+                if pkt.context == link::CTX_RESOURCE_ADV
+                    && let Some(proof) = shared.proof_for_advertisement(pkt.destination, &pkt)
+                {
+                    shared.send_on(iface, proof);
                     return;
                 }
             }
