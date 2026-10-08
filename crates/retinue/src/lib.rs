@@ -190,6 +190,9 @@ pub enum Error {
     /// A resource advertisement named more than one segment. Segment accumulation is not
     /// implemented, so the offer is refused rather than truncated to its first segment.
     MultiSegmentResource,
+    /// A resource offer was refused by this side's accept policy, before any part of it
+    /// was requested. The sender was told with a receiver cancel.
+    ResourceRejected,
 }
 
 impl core::fmt::Display for Error {
@@ -214,6 +217,7 @@ impl core::fmt::Display for Error {
             Self::CapacityExceeded => "peer asked for more state than the capacity policy allows",
             Self::DecompressionLimit => "decompressed resource exceeds the size limit",
             Self::MultiSegmentResource => "multi-segment resources are not supported",
+            Self::ResourceRejected => "resource offer refused by the accept policy",
         };
         f.write_str(s)
     }

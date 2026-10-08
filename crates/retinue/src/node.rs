@@ -237,6 +237,13 @@ pub const RESOURCE_REQUEST_WINDOW: usize = 4;
 /// profile's airtime is the same recorded follow-up as the desktop's retry floors.
 pub const RESOURCE_RETRY_INTERVAL: u64 = 12_000;
 
+/// How long a link keeps the last resource proof this node sent, to answer a sender's cache
+/// request for it, in milliseconds. A sender asks [`PROOF_CACHE_REQUESTS`] times, each
+/// after a retry interval of silence, so this covers them with room for slow airtime.
+///
+/// [`PROOF_CACHE_REQUESTS`]: crate::resource_transfer::PROOF_CACHE_REQUESTS
+pub const RESOURCE_PROOF_CACHE_TTL: u64 = 120_000;
+
 /// How long a link may go unheard before its slot is reclaimed, in milliseconds.
 ///
 /// A board holds four link slots. Without expiry, four peers that establish a link and then
@@ -641,9 +648,12 @@ fn is_resource_context(context: u8) -> bool {
 /// Whether a link packet with this context is checked against the sent and received
 /// windows. Resource contexts are not: a transfer has its own part and request bookkeeping,
 /// and a re-sent part legitimately repeats its hash. Keepalives are not: every request on a
-/// link is the same unencrypted byte, so each one repeats the last one's hash.
+/// link is the same unencrypted byte, so each one repeats the last one's hash. Nor are cache
+/// requests, which a sender repeats verbatim and RNS's packet filter also lets through.
 pub(crate) fn is_deduplicated_link_context(context: u8) -> bool {
-    !is_resource_context(context) && context != link::CTX_KEEPALIVE
+    !is_resource_context(context)
+        && context != link::CTX_KEEPALIVE
+        && context != link::CTX_CACHE_REQUEST
 }
 
 /// Remember a packet hash in a window, forgetting the oldest at capacity. A burst can outrun
@@ -723,6 +733,9 @@ pub struct Node<
     receivers: BoundedVec<(AddressHash, ResourceReceiver, u64), LINKS>,
     /// Outbound resource transfers, at most one per link.
     senders: BoundedVec<(AddressHash, ResourceSender, u64), LINKS>,
+    /// The last resource proof sent on each link, with when, kept for
+    /// [`RESOURCE_PROOF_CACHE_TTL`] to answer the sender's cache request if it was lost.
+    resource_proofs: BoundedVec<(AddressHash, Packet, u64), LINKS>,
     /// Counter feeding derived resource IVs. Node state rather than a per-call local so the
     /// sequence never restarts: an IV must not repeat under a link key, and a counter that
     /// reset on every ingest repeated the whole sequence on every ingest.
@@ -776,6 +789,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             first_hop_airtime: BoundedVec::new(),
             receivers: BoundedVec::new(),
             senders: BoundedVec::new(),
+            resource_proofs: BoundedVec::new(),
             iv_counter: 0,
             refused_links: 0,
             expired_links: 0,
@@ -1913,6 +1927,21 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             return;
         }
 
+        // A sender asking again for a resource proof it did not hear. Answered from the
+        // proof kept for this link, before the duplicate window: the sender repeats the
+        // request verbatim, and every copy deserves an answer.
+        if packet.context == link::CTX_CACHE_REQUEST {
+            if let Some((_, proof, _)) = self.resource_proofs.iter().find(|(id, proof, _)| {
+                *id == link_id && packet.payload[..] == proof.full_hash()[..]
+            }) {
+                actions.push(Action::Send {
+                    interface,
+                    packet: proof.clone(),
+                });
+            }
+            return;
+        }
+
         // The far end's packet heard a second time, directly and from a relay. Dropped
         // before the liveness stamp, as the echo is: the copy is no newer than the original.
         if is_deduplicated_link_context(packet.context) {
@@ -1994,6 +2023,21 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             None => {
                 if self.receivers.is_full() {
                     self.refused_offers = self.refused_offers.saturating_add(1);
+                    // Tell the sender, as RNS rejects an offer it will not take, rather than
+                    // leave it re-advertising into a full table.
+                    if packet.context == link::CTX_RESOURCE_ADV
+                        && let Some(reject) = crate::resource_transfer::reject(
+                            &self.links[link_index].0,
+                            packet,
+                            &iv(),
+                        )
+                    {
+                        self.iv_counter = counter;
+                        actions.push(Action::Send {
+                            interface,
+                            packet: reject,
+                        });
+                    }
                     return;
                 }
                 let link = self.links[link_index].0.clone();
@@ -2028,15 +2072,20 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             });
         }
 
-        if let Some(data) = self.receivers[pos].1.data() {
-            actions.push(Action::Resource {
-                link_id,
-                data: data.to_vec(),
-            });
+        if self.receivers[pos].1.is_complete() {
+            // Keep the proof a while, for the sender's cache request if it was lost.
+            if let Some(proof) = self.receivers[pos].1.proof_packet() {
+                self.resource_proofs.retain(|(id, _, _)| *id != link_id);
+                let _ = self.resource_proofs.push((link_id, proof, now));
+            }
+            // Metadata the sender attached is not carried: a Node delivers the data.
+            if let Some((data, _metadata)) = self.receivers[pos].1.take_payload() {
+                actions.push(Action::Resource { link_id, data });
+            }
             self.receivers.swap_remove(pos);
         } else if self.receivers[pos].1.failure().is_some() {
-            // A multi-segment offer, or a body past the decompression limit: its cancel
-            // went out above, and nothing further is held for it.
+            // An offer refused at its advertisement, or a body that failed to recover: its
+            // cancel went out above, and nothing further is held for it.
             self.receivers.swap_remove(pos);
             self.refused_offers = self.refused_offers.saturating_add(1);
         } else if self.receivers[pos].1.is_canceled() {
@@ -2052,6 +2101,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         // it would hold reassembly memory for a peer that is no longer there.
         self.receivers.retain(|(id, _, _)| *id != link_id);
         self.senders.retain(|(id, _, _)| *id != link_id);
+        self.resource_proofs.retain(|(id, _, _)| *id != link_id);
         actions.push(Action::LinkDown { link_id });
     }
 
@@ -2151,20 +2201,38 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                 });
             }
         }
-        for index in 0..self.senders.len() {
+        let mut index = 0;
+        while index < self.senders.len() {
             if now.saturating_sub(self.senders[index].2) < RESOURCE_RETRY_INTERVAL {
+                index += 1;
                 continue;
             }
             let link_id = self.senders[index].0;
             let mut iv = || derived_iv(&seed, link_id, &mut counter);
-            let advertisement = self.senders[index].1.advertisement(&iv());
             self.senders[index].2 = now;
-            actions.push(Action::Send {
-                interface,
-                packet: advertisement,
-            });
+            let sender = &mut self.senders[index].1;
+            // Every part sent and no proof: ask the receiver's cache for it, as RNS does,
+            // and cancel once those requests are spent.
+            let packet = if !sender.awaiting_proof() {
+                sender.advertisement(&iv())
+            } else if let Some(request) = sender.cache_request() {
+                request
+            } else {
+                let cancel = sender.cancel(&iv());
+                self.senders.swap_remove(index);
+                if let Some(packet) = cancel {
+                    actions.push(Action::Send { interface, packet });
+                }
+                continue;
+            };
+            actions.push(Action::Send { interface, packet });
+            index += 1;
         }
         self.iv_counter = counter;
+        self.resource_proofs.retain(|(id, _, at)| {
+            now.saturating_sub(*at) < RESOURCE_PROOF_CACHE_TTL
+                && self.links.iter().any(|(link, _, _)| link.id() == *id)
+        });
 
         actions
     }
@@ -3533,7 +3601,8 @@ mod tests {
     ///
     /// The sender picks the advertised size, so this is the point where a peer's ambition
     /// stops being the board's problem. Without it a peer could name a resource far larger
-    /// than the board's memory and the board would try.
+    /// than the board's memory and the board would try. The refusal goes on the wire, as
+    /// RNS rejects an offer, so the sender stops rather than re-advertising.
     #[test]
     fn an_oversized_resource_is_refused_without_holding_state() {
         let (mut a, mut b, id) = linked();
@@ -3550,9 +3619,18 @@ mod tests {
         let advertisement = sent(&started).expect("an advertisement goes out");
         let answer = b.ingest(IFACE, &advertisement, 0);
 
-        assert!(answer.is_empty(), "b says nothing rather than starting");
+        let refusal = sent(&answer).expect("b rejects the offer");
+        assert_eq!(
+            refusal.context,
+            link::CTX_RESOURCE_RCL,
+            "with a receiver cancel"
+        );
+        assert_eq!(b.refused_offers(), 1);
         assert!(!b.transfer_active(id), "and holds no reassembly state");
         assert!(b.has_link(id), "while the link itself is untouched");
+
+        assert!(a.ingest(IFACE, &refusal, 1).is_empty());
+        assert!(!a.transfer_active(id), "the sender stops on the rejection");
     }
 
     /// Run a transfer from `a` to `b` until `b` proves receipt, returning that proof
@@ -3598,6 +3676,90 @@ mod tests {
             }
         }
         panic!("b never proved receipt");
+    }
+
+    /// The packets a set of actions wants sent with link context `context`.
+    fn sent_with<const N: usize>(actions: &Actions<N>, context: u8) -> Vec<Packet> {
+        actions
+            .iter()
+            .filter_map(|action| match action {
+                Action::Send { packet, .. } if packet.context == context => Some(packet.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// A lost resource proof is recovered as RNS recovers it: after a quiet retry interval
+    /// the sender asks for the proof by its packet hash, and the receiver answers from the
+    /// proof it kept, every time it is asked, rather than the whole transfer running again.
+    #[test]
+    fn a_lost_resource_proof_is_recovered_from_the_receivers_cache() {
+        let (mut a, mut b, id) = linked();
+        let proof = transfer_until_proof(&mut a, &mut b, id);
+        assert!(
+            !b.transfer_active(id),
+            "b delivered and released its receiver"
+        );
+
+        let polled = a.poll(RESOURCE_RETRY_INTERVAL, IFACE, None);
+        let [request] = sent_with(&polled, link::CTX_CACHE_REQUEST)
+            .try_into()
+            .expect("one cache request");
+        assert!(
+            sent_with(&polled, link::CTX_RESOURCE_ADV).is_empty(),
+            "not a re-offer"
+        );
+        assert_eq!(request.payload, proof.full_hash());
+
+        for _ in 0..2 {
+            let answer = b.ingest(IFACE, &request, RESOURCE_RETRY_INTERVAL);
+            assert_eq!(
+                sent(&answer),
+                Some(proof.clone()),
+                "the kept proof, byte for byte"
+            );
+        }
+        assert!(a.ingest(IFACE, &proof, RESOURCE_RETRY_INTERVAL).is_empty());
+        assert!(!a.transfer_active(id), "the proof completed a's publish");
+
+        // The kept proof expires.
+        b.poll(
+            RESOURCE_RETRY_INTERVAL + RESOURCE_PROOF_CACHE_TTL,
+            IFACE,
+            None,
+        );
+        assert!(
+            b.ingest(IFACE, &request, RESOURCE_PROOF_CACHE_TTL * 2)
+                .is_empty()
+        );
+    }
+
+    /// A sender whose proof never comes asks three times, then cancels with a sealed
+    /// initiator cancel and lets the transfer go.
+    #[test]
+    fn a_sender_without_a_proof_cancels_after_three_cache_requests() {
+        let (mut a, mut b, id) = linked();
+        let proof = transfer_until_proof(&mut a, &mut b, id);
+        let mut now = 0;
+        for _ in 0..crate::resource_transfer::PROOF_CACHE_REQUESTS {
+            now += RESOURCE_RETRY_INTERVAL;
+            let polled = a.poll(now, IFACE, None);
+            assert_eq!(sent_with(&polled, link::CTX_CACHE_REQUEST).len(), 1);
+        }
+        now += RESOURCE_RETRY_INTERVAL;
+        let polled = a.poll(now, IFACE, None);
+        let [cancel] = sent_with(&polled, link::CTX_RESOURCE_ICL)
+            .try_into()
+            .expect("one initiator cancel");
+        let (resource_hash, _) = crate::resource::parse_proof(&proof.payload).unwrap();
+        let link = &b
+            .links
+            .iter()
+            .find(|(link, _, _)| link.id() == id)
+            .unwrap()
+            .0;
+        assert_eq!(link.decrypt(&cancel).unwrap(), resource_hash);
+        assert!(!a.transfer_active(id));
     }
 
     /// A Node proves a resource with the PROOF-type packet RNS accepts, and a Node sender

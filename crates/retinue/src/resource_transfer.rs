@@ -16,40 +16,81 @@
 //! 0x04 RESOURCE_HMU   a hashmap update for a resource with more parts than one advert carries
 //! 0x05 RESOURCE_PRF   the receiver's proof of receipt, a PROOF-type packet, unencrypted:
 //!                     resource_hash(32) || proof(32)
-//! 0x06 RESOURCE_ICL   the initiator cancels
-//! 0x07 RESOURCE_RCL   the receiver cancels, sealed: resource_hash(32)
+//! 0x06 RESOURCE_ICL   the initiator cancels, sealed: resource_hash(32)
+//! 0x07 RESOURCE_RCL   the receiver cancels or rejects, sealed: resource_hash(32)
+//! 0x08 CACHE_REQUEST  a sender awaiting its proof asks for it again, unencrypted:
+//!                     the proof packet's full hash(32)
 //! ```
 //!
 //! The payload is sealed into the token **once** (`link.seal(content)`), then split into
 //! parts, so a part is a byte-slice of the already-encrypted token and rides framed; the
 //! receiver reassembles the parts verbatim into the token and opens it once. Control packets
-//! (advertisement, request, hashmap update) are sealed; the proof, carrying only public
-//! hashes, rides unencrypted in a PROOF-type packet, the only form RNS accepts. A sender
-//! still accepts the DATA-type proof older retinue receivers sent. This matches the codec's
-//! own round-trip usage (see `resource.rs` tests) and the captured advertisement;
-//! per-context sealing for RNS interop of REQ/HMU is pinned for ADV/PART/PRF and is a
-//! follow-on capture for the rest.
+//! (advertisement, request, hashmap update, cancels) are sealed; the proof, carrying only
+//! public hashes, rides unencrypted in a PROOF-type packet, the only form RNS accepts. A
+//! sender still accepts the DATA-type proof older retinue receivers sent.
+//!
+//! Either side ends a transfer it will not finish with a sealed cancel naming the resource,
+//! as RNS does (`Resource.cancel`, `Resource.reject`): the receiver on a refused offer, a
+//! corrupt or oversized body, or a local cancel; the sender on a local cancel. A cancel is
+//! honoured only if it decrypts on the link and names the resource in progress.
 //!
 //! Both halves are sans-io: [`ResourceSender::on_packet`] / [`ResourceReceiver::on_packet`]
 //! take a received packet and return packets to send, and the retransmit helpers re-emit on a
 //! stall. A caller (a link task, or a virtual-clock loss test) pumps them.
 
+use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::Error;
 use crate::link::{
-    CTX_RESOURCE, CTX_RESOURCE_ADV, CTX_RESOURCE_HMU, CTX_RESOURCE_ICL, CTX_RESOURCE_PRF,
-    CTX_RESOURCE_RCL, CTX_RESOURCE_REQ, Link,
+    CTX_CACHE_REQUEST, CTX_RESOURCE, CTX_RESOURCE_ADV, CTX_RESOURCE_HMU, CTX_RESOURCE_ICL,
+    CTX_RESOURCE_PRF, CTX_RESOURCE_RCL, CTX_RESOURCE_REQ, Link,
 };
 use crate::packet::Packet;
+#[cfg(not(feature = "compression"))]
+use crate::resource::FLAG_COMPRESSED;
 #[cfg(feature = "compression")]
 use crate::resource::compress;
 use crate::resource::{
     Advertisement, DEFAULT_MAX_DECOMPRESSED_SIZE, FLAG_RESPONSE, Incoming, Outgoing,
-    RANDOM_HASH_LEN, SDU, content, parse_hmu, parse_proof, parse_request,
+    RANDOM_HASH_LEN, SDU, content, pack_metadata, parse_hmu, parse_proof, parse_request,
+    split_metadata,
 };
 use crate::token::IV_LEN;
+
+/// How many times a sender that has sent every part asks for its missing proof with a
+/// cache request. RNS resets `retries_left` to 3 on entering `AWAITING_PROOF`.
+pub const PROOF_CACHE_REQUESTS: u8 = 3;
+
+/// Decides whether to accept an advertised resource, as an RNS link's `ACCEPT_APP`
+/// callback does: it sees the advertisement (sizes, part count, flags) before any part is
+/// requested. A refused offer is answered with a receiver cancel.
+pub type AcceptHook = Box<dyn Fn(&Advertisement) -> bool + Send + Sync>;
+
+/// A sealed cancel naming `resource_hash`: `RESOURCE_RCL` from a receiver, `RESOURCE_ICL`
+/// from the initiator.
+fn cancel_packet(link: &Link, context: u8, resource_hash: &[u8], iv: &[u8; IV_LEN]) -> Packet {
+    link.sealed_packet(context, resource_hash, iv)
+}
+
+/// Whether `packet` decrypts on `link` and names `resource_hash`, as RNS matches a cancel
+/// to its resource.
+fn names_resource(link: &Link, packet: &Packet, resource_hash: &[u8; 32]) -> bool {
+    link.decrypt(packet)
+        .is_ok_and(|plain| plain.get(..32) == Some(resource_hash.as_slice()))
+}
+
+/// Reject an advertised resource without receiving any of it: RNS's `Resource.reject`.
+///
+/// Returns the sealed receiver cancel naming the advertised resource, or `None` if
+/// `advertisement` does not decrypt on `link` to a well-formed advertisement.
+pub fn reject(link: &Link, advertisement: &Packet, iv: &[u8; IV_LEN]) -> Option<Packet> {
+    let plain = link.decrypt(advertisement).ok()?;
+    let adv = Advertisement::parse(&plain).ok()?;
+    (adv.resource_hash.len() == 32)
+        .then(|| cancel_packet(link, CTX_RESOURCE_RCL, &adv.resource_hash, iv))
+}
 
 /// Publishes one resource over a link: advertises it, serves part requests and hashmap
 /// updates, and completes when the receiver's proof of receipt arrives.
@@ -59,6 +100,10 @@ pub struct ResourceSender {
     hash_window: usize,
     started: bool,
     served_parts: usize,
+    /// Which parts have been sent at least once, and how many have not.
+    sent: Vec<bool>,
+    unsent: usize,
+    cache_requests_left: u8,
     done: bool,
     canceled: bool,
 }
@@ -72,7 +117,23 @@ impl ResourceSender {
         random_hash: [u8; RANDOM_HASH_LEN],
         iv: &[u8; IV_LEN],
     ) -> Self {
-        Self::prepare(link, data, random_hash, iv, None)
+        Self::prepare(link, data, random_hash, iv, None, false)
+    }
+
+    /// Publish `data` with metadata: `metadata` is one already-packed msgpack value, which
+    /// rides in front of the data and reaches an RNS receiver as `resource.metadata`.
+    /// Returns [`Error::CapacityExceeded`] past
+    /// [`METADATA_MAX_SIZE`](crate::resource::METADATA_MAX_SIZE).
+    pub fn publish_with_metadata(
+        link: Link,
+        data: &[u8],
+        metadata: &[u8],
+        random_hash: [u8; RANDOM_HASH_LEN],
+        iv: &[u8; IV_LEN],
+    ) -> Result<Self, Error> {
+        let mut framed = pack_metadata(metadata)?;
+        framed.extend_from_slice(data);
+        Ok(Self::prepare(link, &framed, random_hash, iv, None, true))
     }
 
     /// Prepare a Resource whose advertisement binds it to a request id.
@@ -83,7 +144,7 @@ impl ResourceSender {
         random_hash: [u8; RANDOM_HASH_LEN],
         iv: &[u8; IV_LEN],
     ) -> Self {
-        Self::prepare(link, data, random_hash, iv, Some(request_id))
+        Self::prepare(link, data, random_hash, iv, Some(request_id), false)
     }
 
     fn prepare(
@@ -92,27 +153,30 @@ impl ResourceSender {
         random_hash: [u8; RANDOM_HASH_LEN],
         iv: &[u8; IV_LEN],
         request_id: Option<[u8; 16]>,
+        has_metadata: bool,
     ) -> Self {
-        let plain = content(data, &random_hash);
         #[cfg(feature = "compression")]
         let (transfer, compressed) = {
             let encoded = compress(data);
             if encoded.len() < data.len() {
                 (content(&encoded, &random_hash), true)
             } else {
-                (plain, false)
+                (content(data, &random_hash), false)
             }
         };
         #[cfg(not(feature = "compression"))]
-        let (transfer, compressed) = (plain, false);
+        let (transfer, compressed) = (content(data, &random_hash), false);
         let token = link.seal(&transfer, iv);
+        drop(transfer);
         let part_size = (link.mtu() as usize)
             .saturating_sub(crate::packet::HEADER_MIN_LEN)
             .clamp(1, SDU);
-        let mut out =
-            Outgoing::new_with_part_size(data, &token, random_hash, compressed, part_size);
+        let mut out = Outgoing::from_token(data, token, random_hash, compressed, part_size);
         if let Some(request_id) = request_id {
             out = out.with_request_id(request_id);
+        }
+        if has_metadata {
+            out = out.with_metadata();
         }
         let mtu = link.mtu() as usize;
         let mut hash_window = out
@@ -126,12 +190,16 @@ impl ResourceSender {
             }
             hash_window -= 1;
         }
+        let parts = out.total_parts();
         Self {
             link,
             out,
             hash_window,
             started: false,
             served_parts: 0,
+            sent: vec![false; parts],
+            unsent: parts,
+            cache_requests_left: PROOF_CACHE_REQUESTS,
             done: false,
             canceled: false,
         }
@@ -151,7 +219,8 @@ impl ResourceSender {
 
     /// Handle one inbound packet from the receiver, returning packets to send:
     /// a request yields the requested parts (and, if it solicited more hashmap, an HMU); a
-    /// valid proof completes the transfer, and a receiver-cancel signal terminates it.
+    /// valid proof completes the transfer, and a receiver cancel naming this resource ends
+    /// it.
     ///
     /// The proof is matched by context alone, so both the PROOF-type packet RNS sends and
     /// the DATA-type one older retinue receivers sent complete the transfer.
@@ -160,6 +229,9 @@ impl ResourceSender {
         packet: &Packet,
         mut iv: impl FnMut() -> [u8; IV_LEN],
     ) -> Vec<Packet> {
+        if self.done || self.canceled {
+            return vec![];
+        }
         match packet.context {
             CTX_RESOURCE_REQ => {
                 let Ok(plain) = self.link.decrypt(packet) else {
@@ -174,10 +246,15 @@ impl ResourceSender {
                 self.started = true;
                 let mut out = Vec::new();
                 // Serve every part whose map hash we hold, framed (already encrypted in-token).
-                let parts = self.out.serve(&req);
-                self.served_parts += parts.len();
-                for part in parts {
-                    out.push(self.link.framed_packet(CTX_RESOURCE, part));
+                for index in self.out.requested_indices(&req) {
+                    let Some(part) = self.out.part(index) else {
+                        continue;
+                    };
+                    out.push(self.link.framed_packet(CTX_RESOURCE, part.to_vec()));
+                    self.served_parts += 1;
+                    if !core::mem::replace(&mut self.sent[index], true) {
+                        self.unsent -= 1;
+                    }
                 }
                 // An exhausted request wants the next slice of the hashmap.
                 if req.exhausted
@@ -186,22 +263,65 @@ impl ResourceSender {
                     let hmu = self.out.hmu_after_with_hash_limit(&last, self.hash_window);
                     out.push(self.link.sealed_packet(CTX_RESOURCE_HMU, &hmu, &iv()));
                 }
+                if self.awaiting_proof() {
+                    self.cache_requests_left = PROOF_CACHE_REQUESTS;
+                }
                 out
             }
             CTX_RESOURCE_PRF => {
-                if let Some((_, proof)) = parse_proof(&packet.payload)
-                    && proof == self.out.expected_proof()
+                if parse_proof(&packet.payload)
+                    == Some((self.out.resource_hash(), self.out.expected_proof()))
                 {
                     self.done = true;
                 }
                 vec![]
             }
             CTX_RESOURCE_RCL => {
-                self.canceled = true;
+                if names_resource(&self.link, packet, &self.out.resource_hash()) {
+                    self.canceled = true;
+                }
                 vec![]
             }
             _ => vec![],
         }
+    }
+
+    /// Whether every part has been sent at least once, so only the proof is outstanding.
+    pub fn awaiting_proof(&self) -> bool {
+        self.unsent == 0 && !self.done && !self.canceled
+    }
+
+    /// While [`awaiting_proof`](Self::awaiting_proof), ask the receiver to re-send its
+    /// proof: a `CACHE_REQUEST` naming the full hash of the proof packet a correct transfer
+    /// produces, as RNS asks its peer's packet cache. At most [`PROOF_CACHE_REQUESTS`]
+    /// times, renewed whenever another part request arrives; `None` once spent.
+    pub fn cache_request(&mut self) -> Option<Packet> {
+        if !self.awaiting_proof() || self.cache_requests_left == 0 {
+            return None;
+        }
+        self.cache_requests_left -= 1;
+        let expected = self
+            .link
+            .resource_proof_packet(&self.out.resource_hash(), &self.out.expected_proof());
+        Some(
+            self.link
+                .framed_packet(CTX_CACHE_REQUEST, expected.full_hash().to_vec()),
+        )
+    }
+
+    /// Cancel this transfer: the sealed initiator cancel (`RESOURCE_ICL`) to send, or
+    /// `None` if it already concluded. Nothing further is served.
+    pub fn cancel(&mut self, iv: &[u8; IV_LEN]) -> Option<Packet> {
+        if self.done || self.canceled {
+            return None;
+        }
+        self.canceled = true;
+        Some(cancel_packet(
+            &self.link,
+            CTX_RESOURCE_ICL,
+            &self.out.resource_hash(),
+            iv,
+        ))
     }
 
     /// Whether the receiver has proved receipt.
@@ -219,9 +339,15 @@ impl ResourceSender {
         self.served_parts
     }
 
-    /// Whether the receiver explicitly canceled this transfer.
+    /// Whether the transfer was canceled: by the receiver's cancel or rejection naming
+    /// it, or by [`cancel`](Self::cancel).
     pub fn is_canceled(&self) -> bool {
         self.canceled
+    }
+
+    /// The hash identifying this resource on the wire.
+    pub fn resource_hash(&self) -> [u8; 32] {
+        self.out.resource_hash()
     }
 }
 
@@ -231,6 +357,9 @@ pub struct ResourceReceiver {
     link: Link,
     inc: Option<Incoming>,
     data: Option<Vec<u8>>,
+    metadata: Option<Vec<u8>>,
+    /// `(resource hash, proof)` once the payload is verified, for proof retransmission.
+    proved: Option<([u8; 32], [u8; 32])>,
     canceled: bool,
     request_window: usize,
     /// The most parts this receiver will accept for one segment.
@@ -241,6 +370,9 @@ pub struct ResourceReceiver {
     max_parts: usize,
     /// The most bytes a compressed resource may inflate to before the transfer fails.
     max_decompressed: usize,
+    /// The largest advertised data size accepted, if bounded.
+    max_data_size: Option<usize>,
+    accept: Option<AcceptHook>,
     /// Why this receiver gave up, once it has. A failed receiver answers nothing more.
     failure: Option<Error>,
     outstanding: usize,
@@ -268,10 +400,14 @@ impl ResourceReceiver {
             link,
             inc: None,
             data: None,
+            metadata: None,
+            proved: None,
             canceled: false,
             request_window: request_window.clamp(1, crate::resource::HASHMAP_MAX_PARTS),
             max_parts: max_parts.max(1),
             max_decompressed: DEFAULT_MAX_DECOMPRESSED_SIZE,
+            max_data_size: None,
+            accept: None,
             failure: None,
             outstanding: 0,
             response_request_id: None,
@@ -286,14 +422,38 @@ impl ResourceReceiver {
         self
     }
 
+    /// Refuse an offer whose advertised data size exceeds `max_data_size` bytes, as RNS
+    /// refuses a response past a request's `max_response_size`: the sender gets a receiver
+    /// cancel and this receiver fails with [`Error::CapacityExceeded`]. Decompression is
+    /// bounded by the same size, so an offer that understates its size fails too.
+    pub fn with_max_data_size(mut self, max_data_size: usize) -> Self {
+        self.max_data_size = Some(max_data_size);
+        self.max_decompressed = self.max_decompressed.min(max_data_size);
+        self
+    }
+
+    /// Decide on each new offer with `accept`, as RNS's `ACCEPT_APP` strategy does. An
+    /// offer it refuses gets a receiver cancel, and this receiver fails with
+    /// [`Error::ResourceRejected`].
+    pub fn with_accept(
+        mut self,
+        accept: impl Fn(&Advertisement) -> bool + Send + Sync + 'static,
+    ) -> Self {
+        self.accept = Some(Box::new(accept));
+        self
+    }
+
     /// The part ceiling this receiver enforces.
     pub fn max_parts(&self) -> usize {
         self.max_parts
     }
 
     /// Why this receiver failed, if it has: [`Error::MultiSegmentResource`] for an offer
-    /// it cannot reassemble whole, [`Error::DecompressionLimit`] for a body that inflated
-    /// past its limit. A failed receiver never yields data.
+    /// it cannot reassemble whole, [`Error::CapacityExceeded`] for one past its part or
+    /// size ceiling, [`Error::ResourceRejected`] for one its accept hook refused,
+    /// [`Error::DecompressionLimit`] for a body that inflated past its limit, and
+    /// [`Error::ResourceCorrupt`] for one that failed to open or verify. The sender has
+    /// been sent a cancel; a failed receiver never yields data.
     pub fn failure(&self) -> Option<Error> {
         self.failure
     }
@@ -307,8 +467,9 @@ impl ResourceReceiver {
         packet: &Packet,
         mut iv: impl FnMut() -> [u8; IV_LEN],
     ) -> Vec<Packet> {
-        // A failed receiver only answers a (re-sent) advertisement, with another refusal.
-        if self.failure.is_some() && packet.context != CTX_RESOURCE_ADV {
+        // A failed or canceled receiver only answers a (re-sent) advertisement, with
+        // another refusal.
+        if (self.failure.is_some() || self.canceled) && packet.context != CTX_RESOURCE_ADV {
             return vec![];
         }
         match packet.context {
@@ -319,18 +480,18 @@ impl ResourceReceiver {
                 let Ok(adv) = Advertisement::parse(&plain) else {
                     return vec![];
                 };
-                // A resource past RNS's segment size arrives as `l` advertisements, one per
-                // segment. This receiver reassembles a single segment, so accepting the first
-                // would hand back its data as if it were the whole resource. Refuse it, and
-                // tell the sender to stop rather than leave it re-advertising.
-                if adv.l > 1 {
-                    if self.inc.is_none() {
-                        self.failure.get_or_insert(Error::MultiSegmentResource);
-                    }
+                if adv.resource_hash.len() != 32 {
+                    return vec![];
+                }
+                if self.failure.is_some() || self.canceled {
                     return vec![self.cancel_packet(&adv.resource_hash, &mut iv)];
                 }
-                if self.failure.is_some() {
-                    return vec![];
+                let is_new = self
+                    .inc
+                    .as_ref()
+                    .is_none_or(|current| current.resource_hash()[..] != adv.resource_hash[..]);
+                if !is_new {
+                    return self.next_requests(&mut iv);
                 }
                 let response_request_id = if adv.flags & FLAG_RESPONSE != 0 {
                     let Some(request_id) = adv.q.as_deref() else {
@@ -343,25 +504,28 @@ impl ResourceReceiver {
                 } else {
                     None
                 };
-                // An advertisement past this receiver's ceiling is refused outright: the
-                // sender chose that number, so honouring it would let a peer decide how
-                // much memory this node spends.
-                let incoming = match Incoming::new_with_max_parts(&adv, self.max_parts) {
-                    Ok(inc) => inc,
-                    Err(_) => return vec![],
+                let incoming = match self.admit(&adv) {
+                    Ok(incoming) => incoming,
+                    // A malformed advertisement is dropped, as RNS drops one it cannot
+                    // decode; there is nothing trustworthy to name in a refusal.
+                    Err(Error::BadRequest) => return vec![],
+                    Err(refusal) => {
+                        // An offer refused while another transfer runs leaves that one be.
+                        if self.inc.is_none() {
+                            self.failure = Some(refusal);
+                        }
+                        return vec![self.cancel_packet(&adv.resource_hash, &mut iv)];
+                    }
                 };
-                let is_new = self
-                    .inc
-                    .as_ref()
-                    .is_none_or(|current| current.resource_hash() != incoming.resource_hash());
-                if is_new {
-                    self.inc = Some(incoming);
-                    self.outstanding = 0;
-                    self.response_request_id = response_request_id;
-                }
+                self.inc = Some(incoming);
+                self.outstanding = 0;
+                self.response_request_id = response_request_id;
                 self.next_requests(&mut iv)
             }
             CTX_RESOURCE => {
+                if self.is_complete() {
+                    return vec![];
+                }
                 let Some(inc) = self.inc.as_mut() else {
                     return vec![];
                 };
@@ -383,17 +547,57 @@ impl ResourceReceiver {
                 let Ok(hmu) = parse_hmu(&plain) else {
                     return vec![];
                 };
-                if let Some(inc) = self.inc.as_mut() {
+                if let Some(inc) = self
+                    .inc
+                    .as_mut()
+                    .filter(|inc| inc.resource_hash() == hmu.resource_hash)
+                {
                     inc.ingest_hmu(&hmu);
                 }
                 self.next_requests(&mut iv)
             }
             CTX_RESOURCE_ICL => {
-                self.canceled = true;
+                if !self.is_complete()
+                    && let Some(inc) = self.inc.as_ref()
+                    && names_resource(&self.link, packet, &inc.resource_hash())
+                {
+                    self.canceled = true;
+                    self.inc = None;
+                }
                 vec![]
             }
             _ => vec![],
         }
+    }
+
+    /// Check a new offer against this receiver's limits and accept hook, and begin
+    /// receiving it. Every error but [`Error::BadRequest`] is a refusal to answer with a
+    /// receiver cancel.
+    fn admit(&self, adv: &Advertisement) -> Result<Incoming, Error> {
+        // A resource past RNS's segment size arrives as `l` advertisements, one per
+        // segment. This receiver reassembles a single segment, so accepting the first
+        // would hand back its data as if it were the whole resource.
+        if adv.l > 1 {
+            return Err(Error::MultiSegmentResource);
+        }
+        #[cfg(not(feature = "compression"))]
+        if adv.flags & FLAG_COMPRESSED != 0 {
+            return Err(Error::Unsupported);
+        }
+        if self
+            .max_data_size
+            .is_some_and(|max| adv.data_size > max as u64)
+        {
+            return Err(Error::CapacityExceeded);
+        }
+        // An advertisement past this receiver's part ceiling is refused outright: the
+        // sender chose that number, so honouring it would let a peer decide how much
+        // memory this node spends.
+        let incoming = Incoming::new_with_max_parts(adv, self.max_parts)?;
+        if self.accept.as_ref().is_some_and(|accept| !accept(adv)) {
+            return Err(Error::ResourceRejected);
+        }
+        Ok(incoming.with_window(self.request_window))
     }
 
     /// Re-emit the outstanding request (for loss recovery when a request or its parts were
@@ -401,15 +605,32 @@ impl ResourceReceiver {
     pub fn retransmit(&mut self, iv: impl FnMut() -> [u8; IV_LEN]) -> Vec<Packet> {
         if self.canceled || self.failure.is_some() {
             return vec![];
-        } else if self.data.is_some() {
+        } else if self.is_complete() {
             // Already complete: re-prove in case the proof was lost.
-            return self.reprove();
+            return self.proof_packet().into_iter().collect();
         }
         let mut iv = iv;
         self.next_requests(&mut iv)
     }
 
-    /// Whether the sender explicitly canceled this transfer.
+    /// Cancel a transfer in progress: the sealed receiver cancel (`RESOURCE_RCL`) to send,
+    /// or `None` if no transfer is running. Nothing further is requested.
+    pub fn cancel(&mut self, iv: &[u8; IV_LEN]) -> Option<Packet> {
+        if self.is_complete() || self.failure.is_some() || self.canceled {
+            return None;
+        }
+        let inc = self.inc.take()?;
+        self.canceled = true;
+        Some(cancel_packet(
+            &self.link,
+            CTX_RESOURCE_RCL,
+            &inc.resource_hash(),
+            iv,
+        ))
+    }
+
+    /// Whether the transfer was canceled: by the sender's cancel naming it, or by
+    /// [`cancel`](Self::cancel).
     pub fn is_canceled(&self) -> bool {
         self.canceled
     }
@@ -417,7 +638,7 @@ impl ResourceReceiver {
     /// The requests to send now: the known-but-missing parts, or a hashmap solicitation when
     /// the known hashes are collected but more parts remain.
     fn next_requests(&mut self, iv: &mut impl FnMut() -> [u8; IV_LEN]) -> Vec<Packet> {
-        let Some(inc) = self.inc.as_ref() else {
+        let Some(inc) = self.inc.as_ref().filter(|_| self.proved.is_none()) else {
             return vec![];
         };
         let missing = inc.missing_known();
@@ -439,63 +660,77 @@ impl ResourceReceiver {
         }
     }
 
-    /// Reassemble, open, verify, and build the proof packet. Records the payload.
+    /// Reassemble, open, verify, and build the proof packet. Records the payload, and its
+    /// metadata if the advertisement flagged some. A body that fails here fails the
+    /// transfer, and the sender is told to stop.
     fn finish(&mut self, iv: &mut impl FnMut() -> [u8; IV_LEN]) -> Vec<Packet> {
-        let (hash, recovered) = {
-            let inc = self
-                .inc
-                .as_ref()
-                .expect("complete implies an advertisement");
-            let Ok(token) = inc.assemble_token() else {
-                return vec![];
-            };
-            let Ok(decrypted) = self.link.open(&token) else {
-                return vec![];
-            };
-            let recovered = inc
-                .recover_with_limit(&decrypted, self.max_decompressed)
-                .map(|data| {
-                    let proof = inc.proof(&data);
-                    (data, proof)
-                });
-            (inc.resource_hash(), recovered)
-        };
+        let inc = self
+            .inc
+            .as_mut()
+            .expect("complete implies an advertisement");
+        let hash = inc.resource_hash();
+        let recovered = inc
+            .take_token()
+            .and_then(|token| self.link.open(&token))
+            .and_then(|decrypted| inc.recover_with_limit(&decrypted, self.max_decompressed))
+            .and_then(|mut data| {
+                // The proof covers the data as hashed, metadata and all.
+                let proof = inc.proof(&data);
+                let metadata = inc
+                    .has_metadata()
+                    .then(|| split_metadata(&mut data))
+                    .transpose()?;
+                Ok((data, metadata, proof))
+            });
         match recovered {
-            Ok((data, proof)) => {
+            Ok((data, metadata, proof)) => {
                 self.data = Some(data);
+                self.metadata = metadata;
+                self.proved = Some((hash, proof));
                 vec![self.link.resource_proof_packet(&hash, &proof)]
             }
-            Err(Error::DecompressionLimit) => {
-                // A bz2 bomb, or simply more than this node will hold. Fail the transfer,
-                // release the parts, and tell the sender to stop.
-                self.failure = Some(Error::DecompressionLimit);
+            Err(error) => {
+                // A bz2 bomb, or simply more than this node will hold; or a body that does
+                // not open or match its hash. Fail the transfer, release the parts, and
+                // tell the sender to stop.
+                self.failure = Some(match error {
+                    Error::DecompressionLimit | Error::Unsupported => error,
+                    _ => Error::ResourceCorrupt,
+                });
                 self.inc = None;
                 vec![self.cancel_packet(&hash, iv)]
             }
-            Err(_) => vec![],
         }
     }
 
-    /// Rebuild the proof packet for an already-recovered payload (proof retransmission).
-    fn reprove(&self) -> Vec<Packet> {
-        let (Some(inc), Some(data)) = (self.inc.as_ref(), self.data.as_ref()) else {
-            return vec![];
-        };
-        vec![
-            self.link
-                .resource_proof_packet(&inc.resource_hash(), &inc.proof(data)),
-        ]
+    /// The proof packet for the verified payload, once there is one: what a sender's cache
+    /// request asks to have re-sent.
+    pub fn proof_packet(&self) -> Option<Packet> {
+        let (hash, proof) = self.proved.as_ref()?;
+        Some(self.link.resource_proof_packet(hash, proof))
     }
 
     /// A receiver cancel (`RESOURCE_RCL`) for `resource_hash`, sealed as RNS sends it.
     fn cancel_packet(&self, resource_hash: &[u8], iv: &mut impl FnMut() -> [u8; IV_LEN]) -> Packet {
-        self.link
-            .sealed_packet(CTX_RESOURCE_RCL, resource_hash, &iv())
+        cancel_packet(&self.link, CTX_RESOURCE_RCL, resource_hash, &iv())
     }
 
-    /// The recovered payload, once the transfer is complete and verified.
+    /// The recovered payload, once the transfer is complete and verified. Metadata the
+    /// sender attached is not part of it; see [`metadata`](Self::metadata).
     pub fn data(&self) -> Option<&[u8]> {
         self.data.as_deref()
+    }
+
+    /// The packed (msgpack) metadata the sender attached, once the transfer is complete.
+    pub fn metadata(&self) -> Option<&[u8]> {
+        self.metadata.as_deref()
+    }
+
+    /// Take the recovered payload and its metadata out of a completed receiver, without
+    /// copying them. The proof stays available.
+    pub fn take_payload(&mut self) -> Option<(Vec<u8>, Option<Vec<u8>>)> {
+        let data = self.data.take()?;
+        Some((data, self.metadata.take()))
     }
 
     /// Request id carried by a response Resource advertisement.
@@ -505,7 +740,7 @@ impl ResourceReceiver {
 
     /// Whether the payload has been fully received and verified.
     pub fn is_complete(&self) -> bool {
-        self.data.is_some()
+        self.proved.is_some()
     }
 }
 
@@ -739,22 +974,251 @@ mod tests {
         );
     }
 
+    /// Deliver `packets` to one side, collecting what it answers.
+    fn deliver(packets: Vec<Packet>, side: impl FnMut(&Packet) -> Vec<Packet>) -> Vec<Packet> {
+        packets.iter().flat_map(side).collect()
+    }
+
+    /// A cancel counts only if it decrypts on the link and names the resource in progress,
+    /// as RNS matches one. An unsealed cancel or one naming another resource is ignored.
     #[test]
-    fn resource_cancel_signals_stop_both_roles() {
+    fn cancels_are_sealed_and_matched_by_resource_hash() {
         let (send_link, recv_link) = link_pair();
         let mut ivg = iv_gen();
         let mut sender =
-            ResourceSender::publish(send_link.clone(), b"cancel me", [1, 2, 3, 4], &ivg());
+            ResourceSender::publish(send_link.clone(), &payload(3000), [1, 2, 3, 4], &ivg());
         let mut receiver = ResourceReceiver::new(recv_link.clone());
+        let hash = sender.resource_hash();
+        assert!(
+            !receiver
+                .on_packet(&sender.advertisement(&ivg()), &mut ivg)
+                .is_empty()
+        );
 
-        let receiver_cancel = recv_link.framed_packet(CTX_RESOURCE_RCL, vec![0x11; 32]);
-        sender.on_packet(&receiver_cancel, &mut ivg);
+        // The receiver cancels the sender.
+        let framed = recv_link.framed_packet(CTX_RESOURCE_RCL, hash.to_vec());
+        sender.on_packet(&framed, &mut ivg);
+        assert!(
+            !sender.is_canceled(),
+            "an unsealed cancel is not the receiver's"
+        );
+        let other = recv_link.sealed_packet(CTX_RESOURCE_RCL, &[0x11; 32], &ivg());
+        sender.on_packet(&other, &mut ivg);
+        assert!(!sender.is_canceled(), "a cancel for another resource");
+        let real = recv_link.sealed_packet(CTX_RESOURCE_RCL, &hash, &ivg());
+        sender.on_packet(&real, &mut ivg);
         assert!(sender.is_canceled());
 
-        let initiator_cancel = send_link.framed_packet(CTX_RESOURCE_ICL, vec![0x22; 32]);
-        receiver.on_packet(&initiator_cancel, &mut ivg);
+        // The initiator cancels the receiver.
+        let framed = send_link.framed_packet(CTX_RESOURCE_ICL, hash.to_vec());
+        receiver.on_packet(&framed, &mut ivg);
+        assert!(
+            !receiver.is_canceled(),
+            "an unsealed cancel is not the sender's"
+        );
+        let other = send_link.sealed_packet(CTX_RESOURCE_ICL, &[0x22; 32], &ivg());
+        receiver.on_packet(&other, &mut ivg);
+        assert!(!receiver.is_canceled(), "a cancel for another resource");
+        let real = send_link.sealed_packet(CTX_RESOURCE_ICL, &hash, &ivg());
+        receiver.on_packet(&real, &mut ivg);
         assert!(receiver.is_canceled());
         assert!(receiver.retransmit(&mut ivg).is_empty());
+    }
+
+    /// Cancelling locally sends the sealed cancel RNS reads: ICL from the publisher, RCL
+    /// from the receiver, each naming the resource, and the far side stops on it.
+    #[test]
+    fn a_local_cancel_tells_the_peer() {
+        let (send_link, recv_link) = link_pair();
+        let mut ivg = iv_gen();
+        let mut sender =
+            ResourceSender::publish(send_link.clone(), &payload(3000), [1, 2, 3, 4], &ivg());
+        let mut receiver = ResourceReceiver::new(recv_link.clone());
+        assert!(receiver.cancel(&ivg()).is_none(), "nothing to cancel yet");
+        receiver.on_packet(&sender.advertisement(&ivg()), &mut ivg);
+
+        let icl = sender.cancel(&ivg()).expect("a running publish cancels");
+        assert_eq!(icl.context, CTX_RESOURCE_ICL);
+        assert_eq!(recv_link.decrypt(&icl).unwrap(), sender.resource_hash());
+        assert!(sender.cancel(&ivg()).is_none(), "once");
+        receiver.on_packet(&icl, &mut ivg);
+        assert!(receiver.is_canceled());
+
+        let mut receiver = ResourceReceiver::new(recv_link);
+        let mut sender = ResourceSender::publish(send_link.clone(), &payload(3000), [5; 4], &ivg());
+        receiver.on_packet(&sender.advertisement(&ivg()), &mut ivg);
+        let rcl = receiver.cancel(&ivg()).expect("a running receive cancels");
+        assert_eq!(rcl.context, CTX_RESOURCE_RCL);
+        assert_eq!(send_link.decrypt(&rcl).unwrap(), sender.resource_hash());
+        assert!(receiver.retransmit(&mut ivg).is_empty());
+        sender.on_packet(&rcl, &mut ivg);
+        assert!(sender.is_canceled());
+    }
+
+    /// An accept hook sees the advertisement before any part is requested. An offer it
+    /// refuses is rejected on the wire, and the publisher stops on the rejection.
+    #[test]
+    fn an_offer_the_accept_hook_refuses_is_rejected() {
+        let (send_link, recv_link) = link_pair();
+        let mut ivg = iv_gen();
+        let data = payload(5000);
+        let mut sender = ResourceSender::publish(send_link.clone(), &data, [7; 4], &ivg());
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let mut receiver = ResourceReceiver::new(recv_link).with_accept({
+            let seen = seen.clone();
+            move |advertisement| {
+                *seen.lock().unwrap() = Some(advertisement.data_size);
+                false
+            }
+        });
+        let replies = receiver.on_packet(&sender.advertisement(&ivg()), &mut ivg);
+        assert_eq!(
+            *seen.lock().unwrap(),
+            Some(data.len() as u64),
+            "the hook saw the size"
+        );
+        assert_eq!(replies.len(), 1, "a rejection, no part request");
+        assert_eq!(replies[0].context, CTX_RESOURCE_RCL);
+        assert_eq!(receiver.failure(), Some(Error::ResourceRejected));
+        deliver(replies, |packet| sender.on_packet(packet, &mut ivg));
+        assert!(sender.is_canceled());
+    }
+
+    /// A receiver bounded by a data size, as a request bounds its response, rejects a
+    /// larger offer and accepts one that fits.
+    #[test]
+    fn an_offer_past_the_size_limit_is_rejected() {
+        let (send_link, recv_link) = link_pair();
+        let mut ivg = iv_gen();
+        let data = payload(5000);
+        let sender = ResourceSender::publish(send_link, &data, [7; 4], &ivg());
+        let mut small = ResourceReceiver::new(recv_link.clone()).with_max_data_size(4999);
+        let replies = small.on_packet(&sender.advertisement(&ivg()), &mut ivg);
+        assert_eq!(replies.len(), 1);
+        assert_eq!(replies[0].context, CTX_RESOURCE_RCL);
+        assert_eq!(small.failure(), Some(Error::CapacityExceeded));
+
+        let mut fits = ResourceReceiver::new(recv_link).with_max_data_size(5000);
+        let replies = fits.on_packet(&sender.advertisement(&ivg()), &mut ivg);
+        assert_eq!(replies[0].context, CTX_RESOURCE_REQ);
+        assert_eq!(fits.failure(), None);
+    }
+
+    /// An offer past the part ceiling is rejected on the wire rather than ignored, so the
+    /// publisher stops instead of re-advertising until it times out.
+    #[test]
+    fn an_offer_past_the_part_ceiling_is_rejected() {
+        let (send_link, recv_link) = link_pair();
+        let mut ivg = iv_gen();
+        let data = sha256_counter_payload(5000);
+        let mut sender = ResourceSender::publish(send_link, &data, [7; 4], &ivg());
+        let mut receiver = ResourceReceiver::with_limits(recv_link, 4, 2);
+        let replies = receiver.on_packet(&sender.advertisement(&ivg()), &mut ivg);
+        assert_eq!(replies.len(), 1);
+        assert_eq!(replies[0].context, CTX_RESOURCE_RCL);
+        assert_eq!(receiver.failure(), Some(Error::CapacityExceeded));
+        deliver(replies, |packet| sender.on_packet(packet, &mut ivg));
+        assert!(sender.is_canceled());
+    }
+
+    /// A body that does not open under the link key fails the transfer with a cancel,
+    /// rather than leaving the publisher waiting for a proof that never comes.
+    #[test]
+    fn a_corrupt_body_fails_with_a_cancel() {
+        let (send_link, recv_link) = link_pair();
+        let mut ivg = iv_gen();
+        let data = payload(2000);
+        let random_hash = [9, 9, 9, 9];
+        // Not a token this link sealed: every part matches its map hash, and the whole
+        // does not open here.
+        let token = sha256_counter_payload(2048);
+        let out = Outgoing::new(&data, &token, random_hash, false);
+        let advertisement =
+            send_link.sealed_packet(CTX_RESOURCE_ADV, &out.advertisement().pack(), &ivg());
+        let mut receiver = ResourceReceiver::new(recv_link);
+        let request = receiver.on_packet(&advertisement, &mut ivg);
+        let request = parse_request(&send_link.decrypt(&request[0]).unwrap()).unwrap();
+        let replies: Vec<Packet> = out
+            .serve(&request)
+            .into_iter()
+            .flat_map(|part| {
+                receiver.on_packet(&send_link.framed_packet(CTX_RESOURCE, part), &mut ivg)
+            })
+            .collect();
+        assert_eq!(replies.len(), 1);
+        assert_eq!(replies[0].context, CTX_RESOURCE_RCL);
+        assert_eq!(send_link.decrypt(&replies[0]).unwrap(), out.resource_hash());
+        assert_eq!(receiver.failure(), Some(Error::ResourceCorrupt));
+        assert_eq!(receiver.data(), None);
+    }
+
+    /// Metadata rides in front of the data, flagged in the advertisement, and comes out
+    /// separately; the proof covers both, as RNS's does.
+    #[test]
+    fn metadata_round_trips_beside_the_data() {
+        let (send_link, recv_link) = link_pair();
+        let mut ivg = iv_gen();
+        let data = payload(9000);
+        // msgpack {"name": "x.bin"}
+        let metadata = b"\x81\xa4name\xa5x.bin";
+        let mut sender =
+            ResourceSender::publish_with_metadata(send_link, &data, metadata, [3, 3, 3, 3], &ivg())
+                .unwrap();
+        let advertisement = sender.advertisement(&ivg());
+        let advertised = Advertisement::parse(&recv_link.decrypt(&advertisement).unwrap()).unwrap();
+        assert!(advertised.has_metadata());
+        assert_eq!(
+            advertised.data_size,
+            (3 + metadata.len() + data.len()) as u64
+        );
+
+        let mut receiver = ResourceReceiver::new(recv_link);
+        let mut to_receiver = vec![advertisement];
+        for _ in 0..100 {
+            let to_sender = deliver(core::mem::take(&mut to_receiver), |packet| {
+                receiver.on_packet(packet, &mut ivg)
+            });
+            to_receiver = deliver(to_sender, |packet| sender.on_packet(packet, &mut ivg));
+            if sender.is_done() {
+                break;
+            }
+        }
+        assert!(sender.is_done(), "the proof over metadata and data matched");
+        assert_eq!(receiver.data(), Some(data.as_slice()));
+        assert_eq!(receiver.metadata(), Some(&metadata[..]));
+    }
+
+    /// A publisher that has sent every part and heard no proof asks for it with a cache
+    /// request naming the expected proof packet's full hash, at most three times; the
+    /// receiver's kept proof is exactly that packet.
+    #[test]
+    fn a_lost_proof_is_asked_for_by_hash() {
+        let mut ivg = iv_gen();
+        let (mut sender, receiver, proof) = transfer_until_proof(&payload(3000), &mut ivg);
+        assert!(sender.awaiting_proof());
+        let request = sender.cache_request().expect("a cache request");
+        assert_eq!(request.context, CTX_CACHE_REQUEST);
+        assert_eq!(request.payload, proof.full_hash());
+        assert_eq!(receiver.proof_packet(), Some(proof.clone()));
+        assert!(sender.cache_request().is_some());
+        assert!(sender.cache_request().is_some());
+        assert!(sender.cache_request().is_none(), "three at most");
+        sender.on_packet(&proof, &mut ivg);
+        assert!(sender.is_done());
+        assert!(!sender.awaiting_proof());
+    }
+
+    /// A proof that names another resource does not complete the publisher.
+    #[test]
+    fn a_proof_for_another_resource_does_not_complete() {
+        let mut ivg = iv_gen();
+        let (mut sender, _, proof) = transfer_until_proof(&payload(3000), &mut ivg);
+        let mut forged = proof.clone();
+        forged.payload[0] ^= 1;
+        sender.on_packet(&forged, &mut ivg);
+        assert!(!sender.is_done());
+        sender.on_packet(&proof, &mut ivg);
+        assert!(sender.is_done());
     }
 
     /// Drive a clean transfer to the receiver's proof, returning the sender (not yet shown
