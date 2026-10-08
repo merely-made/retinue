@@ -20,7 +20,10 @@ fn hub() -> (Endpoint, Interface, Interface) {
     (ep, a, b)
 }
 
-fn transit_packet(hub: &Endpoint, dest: retinue::hash::AddressHash) -> Packet {
+/// One distinct transit packet: the endpoint's packet filter drops a repeated one as a loop.
+fn transit_packet(hub: &Endpoint, dest: retinue::hash::AddressHash, seq: u8) -> Packet {
+    let mut payload = vec![0xAB; 200];
+    payload[0] = seq;
     Packet {
         ifac: false,
         header_type: HeaderType::Type2,
@@ -32,7 +35,7 @@ fn transit_packet(hub: &Endpoint, dest: retinue::hash::AddressHash) -> Packet {
         transport: Some(hub.identity().hash()),
         destination: dest,
         context: 0,
-        payload: vec![0xAB; 200],
+        payload,
     }
 }
 
@@ -72,8 +75,8 @@ async fn sustained_transit_cannot_starve_local_traffic() {
     hub.enable_routing();
 
     // A neighbour floods transit toward `dest`, all of which must leave on interface b.
-    for _ in 0..40 {
-        assert!(a.sink().deliver(transit_packet(&hub, dest)));
+    for seq in 0..40 {
+        assert!(a.sink().deliver(transit_packet(&hub, dest, seq)));
     }
     // Give the router time to queue it all.
     tokio::time::sleep(Duration::from_millis(200)).await;
@@ -129,8 +132,8 @@ async fn drained_order_follows_the_configured_shares() {
     // Back both classes up deeply, so the drain measures the *ratio* rather than simply
     // exhausting a short queue. Transit is offered first, so arrival order alone would put
     // all of it ahead.
-    for _ in 0..30 {
-        assert!(a.sink().deliver(transit_packet(&hub, dest)));
+    for seq in 0..30 {
+        assert!(a.sink().deliver(transit_packet(&hub, dest, seq)));
     }
     tokio::time::sleep(Duration::from_millis(200)).await;
 
@@ -188,8 +191,8 @@ async fn transit_queue_depth_is_bounded_and_drops_are_counted() {
     });
 
     // Offer well past the depth without draining.
-    for _ in 0..50 {
-        assert!(a.sink().deliver(transit_packet(&hub, dest)));
+    for seq in 0..50 {
+        assert!(a.sink().deliver(transit_packet(&hub, dest, seq)));
     }
     tokio::time::sleep(Duration::from_millis(300)).await;
 
