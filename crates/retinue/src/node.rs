@@ -35,6 +35,7 @@ use crate::announce_freshness::{
 use crate::hash::{AddressHash, NameHash};
 use crate::identity::PrivateIdentity;
 use crate::link::{self, Inbound, Link, LinkMode, LinkTrailer, PendingLink};
+use crate::link_liveness::{self, Due, Liveness};
 use crate::packet::{HeaderType, Packet, PacketType};
 use crate::resource_transfer::{ResourceReceiver, ResourceSender};
 
@@ -712,10 +713,11 @@ pub struct Node<
     /// rather than establishing a second link. On a medium that drops, the peer not hearing
     /// our proof is ordinary, and answering twice would leave the two sides holding
     /// different keys for what the initiator thinks is one link.
-    /// Established links, each with the time its peer was last heard from.
-    links: BoundedVec<(Link, Packet, u64), LINKS>,
-    /// Links we opened, awaiting the peer's proof, each with the time it expires unanswered.
-    pending: BoundedVec<(PendingLink, u64), LINKS>,
+    /// Established links, each with its liveness timers (see [`link_liveness`]).
+    links: BoundedVec<(Link, Packet, Liveness), LINKS>,
+    /// Links we opened, awaiting the peer's proof, each with the time it expires unanswered
+    /// and the time it was sent, from which the proof's arrival measures the link RTT.
+    pending: BoundedVec<(PendingLink, u64, u64), LINKS>,
     /// Per-interface first-hop airtime allowances, added to a request's deadline. An
     /// interface with no entry gets none.
     first_hop_airtime: BoundedVec<(InterfaceId, u64), FIRST_HOP_AIRTIME_INTERFACES>,
@@ -983,7 +985,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                 .push(link.close_packet(&iv()))
                 .expect("link bound");
         }
-        for (pending, _) in &self.pending {
+        for (pending, _, _) in &self.pending {
             report
                 .pending_links
                 .push(pending.link_id())
@@ -1020,13 +1022,17 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         let mut earliest_link_expiry: Option<u64> = None;
         let mut latest_link_activity: Option<u64> = None;
         let mut link_expiry_overflow = false;
-        for (_, _, last_seen) in &self.links {
+        for (_, _, liveness) in &self.links {
+            let last_seen = liveness.last_inbound();
             latest_link_activity = Some(match latest_link_activity {
-                Some(current) => current.max(*last_seen),
-                None => *last_seen,
+                Some(current) => current.max(last_seen),
+                None => last_seen,
             });
             match last_seen.checked_add(LINK_IDLE_TIMEOUT) {
-                Some(expiry) => {
+                Some(idle) => {
+                    // A stale link's teardown, or a responder's handshake deadline, can
+                    // come before the idle expiry.
+                    let expiry = liveness.teardown_at().map_or(idle, |at| at.min(idle));
                     earliest_link_expiry = Some(match earliest_link_expiry {
                         Some(current) => current.min(expiry),
                         None => expiry,
@@ -1091,8 +1097,8 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             pending_links: self.expire_link_requests(now),
             ..Default::default()
         };
-        self.links.retain(|(link, _, seen)| {
-            let expired = now.saturating_sub(*seen) >= LINK_IDLE_TIMEOUT;
+        self.links.retain(|(link, _, liveness)| {
+            let expired = now.saturating_sub(liveness.last_inbound()) >= LINK_IDLE_TIMEOUT;
             if expired {
                 let _ = report.links.push(link.id());
             }
@@ -1155,7 +1161,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
     /// Drop link requests unanswered at their deadline, returning their link ids.
     fn expire_link_requests(&mut self, now: u64) -> BoundedVec<AddressHash, LINKS> {
         let mut expired_ids = BoundedVec::new();
-        self.pending.retain(|(attempt, deadline)| {
+        self.pending.retain(|(attempt, deadline, _)| {
             let expired = now >= *deadline;
             if expired {
                 let _ = expired_ids.push(attempt.link_id());
@@ -1259,6 +1265,11 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
     /// whatever its transport policy. A route past its TTL at `now` is not used, whether or
     /// not it has been evicted yet; the request then goes out as header type 1.
     ///
+    /// When the proof arrives, [`Node::ingest`] reports [`Action::LinkUp`] and sends the RTT
+    /// packet, carrying the time from `now` to the proof, which activates the responder. From
+    /// then [`Node::poll`] runs the link's keepalives and stale teardown
+    /// ([`crate::link_liveness`]); a link it tears down is reported as [`Action::LinkDown`].
+    ///
     /// The request is not retried. If no proof arrives by `now` plus
     /// [`link_request_timeout`] of the route's relay count (zero with no route) plus
     /// `interface`'s [`Self::first_hop_airtime`], the first
@@ -1303,7 +1314,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         let deadline = now
             .saturating_add(link_request_timeout(hop.map_or(0, |hop| hop.hops)))
             .saturating_add(self.first_hop_airtime(interface));
-        let _ = self.pending.push((attempt, deadline));
+        let _ = self.pending.push((attempt, deadline, now));
 
         actions.push(Action::Send {
             interface,
@@ -1833,7 +1844,9 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         };
         if let Ok((link, proof)) = link::accept(packet, &self.identity, &seed, offered) {
             let link_id = link.id();
-            let _ = self.links.push((link, proof.clone(), now));
+            let _ = self
+                .links
+                .push((link, proof.clone(), Liveness::responder(now, packet.hops)));
             actions.push(Action::Send {
                 interface,
                 packet: proof,
@@ -1861,7 +1874,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                     .iter()
                     .position(|(link, _, _)| link.id() == link_id)
             {
-                self.links[index].2 = now;
+                self.links[index].2.on_inbound(now);
                 self.on_resource(interface, link_id, index, packet, now, actions);
             }
             return;
@@ -1869,11 +1882,11 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         let Some(index) = self
             .pending
             .iter()
-            .position(|(attempt, _)| attempt.prove(packet).is_ok())
+            .position(|(attempt, _, _)| attempt.prove(packet).is_ok())
         else {
             return;
         };
-        let (attempt, _) = self.pending.swap_remove(index);
+        let (attempt, _, opened) = self.pending.swap_remove(index);
         let Ok(link) = attempt.prove(packet) else {
             return;
         };
@@ -1882,10 +1895,24 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             return;
         }
         let link_id = link.id();
+        // The request is never retried, so the proof times exactly one round trip. The
+        // responder stays in its handshake until it hears the RTT packet. It follows the
+        // `LinkUp`, which a full action buffer must not be the one to lose; a responder
+        // takes data before the RTT packet anyway.
+        let rtt = now.saturating_sub(opened);
+        let seed = self.identity.to_secret_bytes();
+        let iv = derived_iv(&seed, link_id, &mut self.iv_counter);
+        let rtt_packet = link.rtt_packet(link_liveness::rtt_seconds(rtt), &iv);
         // Our own proof has no place here: this side was the initiator, so there is nothing
         // to re-send. The stored packet is the proof we received, kept only for symmetry.
-        let _ = self.links.push((link, packet.clone(), now));
+        let _ = self
+            .links
+            .push((link, packet.clone(), Liveness::initiator(rtt, now)));
         actions.push(Action::LinkUp { link_id });
+        actions.push(Action::Send {
+            interface,
+            packet: rtt_packet,
+        });
     }
 
     /// Traffic on an established link.
@@ -1925,9 +1952,22 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             remember_hash(&mut self.received_link_data, hash);
         }
 
+        // Keepalives are answered here, and count as liveness only from the peer's role.
+        if packet.context == link::CTX_KEEPALIVE {
+            if self.links[index].2.on_keepalive(&packet.payload, now) {
+                actions.push(Action::Send {
+                    interface,
+                    packet: self.links[index]
+                        .0
+                        .keepalive_packet(link::KEEPALIVE_RESPONSE),
+                });
+            }
+            return;
+        }
+
         // Heard from: this is what keeps the slot. Recorded before dispatching, so a
         // resource transfer counts as liveness exactly as a keepalive does.
-        self.links[index].2 = now;
+        self.links[index].2.on_inbound(now);
 
         // Resource contexts are a transfer's business, not the link's.
         if is_resource_context(packet.context) {
@@ -1942,9 +1982,14 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             Some(Inbound::Close) => {
                 self.drop_link(index, actions);
             }
-            // Keepalives, RTT, requests and responses are not this gate's work. They are
-            // dropped rather than mishandled, and the boundary is pinned by a test so the
-            // next gate's work shows up as a change.
+            Some(Inbound::Rtt) => {
+                if let Some(rtt) = link_liveness::read_rtt(&self.links[index].0, packet) {
+                    self.links[index].2.on_rtt(rtt, now);
+                }
+            }
+            // Requests and responses are not this gate's work. They are dropped rather than
+            // mishandled, and the boundary is pinned by a test so the next gate's work shows
+            // up as a change.
             _ => {}
         }
     }
@@ -2044,6 +2089,41 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         }
     }
 
+    /// Keepalives, stale teardown and the responder's handshake deadline, for every link.
+    /// A link torn down here is reported as [`Action::LinkDown`] and counted as expired.
+    fn poll_liveness(&mut self, now: u64, interface: InterfaceId, actions: &mut Actions<ACTIONS>) {
+        let seed = self.identity.to_secret_bytes();
+        let mut index = 0;
+        while index < self.links.len() {
+            let (link, _, liveness) = &mut self.links[index];
+            let packet = match liveness.poll(now) {
+                None => {
+                    index += 1;
+                    continue;
+                }
+                Some(Due::Keepalive) => {
+                    actions.push(Action::Send {
+                        interface,
+                        packet: link.keepalive_packet(link::KEEPALIVE_REQUEST),
+                    });
+                    index += 1;
+                    continue;
+                }
+                Some(Due::Teardown) => {
+                    let iv = derived_iv(&seed, link.id(), &mut self.iv_counter);
+                    Some(link.close_packet(&iv))
+                }
+                Some(Due::HandshakeTimeout) => None,
+            };
+            if let Some(packet) = packet {
+                actions.push(Action::Send { interface, packet });
+            }
+            self.expired_links = self.expired_links.saturating_add(1);
+            // `drop_link` swaps the last link into `index`, which is examined next.
+            self.drop_link(index, actions);
+        }
+    }
+
     /// Drop a link and everything riding on it.
     fn drop_link(&mut self, index: usize, actions: &mut Actions<ACTIONS>) {
         let link_id = self.links[index].0.id();
@@ -2115,6 +2195,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         for link_id in expired.pending_links {
             actions.push(Action::LinkRequestTimedOut { link_id });
         }
+        self.poll_liveness(now, interface, &mut actions);
 
         if self.announce_due(now)
             && let Some(blob) = blob
@@ -2393,7 +2474,10 @@ mod tests {
         a.ingest(IFACE, &b.announce(&blob([2; RAND_HASH_LEN]), None), 0);
         let request = sent(&a.open_link(b.destination(), IFACE, &[0x31; 64], 0).unwrap()).unwrap();
         let proof = sent(&b.ingest(IFACE, &request, 0)).unwrap();
-        let id = link_up(&a.ingest(IFACE, &proof, 0)).expect("link did not come up");
+        let up = a.ingest(IFACE, &proof, 0);
+        let id = link_up(&up).expect("link did not come up");
+        let rtt = sent(&up).expect("the initiator reports its RTT");
+        b.ingest(IFACE, &rtt, 0);
         (a, b, id)
     }
 
@@ -3854,12 +3938,21 @@ mod tests {
             .unwrap();
         assert!(a.transfer_active(id));
 
-        let again = sent(&a.poll(
-            RESOURCE_RETRY_INTERVAL,
-            IFACE,
-            Some(&blob([0; RAND_HASH_LEN])),
-        ))
-        .expect("the poll re-advertises the unanswered offer");
+        // The idle link's keepalive goes out on the same poll; the offer is the advertisement.
+        let again = a
+            .poll(
+                RESOURCE_RETRY_INTERVAL,
+                IFACE,
+                Some(&blob([0; RAND_HASH_LEN])),
+            )
+            .into_iter()
+            .find_map(|action| match action {
+                Action::Send { packet, .. } if packet.context == link::CTX_RESOURCE_ADV => {
+                    Some(packet)
+                }
+                _ => None,
+            })
+            .expect("the poll re-advertises the unanswered offer");
         let request = sent(&b.ingest(IFACE, &again, 0));
         assert!(request.is_some(), "and the re-offer starts the transfer");
     }
@@ -3959,7 +4052,7 @@ mod tests {
             .links
             .iter()
             .find(|(l, _, _)| l.id() == id)
-            .map(|(l, _, _)| l.keepalive_packet(0xff))
+            .map(|(l, _, _)| l.keepalive_packet(link::KEEPALIVE_RESPONSE))
             .unwrap();
 
         let mut now = 0;
@@ -3970,6 +4063,126 @@ mod tests {
             assert_eq!(a.link_count(), 1, "a live peer keeps its slot at {now}");
         }
         assert_eq!(a.expired_links(), 0, "nothing reclaimed from a live peer");
+    }
+
+    fn liveness(node: &Node<32, 8, 4>, id: AddressHash) -> Liveness {
+        node.links.iter().find(|(l, _, _)| l.id() == id).unwrap().2
+    }
+
+    fn sends(actions: Actions<8>) -> Vec<Packet> {
+        actions
+            .into_iter()
+            .filter_map(|action| match action {
+                Action::Send { packet, .. } => Some(packet),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The initiator reports the RTT it measured from request to proof, and that is what
+    /// moves an RNS responder out of its handshake. It used to send nothing.
+    #[test]
+    fn the_initiator_reports_its_measured_rtt_on_link_up() {
+        let (mut a, mut b) = pair();
+        a.ingest(IFACE, &b.announce(&blob([2; RAND_HASH_LEN]), None), 0);
+        let request = sent(
+            &a.open_link(b.destination(), IFACE, &[0x31; 64], 1_000)
+                .unwrap(),
+        )
+        .unwrap();
+        let proof = sent(&b.ingest(IFACE, &request, 1_100)).unwrap();
+        assert_eq!(liveness(&b, link::link_id(&request).unwrap()).rtt(), None);
+        let up = a.ingest(IFACE, &proof, 1_250);
+        let id = link_up(&up).unwrap();
+        let rtt = sent(&up).expect("an RTT packet goes out with the link");
+        assert_eq!(rtt.context, link::CTX_LRRTT);
+        assert_eq!(liveness(&a, id).rtt(), Some(250));
+        assert_eq!(
+            link_liveness::read_rtt(&a.links[0].0, &rtt),
+            Some(250),
+            "the packet carries the measurement",
+        );
+        b.ingest(IFACE, &rtt, 1_300);
+        assert_eq!(
+            liveness(&b, id).rtt(),
+            Some(250),
+            "max(own 200, reported 250)"
+        );
+    }
+
+    /// An idle link stays up: the initiator's keepalive requests are answered by the
+    /// responder, and each side hears the other often enough never to go stale.
+    #[test]
+    fn an_idle_link_is_kept_alive_by_keepalives() {
+        let (mut a, mut b, id) = linked();
+        let (mut requests, mut responses) = (0, 0);
+        for now in (1_000..=600_000).step_by(1_000) {
+            for packet in sends(a.poll(now, IFACE, None)) {
+                assert_eq!(packet.payload, [link::KEEPALIVE_REQUEST]);
+                requests += 1;
+                for answer in sends(b.ingest(IFACE, &packet, now)) {
+                    assert_eq!(answer.payload, [link::KEEPALIVE_RESPONSE]);
+                    responses += 1;
+                    assert!(sends(a.ingest(IFACE, &answer, now)).is_empty());
+                }
+            }
+            assert!(
+                sends(b.poll(now, IFACE, None)).is_empty(),
+                "a responder never asks"
+            );
+        }
+        assert!(a.has_link(id) && b.has_link(id));
+        assert_eq!(requests, 120, "one per 5 s interval");
+        assert_eq!(responses, 120);
+    }
+
+    /// A peer that vanishes is detected and torn down with a LINKCLOSE after two silent
+    /// keepalive intervals and the grace, instead of holding the slot for the idle timeout.
+    #[test]
+    fn a_vanished_peer_goes_stale_and_is_closed() {
+        let (mut a, mut b, id) = linked();
+        assert_eq!(sends(a.poll(5_000, IFACE, None)).len(), 1);
+        let stale = a.poll(10_000, IFACE, None);
+        assert!(!stale.iter().any(|x| matches!(x, Action::LinkDown { .. })));
+        assert!(liveness(&a, id).is_stale());
+        assert!(a.poll(14_999, IFACE, None).is_empty());
+        let down = a.poll(15_000, IFACE, None);
+        assert!(down.iter().any(|x| *x == Action::LinkDown { link_id: id }));
+        let close = sent(&down).expect("a LINKCLOSE goes out");
+        assert_eq!(close.context, link::CTX_LINKCLOSE);
+        assert!(!a.has_link(id));
+        assert_eq!(a.expired_links(), 1);
+        // The far end, if it is still there, closes on it.
+        let closed = b.ingest(IFACE, &close, 15_000);
+        assert!(
+            closed
+                .iter()
+                .any(|x| *x == Action::LinkDown { link_id: id })
+        );
+    }
+
+    /// A responder whose initiator never reports an RTT drops the link at its handshake
+    /// deadline, silently, as RNS does.
+    #[test]
+    fn a_responder_without_an_rtt_drops_the_link_at_the_handshake_deadline() {
+        let (mut a, mut b) = pair();
+        a.ingest(IFACE, &b.announce(&blob([2; RAND_HASH_LEN]), None), 0);
+        let request = sent(&a.open_link(b.destination(), IFACE, &[0x31; 64], 0).unwrap()).unwrap();
+        let _ = b.ingest(IFACE, &request, 0);
+        let id = link::link_id(&request).unwrap();
+        let deadline = link_liveness::handshake_timeout(0);
+        assert_eq!(
+            b.pause_assessment().earliest_link_expiry,
+            Some(deadline),
+            "a pause is checked against the handshake deadline",
+        );
+        assert!(b.poll(deadline - 1, IFACE, None).is_empty());
+        let down = b.poll(deadline, IFACE, None);
+        assert!(down.iter().any(|x| *x == Action::LinkDown { link_id: id }));
+        assert!(
+            sent(&down).is_none(),
+            "no LINKCLOSE for a link that never activated"
+        );
     }
 
     #[test]

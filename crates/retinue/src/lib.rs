@@ -100,6 +100,8 @@ pub mod instance;
 #[cfg(feature = "alloc")]
 pub mod link;
 #[cfg(feature = "alloc")]
+pub mod link_liveness;
+#[cfg(feature = "alloc")]
 pub mod lossy;
 #[cfg(feature = "alloc")]
 pub mod msgpack;

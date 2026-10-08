@@ -501,7 +501,7 @@ fn signing_seed(identity: &PrivateIdentity) -> [u8; KEY_LEN] {
 pub enum Inbound {
     /// Application data, already decrypted.
     Data(Vec<u8>),
-    /// The RTT packet that follows a proof. Its contents are not load-bearing.
+    /// The RTT packet that follows a proof. [`crate::link_liveness::read_rtt`] reads it.
     Rtt,
     /// A keepalive request. Answer it with [`Link::keepalive_packet`] carrying
     /// [`KEEPALIVE_RESPONSE`].
