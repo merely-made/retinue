@@ -4779,11 +4779,11 @@ fn register_stream(
 /// link-proof acks (see [`crate::reliable`]). A single driver task owns the
 /// [`ReliableChannel`] and pumps it — app writes in, ordered bytes out, a proof per
 /// delivered packet, an inbound proof releasing its sequence, and retransmits on a clock —
-/// so the stream stays honest over a lossy interface. `peer` is the identity whose proofs
-/// this side validates: `Some` for an initiator (the destination's identity from its
-/// announce), `None` for a responder, which learns the initiator's identity from the IDENTIFY
-/// the initiator sends. An initiator also sends its own IDENTIFY so the responder can validate
-/// it in turn.
+/// so the stream stays honest over a lossy interface. `peer` is the remote identity: `Some`
+/// for an initiator (the destination's identity from its announce), `None` for a responder,
+/// which learns the initiator's identity from the IDENTIFY the initiator sends. Proofs are
+/// validated against the link's own peer key either way. An initiator sends its IDENTIFY so
+/// the responder learns who it is.
 fn register_reliable_stream(
     shared: &Arc<Shared>,
     link: Link,
@@ -4811,7 +4811,7 @@ fn register_reliable_stream(
         ((), true)
     });
 
-    // An initiator (known peer) identifies itself so the responder can validate our proofs.
+    // An initiator (known peer) identifies itself so the responder learns who it is.
     // Each send is sealed under a fresh IV, so a re-send is a new packet with a new hash and
     // the responder's duplicate window does not count it (Ruling 72).
     let identify_link = peer.is_some().then(|| link.clone());
@@ -4845,7 +4845,7 @@ fn register_reliable_stream(
     let driver_receive_error = Arc::clone(&receive_error);
     let drv = Arc::clone(shared);
     let driver_started = track_drainable(shared, async move {
-        // Identify to the responder so it can validate our proofs. RNS sends this once; we
+        // Identify to the responder so it learns who we are. RNS sends this once; we
         // re-send it over the first few ticks (in the clock arm below) so a dropped one still
         // lands on a lossy medium.
         if let Some(id_link) = &identify_link {
@@ -4899,8 +4899,8 @@ fn register_reliable_stream(
                             peer_done = true;
                         }
                     } else if pkt.context == CTX_LINKIDENTIFY {
-                        // The peer (an initiator) identified itself: learn its identity so we
-                        // can validate its proofs of the data we send back.
+                        // The peer (an initiator) identified itself: learn its identity, which
+                        // also validates proofs from older retinue initiators.
                         if rc.on_identify(&pkt)
                             && let Some(identity) = rc.peer().copied()
                         {
