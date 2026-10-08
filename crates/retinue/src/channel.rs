@@ -279,7 +279,16 @@ impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize>
         max_window: u32,
     ) -> Self {
         let mut channel = Self::with_params(msgtype, max_window, 0);
-        let (window, window_max, window_min, flexibility) = if initial_rtt > RTT_SLOW {
+        channel.start_window(initial_rtt);
+        channel.dynamic = true;
+        channel.rtt = initial_rtt;
+        channel
+    }
+
+    /// RNS's starting window for a link of round trip `rtt`: one when slower than the slow
+    /// tier, else [`WINDOW_INITIAL`] under the slow tier's ceiling.
+    fn start_window(&mut self, rtt: u64) {
+        let (window, window_max, window_min, flexibility) = if rtt > RTT_SLOW {
             (1, 1, 1, 1)
         } else {
             (
@@ -291,14 +300,11 @@ impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize>
         };
         // The profile's table caps the protocol window as well as the protocol's own
         // WINDOW_MAX, so a small board cannot be talked into a window its table cannot hold.
-        let ceiling = channel.max_window;
-        channel.window = window.min(ceiling);
-        channel.window_max = window_max.min(ceiling);
-        channel.window_min = window_min.min(ceiling);
-        channel.window_flexibility = flexibility;
-        channel.dynamic = true;
-        channel.rtt = initial_rtt;
-        channel
+        let ceiling = self.max_window;
+        self.window = window.min(ceiling);
+        self.window_max = window_max.min(ceiling);
+        self.window_min = window_min.min(ceiling);
+        self.window_flexibility = flexibility;
     }
 
     /// A channel with a **fixed** window and explicit retransmit timeout (for tests and
@@ -339,9 +345,16 @@ impl<const WINDOW: usize, const QUEUE: usize, const REORDER: usize>
     /// Replace the RTT estimate with a link-level measurement, such as the handshake RTT RNS
     /// times its channel by, until a proof measures the round trip itself. Ignored once a
     /// proof has, and on a fixed channel. Deadlines already set stay as they are.
+    ///
+    /// Before anything has been sent this also redoes the starting window from `rtt`, so a
+    /// responder built on a guess before the link's RTT arrived still gets RNS's window of
+    /// one on a slow link (RNS creates its channel only once the link is active).
     pub fn set_initial_rtt(&mut self, rtt: u64) {
         if self.dynamic && !self.rtt_measured {
             self.rtt = rtt;
+            if self.send_next == 0 && self.outstanding.is_empty() {
+                self.start_window(rtt);
+            }
         }
     }
 
@@ -1554,6 +1567,25 @@ mod tests {
         assert_eq!((c.window(), c.window_max, c.window_min), (1, 1, 1));
         let c: Channel = Channel::with_initial_rtt(0x0001, 1_450);
         assert_eq!((c.window(), c.window_max, c.window_min), (2, 5, 2));
+    }
+
+    #[test]
+    fn a_link_rtt_arriving_before_any_send_reselects_the_starting_window() {
+        // A responder builds its channel on a guess before the initiator's RTT packet; RNS
+        // builds its channel after, so a slow link still pins the window to one.
+        let mut c: Channel = Channel::with_initial_rtt(0x0001, 750);
+        c.set_initial_rtt(2_000);
+        assert_eq!((c.window(), c.window_max, c.window_min), (1, 1, 1));
+        c.set_initial_rtt(300);
+        assert_eq!((c.window(), c.window_max, c.window_min), (2, 5, 2));
+
+        // Once something is on the wire the window is live state and is left alone.
+        let mut c: Channel = Channel::with_initial_rtt(0x0001, 750);
+        c.send(vec![1]).expect("the send queue has room");
+        let _ = c.poll_transmit(0);
+        c.set_initial_rtt(2_000);
+        assert_eq!(c.window(), 2);
+        assert_eq!(c.rtt, 2_000);
     }
 
     #[test]

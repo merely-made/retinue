@@ -41,6 +41,10 @@ use crate::link::{CTX_CHANNEL, Link};
 use crate::packet::Packet;
 use crate::token::IV_LEN;
 
+/// The largest link RTT an initiator's RTT packet may set, in milliseconds. RNS trusts the
+/// report; a cap keeps a peer from disabling retransmission and its give-up.
+const MAX_REPORTED_RTT_MS: u64 = 60_000;
+
 /// A reliable, in-order byte stream over one [`Link`]. See the module docs.
 ///
 /// `SENT` bounds the hash table below. It defaults to
@@ -348,8 +352,9 @@ impl<
         let Some(seconds) = seconds.filter(|s| s.is_finite() && *s >= 0.0) else {
             return false;
         };
-        // Saturating float-to-int cast: an absurd report clamps rather than wraps.
-        let reported = (seconds * 1000.0) as u64;
+        // The peer controls this value: cap it, so a huge report cannot push every deadline
+        // out of reach and keep the channel from ever giving up.
+        let reported = ((seconds * 1000.0) as u64).min(MAX_REPORTED_RTT_MS);
         self.buffer.set_initial_rtt(reported.max(measured));
         true
     }
@@ -790,6 +795,15 @@ mod tests {
             "anything but a float is ignored"
         );
         assert_eq!(server.buffer.rtt(), 120);
+
+        let (client, mut server) = pair();
+        assert!(server.on_rtt_packet(&client.link.rtt_packet(1e12, &iv), 10));
+        assert_eq!(
+            server.buffer.rtt(),
+            MAX_REPORTED_RTT_MS,
+            "an absurd report is capped"
+        );
+        assert_eq!(server.window(), 1, "and, before any send, pins the window");
     }
 
     #[test]
