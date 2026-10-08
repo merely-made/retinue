@@ -627,7 +627,6 @@ pub(crate) fn build(
     .with_freshness_policy(FreshnessPolicy {
         max_destinations: 8,
         max_blobs_per_destination: 2,
-        retention: 604_800_000,
     })
     .map_err(|_| BuildError::Configuration)?;
     let runtime = Runtime::new(

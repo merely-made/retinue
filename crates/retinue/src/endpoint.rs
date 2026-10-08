@@ -278,19 +278,18 @@ impl HashWindow {
 
 /// Host-owned policy for receive-side announce freshness.
 ///
-/// This is deliberately independent of the packet-loop cache: it bounds durable receiver
-/// memory and decides whether a verified announce may mutate peer, path, publication, or
-/// relay state. Times are translated to endpoint-relative monotonic milliseconds internally.
+/// This is deliberately independent of the packet-loop cache: it bounds receiver memory and
+/// decides whether a verified announce may mutate peer, path, publication, or relay state. A
+/// destination's freshness lives exactly as long as its route, as RNS keeps announce blobs on
+/// the path-table row.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AnnounceFreshnessPolicy {
-    /// How long an accepted route remains eligible as the freshness incumbent.
+    /// How long a learned route, and with it the destination's freshness, stays live.
     pub route_ttl: Duration,
-    /// Maximum destinations retained in the freshness ledger.
+    /// Maximum destinations retained in the freshness ledger. Evicting one drops its route.
     pub destination_capacity: usize,
     /// Maximum full announce blobs retained for one destination.
     pub blob_capacity: usize,
-    /// How long a destination's incumbent and blob history remain replay-protected.
-    pub retention: Duration,
 }
 
 impl Default for AnnounceFreshnessPolicy {
@@ -299,7 +298,6 @@ impl Default for AnnounceFreshnessPolicy {
             route_ttl: Duration::from_secs(30 * 60),
             destination_capacity: 4_096,
             blob_capacity: 16,
-            retention: Duration::from_secs(7 * 24 * 60 * 60),
         }
     }
 }
@@ -309,7 +307,6 @@ impl AnnounceFreshnessPolicy {
         AnnounceFreshnessConfig {
             destination_capacity: self.destination_capacity,
             blob_capacity: self.blob_capacity,
-            retention_ticks: duration_ticks(self.retention),
         }
     }
 
@@ -1340,17 +1337,14 @@ pub struct RoutingCounters {
     /// Routes dropped to make room in a full path table. Climbing means this endpoint knows
     /// more destinations than it can hold, and is forgetting the quietest to keep the rest.
     pub paths_evicted: u64,
-    /// Announces rejected because their exact freshness blob was already committed for this
-    /// destination. Packet-loop de-duplication is deliberately separate and runs later.
+    /// Announces rejected because their exact freshness blob is in this destination's live
+    /// route history. Packet-loop de-duplication is deliberately separate and runs later.
     pub freshness_replays_rejected: u64,
-    /// Announces rejected because their freshness blob is older than this destination's
-    /// accepted frontier.
+    /// Announces rejected because their emission is no newer than this destination's live
+    /// route.
     pub freshness_stale_rejected: u64,
-    /// Freshness destination rows expired from their retention window.
-    pub freshness_rows_expired: u64,
-    /// Per-destination freshness blobs expired from their retention window.
-    pub freshness_blobs_expired: u64,
-    /// Freshness destination rows evicted to retain the configured bounded ledger.
+    /// Freshness destination rows evicted, with their routes, to retain the configured
+    /// bounded ledger.
     pub freshness_rows_evicted: u64,
     /// Per-destination freshness blobs evicted to retain the configured bounded history.
     pub freshness_blobs_evicted: u64,
@@ -1376,8 +1370,6 @@ struct RoutingStats {
     paths_evicted: AtomicU64,
     freshness_replays_rejected: AtomicU64,
     freshness_stale_rejected: AtomicU64,
-    freshness_rows_expired: AtomicU64,
-    freshness_blobs_expired: AtomicU64,
     freshness_rows_evicted: AtomicU64,
     freshness_blobs_evicted: AtomicU64,
     own_echo_dropped: AtomicU64,
@@ -1399,8 +1391,6 @@ impl RoutingStats {
             paths_evicted: self.paths_evicted.load(Ordering::Relaxed),
             freshness_replays_rejected: self.freshness_replays_rejected.load(Ordering::Relaxed),
             freshness_stale_rejected: self.freshness_stale_rejected.load(Ordering::Relaxed),
-            freshness_rows_expired: self.freshness_rows_expired.load(Ordering::Relaxed),
-            freshness_blobs_expired: self.freshness_blobs_expired.load(Ordering::Relaxed),
             freshness_rows_evicted: self.freshness_rows_evicted.load(Ordering::Relaxed),
             freshness_blobs_evicted: self.freshness_blobs_evicted.load(Ordering::Relaxed),
             own_echo_dropped: self.own_echo_dropped.load(Ordering::Relaxed),
@@ -2070,7 +2060,6 @@ struct Shared {
     link_packets: Mutex<LinkPacketMemory>,
     /// Bounded freshness admission. Its lock spans the complete announce-effect bundle.
     announce_freshness: Mutex<AnnounceFreshnessState>,
-    announce_freshness_started: tokio::time::Instant,
     /// Route expiry follows the host freshness policy without needing to acquire the freshness
     /// bundle lock during ordinary packet routing.
     route_ttl_ms: AtomicU64,
@@ -2236,13 +2225,6 @@ impl Shared {
 
     fn announce_admission_now_ms(&self) -> u64 {
         self.announce_admission_started
-            .elapsed()
-            .as_millis()
-            .min(u128::from(u64::MAX)) as u64
-    }
-
-    fn announce_freshness_now_ticks(&self) -> u64 {
-        self.announce_freshness_started
             .elapsed()
             .as_millis()
             .min(u128::from(u64::MAX)) as u64
@@ -2480,11 +2462,26 @@ impl Shared {
             .expect("TimebaseGenerator only returns timebases representable on the announce wire")
     }
 
+    /// Whether `dest` has an unexpired route, without evicting anything.
+    fn has_live_route(&self, dest: AddressHash) -> bool {
+        let route_ttl = self.route_ttl();
+        self.path_table
+            .lock()
+            .unwrap()
+            .get(&dest)
+            .is_some_and(|entry| entry.learned.elapsed() < route_ttl)
+    }
+
+    /// Drop `dest`'s route, if any.
+    fn forget_path(&self, dest: AddressHash) {
+        self.write_diagnostic(|| ((), self.path_table.lock().unwrap().remove(&dest).is_some()));
+    }
+
     /// Record that `dest` is reachable via `iface` at `hops`.
     ///
-    /// Freshness admission has already established that this is a newer announce. Its route is
-    /// therefore the incumbent, irrespective of whether its hop count is better, equal, or
-    /// worse than a formerly live route. Selecting the shortest live route here would let an
+    /// Freshness admission has already admitted this announce. Its route is therefore the
+    /// incumbent, irrespective of whether its hop count is better, equal, or worse than a
+    /// formerly live route. Selecting the shortest live route here would let an
     /// older announce override the newer route decision made by the freshness ledger.
     fn learn_path(
         &self,
@@ -2737,7 +2734,6 @@ impl Endpoint {
             seen_announces: Mutex::new((HashSet::new(), VecDeque::new())),
             link_packets: Mutex::new(LinkPacketMemory::new()),
             announce_freshness: Mutex::new(AnnounceFreshnessState::new(freshness_policy)?),
-            announce_freshness_started: tokio::time::Instant::now(),
             route_ttl_ms: AtomicU64::new(freshness_policy.route_ttl_ticks()),
             announce_admission: Mutex::new(
                 AnnounceAdmission::new(AnnounceIngressPolicy::default()),
@@ -2991,43 +2987,29 @@ impl Endpoint {
 
     /// Replace the host receive-freshness policy without discarding retained replay state.
     ///
-    /// Shrinking a bound deterministically trims the oldest retained rows or blobs. Those
-    /// removals are reflected in [`RoutingCounters`].
+    /// Shrinking a bound deterministically trims the oldest retained rows or blobs, and drops
+    /// the routes of evicted rows. Those removals are reflected in [`RoutingCounters`].
     pub fn set_announce_freshness_policy(
         &self,
         policy: AnnounceFreshnessPolicy,
     ) -> Result<(), AnnounceFreshnessConfigError> {
-        let now = self.shared.announce_freshness_now_ticks();
         let mut freshness = self.shared.announce_freshness.lock().unwrap();
-        let changed = freshness.table.reconfigure(policy.config(), now)?;
+        let changed = freshness.table.reconfigure(policy.config())?;
         freshness.policy = policy;
         self.shared
             .route_ttl_ms
             .store(policy.route_ttl_ticks(), Ordering::Relaxed);
-        if changed.expired_destinations != 0 {
-            self.shared
-                .routing_stats
-                .freshness_rows_expired
-                .fetch_add(changed.expired_destinations as u64, Ordering::Relaxed);
+        for destination in &changed.evicted_destinations {
+            self.shared.forget_path(*destination);
         }
-        if changed.evicted_destinations != 0 {
-            self.shared
-                .routing_stats
-                .freshness_rows_evicted
-                .fetch_add(changed.evicted_destinations as u64, Ordering::Relaxed);
-        }
-        if changed.expired_blobs != 0 {
-            self.shared
-                .routing_stats
-                .freshness_blobs_expired
-                .fetch_add(changed.expired_blobs as u64, Ordering::Relaxed);
-        }
-        if changed.evicted_blobs != 0 {
-            self.shared
-                .routing_stats
-                .freshness_blobs_evicted
-                .fetch_add(changed.evicted_blobs as u64, Ordering::Relaxed);
-        }
+        self.shared
+            .routing_stats
+            .freshness_rows_evicted
+            .fetch_add(changed.evicted_destinations.len() as u64, Ordering::Relaxed);
+        self.shared
+            .routing_stats
+            .freshness_blobs_evicted
+            .fetch_add(changed.evicted_blobs as u64, Ordering::Relaxed);
         Ok(())
     }
 
@@ -4186,17 +4168,15 @@ fn process_verified_announce(
     // from the packet loop; without one ordered bundle, two candidates could both evaluate as
     // admissible and publish/relay out of freshness order.
     let mut freshness = shared.announce_freshness.lock().unwrap();
-    let now = shared.announce_freshness_now_ticks();
     let candidate = AnnounceFreshnessCandidate {
         destination: announce.destination,
         blob: AnnounceBlob::from_wire(announce.rand_hash),
-        hops: pkt.hops,
     };
-    match freshness
-        .table
-        .evaluate(candidate, now, freshness.policy.route_ttl_ticks())
-    {
-        AnnounceFreshnessDecision::Accept(_) => {}
+    // Freshness belongs to the route. Without a live one this is a first sighting, as after
+    // an RNS path cull, which is what lets a cached path response restore an expired route.
+    let route_live = shared.has_live_route(announce.destination);
+    let accepted = match freshness.table.evaluate(candidate, route_live) {
+        AnnounceFreshnessDecision::Accept(accepted) => accepted,
         AnnounceFreshnessDecision::Reject(AnnounceFreshnessReject::Replay) => {
             shared
                 .routing_stats
@@ -4211,13 +4191,15 @@ fn process_verified_announce(
                 .fetch_add(1, Ordering::Relaxed);
             return;
         }
-    }
+    };
 
     // A full book makes room by evicting the least recently heard peer that has neither a
     // live path nor a live link. Pending link requests already hold the peer's identity, so
     // they do not need the entry. A refusal only keeps the identity out of the book (and so
     // publishes no `PeerAnnounce`): the path is still learned and the announce still relayed,
     // as RNS relays from its path table rather than its known destinations.
+    // The book only needs a monotonic tick to order peers by when they were last heard.
+    let now = shared.announce_admission_now_ms();
     let in_use = {
         let book = shared.address_book.lock().unwrap();
         book.is_full() && !book.knows(announce.destination)
@@ -4239,20 +4221,10 @@ fn process_verified_announce(
             .refused_announces
             .fetch_add(1, Ordering::Relaxed);
     }
-    let record = freshness.table.record_accepted(candidate, now);
-    if record.expired_destinations != 0 {
-        shared
-            .routing_stats
-            .freshness_rows_expired
-            .fetch_add(record.expired_destinations as u64, Ordering::Relaxed);
-    }
-    if record.expired_blobs != 0 {
-        shared
-            .routing_stats
-            .freshness_blobs_expired
-            .fetch_add(record.expired_blobs as u64, Ordering::Relaxed);
-    }
-    if record.evicted_destination.is_some() {
+    let record = freshness.table.record_accepted(candidate, accepted);
+    if let Some(evicted) = record.evicted_destination {
+        // A route never outlives its freshness row.
+        shared.forget_path(evicted);
         shared
             .routing_stats
             .freshness_rows_evicted
@@ -5992,17 +5964,37 @@ mod tests {
         assert_eq!(ep.route_to(destination), Some((worse_iface, 5)));
     }
 
-    #[tokio::test]
-    async fn expired_physical_routes_only_accept_stale_candidates_at_worse_hops() {
-        let policy = AnnounceFreshnessPolicy {
-            route_ttl: Duration::ZERO,
-            ..AnnounceFreshnessPolicy::default()
-        };
-        let ep = Endpoint::with_announce_freshness_policy(
-            PrivateIdentity::from_secret_bytes(&[0x45; 64]),
-            policy,
+    /// An endpoint whose routes live a minute, so a test can age one past its TTL.
+    fn short_ttl_endpoint(seed: u8) -> Endpoint {
+        Endpoint::with_announce_freshness_policy(
+            PrivateIdentity::from_secret_bytes(&[seed; 64]),
+            AnnounceFreshnessPolicy {
+                route_ttl: Duration::from_secs(60),
+                ..AnnounceFreshnessPolicy::default()
+            },
         )
-        .unwrap();
+        .unwrap()
+    }
+
+    fn expire_route(ep: &Endpoint, destination: AddressHash) {
+        let aged = Instant::now()
+            .checked_sub(ep.shared.route_ttl())
+            .expect("the monotonic clock predates one route TTL");
+        ep.shared
+            .path_table
+            .lock()
+            .unwrap()
+            .get_mut(&destination)
+            .expect("learned route")
+            .learned = aged;
+        assert_eq!(ep.route_to(destination), None, "route expired");
+    }
+
+    /// RNS culls a path row with its random blobs (`Transport.py` 957-978, 1086-1090), so the
+    /// next announce is a first sighting whatever its emission time or hops.
+    #[tokio::test]
+    async fn expired_routes_admit_any_announce_as_a_first_sighting() {
+        let ep = short_ttl_endpoint(0x45);
         let first_iface = ep.attach_interface().id();
         let replacement_iface = ep.attach_interface().id();
         let better_peer = PrivateIdentity::from_secret_bytes(&[0x46; 64]);
@@ -6013,38 +6005,66 @@ mod tests {
             (&equal_peer, "freshness-expired-equal", 2_u8),
             (&worse_peer, "freshness-expired-worse", 3_u8),
         ];
-        let mut destinations = Vec::new();
 
-        for (peer, name, _) in cases {
+        for (peer, name, hops) in cases {
             let (first_packet, first) = freshness_announce(peer, name, 0, 1, 10, 2);
-            destinations.push(first.destination);
+            let destination = first.destination;
             process_verified_announce(&ep.shared, first_iface, first_packet, first);
             let _ = ep.next_announcement().await.unwrap();
-        }
-        for destination in &destinations {
-            let learned = ep.shared.path_table.lock().unwrap()[destination].learned;
-            assert_eq!(
-                ep.route_to_at(*destination, learned),
-                None,
-                "zero-TTL physical route evicted"
-            );
-        }
+            expire_route(&ep, destination);
 
-        // Better and equal stale candidates remain refused. Only the measured expired/worse
-        // exception is admitted, proving route eviction did not erase the freshness tombstone.
-        for (peer, name, hops) in cases {
-            let (packet, replacement) = freshness_announce(peer, name, 0, 2, 9, hops);
-            process_verified_announce(&ep.shared, replacement_iface, packet, replacement);
+            let (packet, older) = freshness_announce(peer, name, 0, 2, 9, hops);
+            process_verified_announce(&ep.shared, replacement_iface, packet, older);
+            let accepted = ep.next_announcement().await.unwrap();
+            assert_eq!((accepted.destination, accepted.hops), (destination, hops));
+            assert_eq!(ep.route_to(destination), Some((replacement_iface, hops)));
         }
-        let accepted = ep.next_announcement().await.unwrap();
-        assert_eq!(accepted.destination, destinations[2]);
-        assert_eq!(accepted.hops, 3);
-        assert_eq!(ep.shared.announce_sequence.load(Ordering::Relaxed), 4);
-        assert_eq!(ep.routing_counters().freshness_stale_rejected, 2);
-        assert!(
-            destinations
-                .iter()
-                .all(|destination| ep.route_to(*destination).is_none())
+        assert_eq!(ep.routing_counters().freshness_stale_rejected, 0);
+    }
+
+    /// A transport answering `request_path` from its cache sends the blob it already relayed
+    /// (`Transport.py` 3459-3530). While the route lives that is a replay; once it has gone,
+    /// the same blob restores it.
+    #[tokio::test]
+    async fn a_cached_path_response_restores_an_expired_route() {
+        let ep = short_ttl_endpoint(0x4B);
+        let first_iface = ep.attach_interface().id();
+        let answer_iface = ep.attach_interface().id();
+        let peer = PrivateIdentity::from_secret_bytes(&[0x4C; 64]);
+        let (packet, announced) = freshness_announce(&peer, "freshness-restore", 0, 1, 10, 2);
+        let destination = announced.destination;
+        let (cached_packet, cached) = freshness_announce(
+            &peer,
+            "freshness-restore",
+            crate::path::CTX_PATH_RESPONSE,
+            1,
+            10,
+            3,
+        );
+        process_verified_announce(&ep.shared, first_iface, packet.clone(), announced.clone());
+        let _ = ep.next_announcement().await.unwrap();
+
+        process_verified_announce(
+            &ep.shared,
+            answer_iface,
+            cached_packet.clone(),
+            cached.clone(),
+        );
+        assert_eq!(ep.routing_counters().freshness_replays_rejected, 1);
+        assert_eq!(ep.route_to(destination), Some((first_iface, 2)));
+
+        expire_route(&ep, destination);
+        process_verified_announce(&ep.shared, answer_iface, cached_packet, cached);
+        let restored = ep.next_announcement().await.unwrap();
+        assert_eq!((restored.destination, restored.sequence), (destination, 2));
+        assert_eq!(ep.route_to(destination), Some((answer_iface, 3)));
+        assert_eq!(ep.routing_counters().freshness_replays_rejected, 1);
+
+        process_verified_announce(&ep.shared, first_iface, packet, announced);
+        assert_eq!(
+            ep.routing_counters().freshness_replays_rejected,
+            2,
+            "the restored route refuses the blob again"
         );
     }
 
