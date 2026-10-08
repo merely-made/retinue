@@ -105,6 +105,9 @@ pub const CTX_RESOURCE_PRF: u8 = 0x05;
 pub const CTX_RESOURCE_ICL: u8 = 0x06;
 /// Resource receiver cancel.
 pub const CTX_RESOURCE_RCL: u8 = 0x07;
+/// Cache request: the unencrypted full hash of a packet the sender wants re-sent from the
+/// peer's cache. A resource sender awaiting its proof asks for it this way.
+pub const CTX_CACHE_REQUEST: u8 = 0x08;
 
 /// Keepalive request/response sentinels, carried as the single plaintext byte of a
 /// keepalive packet.

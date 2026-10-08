@@ -132,22 +132,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut ivc = 100u64;
     let mut all_ok = true;
     // The whole-resource identity is the FIRST segment's hash, shared across all segments so
-    // RNS groups them into one resource. Compute it up front.
-    let seg0_rh = [1u8, 0x5A, 0x12, 0x34];
-    let original_hash =
-        resource::resource_hash(&data[..data.len().min(MAX_SEGMENT_SIZE)], &seg0_rh);
+    // RNS groups them into one resource. Taken from the first segment as built: a random
+    // hash re-drawn on a map-hash collision changes it.
+    let mut original_hash = None;
 
     for (idx, chunk) in data.chunks(MAX_SEGMENT_SIZE).enumerate() {
-        // Fresh random hash per segment (segment 0 must match the identity computed above).
+        // Fresh random hash per segment.
         let rh = [(idx as u8).wrapping_add(1), 0x5A, 0x12, 0x34];
         ivc += 1;
         let token = link.seal(&resource::content(chunk, &rh), &iv(ivc));
-        let out = Outgoing::new(chunk, &token, rh, false).with_segment(
-            idx as i64 + 1,
-            segments as i64,
-            data.len() as u64,
-            original_hash,
-        );
+        let out = Outgoing::new(chunk, &token, rh, false);
+        let original = *original_hash.get_or_insert(out.resource_hash());
+        let out = out.with_segment(idx as i64 + 1, segments as i64, data.len() as u64, original);
         let ok = send_segment(&mut iface, &link, out, &mut ivc).await?;
         println!("SEGMENT {}/{} proof_ok={}", idx + 1, segments, ok);
         all_ok &= ok;

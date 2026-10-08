@@ -57,8 +57,8 @@ use crate::packet::{DestinationType, Packet, PacketType};
 use crate::ratchet::RatchetStore;
 use crate::reliable::ReliableChannel;
 use crate::request::{Request, Response};
-use crate::resource::RANDOM_HASH_LEN;
-use crate::resource_transfer::{ResourceReceiver, ResourceSender};
+use crate::resource::{Advertisement, RANDOM_HASH_LEN};
+use crate::resource_transfer::{PROOF_CACHE_ANSWERS, ResourceReceiver, ResourceSender};
 use crate::token::{IV_LEN, TOKEN_OVERHEAD};
 
 /// RNS's link MDU (`Link.py` 73, 512-514): the largest plaintext whose CBC-padded token and
@@ -133,10 +133,12 @@ const MIN_LINK_MTU: u32 = 247;
 /// realistic early loss without ever spinning.
 const IDENTIFY_MAX_SENDS: u32 = 4;
 
-/// How many copies of a completed Resource receipt are queued before the receiving call
-/// returns. Resource proofs have no acknowledgement of their own, so a single lost proof
-/// otherwise leaves the publisher waiting after the receiver has already recovered the data.
-const RESOURCE_PROOF_MAX_SENDS: u32 = 4;
+/// How many copies of a completed Resource receipt are sent when the receiving call
+/// returns: the one completion sent, and the rest queued behind it. A receiver commonly
+/// drops its session, and with it the link and its kept proof, as soon as it has the data,
+/// after which a publisher's cache request has nothing to answer it. RNS sends one proof
+/// and ignores a proof for a resource already concluded, so the copies cost only airtime.
+const RESOURCE_PROOF_MAX_SENDS: u32 = 3;
 
 /// How often the link watchdog advances every link's keepalive, staleness and handshake
 /// timers (see [`crate::link_liveness`]). The shortest keepalive interval is 5 s.
@@ -671,6 +673,10 @@ pub struct ReceivedRawResponse {
     pub packed: Vec<u8>,
     /// Request id read from the first response item.
     pub request_id: AddressHash,
+    /// Packed (msgpack) metadata of a response Resource that carried some: RNS's file
+    /// response. `packed` then holds the file's bytes rather than a response envelope, and
+    /// `request_id` is the one the advertisement named.
+    pub metadata: Option<Vec<u8>>,
 }
 
 pub struct ResourceSession {
@@ -680,7 +686,21 @@ pub struct ResourceSession {
     packets: mpsc::Receiver<Packet>,
     config: ResourceTransferConfig,
     identified_peer: Option<Identity>,
+    accept: Option<Arc<ResourceAccept>>,
+    metadata: Option<Vec<u8>>,
 }
+
+/// A resource accept policy shared by every receive on a session; see
+/// [`ResourceSession::set_accept`].
+type ResourceAccept = dyn Fn(&Advertisement) -> bool + Send + Sync;
+
+/// How many quiet retry intervals a publisher that has sent every part waits between cache
+/// requests for its proof. RNS waits about three round trips plus a grace period.
+const PROOF_WAIT_RETRIES: u32 = 4;
+
+/// How long a link keeps the last resource proof it sent, to answer the publisher's cache
+/// request if the proof was lost.
+const RESOURCE_PROOF_CACHE_TTL: Duration = Duration::from_secs(120);
 
 impl ResourceSession {
     /// The id of the link carrying this resource session.
@@ -714,6 +734,49 @@ impl ResourceSession {
         self.config = config;
     }
 
+    /// Decide on each Resource offered to [`fetch`](Self::fetch) or
+    /// [`receive`](Self::receive) from its advertisement, as an RNS link's `ACCEPT_APP`
+    /// callback does. A refused offer is rejected on the wire, so the sender stops, and the
+    /// call fails with [`io::ErrorKind::PermissionDenied`].
+    pub fn set_accept(&mut self, accept: impl Fn(&Advertisement) -> bool + Send + Sync + 'static) {
+        self.accept = Some(Arc::new(accept));
+    }
+
+    /// The packed (msgpack) metadata attached to the last Resource received on this
+    /// session, taken. `None` if it carried none.
+    pub fn take_metadata(&mut self) -> Option<Vec<u8>> {
+        self.metadata.take()
+    }
+
+    /// A receiver for one inbound Resource under this session's policy.
+    fn receiver(&self) -> ResourceReceiver {
+        let receiver =
+            ResourceReceiver::with_request_window(self.link.clone(), self.config.request_window);
+        match &self.accept {
+            Some(accept) => {
+                let accept = Arc::clone(accept);
+                receiver.with_accept(move |advertisement| accept(advertisement))
+            }
+            None => receiver,
+        }
+    }
+
+    /// Publish one payload with metadata, one already-packed msgpack value an RNS receiver
+    /// reads as `resource.metadata`, and wait until the receiver proves complete receipt.
+    pub async fn publish_with_metadata(&mut self, data: &[u8], metadata: &[u8]) -> io::Result<()> {
+        let mut random_hash = [0_u8; RANDOM_HASH_LEN];
+        fill_random(&mut random_hash);
+        let sender = ResourceSender::publish_with_metadata(
+            self.link.clone(),
+            data,
+            metadata,
+            random_hash,
+            &next_iv(),
+        )
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+        self.publish_sender(sender).await
+    }
+
     /// Publish one payload and wait until the receiver proves complete receipt.
     pub async fn publish(&mut self, data: &[u8]) -> io::Result<()> {
         let mut random_hash = [0_u8; RANDOM_HASH_LEN];
@@ -745,24 +808,34 @@ impl ResourceSession {
 
         let shared = Arc::clone(&self.shared);
         let iface = self.iface;
+        let link = self.link.clone();
         let packets = &mut self.packets;
         let retry = self.config.retry_interval;
-        let transfer = async {
+        let publishing = &mut sender;
+        let transfer = async move {
             let mut interval = tokio::time::interval(retry);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             interval.tick().await;
+            let mut quiet = 0_u32;
             loop {
                 tokio::select! {
                     maybe = packets.recv() => {
                         let packet = maybe.ok_or_else(|| {
                             io::Error::new(io::ErrorKind::BrokenPipe, "resource link closed")
                         })?;
-                        for outbound in sender.on_packet(&packet, next_iv) {
+                        if link.receive(&packet) == Some(Inbound::Close) {
+                            return Err(io::Error::new(
+                                io::ErrorKind::BrokenPipe,
+                                "resource link closed",
+                            ));
+                        }
+                        quiet = 0;
+                        for outbound in publishing.on_packet(&packet, next_iv) {
                             shared.send_on(iface, outbound);
                         }
-                        if sender.is_done() {
+                        if publishing.is_done() {
                             return Ok(());
-                        } else if sender.is_canceled() {
+                        } else if publishing.is_canceled() {
                             return Err(io::Error::new(
                                 io::ErrorKind::ConnectionAborted,
                                 "resource publish canceled by receiver",
@@ -770,8 +843,26 @@ impl ResourceSession {
                         }
                     }
                     _ = interval.tick() => {
-                        if !sender.has_started() {
-                            shared.send_on(iface, sender.advertisement(&next_iv()));
+                        quiet += 1;
+                        if !publishing.has_started() {
+                            shared.send_on(iface, publishing.advertisement(&next_iv()));
+                        } else if quiet.is_multiple_of(PROOF_WAIT_RETRIES)
+                            && publishing.awaiting_proof()
+                        {
+                            // Every part went out and no proof came back: ask the
+                            // receiver to re-send it, as RNS asks its peer's cache, and
+                            // once those requests are spent give up and say so.
+                            if let Some(request) = publishing.cache_request() {
+                                shared.send_on(iface, request);
+                            } else {
+                                if let Some(cancel) = publishing.cancel(&next_iv()) {
+                                    shared.send_on(iface, cancel);
+                                }
+                                return Err(io::Error::new(
+                                    io::ErrorKind::TimedOut,
+                                    "resource proof never arrived",
+                                ));
+                            }
                         }
                     }
                 }
@@ -780,6 +871,10 @@ impl ResourceSession {
         match tokio::time::timeout(self.config.timeout, transfer).await {
             Ok(result) => result,
             Err(_) => {
+                // Tell the receiver to stop rather than leave it requesting into silence.
+                if let Some(cancel) = sender.cancel(&next_iv()) {
+                    self.shared.send_on(self.iface, cancel);
+                }
                 let message = if sender.served_parts() > 0 {
                     format!(
                         "resource publish timed out after serving {} requested part(s)",
@@ -796,13 +891,16 @@ impl ResourceSession {
     }
 
     /// Fetch one payload published by the peer, returning after verification and proof.
+    ///
+    /// Metadata the publisher attached is kept for [`take_metadata`](Self::take_metadata).
     pub async fn fetch(&mut self) -> io::Result<Vec<u8>> {
-        let mut receiver =
-            ResourceReceiver::with_request_window(self.link.clone(), self.config.request_window);
+        let mut receiver = self.receiver();
         let shared = Arc::clone(&self.shared);
         let iface = self.iface;
+        let link = self.link.clone();
         let packets = &mut self.packets;
         let retry = self.config.retry_interval;
+        let receiving = &mut receiver;
         let transfer = async move {
             let mut interval = tokio::time::interval(retry);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -813,32 +911,57 @@ impl ResourceSession {
                         let packet = maybe.ok_or_else(|| {
                             io::Error::new(io::ErrorKind::BrokenPipe, "resource link closed")
                         })?;
-                        for outbound in receiver.on_packet(&packet, next_iv) {
-                            shared.send_on(iface, outbound);
-                        }
-                        if let Some(data) = receiver.data().map(|data| data.to_vec()) {
-                            queue_resource_proof_replays(&shared, iface, &mut receiver);
-                            return Ok(data);
-                        } else if let Some(error) = receiver.failure() {
-                            return Err(resource_receive_failure(error));
-                        } else if receiver.is_canceled() {
+                        if link.receive(&packet) == Some(Inbound::Close) {
                             return Err(io::Error::new(
-                                io::ErrorKind::ConnectionAborted,
-                                "resource fetch canceled by sender",
+                                io::ErrorKind::BrokenPipe,
+                                "resource link closed",
                             ));
                         }
+                        for outbound in receiving.on_packet(&packet, next_iv) {
+                            shared.send_on(iface, outbound);
+                        }
+                        if receiving.is_complete() {
+                            keep_resource_proof(&shared, iface, link.id(), receiving);
+                            return Ok(());
+                        }
+                        resource_receive_ended(receiving)?;
                     }
                     _ = interval.tick() => {
-                        for outbound in receiver.retransmit(next_iv) {
+                        for outbound in receiving.retransmit(next_iv) {
                             shared.send_on(iface, outbound);
                         }
                     }
                 }
             }
         };
-        tokio::time::timeout(self.config.timeout, transfer)
-            .await
-            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "resource fetch timed out"))?
+        let outcome = tokio::time::timeout(self.config.timeout, transfer).await;
+        self.settle_receive(&mut receiver, outcome, "resource fetch timed out")?;
+        Ok(self.take_received(&mut receiver))
+    }
+
+    /// Settle a receive that ended: on a timeout, tell the sender to stop.
+    fn settle_receive<T>(
+        &self,
+        receiver: &mut ResourceReceiver,
+        outcome: Result<io::Result<T>, tokio::time::error::Elapsed>,
+        timed_out: &'static str,
+    ) -> io::Result<T> {
+        outcome.unwrap_or_else(|_| {
+            if let Some(cancel) = receiver.cancel(&next_iv()) {
+                self.shared.send_on(self.iface, cancel);
+            }
+            Err(io::Error::new(io::ErrorKind::TimedOut, timed_out))
+        })
+    }
+
+    /// Take a completed receiver's payload, keeping its metadata for
+    /// [`take_metadata`](Self::take_metadata).
+    fn take_received(&mut self, receiver: &mut ResourceReceiver) -> Vec<u8> {
+        let (data, metadata) = receiver
+            .take_payload()
+            .expect("a completed receiver holds its payload");
+        self.metadata = metadata;
+        data
     }
 
     /// Receive either one best-effort data packet or one complete Resource.
@@ -846,15 +969,16 @@ impl ResourceSession {
     /// Protocols such as LXMF use both delivery forms on the same destination.
     /// Register that destination with [`Endpoint::register_resource`], then use
     /// this method instead of deciding the inbound form before the link arrives.
+    /// Metadata a Resource carried is kept for [`take_metadata`](Self::take_metadata).
     pub async fn receive(&mut self) -> io::Result<ReceivedPayload> {
-        let mut receiver =
-            ResourceReceiver::with_request_window(self.link.clone(), self.config.request_window);
+        let mut receiver = self.receiver();
         let shared = Arc::clone(&self.shared);
         let link = self.link.clone();
         let iface = self.iface;
         let packets = &mut self.packets;
         let retry = self.config.retry_interval;
         let mut identified = self.identified_peer;
+        let receiving = &mut receiver;
         let transfer = async move {
             let mut interval = tokio::time::interval(retry);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -877,7 +1001,7 @@ impl ResourceSession {
                         }
                         match link.receive(&packet) {
                             Some(Inbound::Data(data)) => {
-                                return Ok((identified, ReceivedPayload::Data(data)));
+                                return Ok((identified, Some(data)));
                             }
                             Some(Inbound::Close) => {
                                 return Err(io::Error::new(
@@ -887,37 +1011,34 @@ impl ResourceSession {
                             }
                             _ => {}
                         }
-                        for outbound in receiver.on_packet(&packet, next_iv) {
+                        for outbound in receiving.on_packet(&packet, next_iv) {
                             shared.send_on(iface, outbound);
                         }
-                        if let Some(data) = receiver.data().map(|data| data.to_vec()) {
-                            queue_resource_proof_replays(&shared, iface, &mut receiver);
-                            return Ok((identified, ReceivedPayload::Resource(data)));
-                        } else if let Some(error) = receiver.failure() {
-                            return Err(resource_receive_failure(error));
-                        } else if receiver.is_canceled() {
-                            return Err(io::Error::new(
-                                io::ErrorKind::ConnectionAborted,
-                                "resource fetch canceled by sender",
-                            ));
+                        if receiving.is_complete() {
+                            keep_resource_proof(&shared, iface, link.id(), receiving);
+                            return Ok((identified, None));
                         }
+                        resource_receive_ended(receiving)?;
                     }
                     _ = interval.tick() => {
-                        for outbound in receiver.retransmit(next_iv) {
+                        for outbound in receiving.retransmit(next_iv) {
                             shared.send_on(iface, outbound);
                         }
                     }
                 }
             }
         };
-        let (identified, payload) = tokio::time::timeout(self.config.timeout, transfer)
-            .await
-            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "payload receive timed out"))??;
+        let outcome = tokio::time::timeout(self.config.timeout, transfer).await;
+        let (identified, data) =
+            self.settle_receive(&mut receiver, outcome, "payload receive timed out")?;
         self.identified_peer = identified;
         if let Some(identity) = identified {
             self.retain_identified_peer(identity);
         }
-        Ok(payload)
+        Ok(match data {
+            Some(data) => ReceivedPayload::Data(data),
+            None => ReceivedPayload::Resource(self.take_received(&mut receiver)),
+        })
     }
 
     /// The peer identity proven by an IDENTIFY on this link, if the sender sent one.
@@ -1054,6 +1175,18 @@ impl ResourceSession {
 
     /// Send one already-packed request and retain the raw matching response.
     pub async fn request_raw(&mut self, packed_request: &[u8]) -> io::Result<ReceivedRawResponse> {
+        self.request_raw_with_limit(packed_request, None).await
+    }
+
+    /// [`request_raw`](Self::request_raw), refusing a response larger than
+    /// `max_response_size` bytes, as RNS's `Link.request(max_response_size=...)` does: a
+    /// response Resource advertising more is rejected on the wire before any part is
+    /// requested, and the call fails with [`io::ErrorKind::InvalidData`].
+    pub async fn request_raw_with_limit(
+        &mut self,
+        packed_request: &[u8],
+        max_response_size: Option<usize>,
+    ) -> io::Result<ReceivedRawResponse> {
         // Outgoing request Resources are not implemented. Refuse a value that
         // cannot fit this link instead of transmitting an oversized packet.
         if packed_request.len() > write_chunk_for_mtu(self.link.mtu()) {
@@ -1072,8 +1205,17 @@ impl ResourceSession {
         let packets = &mut self.packets;
         let retry = self.config.retry_interval;
         let request_window = self.config.request_window;
+        let response_receiver = move || {
+            let receiver = ResourceReceiver::with_request_window(link.clone(), request_window);
+            match max_response_size {
+                Some(max) => receiver.with_max_data_size(max),
+                None => receiver,
+            }
+        };
+        let mut receiver = response_receiver();
+        let link = self.link.clone();
+        let receiving = &mut receiver;
         let receive = async move {
-            let mut receiver = ResourceReceiver::with_request_window(link.clone(), request_window);
             let mut interval = tokio::time::interval(retry);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             interval.tick().await;
@@ -1089,9 +1231,20 @@ impl ResourceSession {
                                     io::Error::new(io::ErrorKind::InvalidData, "invalid response envelope")
                                 })?;
                                 if response_id == request_id {
+                                    // RNS sizes a packet response by its packed value, less
+                                    // two bytes: the envelope is a fixarray, a bin8 header and
+                                    // the 16-byte id.
+                                    let size = bytes.len().saturating_sub(1 + 2 + 16 + 2);
+                                    if max_response_size.is_some_and(|max| size > max) {
+                                        return Err(io::Error::new(
+                                            io::ErrorKind::InvalidData,
+                                            "response exceeds max_response_size",
+                                        ));
+                                    }
                                     return Ok(ReceivedRawResponse {
                                         packed: bytes,
                                         request_id: response_id,
+                                        metadata: None,
                                     });
                                 }
                             }
@@ -1103,20 +1256,28 @@ impl ResourceSession {
                             }
                             _ => {}
                         }
-                        for outbound in receiver.on_packet(&packet, next_iv) {
+                        for outbound in receiving.on_packet(&packet, next_iv) {
                             shared.send_on(iface, outbound);
                         }
-                        if let Some(packed) = receiver.data().map(|bytes| bytes.to_vec()) {
-                            queue_resource_proof_replays(&shared, iface, &mut receiver);
-                            let response_id = Response::request_id(&packed).map_err(|_| {
-                                io::Error::new(
-                                    io::ErrorKind::InvalidData,
-                                    "invalid response resource",
-                                )
-                            })?;
-                            if let Some(advertised_id) = receiver.response_request_id()
-                                && AddressHash::from_bytes(advertised_id) != response_id
-                            {
+                        if receiving.is_complete() {
+                            keep_resource_proof(&shared, iface, link.id(), receiving);
+                            let advertised_id = receiving.response_request_id().map(AddressHash::from_bytes);
+                            let (packed, metadata) = receiving
+                                .take_payload()
+                                .expect("a completed receiver holds its payload");
+                            // A response with metadata is RNS's file response: the data is
+                            // the file's bytes, not an envelope, and the advertisement alone
+                            // names the request.
+                            let response_id = match (&metadata, advertised_id) {
+                                (Some(_), Some(id)) => id,
+                                _ => Response::request_id(&packed).map_err(|_| {
+                                    io::Error::new(
+                                        io::ErrorKind::InvalidData,
+                                        "invalid response resource",
+                                    )
+                                })?,
+                            };
+                            if advertised_id.is_some_and(|id| id != response_id) {
                                 return Err(io::Error::new(
                                     io::ErrorKind::InvalidData,
                                     "response Resource request id mismatch",
@@ -1126,30 +1287,24 @@ impl ResourceSession {
                                 return Ok(ReceivedRawResponse {
                                     packed,
                                     request_id: response_id,
+                                    metadata,
                                 });
                             }
-                            receiver =
-                                ResourceReceiver::with_request_window(link.clone(), request_window);
-                        } else if let Some(error) = receiver.failure() {
-                            return Err(resource_receive_failure(error));
-                        } else if receiver.is_canceled() {
-                            return Err(io::Error::new(
-                                io::ErrorKind::ConnectionAborted,
-                                "response resource canceled by sender",
-                            ));
+                            *receiving = response_receiver();
+                        } else {
+                            resource_receive_ended(receiving)?;
                         }
                     }
                     _ = interval.tick() => {
-                        for outbound in receiver.retransmit(next_iv) {
+                        for outbound in receiving.retransmit(next_iv) {
                             shared.send_on(iface, outbound);
                         }
                     }
                 }
             }
         };
-        tokio::time::timeout(self.config.timeout, receive)
-            .await
-            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "response receive timed out"))?
+        let outcome = tokio::time::timeout(self.config.timeout, receive).await;
+        self.settle_receive(&mut receiver, outcome, "response receive timed out")
     }
 }
 
@@ -1163,31 +1318,46 @@ impl Drop for ResourceSession {
 }
 
 /// The I/O error for a resource this endpoint refused to receive: one that needs segment
-/// accumulation, or whose body inflated past the decompression limit. The receiver has
-/// already sent the sender its cancel.
+/// accumulation, one past a size or part ceiling or refused by the accept policy, or one
+/// whose body did not recover. The receiver has already sent the sender its cancel.
 fn resource_receive_failure(error: crate::Error) -> io::Error {
     let kind = match error {
         crate::Error::MultiSegmentResource => io::ErrorKind::Unsupported,
+        crate::Error::ResourceRejected => io::ErrorKind::PermissionDenied,
         _ => io::ErrorKind::InvalidData,
     };
     io::Error::new(kind, error)
 }
 
-/// Queue bounded duplicate receipts while the resource link is still registered.
-///
-/// The first receipt was emitted by [`ResourceReceiver::on_packet`]. These copies are
-/// deliberately queued rather than awaited: the interface owns physical pacing, while the
-/// application can persist and surface the already-verified payload without an artificial
-/// retry-delay pause.
-fn queue_resource_proof_replays(
+/// The error ending a receive whose transfer failed or was canceled by the sender, if it
+/// has.
+fn resource_receive_ended(receiver: &ResourceReceiver) -> io::Result<()> {
+    if let Some(error) = receiver.failure() {
+        Err(resource_receive_failure(error))
+    } else if receiver.is_canceled() {
+        Err(io::Error::new(
+            io::ErrorKind::ConnectionAborted,
+            "resource canceled by sender",
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+/// Settle a completed receiver's proof: queue the copies after the one sent with
+/// completion (see [`RESOURCE_PROOF_MAX_SENDS`]), and keep it for its link so the router
+/// can answer the sender's cache request, or its re-advertisement, if every copy was lost.
+fn keep_resource_proof(
     shared: &Shared,
     iface: InterfaceId,
-    receiver: &mut ResourceReceiver,
+    link: AddressHash,
+    receiver: &ResourceReceiver,
 ) {
-    for _ in 1..RESOURCE_PROOF_MAX_SENDS {
-        for proof in receiver.retransmit(next_iv) {
-            shared.send_on(iface, proof);
+    if let Some(proof) = receiver.proof_packet() {
+        for _ in 1..RESOURCE_PROOF_MAX_SENDS {
+            shared.send_on(iface, proof.clone());
         }
+        shared.keep_resource_proof(link, proof);
     }
 }
 
@@ -2452,6 +2622,10 @@ struct Shared {
     inbound_link_proofs: Mutex<HashMap<AddressHash, (Packet, Instant)>>,
     /// Live inbound links counted against their caps, and the accept backlog.
     inbound: Mutex<InboundLinks>,
+    /// The last resource proof sent on each link, with when and how many times it has been
+    /// re-sent, answered to a publisher's cache request (or re-advertisement) for
+    /// [`RESOURCE_PROOF_CACHE_TTL`], at most [`PROOF_CACHE_ANSWERS`] times.
+    resource_proofs: Mutex<HashMap<AddressHash, (Packet, Instant, u8)>>,
     /// Learned routes: destination → the interface to reach it and its hop count. Populated
     /// from announces.
     path_table: Mutex<HashMap<AddressHash, PathEntry>>,
@@ -2576,6 +2750,7 @@ impl Shared {
             ((), removed)
         });
         self.inbound.lock().unwrap().slots.remove(&id);
+        self.resource_proofs.lock().unwrap().remove(&id);
     }
 
     /// Mark an inbound link active once a packet on it decrypts under its keys: the
@@ -2629,6 +2804,55 @@ impl Shared {
     /// The monotonic millisecond clock link liveness runs on.
     fn link_clock_ms(&self) -> u64 {
         self.announce_admission_now_ms()
+    }
+
+    /// Keep the resource proof just sent on `link`, replacing any earlier one.
+    fn keep_resource_proof(&self, link: AddressHash, proof: Packet) {
+        let now = Instant::now();
+        let mut proofs = self.resource_proofs.lock().unwrap();
+        proofs.retain(|_, (_, kept, _)| now.duration_since(*kept) < RESOURCE_PROOF_CACHE_TTL);
+        proofs.insert(link, (proof, now, 0));
+    }
+
+    /// The resource proof kept for `link`, to re-send, if `matches` it, it has not expired,
+    /// and it has been re-sent fewer than [`PROOF_CACHE_ANSWERS`] times. The cap bounds what
+    /// anyone who heard the cleartext proof can make this endpoint transmit.
+    fn resend_resource_proof(
+        &self,
+        link: AddressHash,
+        matches: impl FnOnce(&Packet) -> bool,
+    ) -> Option<Packet> {
+        let mut proofs = self.resource_proofs.lock().unwrap();
+        let (proof, kept, answers) = proofs.get_mut(&link)?;
+        if kept.elapsed() >= RESOURCE_PROOF_CACHE_TTL
+            || *answers >= PROOF_CACHE_ANSWERS
+            || !matches(proof)
+        {
+            return None;
+        }
+        *answers += 1;
+        Some(proof.clone())
+    }
+
+    /// The kept proof to re-send for a resource advertisement on `link` naming the
+    /// resource it proves: an older retinue sender that lost the proof offers again
+    /// rather than asking with a cache request.
+    fn proof_for_advertisement(&self, link: AddressHash, advertisement: &Packet) -> Option<Packet> {
+        if !self.resource_proofs.lock().unwrap().contains_key(&link) {
+            return None;
+        }
+        let entry = self
+            .links
+            .lock()
+            .unwrap()
+            .get(&link)
+            .map(|e| e.link.clone())?;
+        let plain = entry.decrypt(advertisement).ok()?;
+        let advertised = Advertisement::parse(&plain).ok()?;
+        self.resend_resource_proof(link, |proof| {
+            crate::resource::parse_proof(&proof.payload)
+                .is_some_and(|(hash, _)| hash[..] == advertised.resource_hash[..])
+        })
     }
 
     fn is_running(&self) -> bool {
@@ -3341,6 +3565,7 @@ impl Endpoint {
             link_mtu: AtomicU32::new(DEFAULT_LINK_MTU),
             inbound_link_proofs: Mutex::new(HashMap::new()),
             inbound: Mutex::new(InboundLinks::default()),
+            resource_proofs: Mutex::new(HashMap::new()),
             path_table: Mutex::new(HashMap::new()),
             seen_announces: Mutex::new((HashSet::new(), VecDeque::new())),
             link_packets: Mutex::new(LinkPacketMemory::new()),
@@ -5652,6 +5877,26 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                     }
                     return;
                 }
+                // A publisher asking again for a resource proof it did not hear: answered
+                // from the proof kept for this link, as RNS's transport answers from its
+                // packet cache. Cache requests are exempt from the duplicate window above,
+                // because a publisher repeats them verbatim.
+                if pkt.context == link::CTX_CACHE_REQUEST {
+                    if let Some(proof) = shared.resend_resource_proof(pkt.destination, |proof| {
+                        proof.full_hash()[..] == pkt.payload[..]
+                    }) {
+                        shared.send_on(iface, proof);
+                    }
+                    return;
+                }
+                // The same resource offered again after this side proved it: its proof
+                // was lost. Answer with the kept one rather than receive it all again.
+                if pkt.context == link::CTX_RESOURCE_ADV
+                    && let Some(proof) = shared.proof_for_advertisement(pkt.destination, &pkt)
+                {
+                    shared.send_on(iface, proof);
+                    return;
+                }
             }
             if let Some(link) = &link {
                 shared.note_inbound_traffic(link, &pkt);
@@ -5916,6 +6161,8 @@ fn register_resource_session(
         packets,
         config: ResourceTransferConfig::default(),
         identified_peer: None,
+        accept: None,
+        metadata: None,
     })
 }
 

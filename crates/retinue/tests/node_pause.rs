@@ -110,7 +110,9 @@ fn configured_resource_part_limit_refuses_offer() {
             .publish(id, IFACE, &payload, [6; 4], &[7; 16], 0)
             .unwrap(),
     );
-    assert!(small.ingest(IFACE, &offer, 0).is_empty());
+    // The refusal goes on the wire, as RNS rejects an offer: one sealed receiver cancel.
+    let refusal = sent(&small.ingest(IFACE, &offer, 0));
+    assert_eq!(refusal.context, retinue::link::CTX_RESOURCE_RCL);
     assert_eq!(small.refused_offers(), 1);
     assert!(!small.transfer_active(id));
     assert!(small.has_link(id));
@@ -393,10 +395,12 @@ fn dropped_final_proof_keeps_sender_busy_and_poll_retries() {
         Err(PauseBlocked::ActiveResources { outbound: 1, .. })
     ));
 
+    // Every part went out, so the retry asks the receiver's cache for the proof rather
+    // than re-offering the resource.
     let retry = a.poll(retinue::node::RESOURCE_RETRY_INTERVAL + 1, IFACE, None);
     assert_eq!(retry.overflowed(), 0);
-    let retry_packet = sent_context(&retry, retinue::link::CTX_RESOURCE_ADV);
-    assert_eq!(retry_packet.context, retinue::link::CTX_RESOURCE_ADV);
+    let retry_packet = sent_context(&retry, retinue::link::CTX_CACHE_REQUEST);
+    assert_eq!(retry_packet.context, retinue::link::CTX_CACHE_REQUEST);
     assert!(a.transfer_active(id));
     assert!(matches!(
         a.pause_assessment().can_pause_through(

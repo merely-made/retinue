@@ -15,6 +15,15 @@
 //! - `liveness SECS SEED` (`interop_link_liveness.py`): one resource link each way with
 //!   RNS, held idle for `SECS` seconds, then a request of exactly the 431-byte link MDU in
 //!   each direction.
+//! - `resource-recv-drop-proof LEN SEED` (`interop_resource_proof_cache.py`): as
+//!   `resource-recv`, but the relay drops every resource proof toward RNS until RNS sends a
+//!   cache request, so RNS has to recover the proof with one.
+//! - `resource-meta LEN SEED` (`interop_resource_metadata.py`): RNS sends a Resource with
+//!   metadata and [`ResourceSession::receive`] takes it; then a [`ResourceSession`] opened
+//!   to RNS publishes one with [`ResourceSession::publish_with_metadata`].
+//! - `resource-cancel LEN SEED` (`interop_resource_cancel.py`): an accept hook rejects an
+//!   RNS offer; RNS cancels a transfer mid-way; RNS rejects a Retinue publish; and a
+//!   Retinue publish times out mid-way. Each side must stop promptly.
 //!
 //! The endpoint listens on a private port behind a byte-for-byte TCP relay. The relay only
 //! copies; it also deframes a copy of each direction and tallies packets by type and
@@ -24,6 +33,7 @@
 
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -31,7 +41,8 @@ use retinue::destination::DestinationName;
 use retinue::endpoint::{Endpoint, ReceivedPayload, ResourceSession, ResourceTransferConfig};
 use retinue::hash::{AddressHash, full_hash};
 use retinue::identity::PrivateIdentity;
-use retinue::iface::hdlc::Deframer;
+use retinue::iface::hdlc::{Deframer, frame};
+use retinue::link::{CTX_CACHE_REQUEST, CTX_RESOURCE_PRF};
 use retinue::packet::{Packet, PacketType};
 use retinue::request::Request;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -75,44 +86,102 @@ fn type_name(packet_type: PacketType) -> &'static str {
     }
 }
 
-/// Copy one direction verbatim, tallying a deframed copy of every packet.
+/// How a relay direction treats resource proofs and cache requests, for the proof-cache
+/// gate. Both directions share the flag that says a cache request has been heard.
+#[derive(Clone)]
+enum ProofFilter {
+    /// Copy everything verbatim.
+    None,
+    /// Re-frame packet by packet, leaving out (and tallying as `Dropped`) every resource
+    /// proof until the flag is set.
+    DropUntilAsked(Arc<AtomicBool>),
+    /// Copy verbatim, setting the flag on the first cache request.
+    MarkAsked(Arc<AtomicBool>),
+}
+
+/// Copy one direction verbatim, tallying a deframed copy of every packet, and filtering
+/// resource proofs as `filter` says.
 async fn relay(
     mut from: tokio::net::tcp::OwnedReadHalf,
     mut to: tokio::net::tcp::OwnedWriteHalf,
     direction: &'static str,
     tally: Tally,
+    filter: ProofFilter,
 ) {
     let mut deframer = Deframer::new();
     let mut buf = vec![0_u8; 8192];
+    let filtering = matches!(filter, ProofFilter::DropUntilAsked(_));
     loop {
         let n = match from.read(&mut buf).await {
             Ok(0) | Err(_) => break,
             Ok(n) => n,
         };
-        if to.write_all(&buf[..n]).await.is_err() {
+        // A cache request is marked before it is passed on, so the answer it draws can
+        // never reach the other direction ahead of the mark.
+        let marking = matches!(filter, ProofFilter::MarkAsked(_));
+        if !filtering && !marking && to.write_all(&buf[..n]).await.is_err() {
             break;
         }
-        for frame in deframer.push(&buf[..n]) {
-            if let Ok(packet) = Packet::decode(&frame) {
-                *tally
-                    .lock()
-                    .unwrap()
-                    .entry((direction, type_name(packet.packet_type), packet.context))
-                    .or_default() += 1;
+        for raw in deframer.push(&buf[..n]) {
+            let Ok(packet) = Packet::decode(&raw) else {
+                continue;
+            };
+            let mut kind = type_name(packet.packet_type);
+            if let ProofFilter::MarkAsked(asked) = &filter
+                && packet.context == CTX_CACHE_REQUEST
+            {
+                asked.store(true, Ordering::Release);
             }
+            if let ProofFilter::DropUntilAsked(asked) = &filter
+                && !asked.load(Ordering::Acquire)
+                && packet.packet_type == PacketType::Proof
+                && packet.context == CTX_RESOURCE_PRF
+            {
+                kind = "Dropped";
+            } else if filtering && to.write_all(&frame(&raw)).await.is_err() {
+                return;
+            }
+            *tally
+                .lock()
+                .unwrap()
+                .entry((direction, kind, packet.context))
+                .or_default() += 1;
+        }
+        if marking && to.write_all(&buf[..n]).await.is_err() {
+            break;
         }
     }
     let _ = to.shutdown().await;
 }
 
 /// Accept the RNS connection on `listener` and relay it to the endpoint at `inner`.
-async fn tap(listener: TcpListener, inner: SocketAddr, tally: Tally) -> std::io::Result<()> {
+async fn tap(
+    listener: TcpListener,
+    inner: SocketAddr,
+    tally: Tally,
+    drop_proofs: bool,
+) -> std::io::Result<()> {
     let (outer, _) = listener.accept().await?;
     let endpoint_side = TcpStream::connect(inner).await?;
     let (outer_read, outer_write) = outer.into_split();
     let (inner_read, inner_write) = endpoint_side.into_split();
-    tokio::spawn(relay(outer_read, inner_write, "to_retinue", tally.clone()));
-    tokio::spawn(relay(inner_read, outer_write, "to_rns", tally));
+    let (to_retinue, to_rns) = if drop_proofs {
+        let asked = Arc::new(AtomicBool::new(false));
+        (
+            ProofFilter::MarkAsked(Arc::clone(&asked)),
+            ProofFilter::DropUntilAsked(asked),
+        )
+    } else {
+        (ProofFilter::None, ProofFilter::None)
+    };
+    tokio::spawn(relay(
+        outer_read,
+        inner_write,
+        "to_retinue",
+        tally.clone(),
+        to_retinue,
+    ));
+    tokio::spawn(relay(inner_read, outer_write, "to_rns", tally, to_rns));
     Ok(())
 }
 
@@ -176,20 +245,25 @@ fn transfer_config(timeout: Duration) -> ResourceTransferConfig {
     }
 }
 
-async fn resource_recv(endpoint: Arc<Endpoint>, expected: Vec<u8>) -> Result<(), String> {
+/// Accept the next resource link to `retinue.library-resource`, announcing until one
+/// arrives.
+async fn accept_resource_link(endpoint: &Arc<Endpoint>) -> Result<ResourceSession, String> {
     let name = DestinationName::new("retinue", ["library-resource"]);
     endpoint.register_resource(name.clone(), b"library-resource");
-    let announcing = keep_announcing(&endpoint, name, b"library-resource");
+    let announcing = keep_announcing(endpoint, name, b"library-resource");
     let accepted = tokio::time::timeout(Duration::from_secs(30), endpoint.accept_resource()).await;
     announcing.abort();
-    let mut session: ResourceSession = accepted
+    let session = accepted
         .map_err(|_| "no resource link".to_string())?
         .map_err(|e| format!("accept_resource: {e}"))?
         .session;
     println!("LINK {}", session.link_id());
+    Ok(session)
+}
 
-    session.set_config(transfer_config(Duration::from_secs(60)));
-    match session.receive().await {
+/// Report one received Resource against the expected bytes.
+fn report_received(received: std::io::Result<ReceivedPayload>, expected: &[u8]) {
+    match received {
         Ok(ReceivedPayload::Resource(data)) => {
             println!("RESOURCE {} {}", data.len(), hex(&full_hash(&data)));
             if data == expected {
@@ -201,16 +275,142 @@ async fn resource_recv(endpoint: Arc<Endpoint>, expected: Vec<u8>) -> Result<(),
         Ok(ReceivedPayload::Data(data)) => println!("UNEXPECTED_DATA {}", data.len()),
         Err(e) => println!("RECEIVE_ERR {:?} {e}", e.kind()),
     }
+}
 
-    // Keep the link (and with it the proof's chance to land) until RNS hangs up. Dropping
-    // the session sends a link close, which would end the RNS sender's transfer for a
-    // reason that has nothing to do with the proof.
+/// Keep the link (and with it the proof's chance to land, or be asked for again) until RNS
+/// hangs up. Dropping the session sends a link close, which would end the RNS sender's
+/// transfer for a reason that has nothing to do with the proof.
+async fn hold_until_peer_closes(session: &mut ResourceSession) {
     session.set_config(transfer_config(Duration::from_secs(40)));
     match session.receive().await {
         Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => println!("PEER_CLOSED"),
         Err(e) => println!("HOLD_END {:?} {e}", e.kind()),
         Ok(_) => println!("HOLD_UNEXPECTED_PAYLOAD"),
     }
+}
+
+async fn resource_recv(endpoint: Arc<Endpoint>, expected: Vec<u8>) -> Result<(), String> {
+    let mut session = accept_resource_link(&endpoint).await?;
+    session.set_config(transfer_config(Duration::from_secs(60)));
+    report_received(session.receive().await, &expected);
+    hold_until_peer_closes(&mut session).await;
+    Ok(())
+}
+
+/// The metadata Retinue attaches when it publishes: msgpack `{"name": "retinue.bin", "n": 7}`.
+const RETINUE_METADATA: &[u8] = b"\x82\xa4name\xabretinue.bin\xa1n\x07";
+
+async fn resource_meta(endpoint: Arc<Endpoint>, data: Vec<u8>) -> Result<(), String> {
+    // RNS publishes to us with metadata.
+    let mut session = accept_resource_link(&endpoint).await?;
+    session.set_config(transfer_config(Duration::from_secs(60)));
+    report_received(session.receive().await, &data);
+    match session.take_metadata() {
+        Some(metadata) => println!("METADATA {}", hex(&metadata)),
+        None => println!("METADATA_NONE"),
+    }
+    hold_until_peer_closes(&mut session).await;
+    drop(session);
+
+    // We publish to RNS with metadata.
+    let name = DestinationName::new("retinue", ["library-sink"]);
+    let (dest, identity) = resolve_rns(&endpoint, &name, &RNS_SINK_SEED)
+        .await
+        .ok_or("RNS sink announce not seen")?;
+    let mut session = tokio::time::timeout(
+        Duration::from_secs(20),
+        endpoint.open_resource(dest, identity),
+    )
+    .await
+    .map_err(|_| "open_resource timed out".to_string())?
+    .map_err(|e| format!("open_resource: {e}"))?;
+    println!("SEND_LINK {}", session.link_id());
+    session.set_config(transfer_config(Duration::from_secs(60)));
+    match session.publish_with_metadata(&data, RETINUE_METADATA).await {
+        Ok(()) => println!("PUBLISH_OK {}", data.len()),
+        Err(e) => println!("PUBLISH_ERR {:?} {e}", e.kind()),
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    Ok(())
+}
+
+/// Four refusals, each of which must end the other side's transfer promptly.
+async fn resource_cancel(endpoint: Arc<Endpoint>, data: Vec<u8>) -> Result<(), String> {
+    // 1. Our accept hook rejects RNS's offer before any part moves.
+    let mut session = accept_resource_link(&endpoint).await?;
+    session.set_config(transfer_config(Duration::from_secs(60)));
+    session.set_accept(|advertisement| {
+        println!(
+            "OFFER {} {} {}",
+            advertisement.data_size, advertisement.transfer_size, advertisement.flags
+        );
+        false
+    });
+    match session.receive().await {
+        Err(e) => println!("REJECTED_OFFER {:?}", e.kind()),
+        Ok(_) => println!("REJECT_UNEXPECTED_PAYLOAD"),
+    }
+    hold_until_peer_closes(&mut session).await;
+    drop(session);
+
+    // 2. RNS cancels its transfer part-way; our receive ends on its cancel.
+    let mut session = accept_resource_link(&endpoint).await?;
+    session.set_config(transfer_config(Duration::from_secs(60)));
+    let started = tokio::time::Instant::now();
+    match session.receive().await {
+        Err(e) => println!(
+            "SENDER_CANCELED {:?} {}",
+            e.kind(),
+            started.elapsed().as_millis()
+        ),
+        Ok(_) => println!("CANCEL_UNEXPECTED_PAYLOAD"),
+    }
+    hold_until_peer_closes(&mut session).await;
+    drop(session);
+
+    // 3. RNS rejects our publish; it ends on the rejection, long before its timeout.
+    let name = DestinationName::new("retinue", ["library-sink"]);
+    let (dest, identity) = resolve_rns(&endpoint, &name, &RNS_SINK_SEED)
+        .await
+        .ok_or("RNS sink announce not seen")?;
+    let mut session = tokio::time::timeout(
+        Duration::from_secs(20),
+        endpoint.open_resource(dest, identity),
+    )
+    .await
+    .map_err(|_| "open_resource timed out".to_string())?
+    .map_err(|e| format!("open_resource: {e}"))?;
+    println!("SEND_LINK {}", session.link_id());
+    session.set_config(transfer_config(Duration::from_secs(60)));
+    let started = tokio::time::Instant::now();
+    match session.publish(&data).await {
+        Ok(()) => println!("PUBLISH_UNEXPECTED_OK"),
+        Err(e) => println!(
+            "PUBLISH_REJECTED {:?} {}",
+            e.kind(),
+            started.elapsed().as_millis()
+        ),
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    drop(session);
+
+    // 4. Our publish times out part-way; RNS's receive ends on our cancel.
+    let mut session = tokio::time::timeout(
+        Duration::from_secs(20),
+        endpoint.open_resource(dest, identity),
+    )
+    .await
+    .map_err(|_| "open_resource timed out".to_string())?
+    .map_err(|e| format!("open_resource: {e}"))?;
+    println!("SEND_LINK {}", session.link_id());
+    session.set_config(transfer_config(Duration::from_millis(400)));
+    match session.publish(&data).await {
+        Ok(()) => println!("PUBLISH_UNEXPECTED_OK"),
+        Err(e) => println!("PUBLISH_GAVE_UP {:?}", e.kind()),
+    }
+    // Hold the link well past the gate's promptness bound, so RNS's receive can only end
+    // that soon on our cancel, not on the link closing.
+    tokio::time::sleep(Duration::from_secs(8)).await;
     Ok(())
 }
 
@@ -391,12 +591,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     println!("LISTENING {}", listener.local_addr()?.port());
     let tally: Tally = Arc::default();
-    tap(listener, inner, tally.clone()).await?;
+    tap(
+        listener,
+        inner,
+        tally.clone(),
+        mode == "resource-recv-drop-proof",
+    )
+    .await?;
     // RNS's TCP client drops a peer whose first frame beats its own connection setup.
     tokio::time::sleep(Duration::from_millis(250)).await;
 
     let run = match mode.as_str() {
-        "resource-recv" => resource_recv(Arc::clone(&endpoint), data).await,
+        "resource-recv" | "resource-recv-drop-proof" => {
+            resource_recv(Arc::clone(&endpoint), data).await
+        }
+        "resource-meta" => resource_meta(Arc::clone(&endpoint), data).await,
+        "resource-cancel" => resource_cancel(Arc::clone(&endpoint), data).await,
         "resource-send" => resource_send(Arc::clone(&endpoint), data).await,
         "stream-respond" => stream_respond(Arc::clone(&endpoint), data).await,
         "stream-open" => stream_open(Arc::clone(&endpoint), data).await,
