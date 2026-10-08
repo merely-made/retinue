@@ -1,7 +1,7 @@
 //! The address book's cap, exercised by a flood of valid announces.
 //!
-//! Forty genuine announces from forty distinct identities: the book learns its capacity
-//! and refuses the rest, visibly. Also a monument to a bench lesson: the first flood
+//! Forty genuine announces from forty distinct identities: the book learns its capacity,
+//! and each newcomer past it displaces a peer with no live route, visibly. Also a monument to a bench lesson: the first flood
 //! generator varied only byte 0 of the x25519 secret, which clamping (`k[0] &= 248`)
 //! collapses into five distinct keys — so the "flood" was five peers refreshing, and the
 //! hardware that reported peers=5 was right while the harness was wrong.
@@ -20,12 +20,13 @@ fn flood_identity(index: u8) -> PrivateIdentity {
 }
 
 #[test]
-fn a_flood_fills_the_book_to_its_cap_and_refusals_are_counted() {
+fn a_flood_fills_the_book_to_its_cap_and_evictions_are_counted() {
     let mut node = Node::<32, 8, 4>::new(
         PrivateIdentity::from_secret_bytes(&[0x99; 64]),
         DestinationName::new("retinue", ["node"]).name_hash(),
     );
 
+    let mut destinations = Vec::new();
     for index in 0..40u8 {
         let identity = flood_identity(index);
         let name = DestinationName::new("retinue", ["floodpeer"]);
@@ -33,6 +34,7 @@ fn a_flood_fills_the_book_to_its_cap_and_refusals_are_counted() {
         rand_hash[..4].copy_from_slice(&u32::from(index).to_le_bytes());
         let blob = AnnounceBlob::from_wire(rand_hash);
         let packet = announce::build(&identity, name.name_hash(), &blob, None, &[]);
+        destinations.push(packet.destination);
         let _ = node.ingest(0, &packet, 0);
     }
 
@@ -41,5 +43,16 @@ fn a_flood_fills_the_book_to_its_cap_and_refusals_are_counted() {
         32,
         "the book holds exactly its capacity"
     );
-    assert_eq!(node.refused_peers(), 8, "and every refusal is counted");
+    // The route table (16) is smaller than the book (32), so a full book always holds an
+    // unrouted peer to give up: nothing is refused, and every displacement is counted.
+    assert_eq!(node.peers().evicted(), 8, "every eviction is counted");
+    assert_eq!(node.refused_peers(), 0);
+    for destination in destinations {
+        if node.next_hop(destination, 0).is_some() {
+            assert!(
+                node.peers().knows(destination),
+                "a routed peer is never evicted"
+            );
+        }
+    }
 }

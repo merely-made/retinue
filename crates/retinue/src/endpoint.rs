@@ -2518,6 +2518,28 @@ impl Shared {
         });
     }
 
+    /// Destinations the address book must keep while it is full: those with an unexpired path
+    /// or a live link. Each table is locked in turn, never two at once.
+    fn destinations_in_use(&self) -> HashSet<AddressHash> {
+        let route_ttl = self.route_ttl();
+        let mut in_use: HashSet<AddressHash> = self
+            .path_table
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, entry)| entry.learned.elapsed() < route_ttl)
+            .map(|(destination, _)| *destination)
+            .collect();
+        in_use.extend(
+            self.links
+                .lock()
+                .unwrap()
+                .values()
+                .filter_map(|entry| entry.remote.destination),
+        );
+        in_use
+    }
+
     /// The interface to reach `dest`, if a route is known and unexpired. Evicts an expired
     /// route as a side effect, so a stale path never lingers past a lookup.
     fn path_iface(&self, dest: AddressHash) -> Option<InterfaceId> {
@@ -4157,16 +4179,31 @@ fn process_verified_announce(
         }
     }
 
-    // The book's answer is the cap. It happens before the freshness commit so a refused peer
-    // leaves no freshness tombstone that would suppress a later attempt after capacity opens.
-    if shared.address_book.lock().unwrap().ingest(&announce)
-        == crate::address_book::Ingested::Refused
-    {
+    // A full book makes room by evicting the least recently heard peer that has neither a
+    // live path nor a live link. Pending link requests already hold the peer's identity, so
+    // they do not need the entry. A refusal only keeps the identity out of the book (and so
+    // publishes no `PeerAnnounce`): the path is still learned and the announce still relayed,
+    // as RNS relays from its path table rather than its known destinations.
+    let in_use = {
+        let book = shared.address_book.lock().unwrap();
+        book.is_full() && !book.knows(announce.destination)
+    }
+    .then(|| shared.destinations_in_use());
+    let admitted = shared
+        .address_book
+        .lock()
+        .unwrap()
+        .ingest_at(&announce, now, |destination| {
+            in_use
+                .as_ref()
+                .is_some_and(|in_use| in_use.contains(&destination))
+        })
+        != crate::address_book::Ingested::Refused;
+    if !admitted {
         shared
             .routing_stats
             .refused_announces
             .fetch_add(1, Ordering::Relaxed);
-        return;
     }
     let record = freshness.table.record_accepted(candidate, now);
     if record.expired_destinations != 0 {
@@ -4198,16 +4235,25 @@ fn process_verified_announce(
     // destination's route, not to the interface: the same radio routinely reaches different
     // destinations through different nodes.
     shared.learn_path(destination, iface, pkt.hops, pkt.transport);
-    let sequence = shared.announce_sequence.fetch_add(1, Ordering::Relaxed) + 1;
-    let _ = shared.announce_tx.send(PeerAnnounce {
-        destination,
-        identity: announce.identity,
-        app_data: announce.app_data,
-        interface: iface,
-        hops: pkt.hops,
-        transport: pkt.transport,
-        sequence,
-    });
+    if admitted {
+        let sequence = shared.announce_sequence.fetch_add(1, Ordering::Relaxed) + 1;
+        let _ = shared.announce_tx.send(PeerAnnounce {
+            destination,
+            identity: announce.identity,
+            app_data: announce.app_data,
+            interface: iface,
+            hops: pkt.hops,
+            transport: pkt.transport,
+            sequence,
+        });
+    }
+
+    // A path response answers one requester. RNS learns from it but never queues it for
+    // rebroadcast, and leaves it out of the announce rate table, so one path request cannot
+    // flood the mesh.
+    if pkt.context == crate::path::CTX_PATH_RESPONSE {
+        return;
+    }
 
     // As a transport node, propagate the announce onward: hops+1, stamped with our identity
     // as the transport node so downstream peers address replies through us, out every
@@ -4322,6 +4368,18 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
     }
     match pkt.packet_type {
         PacketType::Announce => {
+            // A relay rebroadcasting one of our own announces echoes it back. We are not our
+            // own peer: drop it before it costs a signature check, or becomes a path to
+            // ourselves, a `PeerAnnounce`, or a relay.
+            if shared
+                .registered
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|r| r.dest == pkt.destination)
+            {
+                return;
+            }
             if let Ok(a) = Announce::decode(&pkt) {
                 let route_is_known = shared
                     .path_table
@@ -5883,21 +5941,123 @@ mod tests {
         );
     }
 
+    /// A refused identity publishes no `PeerAnnounce`, but its path is learned and its
+    /// freshness committed: a book's capacity never decides what the router can reach.
     #[tokio::test]
-    async fn address_book_refusal_does_not_commit_freshness() {
+    async fn address_book_refusal_still_learns_the_path() {
         let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x47; 64]));
         let iface = ep.attach_interface().id();
         let peer = PrivateIdentity::from_secret_bytes(&[0x48; 64]);
         let (packet, announcement) = freshness_announce(&peer, "freshness-refusal", 0, 1, 10, 1);
+        let destination = announcement.destination;
         *ep.shared.address_book.lock().unwrap() = AddressBook::with_max_peers(0);
         process_verified_announce(&ep.shared, iface, packet.clone(), announcement.clone());
         assert_eq!(ep.routing_counters().refused_announces, 1);
         assert_eq!(ep.shared.announce_sequence.load(Ordering::Relaxed), 0);
+        assert_eq!(ep.route_to(destination), Some((iface, 1)));
+        assert!(ep.resolve(destination).is_none());
 
         *ep.shared.address_book.lock().unwrap() = AddressBook::with_max_peers(1);
         process_verified_announce(&ep.shared, iface, packet, announcement);
+        assert_eq!(ep.routing_counters().freshness_replays_rejected, 1);
+    }
+
+    /// A full book admits a newcomer by evicting the least recently heard peer whose path
+    /// has gone stale, and the newcomer is relayed whether or not the book takes it.
+    #[tokio::test]
+    async fn a_full_address_book_evicts_a_peer_whose_path_expired() {
+        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x4B; 64]));
+        let a = ep.attach_interface();
+        let b = ep.attach_interface();
+        ep.enable_routing();
+        *ep.shared.address_book.lock().unwrap() = AddressBook::with_max_peers(2);
+        let announcements: Vec<_> = (0..4u8)
+            .map(|i| {
+                let peer = PrivateIdentity::from_secret_bytes(&[0x60 + i; 64]);
+                freshness_announce(&peer, "eviction", 0, i, 10, 1)
+            })
+            .collect();
+        let relayed = |destination: AddressHash| {
+            let sent = b.outbound.queues.pop();
+            b.outbound.queues.delivery_complete();
+            sent.is_some_and(|p| p.destination == destination)
+        };
+
+        for (packet, announcement) in &announcements[..3] {
+            process_verified_announce(&ep.shared, a.id(), packet.clone(), announcement.clone());
+            assert!(relayed(announcement.destination));
+        }
+        let held = |i: usize| ep.resolve(announcements[i].1.destination).is_some();
+        assert!(held(0) && held(1) && !held(2));
+        assert_eq!(ep.routing_counters().refused_announces, 1);
+        assert_eq!(ep.shared.announce_sequence.load(Ordering::Relaxed), 2);
+
+        // Every path is now past its TTL, so nothing protects the held peers.
+        ep.shared.route_ttl_ms.store(0, Ordering::Relaxed);
+        let (packet, announcement) = announcements[3].clone();
+        process_verified_announce(&ep.shared, a.id(), packet, announcement.clone());
+        assert!(relayed(announcement.destination));
         assert_eq!(ep.next_announcement().await.unwrap().sequence, 1);
-        assert_eq!(ep.routing_counters().freshness_replays_rejected, 0);
+        assert_eq!(ep.next_announcement().await.unwrap().sequence, 2);
+        assert_eq!(
+            ep.next_announcement().await.unwrap().destination,
+            announcement.destination
+        );
+        assert!(held(3));
+        assert_eq!(usize::from(held(0)) + usize::from(held(1)), 1);
+        assert_eq!(ep.shared.address_book.lock().unwrap().evicted(), 1);
+    }
+
+    /// RNS learns from a path response but never rebroadcasts it: it answers one requester.
+    #[tokio::test]
+    async fn a_path_response_is_learned_but_not_relayed() {
+        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x4C; 64]));
+        let a = ep.attach_interface();
+        let b = ep.attach_interface();
+        ep.enable_routing();
+        let peer = PrivateIdentity::from_secret_bytes(&[0x4D; 64]);
+        let (packet, announcement) = freshness_announce(
+            &peer,
+            "path-response",
+            crate::path::CTX_PATH_RESPONSE,
+            1,
+            10,
+            2,
+        );
+        process_verified_announce(&ep.shared, a.id(), packet, announcement.clone());
+
+        let event = ep.next_announcement().await.unwrap();
+        assert_eq!(event.destination, announcement.destination);
+        assert_eq!(ep.route_to(announcement.destination), Some((a.id(), 2)));
+        assert!(b.outbound.queues.pop().is_none(), "not relayed");
+        assert!(a.outbound.queues.pop().is_none());
+        assert_eq!(ep.routing_counters().forwarded_announces, 0);
+    }
+
+    /// A relay echoing one of our own announces back must not teach us a path to ourselves,
+    /// publish ourselves as a peer, or be relayed again.
+    #[tokio::test]
+    async fn an_echo_of_our_own_announce_is_dropped() {
+        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x4E; 64]));
+        let name = DestinationName::new("retinue", ["own-echo"]);
+        let destination = name.destination_hash(ep.identity());
+        ep.register(name.clone(), b"own");
+        let a = ep.attach_interface();
+        let b = ep.attach_interface();
+        ep.enable_routing();
+
+        let mut echo = ep.build_announce_at(&name, b"own", 4_000);
+        echo.hops += 1;
+        echo.header_type = crate::packet::HeaderType::Type2;
+        echo.transport = Some(AddressHash::from_bytes([0x7E; 16]));
+        route(&ep.shared, a.id(), echo);
+
+        assert_eq!(ep.shared.announce_sequence.load(Ordering::Relaxed), 0);
+        assert!(ep.route_to(destination).is_none());
+        assert!(ep.resolve(destination).is_none());
+        assert!(a.outbound.queues.pop().is_none());
+        assert!(b.outbound.queues.pop().is_none());
+        assert_eq!(ep.routing_counters().forwarded_announces, 0);
     }
 
     #[tokio::test]
