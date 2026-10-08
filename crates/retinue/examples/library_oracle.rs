@@ -12,6 +12,9 @@
 //!   link and reads what [`Endpoint::accept_reliable`]'s stream writes.
 //! - `stream-open LEN SEED` (`interop_reliable_initiator_proofs.py`): an
 //!   [`Endpoint::open_reliable`] stream reads what an RNS responder's Channel sends.
+//! - `liveness SECS SEED` (`interop_link_liveness.py`): one resource link each way with
+//!   RNS, held idle for `SECS` seconds, then a request of exactly the 431-byte link MDU in
+//!   each direction.
 //!
 //! The endpoint listens on a private port behind a byte-for-byte TCP relay. The relay only
 //! copies; it also deframes a copy of each direction and tallies packets by type and
@@ -30,6 +33,7 @@ use retinue::hash::{AddressHash, full_hash};
 use retinue::identity::PrivateIdentity;
 use retinue::iface::hdlc::Deframer;
 use retinue::packet::{Packet, PacketType};
+use retinue::request::Request;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
@@ -38,6 +42,9 @@ const IDENTITY_SEED: [u8; 64] = [0x47; 64];
 /// build the same identity from the same 64 bytes.
 const RNS_SINK_SEED: [u8; 64] = [0x5a; 64];
 const RNS_STREAM_SEED: [u8; 64] = [0x5b; 64];
+const RNS_LIVENESS_SEED: [u8; 64] = [0x5c; 64];
+/// RNS's link MDU at MTU 500: the largest request that travels as one packet.
+const LINK_MDU: usize = 431;
 
 type Tally = Arc<Mutex<BTreeMap<(&'static str, &'static str, u8), u64>>>;
 
@@ -303,6 +310,72 @@ async fn stream_open(endpoint: Arc<Endpoint>, expected: Vec<u8>) -> Result<(), S
     Ok(())
 }
 
+/// Hold an outbound and an inbound resource link idle for `hold`, then exchange a request
+/// of exactly [`LINK_MDU`] bytes on each. The inbound request is RNS's; the outbound one
+/// carries `data` padded to the MDU and expects it echoed.
+async fn liveness(endpoint: Arc<Endpoint>, hold: Duration, data: Vec<u8>) -> Result<(), String> {
+    let name = DestinationName::new("retinue", ["liveness-retinue"]);
+    endpoint.register_resource(name.clone(), b"liveness");
+    let announcing = keep_announcing(&endpoint, name, b"liveness");
+    let rns_name = DestinationName::new("retinue", ["liveness-rns"]);
+    let (dest, identity) = resolve_rns(&endpoint, &rns_name, &RNS_LIVENESS_SEED)
+        .await
+        .ok_or("RNS liveness announce not seen")?;
+    let mut outbound = tokio::time::timeout(
+        Duration::from_secs(20),
+        endpoint.open_resource(dest, identity),
+    )
+    .await
+    .map_err(|_| "open_resource timed out".to_string())?
+    .map_err(|e| format!("open_resource: {e}"))?;
+    println!("OUT_LINK {}", outbound.link_id());
+    let accepted = tokio::time::timeout(Duration::from_secs(60), endpoint.accept_resource())
+        .await
+        .map_err(|_| "no inbound link".to_string())?
+        .map_err(|e| format!("accept_resource: {e}"))?;
+    announcing.abort();
+    let mut inbound = accepted.session;
+    println!("IN_LINK {}", inbound.link_id());
+    inbound.set_config(transfer_config(hold + Duration::from_secs(60)));
+    outbound.set_config(transfer_config(Duration::from_secs(30)));
+
+    let serve = async {
+        match inbound.receive_raw_request().await {
+            Ok(request) => {
+                println!("IN_REQUEST {}", request.packed.len());
+                let data = Request::unpack(&request.packed)
+                    .map(|request| request.data)
+                    .unwrap_or_default();
+                match inbound.respond_auto(request.request_id, data).await {
+                    Ok(mode) => println!("IN_RESPOND {mode:?}"),
+                    Err(e) => println!("IN_RESPOND_ERR {:?} {e}", e.kind()),
+                }
+            }
+            Err(e) => println!("IN_REQUEST_ERR {:?} {e}", e.kind()),
+        }
+    };
+    let ask = async {
+        tokio::time::sleep(hold).await;
+        println!("HELD {}", endpoint.link_facts().len());
+        let request = (0..LINK_MDU)
+            .map(|n| Request::new(b"/mdu", data[..n.min(data.len())].to_vec(), 1.0e9))
+            .find(|request| request.pack().len() == LINK_MDU)
+            .expect("a prefix packs to the MDU");
+        let sent = request.data.clone();
+        match outbound.request(&request).await {
+            Ok(response) if response.data == sent => {
+                println!("OUT_REQUEST_OK {}", request.pack().len());
+            }
+            Ok(response) => println!("OUT_REQUEST_MISMATCH {}", response.data.len()),
+            Err(e) => println!("OUT_REQUEST_ERR {:?} {e}", e.kind()),
+        }
+    };
+    tokio::join!(serve, ask);
+    // Let RNS read its response before the drops' link closes reach it.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -327,6 +400,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "resource-send" => resource_send(Arc::clone(&endpoint), data).await,
         "stream-respond" => stream_respond(Arc::clone(&endpoint), data).await,
         "stream-open" => stream_open(Arc::clone(&endpoint), data).await,
+        "liveness" => {
+            let hold = Duration::from_secs(len.parse()?);
+            liveness(
+                Arc::clone(&endpoint),
+                hold,
+                payload(LINK_MDU, seed.parse()?),
+            )
+            .await
+        }
         other => Err(format!("unknown mode {other}")),
     };
     if let Err(error) = &run {

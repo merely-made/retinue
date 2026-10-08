@@ -319,6 +319,8 @@ impl Station {
         // the answers they are waiting for.
         endpoint.set_link_setup_retry(tulle::pacing::link_setup_retry(&params, false));
         let interface = endpoint.attach_interface();
+        // RNS allows a link's first hop the time to carry one MTU at the medium's rate.
+        endpoint.set_first_hop_airtime(interface.id(), params.time_on_air(500));
 
         // `drive` is generic over `tulle::radio_io::PacketRadio` and both serial links
         // implement it, so a personality costs one match arm rather than a second stack.
