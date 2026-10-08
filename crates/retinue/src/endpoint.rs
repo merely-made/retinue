@@ -176,6 +176,59 @@ const ROUTER_QUEUE: usize = 1024;
 /// strangers' traffic all day does not accumulate the day.
 const LINK_TRANSPORT_TTL: Duration = Duration::from_secs(3600);
 
+/// The most links a transport node carries at once. A request arriving at the bound displaces
+/// the stalest link still awaiting its proof, never a validated one, so forged requests cannot
+/// evict carried links or grow the table.
+#[cfg(not(test))]
+const LINK_TRANSPORT_CAPACITY: usize = 4096;
+#[cfg(test)]
+const LINK_TRANSPORT_CAPACITY: usize = 4;
+
+/// A link carried through this node: its two interfaces, and whether its destination has
+/// proved it yet.
+#[derive(Clone, Copy, Debug)]
+struct LinkBridge {
+    from: InterfaceId,
+    out: InterfaceId,
+    /// The destination the request named, whose identity signs the proof.
+    destination: AddressHash,
+    seen: Instant,
+    /// When an unproved link lapses; `None` once the destination's proof has passed.
+    proof_deadline: Option<Instant>,
+}
+
+impl LinkBridge {
+    fn lapsed(&self, now: Instant) -> bool {
+        self.proof_deadline.map_or(
+            now.duration_since(self.seen) >= LINK_TRANSPORT_TTL,
+            |deadline| now >= deadline,
+        )
+    }
+
+    /// Whether `pkt`, heard on `iface`, may cross. Only the bridge's two sides may use it,
+    /// nothing crosses before the destination's proof, and the proof must come from the
+    /// destination's side under its signature (the side check stands alone when its identity
+    /// is unknown). An admitted proof validates the bridge.
+    fn admit(&mut self, iface: InterfaceId, pkt: &Packet, book: &Mutex<AddressBook>) -> bool {
+        if iface != self.from && iface != self.out {
+            return false;
+        }
+        if pkt.packet_type != PacketType::Proof || pkt.context != link::CTX_LRPROOF {
+            return self.proof_deadline.is_none();
+        }
+        let signed = iface == self.out
+            && book
+                .lock()
+                .unwrap()
+                .resolve(self.destination)
+                .is_none_or(|peer| link::proof_is_signed_by(pkt, &peer.identity));
+        if signed {
+            self.proof_deadline = None;
+        }
+        signed
+    }
+}
+
 /// Maximum hops an announce or packet may travel before a transport node drops it. RNS's
 /// default `m` (`PATHFINDER_M`).
 const MAX_HOPS: u8 = 128;
@@ -2082,7 +2135,7 @@ struct Shared {
     path_request_stamps: Mutex<VecDeque<Instant>>,
     /// Links being forwarded through us (this node is a transport hop): a link id maps to the
     /// two interfaces it bridges, so a proof or link data arriving on one goes out the other.
-    link_transport: Mutex<HashMap<AddressHash, (InterfaceId, InterfaceId, Instant)>>,
+    link_transport: Mutex<HashMap<AddressHash, LinkBridge>>,
     /// Abort handles for every task the endpoint spawned (the router, interface readers and
     /// writers, TCP listeners, and link relays). [`Endpoint`]'s drop aborts them all, which is
     /// what lets the router's `Arc<Shared>` — and thus `Shared` and every socket — be released
@@ -2324,6 +2377,19 @@ impl Shared {
             }
         }
         sent
+    }
+
+    /// The largest packet an attached interface carries: its frame limit less its access code.
+    fn link_mtu_on(&self, iface: InterfaceId) -> Option<u32> {
+        self.interfaces
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|i| i.id == iface)
+            .map(|i| {
+                let limit = i.frame_limit.load(Ordering::Acquire);
+                u32::try_from(limit.saturating_sub(i.wire_overhead)).unwrap_or(u32::MAX)
+            })
     }
 
     /// Send a packet out one interface, addressed through that interface's transport node if
@@ -4335,16 +4401,16 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
             let mut bridges = shared.link_transport.lock().unwrap();
             let now = Instant::now();
             match bridges.get_mut(&pkt.destination) {
-                Some((from, out, seen)) if now.duration_since(*seen) < LINK_TRANSPORT_TTL => {
-                    if iface != *from && iface != *out {
+                Some(bridge) if !bridge.lapsed(now) => {
+                    if !bridge.admit(iface, &pkt, &shared.address_book) {
                         shared
                             .routing_stats
                             .policy_rejected
                             .fetch_add(1, Ordering::Relaxed);
                         return;
                     }
-                    *seen = now;
-                    Some((*from, *out))
+                    bridge.seen = now;
+                    Some((bridge.from, bridge.out))
                 }
                 _ => None,
             }
@@ -4455,7 +4521,11 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                     }
                 }
                 let ephemeral = ephemeral_seed();
+                // As in RNS, the link is no larger than the interface that heard its request.
                 let configured_mtu = shared.link_mtu.load(Ordering::Relaxed);
+                let configured_mtu = shared
+                    .link_mtu_on(iface)
+                    .map_or(configured_mtu, |limit| configured_mtu.min(limit));
                 let requested_mtu = pkt
                     .payload
                     .get(link::LINK_KEYS_LEN..link::LINK_KEYS_LEN + link::TRAILER_LEN)
@@ -4658,21 +4728,78 @@ fn forward(shared: &Arc<Shared>, from: InterfaceId, pkt: Packet, policy: &Routin
         }
         // A link request establishes a bridge: record the link id's two interfaces so the
         // proof and subsequent link data forward back the way they came.
+        let mut pkt = pkt;
         if pkt.packet_type == PacketType::LinkRequest
             && let Ok(link_id) = link::link_id(&pkt)
+            && !admit_link_request(shared, from, out, link_id, &mut pkt)
         {
-            let mut bridges = shared.link_transport.lock().unwrap();
-            // Prune before inserting. These entries were never removed: every link this
-            // node ever bridged stayed in the map for the life of the process, so a busy
-            // transport node's memory tracked its lifetime traffic rather than its live
-            // links. Pruning here rather than on a timer keeps the work proportional to
-            // the thing causing the growth.
-            let now = Instant::now();
-            bridges.retain(|_, (_, _, seen)| now.duration_since(*seen) < LINK_TRANSPORT_TTL);
-            bridges.insert(link_id, (from, out, now));
+            shared
+                .routing_stats
+                .policy_rejected
+                .fetch_add(1, Ordering::Relaxed);
+            return;
         }
         forward_on(shared, out, pkt, policy);
     }
+}
+
+/// Prepare to carry a link request from `from` to `out`: lower its signalled MTU to what both
+/// interfaces carry, and record an unproved bridge with a proof deadline of the per-hop
+/// allowance for the route. Returns false if the request must be dropped: an undecodable
+/// trailer, or a table at capacity with every link validated.
+fn admit_link_request(
+    shared: &Shared,
+    from: InterfaceId,
+    out: InterfaceId,
+    link_id: AddressHash,
+    pkt: &mut Packet,
+) -> bool {
+    let limit = [from, out]
+        .into_iter()
+        .filter_map(|iface| shared.link_mtu_on(iface))
+        .min();
+    if let Some(limit) = limit
+        && link::clamp_request_mtu(pkt, limit).is_err()
+    {
+        return false;
+    }
+    let hops = shared
+        .path_table
+        .lock()
+        .unwrap()
+        .get(&pkt.destination)
+        .map_or(0, |entry| entry.hops);
+    let now = Instant::now();
+    let bridge = LinkBridge {
+        from,
+        out,
+        destination: pkt.destination,
+        seen: now,
+        proof_deadline: Some(now + Duration::from_millis(crate::node::link_request_timeout(hops))),
+    };
+    let mut bridges = shared.link_transport.lock().unwrap();
+    // Prune before inserting, so the work tracks the requests that cause growth.
+    bridges.retain(|_, bridge| !bridge.lapsed(now));
+    if let Some(existing) = bridges.get_mut(&link_id) {
+        // A retransmitted request: an unproved bridge follows it, a validated one stands.
+        if existing.proof_deadline.is_some() {
+            *existing = bridge;
+        }
+        return true;
+    }
+    if bridges.len() >= LINK_TRANSPORT_CAPACITY {
+        let Some(stalest) = bridges
+            .iter()
+            .filter(|(_, bridge)| bridge.proof_deadline.is_some())
+            .min_by_key(|(_, bridge)| bridge.seen)
+            .map(|(id, _)| *id)
+        else {
+            return false;
+        };
+        bridges.remove(&stalest);
+    }
+    bridges.insert(link_id, bridge);
+    true
 }
 
 /// Put a relayed announce on every permitted interface, counting it if it went anywhere.
@@ -5394,12 +5521,16 @@ mod tests {
         endpoint.enable_routing();
 
         let link_id = AddressHash::from_bytes([0xA3; 16]);
-        endpoint
-            .shared
-            .link_transport
-            .lock()
-            .unwrap()
-            .insert(link_id, (a.id(), b.id(), Instant::now()));
+        endpoint.shared.link_transport.lock().unwrap().insert(
+            link_id,
+            LinkBridge {
+                from: a.id(),
+                out: b.id(),
+                destination: AddressHash::from_bytes([0xA4; 16]),
+                seen: Instant::now(),
+                proof_deadline: None,
+            },
+        );
         let packet = Packet {
             ifac: false,
             header_type: crate::packet::HeaderType::Type1,
@@ -5434,18 +5565,213 @@ mod tests {
         assert_eq!(to_a.hops, 1);
         a.outbound.queues.delivery_complete();
 
-        let seen_before_foreign = endpoint.shared.link_transport.lock().unwrap()[&link_id].2;
+        let seen_before_foreign = endpoint.shared.link_transport.lock().unwrap()[&link_id].seen;
         route(&endpoint.shared, c.id(), packet);
         assert!(a.outbound.queues.pop().is_none());
         assert!(b.outbound.queues.pop().is_none());
         assert!(c.outbound.queues.pop().is_none());
         assert_eq!(
-            endpoint.shared.link_transport.lock().unwrap()[&link_id].2,
+            endpoint.shared.link_transport.lock().unwrap()[&link_id].seen,
             seen_before_foreign
         );
         let counters = endpoint.routing_counters();
         assert_eq!(counters.forwarded_packets, 2);
         assert_eq!(counters.policy_rejected, 1);
+    }
+
+    /// A routing endpoint with a radio side `a` and an IFAC'd 255-byte side `b`, a learned
+    /// destination behind `b`, and that destination's link request, addressed through the
+    /// endpoint and asking for 500 bytes.
+    fn transit_fixture() -> (
+        Endpoint,
+        Interface,
+        Interface,
+        PrivateIdentity,
+        link::PendingLink,
+        Packet,
+    ) {
+        let endpoint = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x94; 64]));
+        let a = endpoint.attach_interface();
+        let ifac = Ifac::with_default_size(Some("transit"), None).unwrap();
+        let b = endpoint.attach_interface_with_ifac(255, ifac).unwrap();
+        endpoint.enable_routing();
+
+        let responder = PrivateIdentity::from_secret_bytes(&[0x95; 64]);
+        let (_, announce) = freshness_announce(&responder, "transit", 0, 1, 1, 0);
+        endpoint
+            .shared
+            .address_book
+            .lock()
+            .unwrap()
+            .ingest(&announce);
+        endpoint.shared.path_table.lock().unwrap().insert(
+            announce.destination,
+            PathEntry {
+                iface: b.id(),
+                transport: None,
+                hops: 0,
+                learned: Instant::now(),
+            },
+        );
+        let (pending, mut request) = link::PendingLink::open(
+            announce.destination,
+            *responder.public(),
+            &[0x96; 64],
+            LinkTrailer {
+                mode: LinkMode::Aes256Cbc,
+                mtu: 500,
+            },
+        );
+        request.header_type = crate::packet::HeaderType::Type2;
+        request.transport = Some(endpoint.identity().hash());
+        (endpoint, a, b, responder, pending, request)
+    }
+
+    fn link_data(link_id: AddressHash) -> Packet {
+        Packet {
+            ifac: false,
+            header_type: crate::packet::HeaderType::Type1,
+            context_flag: false,
+            propagation: crate::packet::Propagation::Broadcast,
+            destination_type: DestinationType::Link,
+            packet_type: PacketType::Data,
+            hops: 0,
+            transport: None,
+            destination: link_id,
+            context: 0,
+            payload: b"link data".to_vec(),
+        }
+    }
+
+    /// A carried request is clamped to the smaller side less its access code (255 - 8), and
+    /// keeps its link id. Its bridge waits for the proof, with the per-hop deadline.
+    #[tokio::test]
+    async fn a_carried_link_request_is_clamped_to_both_sides() {
+        let (endpoint, a, b, _, pending, request) = transit_fixture();
+        route(&endpoint.shared, a.id(), request);
+        let carried = b.outbound.queues.pop().expect("the request is carried");
+        assert_eq!(link::link_id(&carried).unwrap(), pending.link_id());
+        assert_eq!(
+            link::request_trailer(&carried).unwrap().map(|t| t.mtu),
+            Some(247)
+        );
+        let bridge = endpoint.shared.link_transport.lock().unwrap()[&pending.link_id()];
+        let allowance = bridge.proof_deadline.unwrap() - bridge.seen;
+        assert_eq!(
+            allowance,
+            Duration::from_millis(crate::node::link_request_timeout(0))
+        );
+    }
+
+    /// Nothing crosses a carried link before its destination proves it: early data, a proof
+    /// signed by another identity, and the real proof heard from the initiator's side are all
+    /// dropped. The real proof from the destination's side validates the bridge.
+    #[tokio::test]
+    async fn a_carried_link_waits_for_its_destinations_proof() {
+        let (endpoint, a, b, responder, pending, request) = transit_fixture();
+        let link_id = pending.link_id();
+        route(&endpoint.shared, a.id(), request);
+        let carried = b.outbound.queues.pop().unwrap();
+        b.outbound.queues.delivery_complete();
+
+        route(&endpoint.shared, a.id(), link_data(link_id));
+        let trailer = link::request_trailer(&carried).unwrap().unwrap();
+        let impostor = PrivateIdentity::from_secret_bytes(&[0x97; 64]);
+        let (_, forged) = link::accept(&carried, &impostor, &[0x98; 64], trailer).unwrap();
+        route(&endpoint.shared, b.id(), forged);
+        let (_, proof) = link::accept(&carried, &responder, &[0x99; 64], trailer).unwrap();
+        route(&endpoint.shared, a.id(), proof.clone());
+        assert!(a.outbound.queues.pop().is_none());
+        assert!(b.outbound.queues.pop().is_none());
+        assert_eq!(endpoint.routing_counters().policy_rejected, 3);
+
+        route(&endpoint.shared, b.id(), proof);
+        let proved = a.outbound.queues.pop().expect("the proof is carried back");
+        a.outbound.queues.delivery_complete();
+        let link = pending.prove(&proved).expect("the initiator accepts it");
+        assert_eq!(link.mtu(), 247);
+
+        route(&endpoint.shared, a.id(), link_data(link_id));
+        assert!(
+            b.outbound.queues.pop().is_some(),
+            "validated links carry data"
+        );
+    }
+
+    /// At capacity a request displaces the stalest unproved link; with every slot validated,
+    /// it is refused and not carried.
+    #[tokio::test]
+    async fn a_full_transit_table_never_evicts_a_validated_link() {
+        let (endpoint, a, b, _, pending, request) = transit_fixture();
+        let now = Instant::now();
+        let validated = |byte| {
+            (
+                AddressHash::from_bytes([byte; 16]),
+                LinkBridge {
+                    from: a.id(),
+                    out: b.id(),
+                    destination: AddressHash::from_bytes([0; 16]),
+                    seen: now,
+                    proof_deadline: None,
+                },
+            )
+        };
+        endpoint
+            .shared
+            .link_transport
+            .lock()
+            .unwrap()
+            .extend((1..=LINK_TRANSPORT_CAPACITY as u8).map(validated));
+
+        route(&endpoint.shared, a.id(), request.clone());
+        assert!(b.outbound.queues.pop().is_none());
+        assert_eq!(endpoint.routing_counters().policy_rejected, 1);
+        assert!(
+            !endpoint
+                .shared
+                .link_transport
+                .lock()
+                .unwrap()
+                .contains_key(&pending.link_id())
+        );
+
+        let unproved = AddressHash::from_bytes([1; 16]);
+        endpoint
+            .shared
+            .link_transport
+            .lock()
+            .unwrap()
+            .get_mut(&unproved)
+            .unwrap()
+            .proof_deadline = Some(now + LINK_TRANSPORT_TTL);
+        route(&endpoint.shared, a.id(), request);
+        assert!(b.outbound.queues.pop().is_some());
+        let bridges = endpoint.shared.link_transport.lock().unwrap();
+        assert_eq!(bridges.len(), LINK_TRANSPORT_CAPACITY);
+        assert!(bridges.contains_key(&pending.link_id()));
+        assert!(!bridges.contains_key(&unproved));
+    }
+
+    /// A destination answers with no more than the interface that heard the request carries.
+    #[tokio::test]
+    async fn a_responder_clamps_the_link_to_its_receiving_interface() {
+        let identity = PrivateIdentity::from_secret_bytes(&[0x9A; 64]);
+        let endpoint = Endpoint::new(identity.clone());
+        let name = DestinationName::new("retinue", ["clamped"]);
+        endpoint.register(name.clone(), b"");
+        let narrow = endpoint.attach_interface_with_frame_limit(300).unwrap();
+        let (pending, request) = link::PendingLink::open(
+            name.destination_hash(identity.public()),
+            *identity.public(),
+            &[0x9B; 64],
+            LinkTrailer {
+                mode: LinkMode::Aes256Cbc,
+                mtu: 500,
+            },
+        );
+        route(&endpoint.shared, narrow.id(), request);
+        let proof = narrow.outbound.queues.pop().expect("the request is proved");
+        assert_eq!(pending.prove(&proof).unwrap().mtu(), 300);
     }
 
     fn freshness_announce(

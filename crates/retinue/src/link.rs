@@ -186,6 +186,56 @@ pub fn link_id(request: &Packet) -> Result<AddressHash> {
     Ok(AddressHash::of(&buf))
 }
 
+/// The mode/MTU trailer a link request signals, if it carries one. As in RNS, only a request
+/// of exactly keys plus trailer signals; a bare 64-byte request does not.
+pub fn request_trailer(request: &Packet) -> Result<Option<LinkTrailer>> {
+    match request.payload.get(LINK_KEYS_LEN..) {
+        Some(bytes) if bytes.len() == TRAILER_LEN => {
+            LinkTrailer::decode(bytes.try_into().expect("checked length")).map(Some)
+        }
+        _ => Ok(None),
+    }
+}
+
+/// Lower the MTU a link request signals to at most `limit`: what a transport hop can carry
+/// between its two interfaces, or what a destination's receiving interface can. The link id
+/// covers only the keys, so it is unchanged. A request without a trailer is left alone; an
+/// undecodable one is an error, and RNS drops such a request.
+pub fn clamp_request_mtu(request: &mut Packet, limit: u32) -> Result<()> {
+    if let Some(trailer) = request_trailer(request)?
+        && trailer.mtu > limit
+    {
+        let clamped = LinkTrailer {
+            mtu: limit,
+            ..trailer
+        };
+        request.payload[LINK_KEYS_LEN..].copy_from_slice(&clamped.encode());
+    }
+    Ok(())
+}
+
+/// Whether `proof` is a link-request proof that `destination` signed for the link it names.
+///
+/// A transport hop checks this before it carries the proof back and starts carrying the
+/// link's traffic, so a forged proof can neither validate a bridge nor reach the initiator.
+pub fn proof_is_signed_by(proof: &Packet, destination: &Identity) -> bool {
+    let payload = &proof.payload;
+    if proof.packet_type != PacketType::Proof
+        || proof.context != CTX_LRPROOF
+        || !matches!(payload.len(), n if n == LINK_PROOF_LEN || n == LINK_PROOF_LEN - TRAILER_LEN)
+    {
+        return false;
+    }
+    let (signature, rest) = payload.split_at(SIGNATURE_LEN);
+    let (peer_eph, trailer) = rest.split_at(KEY_LEN);
+    let mut signed = Vec::with_capacity(ADDRESS_HASH_LEN + 2 * KEY_LEN + TRAILER_LEN);
+    signed.extend_from_slice(proof.destination.as_slice());
+    signed.extend_from_slice(peer_eph);
+    signed.extend_from_slice(destination.ed25519_bytes());
+    signed.extend_from_slice(trailer);
+    destination.verify(&signed, signature.try_into().expect("split length"))
+}
+
 /// Build the flag/hops/dest/context prefix and payload of a link-layer packet.
 fn link_packet(context: u8, link_id: AddressHash, payload: Vec<u8>) -> Packet {
     Packet {
@@ -304,9 +354,15 @@ impl PendingLink {
         }
 
         // The proof's trailer is authoritative for the negotiated mode and MTU; fall back
-        // to what we requested if the peer sent none.
+        // to what we requested if the peer sent none. The path only ever lowers the MTU, so
+        // a proof echoing more than we asked for is held to our request.
         let agreed = if trailer_bytes.len() >= TRAILER_LEN {
-            LinkTrailer::decode(trailer_bytes[..TRAILER_LEN].try_into().expect("len"))?
+            let echoed =
+                LinkTrailer::decode(trailer_bytes[..TRAILER_LEN].try_into().expect("len"))?;
+            LinkTrailer {
+                mtu: echoed.mtu.min(self.requested.mtu),
+                ..echoed
+            }
         } else {
             self.requested
         };
@@ -1131,5 +1187,96 @@ mod tests {
             responder.read_identify(&bad).is_none(),
             "tampered identify rejected"
         );
+    }
+
+    /// A transport hop or destination lowers the signalled MTU without changing the link id,
+    /// and leaves a bare request or a smaller request alone.
+    #[test]
+    fn clamping_a_request_keeps_its_link_id() {
+        let dest_identity = PrivateIdentity::from_secret_bytes(&[0x11; 64]);
+        let peer = *dest_identity.public();
+        let dest_hash = DestinationName::new("retinue", ["test"]).destination_hash(&peer);
+        let asked = LinkTrailer {
+            mode: LinkMode::Aes256Cbc,
+            mtu: 8192,
+        };
+        let (pending, mut request) = PendingLink::open(dest_hash, peer, &[0x33; 64], asked);
+
+        clamp_request_mtu(&mut request, 500).unwrap();
+        assert_eq!(link_id(&request).unwrap(), pending.link_id());
+        assert_eq!(
+            request_trailer(&request).unwrap(),
+            Some(LinkTrailer { mtu: 500, ..asked })
+        );
+        clamp_request_mtu(&mut request, 1024).unwrap();
+        assert_eq!(request_trailer(&request).unwrap().unwrap().mtu, 500);
+
+        let mut bare = request.clone();
+        bare.payload.truncate(LINK_KEYS_LEN);
+        clamp_request_mtu(&mut bare, 255).unwrap();
+        assert_eq!(bare.payload.len(), LINK_KEYS_LEN);
+        assert_eq!(request_trailer(&bare).unwrap(), None);
+
+        let mut undecodable = request.clone();
+        undecodable.payload[LINK_KEYS_LEN] = 0xe0;
+        assert!(clamp_request_mtu(&mut undecodable, 255).is_err());
+    }
+
+    /// The initiator holds the link to the MTU it asked for, whatever the proof echoes.
+    #[test]
+    fn an_initiator_never_adopts_more_than_it_requested() {
+        let dest_identity = PrivateIdentity::from_secret_bytes(&[0x11; 64]);
+        let peer = *dest_identity.public();
+        let dest_hash = DestinationName::new("retinue", ["test"]).destination_hash(&peer);
+        let asked = LinkTrailer {
+            mode: LinkMode::Aes256Cbc,
+            mtu: 255,
+        };
+        let (pending, request) = PendingLink::open(dest_hash, peer, &[0x33; 64], asked);
+        let (_, proof) = accept(
+            &request,
+            &dest_identity,
+            &[0x99; 64],
+            LinkTrailer { mtu: 500, ..asked },
+        )
+        .unwrap();
+        assert_eq!(pending.prove(&proof).unwrap().mtu(), 255);
+
+        let (_, lower) = accept(
+            &request,
+            &dest_identity,
+            &[0x99; 64],
+            LinkTrailer { mtu: 247, ..asked },
+        )
+        .unwrap();
+        assert_eq!(pending.prove(&lower).unwrap().mtu(), 247);
+    }
+
+    /// A relay accepts only the destination's own signature over the proof, trailer included.
+    #[test]
+    fn a_transport_hop_checks_the_proof_signature() {
+        let dest_identity = PrivateIdentity::from_secret_bytes(&[0x11; 64]);
+        let impostor = PrivateIdentity::from_secret_bytes(&[0x12; 64]);
+        let peer = *dest_identity.public();
+        let dest_hash = DestinationName::new("retinue", ["test"]).destination_hash(&peer);
+        let trailer = LinkTrailer {
+            mode: LinkMode::Aes256Cbc,
+            mtu: 500,
+        };
+        let (_, request) = PendingLink::open(dest_hash, peer, &[0x33; 64], trailer);
+        let (_, proof) = accept(&request, &dest_identity, &[0x99; 64], trailer).unwrap();
+        assert!(proof_is_signed_by(&proof, &peer));
+        assert!(!proof_is_signed_by(&proof, impostor.public()));
+
+        let mut raised = proof.clone();
+        raised.payload[LINK_PROOF_LEN - 1] ^= 1;
+        assert!(!proof_is_signed_by(&raised, &peer), "the trailer is signed");
+
+        let (_, forged) = accept(&request, &impostor, &[0x99; 64], trailer).unwrap();
+        assert!(!proof_is_signed_by(&forged, &peer));
+
+        let mut data = proof;
+        data.context = 0;
+        assert!(!proof_is_signed_by(&data, &peer));
     }
 }

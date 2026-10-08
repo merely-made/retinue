@@ -425,8 +425,14 @@ pub struct TransportCounters {
     pub evicted_routes: u16,
     /// Carried-link entries removed after their idle timeout.
     pub expired_bridges: u16,
-    /// Carried-link entries evicted to admit a newer transport link.
+    /// Carried-link entries evicted to admit a newer transport link. Only a link still
+    /// awaiting its proof is evicted; a validated one never is.
     pub evicted_bridges: u16,
+    /// Link requests not carried because every bridge slot held a validated link.
+    pub refused_bridges: u16,
+    /// Packets dropped on a carried link that has not validated: link traffic ahead of the
+    /// proof, and proofs that arrived on the wrong side or failed the destination's signature.
+    pub unvalidated_link_packets: u16,
     /// Transit dropped at the configured hop ceiling.
     pub hop_limit_dropped: u16,
     /// Transit that named this node but had no fresh route onward.
@@ -592,9 +598,22 @@ struct Route {
 #[derive(Debug, Clone, Copy)]
 struct LinkBridge {
     link_id: AddressHash,
+    /// The destination the request named, whose identity signs the proof.
+    destination: AddressHash,
     from: InterfaceId,
     out: InterfaceId,
     seen: u64,
+    /// When an unproved link lapses; `None` once the destination's proof has passed.
+    proof_deadline: Option<u64>,
+}
+
+impl LinkBridge {
+    fn lapsed(&self, now: u64, ttl: u64) -> bool {
+        self.proof_deadline
+            .map_or(now.saturating_sub(self.seen) >= ttl, |deadline| {
+                now >= deadline
+            })
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1366,7 +1385,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         while let Some(index) = self
             .bridges
             .iter()
-            .position(|bridge| now.saturating_sub(bridge.seen) >= self.transport.bridge_ttl)
+            .position(|bridge| bridge.lapsed(now, self.transport.bridge_ttl))
         {
             self.bridges.swap_remove(index);
             self.transport_counters.expired_bridges =
@@ -1462,44 +1481,56 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             .is_ok()
     }
 
+    /// Record a link request this node is about to carry, unvalidated until `proof_deadline`.
+    /// At capacity the stalest unvalidated bridge makes room. A validated one is never
+    /// evicted for a request, so forged requests cannot displace carried links; with every
+    /// slot validated the request is refused. Returns whether it may be carried.
     fn remember_bridge(
         &mut self,
         link_id: AddressHash,
+        destination: AddressHash,
         from: InterfaceId,
         out: InterfaceId,
+        proof_deadline: u64,
         now: u64,
-    ) {
-        if let Some(bridge) = self
+    ) -> bool {
+        let bridge = LinkBridge {
+            link_id,
+            destination,
+            from,
+            out,
+            seen: now,
+            proof_deadline: Some(proof_deadline),
+        };
+        if let Some(existing) = self
             .bridges
             .iter_mut()
             .find(|bridge| bridge.link_id == link_id)
         {
-            *bridge = LinkBridge {
-                link_id,
-                from,
-                out,
-                seen: now,
-            };
-            return;
+            // A retransmitted request: an unproved bridge follows it, a validated one stands.
+            if existing.proof_deadline.is_some() {
+                *existing = bridge;
+            }
+            return true;
         }
-        if self.bridges.is_full()
-            && let Some(index) = self
+        if self.bridges.is_full() {
+            let Some(index) = self
                 .bridges
                 .iter()
                 .enumerate()
+                .filter(|(_, bridge)| bridge.proof_deadline.is_some())
                 .min_by_key(|(_, bridge)| bridge.seen)
                 .map(|(index, _)| index)
-        {
+            else {
+                self.transport_counters.refused_bridges =
+                    self.transport_counters.refused_bridges.saturating_add(1);
+                return false;
+            };
             self.bridges.swap_remove(index);
             self.transport_counters.evicted_bridges =
                 self.transport_counters.evicted_bridges.saturating_add(1);
         }
-        let _ = self.bridges.push(LinkBridge {
-            link_id,
-            from,
-            out,
-            seen: now,
-        });
+        self.bridges.push(bridge).is_ok()
     }
 
     /// Relay a packet already associated with a carried link. Link proofs and data name the
@@ -1522,7 +1553,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         else {
             return false;
         };
-        let bridge = &self.bridges[index];
+        let bridge = self.bridges[index];
         let out = if interface == bridge.from {
             bridge.out
         } else if interface == bridge.out {
@@ -1532,6 +1563,30 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             // relay de-duplication cache for a later packet from a real endpoint.
             return true;
         };
+        // Nothing crosses a bridge before the destination's proof, and the proof itself
+        // must come from the destination's side under its signature. With its identity
+        // unknown here, the side check stands alone.
+        if packet.packet_type == PacketType::Proof && packet.context == link::CTX_LRPROOF {
+            let signed = interface == bridge.out
+                && self
+                    .book
+                    .resolve(bridge.destination)
+                    .is_none_or(|peer| link::proof_is_signed_by(packet, &peer.identity));
+            if !signed {
+                self.transport_counters.unvalidated_link_packets = self
+                    .transport_counters
+                    .unvalidated_link_packets
+                    .saturating_add(1);
+                return true;
+            }
+            self.bridges[index].proof_deadline = None;
+        } else if bridge.proof_deadline.is_some() {
+            self.transport_counters.unvalidated_link_packets = self
+                .transport_counters
+                .unvalidated_link_packets
+                .saturating_add(1);
+            return true;
+        }
         if packet.hops >= self.transport.max_hops {
             self.transport_counters.hop_limit_dropped =
                 self.transport_counters.hop_limit_dropped.saturating_add(1);
@@ -1600,19 +1655,38 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             forwarded.header_type = HeaderType::Type2;
             forwarded.transport = Some(next_transport);
         }
+        // Every interface here carries `logical_mtu`, so it bounds the link on both sides.
+        if packet.packet_type == PacketType::LinkRequest
+            && link::clamp_request_mtu(&mut forwarded, self.logical_mtu).is_err()
+        {
+            self.refused_payloads = self.refused_payloads.saturating_add(1);
+            return true;
+        }
         if forwarded.encoded_len() > self.logical_mtu as usize {
             self.refused_payloads = self.refused_payloads.saturating_add(1);
             return true;
+        }
+        if packet.packet_type == PacketType::LinkRequest
+            && let Ok(link_id) = link::link_id(packet)
+        {
+            let proof_deadline = now
+                .saturating_add(link_request_timeout(route.hops))
+                .saturating_add(self.first_hop_airtime(route.interface));
+            if !self.remember_bridge(
+                link_id,
+                packet.destination,
+                interface,
+                route.interface,
+                proof_deadline,
+                now,
+            ) {
+                return true;
+            }
         }
         if actions.push(Action::Send {
             interface: route.interface,
             packet: forwarded,
         }) {
-            if packet.packet_type == PacketType::LinkRequest
-                && let Ok(link_id) = link::link_id(packet)
-            {
-                self.remember_bridge(link_id, interface, route.interface, now);
-            }
             self.transport_counters.forwarded_packets =
                 self.transport_counters.forwarded_packets.saturating_add(1);
         }
@@ -1827,9 +1901,10 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         // holds no RNG. It is bound to the link id and our identity, so it differs per
         // request and cannot be predicted without our private key.
         let seed = self.responder_seed(&id);
+        let requested = link::request_trailer(packet).ok().flatten();
         let offered = LinkTrailer {
             mode: LinkMode::Aes256Cbc,
-            mtu: self.logical_mtu,
+            mtu: requested.map_or(self.logical_mtu, |asked| asked.mtu.min(self.logical_mtu)),
         };
         if let Ok((link, proof)) = link::accept(packet, &self.identity, &seed, offered) {
             let link_id = link.id();
@@ -2316,7 +2391,14 @@ mod tests {
     #[test]
     fn logical_mtu_bridge_lifecycle_and_refused_request_leave_no_phantom_session() {
         let mut relay = node().with_transport_config(TransportConfig::transit());
-        relay.remember_bridge(AddressHash::from_bytes([9; 16]), 1, 2, 0);
+        relay.remember_bridge(
+            AddressHash::from_bytes([9; 16]),
+            AddressHash::from_bytes([8; 16]),
+            1,
+            2,
+            LINK_TRANSPORT_TIMEOUT,
+            0,
+        );
         assert!(relay.has_active_sessions());
         assert_eq!(
             relay.set_logical_mtu(247),
@@ -4262,7 +4344,8 @@ mod tests {
         )
         .with_transport_config(TransportConfig::transit());
         let link_id = AddressHash::from_bytes([0xA3; 16]);
-        relay.remember_bridge(link_id, 1, 2, 10);
+        relay.remember_bridge(link_id, AddressHash::from_bytes([0xA4; 16]), 1, 2, 20, 10);
+        relay.bridges[0].proof_deadline = None;
         let mut packet = Packet {
             packet_type: PacketType::Data,
             header_type: HeaderType::Type1,
@@ -4292,6 +4375,172 @@ mod tests {
                 .any(|action| matches!(action, Action::Send { interface: 1, .. }))
         );
         assert_eq!(relay.transport_counters().forwarded_packets, 2);
+    }
+
+    /// Where a set of actions sends its first packet, and what.
+    fn sent_on<const N: usize>(actions: &Actions<N>) -> Option<(InterfaceId, Packet)> {
+        actions.iter().find_map(|a| match a {
+            Action::Send { interface, packet } => Some((*interface, packet.clone())),
+            _ => None,
+        })
+    }
+
+    const SOURCE_SIDE: InterfaceId = 1;
+    const DESTINATION_SIDE: InterfaceId = 2;
+
+    /// A transit relay between `source` (on [`SOURCE_SIDE`]) and `destination` (on
+    /// [`DESTINATION_SIDE`]), the relayed announce learned by the source, and the source's
+    /// type-2 request already forwarded. Returns the relay and the forwarded request.
+    fn relayed_request(
+        relay_mtu: u32,
+        source: &mut Node<32, 8, 4>,
+        destination: &Node<32, 8, 4>,
+    ) -> (Node<32, 8, 4, 4>, Packet) {
+        let mut relay = Node::<32, 8, 4, 4>::new(
+            PrivateIdentity::from_secret_bytes(&[0x44; 64]),
+            DestinationName::new("retinue", ["relay"]).name_hash(),
+        )
+        .with_transport_config(TransportConfig::transit());
+        relay.set_logical_mtu(relay_mtu).unwrap();
+        let announce = destination.announce(&blob([0x77; RAND_HASH_LEN]), None);
+        let relayed = sent(&relay.ingest(DESTINATION_SIDE, &announce, 0)).unwrap();
+        source.ingest(IFACE, &relayed, 1);
+        let mut request = sent(
+            &source
+                .open_link(destination.destination(), IFACE, &[0x99; 64], 1)
+                .unwrap(),
+        )
+        .unwrap();
+        request.header_type = HeaderType::Type2;
+        request.transport = Some(relay.identity.hash());
+        let (out, forwarded) = sent_on(&relay.ingest(SOURCE_SIDE, &request, 2)).unwrap();
+        assert_eq!(out, DESTINATION_SIDE);
+        assert_eq!(link::link_id(&forwarded), link::link_id(&request));
+        (relay, forwarded)
+    }
+
+    /// A relay that carries 247 bytes lowers the signalled MTU of a 255-byte request, and
+    /// both ends then agree on 247 rather than on frames the relay would refuse.
+    #[test]
+    fn a_relay_clamps_the_link_mtu_to_what_it_carries() {
+        let (mut source, mut destination) = pair();
+        let (mut relay, forwarded) = relayed_request(247, &mut source, &destination);
+        assert_eq!(
+            link::request_trailer(&forwarded).unwrap().map(|t| t.mtu),
+            Some(247)
+        );
+
+        let proof = sent(&destination.ingest(IFACE, &forwarded, 3)).unwrap();
+        assert_eq!(destination.links[0].0.mtu(), 247);
+        let (back, proof) = sent_on(&relay.ingest(DESTINATION_SIDE, &proof, 4)).unwrap();
+        assert_eq!(back, SOURCE_SIDE);
+        assert!(link_up(&source.ingest(IFACE, &proof, 5)).is_some());
+        assert_eq!(source.links[0].0.mtu(), 247);
+    }
+
+    /// A destination offers the smaller of its own budget and the request's, so a 247-byte
+    /// initiator is not held to a 255-byte link it cannot carry.
+    #[test]
+    fn a_responder_offers_no_more_than_was_requested() {
+        let (mut a, mut b) = pair();
+        a.set_logical_mtu(247).unwrap();
+        a.ingest(IFACE, &b.announce(&blob([2; RAND_HASH_LEN]), None), 0);
+        let request = sent(&a.open_link(b.destination(), IFACE, &[0x31; 64], 0).unwrap()).unwrap();
+        let proof = sent(&b.ingest(IFACE, &request, 0)).unwrap();
+        assert_eq!(b.links[0].0.mtu(), 247);
+        link_up(&a.ingest(IFACE, &proof, 0)).unwrap();
+        assert_eq!(a.links[0].0.mtu(), 247);
+    }
+
+    /// A bridge carries nothing until the destination proves it: early link traffic, a proof
+    /// signed by someone else, and a genuine proof from the initiator's side are all dropped.
+    #[test]
+    fn a_bridge_carries_nothing_until_the_destination_proves_it() {
+        let (mut source, mut destination) = pair();
+        let (mut relay, forwarded) = relayed_request(LINK_MTU, &mut source, &destination);
+        let link_id = link::link_id(&forwarded).unwrap();
+        let early = Packet {
+            packet_type: PacketType::Data,
+            header_type: HeaderType::Type1,
+            transport: None,
+            destination: link_id,
+            payload: b"before the proof".to_vec(),
+            ..fixture("announce_appdata.bin")
+        };
+        assert!(relay.ingest(SOURCE_SIDE, &early, 3).is_empty());
+
+        let impostor = PrivateIdentity::from_secret_bytes(&[0x66; 64]);
+        let (_, forged) = link::accept(
+            &forwarded,
+            &impostor,
+            &[0x67; 64],
+            LinkTrailer {
+                mode: LinkMode::Aes256Cbc,
+                mtu: LINK_MTU,
+            },
+        )
+        .unwrap();
+        assert!(relay.ingest(DESTINATION_SIDE, &forged, 3).is_empty());
+
+        let proof = sent(&destination.ingest(IFACE, &forwarded, 3)).unwrap();
+        assert!(relay.ingest(SOURCE_SIDE, &proof, 4).is_empty());
+        assert_eq!(relay.transport_counters().unvalidated_link_packets, 3);
+        assert!(relay.bridges[0].proof_deadline.is_some());
+
+        let (back, proof) = sent_on(&relay.ingest(DESTINATION_SIDE, &proof, 5)).unwrap();
+        assert_eq!(back, SOURCE_SIDE);
+        assert!(relay.bridges[0].proof_deadline.is_none());
+        link_up(&source.ingest(IFACE, &proof, 6)).unwrap();
+        let data = sent(&source.send(link_id, IFACE, b"after", &[0xA1; 16]).unwrap()).unwrap();
+        let (out, _) = sent_on(&relay.ingest(SOURCE_SIDE, &data, 7)).unwrap();
+        assert_eq!(out, DESTINATION_SIDE);
+    }
+
+    /// An unproved bridge lapses at its proof deadline: the per-hop allowance for the route,
+    /// as a request's own deadline is composed. A late proof is not carried.
+    #[test]
+    fn an_unproved_bridge_lapses_at_its_proof_deadline() {
+        let (mut source, mut destination) = pair();
+        let (mut relay, forwarded) = relayed_request(LINK_MTU, &mut source, &destination);
+        let proof = sent(&destination.ingest(IFACE, &forwarded, 3)).unwrap();
+        let deadline = 2 + link_request_timeout(0);
+        assert_eq!(relay.bridges[0].proof_deadline, Some(deadline));
+        assert!(relay.ingest(DESTINATION_SIDE, &proof, deadline).is_empty());
+        assert!(relay.bridges.is_empty());
+        assert_eq!(relay.transport_counters().expired_bridges, 1);
+    }
+
+    /// At capacity a new request displaces the stalest unproved bridge, never a validated
+    /// one; with every slot validated it is refused and not carried.
+    #[test]
+    fn forged_requests_cannot_displace_a_validated_bridge() {
+        let mut relay = Node::<8, 8, 4, 2>::new(
+            PrivateIdentity::from_secret_bytes(&[0x45; 64]),
+            DestinationName::new("retinue", ["relay"]).name_hash(),
+        )
+        .with_transport_config(TransportConfig::transit());
+        let id = |byte| AddressHash::from_bytes([byte; 16]);
+        assert!(relay.remember_bridge(id(1), id(0), 1, 2, 100, 0));
+        relay.bridges[0].proof_deadline = None;
+        assert!(relay.remember_bridge(id(2), id(0), 1, 2, 100, 1));
+        assert!(relay.remember_bridge(id(3), id(0), 1, 2, 100, 2));
+        assert_eq!(relay.transport_counters().evicted_bridges, 1);
+        assert!(relay.bridges.iter().any(|b| b.link_id == id(1)));
+        assert!(!relay.bridges.iter().any(|b| b.link_id == id(2)));
+
+        // A replayed request leaves a validated bridge as it was.
+        assert!(relay.remember_bridge(id(1), id(0), 3, 3, 100, 3));
+        let validated = relay.bridges.iter().find(|b| b.link_id == id(1)).unwrap();
+        assert_eq!((validated.from, validated.out, validated.seen), (1, 2, 0));
+        assert!(validated.proof_deadline.is_none());
+
+        relay
+            .bridges
+            .iter_mut()
+            .for_each(|b| b.proof_deadline = None);
+        assert!(!relay.remember_bridge(id(4), id(0), 1, 2, 100, 4));
+        assert_eq!(relay.transport_counters().refused_bridges, 1);
+        assert_eq!(relay.bridges.len(), 2);
     }
 
     /// This is the desk half of the T114 flood: enough distinct signed announces to turn the
