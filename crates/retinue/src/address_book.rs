@@ -37,6 +37,10 @@ pub struct Peer {
     /// How many announces for this destination have been ingested. A cheap freshness and
     /// liveness signal without a clock, which this layer deliberately does not have.
     pub announces_seen: u64,
+    /// The caller's tick when an announce for this destination was last ingested by
+    /// [`AddressBook::ingest_at`]. Zero for an entry that only [`AddressBook::ingest`] has
+    /// touched. It orders eviction; the book never reads a clock itself.
+    pub last_heard: u64,
 }
 
 /// The most destinations a book holds unless told otherwise.
@@ -53,8 +57,9 @@ pub enum Ingested {
     Learned,
     /// A known destination's entry was refreshed.
     Refreshed,
-    /// The book is at capacity and this destination is not in it. The book keeps serving
-    /// every destination it already knows; the shell makes room with [`AddressBook::forget`].
+    /// The book is at capacity, this destination is not in it, and nothing could be evicted
+    /// for it. The book keeps serving every destination it already knows; the shell makes
+    /// room with [`AddressBook::forget`].
     Refused,
 }
 
@@ -63,6 +68,7 @@ pub struct AddressBook {
     peers: BTreeMap<AddressHash, Peer>,
     max_peers: usize,
     refused: u64,
+    evicted: u64,
 }
 
 impl Default for AddressBook {
@@ -82,6 +88,7 @@ impl AddressBook {
             peers: BTreeMap::new(),
             max_peers,
             refused: 0,
+            evicted: 0,
         }
     }
 
@@ -89,6 +96,11 @@ impl AddressBook {
     /// is not keeping up with what the mesh is announcing.
     pub fn refused(&self) -> u64 {
         self.refused
+    }
+
+    /// Peers displaced by [`AddressBook::ingest_at`] to make room for a new destination.
+    pub fn evicted(&self) -> u64 {
+        self.evicted
     }
 
     /// Whether the book can learn a destination it does not already know.
@@ -100,19 +112,68 @@ impl AddressBook {
     /// (app data, ratchet) and bumps the count. Because [`Announce`] only exists once its
     /// signature has verified, ingesting one cannot poison the book with a forged identity.
     /// A full book still refreshes destinations it already knows, and refuses only new ones,
-    /// so a flood of unknown destinations cannot displace established peers.
+    /// so a flood of unknown destinations cannot displace established peers. It never
+    /// evicts; [`AddressBook::ingest_at`] is the form that does.
     pub fn ingest(&mut self, announce: &Announce) -> Ingested {
+        self.admit(announce, None, |_| true)
+    }
+
+    /// Record an announce heard at `now`, a tick in whatever unit the caller keeps, making
+    /// room in a full book by evicting one peer if it has to.
+    ///
+    /// The eviction rule: when the book is full and `announce` names a destination it does
+    /// not hold, the peer with the oldest `last_heard` for which `protected` returns `false`
+    /// is forgotten and the new destination takes its place (ties go to the lowest
+    /// destination hash, so the choice is deterministic). The caller's predicate says which
+    /// peers are still in use, such as those with a live route, link, or outstanding request.
+    /// Only when every held peer is protected is the announce [`Ingested::Refused`]. A
+    /// refreshed peer's `last_heard` never moves backwards.
+    ///
+    /// This is the book's half of RNS's age-based culling of known destinations: a peer that
+    /// stopped announcing and that nothing uses any more yields its slot to one that is live.
+    pub fn ingest_at(
+        &mut self,
+        announce: &Announce,
+        now: u64,
+        protected: impl Fn(AddressHash) -> bool,
+    ) -> Ingested {
+        self.admit(announce, Some(now), protected)
+    }
+
+    fn admit(
+        &mut self,
+        announce: &Announce,
+        now: Option<u64>,
+        protected: impl Fn(AddressHash) -> bool,
+    ) -> Ingested {
         if let Some(p) = self.peers.get_mut(&announce.destination) {
             p.identity = announce.identity;
             p.name_hash = announce.name_hash;
             p.app_data = announce.app_data.clone();
             p.ratchet = announce.ratchet;
             p.announces_seen += 1;
+            if let Some(now) = now {
+                p.last_heard = p.last_heard.max(now);
+            }
             return Ingested::Refreshed;
         }
         if self.is_full() {
-            self.refused = self.refused.saturating_add(1);
-            return Ingested::Refused;
+            let stalest = self
+                .peers
+                .iter()
+                .filter(|(destination, _)| !protected(**destination))
+                .min_by_key(|(_, peer)| peer.last_heard)
+                .map(|(destination, _)| *destination);
+            match stalest {
+                Some(destination) if self.max_peers > 0 => {
+                    self.peers.remove(&destination);
+                    self.evicted = self.evicted.saturating_add(1);
+                }
+                _ => {
+                    self.refused = self.refused.saturating_add(1);
+                    return Ingested::Refused;
+                }
+            }
         }
         self.peers.insert(
             announce.destination,
@@ -122,6 +183,7 @@ impl AddressBook {
                 app_data: announce.app_data.clone(),
                 ratchet: announce.ratchet,
                 announces_seen: 1,
+                last_heard: now.unwrap_or(0),
             },
         );
         Ingested::Learned
@@ -192,6 +254,54 @@ mod tests {
         assert_eq!(book.len(), 1);
         assert!(book.knows(a.destination), "the established peer survives");
         assert!(!book.knows(other.destination));
+    }
+
+    fn announce_for(byte: u8) -> Announce {
+        let mut a = announce("announce_appdata.bin");
+        a.destination = AddressHash::from_bytes([byte; 16]);
+        a
+    }
+
+    /// A full book makes room by forgetting the least recently heard peer the caller does not
+    /// protect, and refuses only when every peer it holds is protected.
+    #[test]
+    fn a_full_book_evicts_the_least_recently_heard_unprotected_peer() {
+        let (a, b, c) = (announce_for(1), announce_for(2), announce_for(3));
+        let mut book = AddressBook::with_max_peers(2);
+        assert_eq!(book.ingest_at(&a, 10, |_| false), Ingested::Learned);
+        assert_eq!(book.ingest_at(&b, 20, |_| false), Ingested::Learned);
+        // Hearing `a` again makes `b` the stalest.
+        assert_eq!(book.ingest_at(&a, 30, |_| false), Ingested::Refreshed);
+        assert_eq!(book.resolve(a.destination).unwrap().last_heard, 30);
+
+        // Every peer protected: nothing can go, so the newcomer is refused.
+        assert_eq!(book.ingest_at(&c, 40, |_| true), Ingested::Refused);
+        assert_eq!(book.refused(), 1);
+        assert_eq!(book.evicted(), 0);
+
+        // `b` is the stalest, but protected; `a` goes instead.
+        let protect_b = |d: AddressHash| d == b.destination;
+        assert_eq!(book.ingest_at(&c, 50, protect_b), Ingested::Learned);
+        assert!(!book.knows(a.destination));
+        assert!(book.knows(b.destination));
+        assert_eq!(book.resolve(c.destination).unwrap().last_heard, 50);
+        assert_eq!(book.evicted(), 1);
+
+        // Unprotected, the stalest (`b`, heard at 20) goes.
+        assert_eq!(book.ingest_at(&a, 60, |_| false), Ingested::Learned);
+        assert!(!book.knows(b.destination));
+        assert!(book.knows(c.destination));
+        assert_eq!(book.len(), 2);
+    }
+
+    #[test]
+    fn a_zero_capacity_book_refuses_even_with_eviction() {
+        let mut book = AddressBook::with_max_peers(0);
+        assert_eq!(
+            book.ingest_at(&announce_for(1), 1, |_| false),
+            Ingested::Refused
+        );
+        assert!(book.is_empty());
     }
 
     #[test]

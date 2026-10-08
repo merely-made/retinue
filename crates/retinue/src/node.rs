@@ -1212,8 +1212,9 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         self.expired_link_requests
     }
 
-    /// Announces turned away by a full address book. See [`Node::refused_links`] for the
-    /// posture: refusals are visible, never silent.
+    /// Announces whose identity a full address book could not take, because every peer in it
+    /// had a live route. The route is still learned and the announce still relayed. See
+    /// [`Node::refused_links`] for the posture: refusals are visible, never silent.
     pub fn refused_peers(&self) -> u16 {
         self.refused_peers
     }
@@ -1644,7 +1645,12 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         now: u64,
         actions: &mut Actions<ACTIONS>,
     ) {
-        if !self.transport.relay_announces || destination == self.destination() {
+        // A path response answers one requester. RNS learns from it but never queues it for
+        // rebroadcast, so one path request cannot flood the mesh.
+        if !self.transport.relay_announces
+            || destination == self.destination()
+            || packet.context == crate::path::CTX_PATH_RESPONSE
+        {
             return;
         }
         if packet.hops >= self.transport.max_hops {
@@ -1749,12 +1755,21 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                         return actions;
                     }
 
-                    // Address-book capacity is part of admission. If it refuses, no announce
-                    // effect happened and the freshness candidate must remain unrecorded so a
-                    // later capacity opening can still admit it.
-                    if self.book.ingest(&announce) == Ingested::Refused {
+                    // The book makes room by evicting the least recently heard peer with no
+                    // live route. Links and pending requests carry their own copy of the
+                    // peer's keys, so they do not need the entry. A refusal (every peer
+                    // routed) only keeps the identity out of the book: route learning and
+                    // relaying follow the route table, as RNS relays from its path table.
+                    let route_ttl = self.transport.route_ttl;
+                    let routes = &self.routes;
+                    let admitted = self.book.ingest_at(&announce, now, |destination| {
+                        routes.iter().any(|route| {
+                            route.destination == destination
+                                && now.saturating_sub(route.learned) < route_ttl
+                        })
+                    }) != Ingested::Refused;
+                    if !admitted {
                         self.refused_peers = self.refused_peers.saturating_add(1);
-                        return actions;
                     }
 
                     let record = self.freshness.record_accepted(candidate, now);
@@ -1787,9 +1802,11 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                         packet.transport,
                         now,
                     );
-                    actions.push(Action::Learned {
-                        destination: announce.destination,
-                    });
+                    if admitted {
+                        actions.push(Action::Learned {
+                            destination: announce.destination,
+                        });
+                    }
                     self.relay_announce(interface, packet, announce.destination, now, &mut actions);
                 }
             }
@@ -2667,8 +2684,11 @@ mod tests {
         assert_eq!(relay.transport_counters().stale_announces, 2);
     }
 
+    /// A book full of routed peers refuses the identity, but the announce is still a route
+    /// and still relayed, as RNS relays from its path table rather than its known
+    /// destinations. Because the route changed, the freshness candidate is committed.
     #[test]
-    fn address_book_refusal_does_not_commit_freshness() {
+    fn address_book_refusal_still_learns_and_relays_the_route() {
         let mut n = Node::<1, 8, 4, 4>::new(
             PrivateIdentity::from_secret_bytes(&[0x85; 64]),
             DestinationName::new("retinue", ["node"]).name_hash(),
@@ -2693,14 +2713,118 @@ mod tests {
             blob: crate::announce::AnnounceBlob::from_wire([2; RAND_HASH_LEN]),
             hops: packet.hops,
         };
-        assert!(n.ingest(IFACE, &packet, 1).is_empty());
+        let actions = n.ingest(IFACE, &packet, 1);
         assert_eq!(n.refused_peers(), 1);
+        assert!(!actions.iter().any(|a| matches!(a, Action::Learned { .. })));
+        assert!(
+            actions
+                .iter()
+                .any(|a| matches!(a, Action::Send { packet, .. }
+                if packet.packet_type == PacketType::Announce
+                    && packet.destination == second_peer.destination())),
+            "the refused identity's announce is still relayed"
+        );
+        assert!(!n.peers().knows(second_peer.destination()));
+        assert!(n.peers().knows(first_peer.destination()));
+        assert_eq!(n.route_count(), 2);
+        assert_eq!(n.route_to(second_peer.destination(), 1), Some((IFACE, 0)));
         assert!(matches!(
             n.freshness.evaluate(candidate, 1, DEFAULT_ROUTE_TTL),
-            AnnounceFreshnessDecision::Accept(_)
+            AnnounceFreshnessDecision::Reject(AnnounceFreshnessReject::Replay)
         ));
-        assert!(!n.peers().knows(second_peer.destination()));
-        assert_eq!(n.route_count(), 1);
+    }
+
+    /// A small book does not stop a node learning new destinations forever. Once the
+    /// routes of the peers it holds expire, the least recently heard of them yields its slot.
+    #[test]
+    fn a_full_book_evicts_a_peer_whose_route_expired() {
+        let mut n = Node::<2, 8, 4, 4>::new(
+            PrivateIdentity::from_secret_bytes(&[0x9A; 64]),
+            DestinationName::new("retinue", ["node"]).name_hash(),
+        )
+        .with_transport_config(TransportConfig {
+            route_ttl: 10,
+            ..TransportConfig::transit()
+        });
+        let peers: [Node<8, 8, 4, 4>; 4] = core::array::from_fn(|i| {
+            Node::new(
+                PrivateIdentity::from_secret_bytes(&[0xA0 + i as u8; 64]),
+                DestinationName::new("retinue", ["peer"]).name_hash(),
+            )
+        });
+        let relayed = |actions: &Actions<8>, destination: AddressHash| {
+            actions.iter().any(|a| {
+                matches!(a, Action::Send { packet, .. }
+                if packet.packet_type == PacketType::Announce
+                    && packet.destination == destination)
+            })
+        };
+        let learned = |actions: &Actions<8>, destination: AddressHash| {
+            actions
+                .iter()
+                .any(|a| *a == Action::Learned { destination })
+        };
+
+        for (i, peer) in peers[..3].iter().enumerate() {
+            let at = i as u64;
+            let actions = n.ingest(
+                IFACE,
+                &peer.announce(&blob([i as u8; RAND_HASH_LEN]), None),
+                at,
+            );
+            assert!(relayed(&actions, peer.destination()));
+            assert_eq!(learned(&actions, peer.destination()), i < 2);
+        }
+        assert_eq!(
+            n.refused_peers(),
+            1,
+            "both held peers still had live routes"
+        );
+
+        // Past every route's TTL, nothing protects the held peers.
+        let later = 20;
+        let fourth = peers[3].destination();
+        let actions = n.ingest(
+            IFACE,
+            &peers[3].announce(&blob([3; RAND_HASH_LEN]), None),
+            later,
+        );
+        assert!(learned(&actions, fourth), "admitted by eviction");
+        assert!(relayed(&actions, fourth));
+        assert!(n.peers().knows(fourth));
+        assert!(
+            !n.peers().knows(peers[0].destination()),
+            "the least recently heard peer went"
+        );
+        assert!(n.peers().knows(peers[1].destination()));
+        assert_eq!(n.peers().len(), 2);
+    }
+
+    /// RNS learns from a path response but never rebroadcasts it: it answers one requester.
+    #[test]
+    fn a_path_response_is_learned_but_not_relayed() {
+        let mut relay = Node::<8, 8, 4, 4>::new(
+            PrivateIdentity::from_secret_bytes(&[0x9B; 64]),
+            DestinationName::new("retinue", ["relay"]).name_hash(),
+        )
+        .with_transport_config(TransportConfig::transit());
+        let peer = Node::<8, 8, 4, 4>::new(
+            PrivateIdentity::from_secret_bytes(&[0x9C; 64]),
+            DestinationName::new("retinue", ["peer"]).name_hash(),
+        );
+        let mut response = peer.announce(&blob([5; RAND_HASH_LEN]), None);
+        response.context = crate::path::CTX_PATH_RESPONSE;
+        response.hops = 2;
+        let actions = relay.ingest(IFACE, &response, 0);
+        assert_eq!(
+            actions.iter().collect::<Vec<_>>(),
+            [&Action::Learned {
+                destination: peer.destination()
+            }]
+        );
+        assert!(relay.peers().knows(peer.destination()));
+        assert_eq!(relay.route_to(peer.destination(), 0), Some((IFACE, 2)));
+        assert_eq!(relay.transport_counters().forwarded_announces, 0);
     }
 
     #[test]
