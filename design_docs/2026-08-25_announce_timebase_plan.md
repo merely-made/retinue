@@ -483,6 +483,9 @@ corrections may land from committed bytes; receive-policy corrections wait for P
    The source survey reports ACCESS_POINT 24 h, ROAMING 6 h, else 7 days. Do not map that
    onto Retinue by assertion: Retinue host and board routes currently default to 30 minutes,
    and the remote stock interface mode is a separately observed/configured fact.
+   *Superseded 2026-10-08:* retinue routes now default to one week, with 24 h
+   access-point and 6 h roaming caps per interface mode, and are refreshed on use. See the
+   [RNS 1.5.7 comparative review](2026-10-07_rns_157_comparative_review.md).
 6. **Add `PATHFINDER_M = 128` with its asymmetry:** admit at `hops <= 128`, retransmit only
    at `hops < 128`. Invisible from the manual.
 7. **Clarify path-response ownership.** A transport answering for a cached foreign
