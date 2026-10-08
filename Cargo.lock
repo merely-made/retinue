@@ -2138,6 +2138,7 @@ name = "retinue-sim"
 version = "0.0.1"
 dependencies = [
  "radio-face",
+ "radio-mirror",
  "retinue",
  "serde",
  "serde_json",

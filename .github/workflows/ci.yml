@@ -28,6 +28,12 @@ jobs:
       - name: Test (default features)
         run: cargo test
 
+      # retinue-sim's face mapping and face track sit behind its `face` feature, which the
+      # default run leaves off. Their tests check every face-track entry against
+      # radio-mirror's own JSON readers.
+      - name: Test (retinue-sim face track)
+        run: cargo test -p retinue-sim --features face
+
       # The sans-io core (codec, framing, links, resources, channel/buffer, proofs)
       # must stand alone without the tokio runtime. Examples and endpoint tests are
       # gated by required-features, so this builds and tests only that core.
