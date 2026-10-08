@@ -1,5 +1,14 @@
 # retinue-sim: the route-trace harness
 
+**Status (2026-10-07):** landed. S7a and S7b merged to `main` in `fa4f925`
+(2026-10-02), with the 0.2.0 link-lifecycle batch. mer3ly's site-canvas
+Rulings 27-30 ruled forks 1-5 and 9, and Rulings 55, 56 and 76 changed the
+trace and the lab after them. Forks 6-8 stand as built, with no ruling
+recorded (see the 2026-10-07 disposition under Forks). S7c, the face track,
+is built on branch `radio-consumers` and fast-forwarded to `main` on 2026-10-07.
+
+What follows is the status as of 2026-10-01, kept as written.
+
 **Status (2026-10-01):** in progress on a worktree lane; not merged. Provisional
 choices await rulings (Forks, below).
 
@@ -46,6 +55,26 @@ Done when, over the lab topology held in an example:
    after the cut, then delivers through church after the next announce;
 4. `cargo test` and `cargo clippy` are clean on both crates;
 5. the schema id is neutral and documented in the crate rustdoc.
+
+**S7c: the face track (2026-10-07; site Rulings 1 and 127).** The mapping from a
+trace's `NodeState` to radio-face's `LocalStatus` and `HostSnapshot` existed only in a
+test, so a consumer drawing a node's face would have re-derived it, which Ruling 1
+rules out. Ruling 127 has the site commit traces generated outside its build, at a
+pinned retinue revision.
+- `retinue_sim::face::face`, behind a `face` feature that enables an optional
+  radio-face dependency, ships the mapping, and the test uses it.
+- `face::FaceTrack` derives a separate file, `retinue-sim.face-track/v1`: for each
+  event carrying a node state, that node's face as radio-mirror's local and host JSON
+  documents, plus the SHA-256 of the route trace it came from.
+- The lab example prints it with `--faces`.
+
+Done when:
+1. `retinue-sim.route-trace/v1` output is byte-identical to before;
+2. face tracks are byte-identical across runs and round-trip;
+3. every entry's documents are read by radio-mirror's own JSON readers back to the
+   mapped face;
+4. radio-mirror's dependency set is unchanged (it links nothing of retinue);
+5. fmt, clippy (CI's flags) and the workspace tests are clean.
 
 ## Findings
 
@@ -98,6 +127,29 @@ its TX/RX counts climb.
 
 **Sizes.** Cold: 95 events, 82,060 bytes. Warm: 204 events, 183,105 bytes (pretty JSON).
 
+**Compact sizes and face tracks (2026-10-07, branch `radio-consumers` on `3dd84b1`).**
+The lab example prints each file with a trailing newline. Sizes are of those files;
+gzip is `gzip -9`.
+
+| File | Events or entries | Raw bytes | gzip |
+| --- | --- | --- | --- |
+| cold route trace | 79 events | 33,724 | 2,639 |
+| cold face track | 76 entries | 27,015 | 1,133 |
+| warm route trace | 171 events | 74,641 | 4,801 |
+| warm face track | 163 entries | 59,312 | 1,995 |
+
+Both route traces are byte-identical to `3dd84b1`'s lab output. A face track's
+`trace_sha256` is the digest of its route trace's canonical JSON, without the trailing
+newline.
+
+**What the face carries (2026-10-07).** The trace has no board, firmware, power,
+profile or uptime, no RSSI or SNR, and no peer names or ages. So the face fills
+counters, last TX and RX lengths, link counts, the Retinue personality and the face
+line, and leaves the rest at radio-face's defaults. The Retinue channel node also
+publishes a named `NodeSummary`, up to three peers and `IfacState::Off`
+(`radio-hand/src/channel/face.rs`); the face track does not. The face line is still
+the harness's own copy of the channel node's notes (fork 7).
+
 ## Forks
 
 Provisional choices, built so the lane could verify end to end. Each is open.
@@ -129,8 +181,36 @@ Provisional choices, built so the lane could verify end to end. Each is open.
 9. **The echo and self-learning findings** are protocol behaviour outside S7, for
    retinue's owner to rule.
 
+**Disposition (2026-10-07).** The list above is kept as written. Rulings are mer3ly's
+site-canvas plan's.
+1. Ruling 29: `next_hop` kept as built.
+2. Ruling 29: `open_link` takes `now` and checks the route's TTL, a breaking change
+   that moved retinue to 0.2.0 (`457911b`).
+3. Ruling 27: every node learns routes, and only transit nodes forward.
+4. Ruling 30: compact JSON (`e01196b`).
+5. Ruling 30: the acting node's state. Ruling 55 added `link_request_expired` to v1
+   (`4dbd553`), and Ruling 76 records the state at expiry (`83bda43`).
+6. No ruling recorded. One link per send stands as built.
+7. No ruling recorded on a shared `Action`-to-face-event function; the harness still
+   repeats the channel node's notes. Separately, the `NodeState`-to-face mapping now
+   ships in the crate (S7c), so a consumer does not repeat that.
+8. No ruling recorded. `run` (T114 bounds) and `run_with` stand as built.
+9. Ruling 28: all three fixes (link-request expiry, own-echo filtering, no
+   self-learning), landed in the 0.2.0 batch; see the
+   [link lifecycle plan](2026-10-02_node_link_lifecycle_plan.md).
+
+Ruling 56 also made fire and garage leaves in the lab topology (`58a126e`).
+
 ## Progress
 
 - 2026-10-01: plan written; S7a and S7b opened on the lane branch.
 - 2026-10-01: S7a and S7b built. Lab traces meet done-conditions 1-3 and 5; tests and
   clippy are clean on both crates. Forks above are open.
+- 2026-10-02: merged to `main` in `fa4f925` with the link-lifecycle batch, carrying
+  Rulings 27-30, 55, 56 and 76.
+- 2026-10-07: S7c built on branch `radio-consumers` (`688744b`, `96712e8`): the `face`
+  feature, `face::face`, `FaceTrack`, and the lab example's `--faces`. retinue-sim
+  passes 7/0 by default and 11/0 with `face`. The new tests cover face-track
+  determinism and round-trip, acceptance by radio-mirror's readers, and the TRAFFIC
+  page drawn through the mirror. CI gains a `cargo test -p retinue-sim --features
+  face` step. Done-conditions 1-5 met.

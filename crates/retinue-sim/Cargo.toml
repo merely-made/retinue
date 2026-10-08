@@ -7,12 +7,22 @@ license = "MPL-2.0"
 publish = false
 description = "Runs Retinue nodes in process over a shared-radio topology and emits a deterministic route trace."
 
+[features]
+# The `face` module: each node state as radio-face's LocalStatus and HostSnapshot, and the
+# face track (`retinue-sim.face-track/v1`) that carries them in radio-mirror's input shape.
+face = ["dep:radio-face"]
+
 [dependencies]
 retinue = { path = "../retinue", default-features = false, features = ["alloc"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.151"
+radio-face = { path = "../radio-face", optional = true }
 
 [dev-dependencies]
-# Proves the per-node state fills radio-face's TRAFFIC page and ticker, without the
-# crate itself depending on the face.
-radio-face = { path = "../radio-face" }
+# The face track's documents are checked against radio-mirror's own JSON readers. The
+# dependency runs this way only: radio-mirror links nothing of retinue.
+radio-mirror = { path = "../radio-mirror" }
+
+[[test]]
+name = "face"
+required-features = ["face"]

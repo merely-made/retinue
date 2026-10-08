@@ -68,7 +68,16 @@
 //!
 //! A change that would break a reader of v1 takes a new schema id. `link_request_expired`
 //! joined v1 on 2026-10-02 (Ruling 55), before any consumer of the schema existed.
+//!
+//! # Faces
+//!
+//! With the `face` feature, `face::face` maps a [`NodeState`] onto radio-face's
+//! `LocalStatus` and `HostSnapshot`, and `face::FaceTrack` derives a separate file from a
+//! trace, schema `retinue-sim.face-track/v1`: each state-carrying event's face as the JSON
+//! documents radio-mirror reads. The route trace is unchanged by it.
 
+#[cfg(feature = "face")]
+pub mod face;
 pub mod scenario;
 pub mod sim;
 pub mod trace;

@@ -205,6 +205,9 @@ pub enum Effect {
 /// `event` -> `HostSnapshot.event`, with `EventSource::Local`.
 /// `HostSnapshot.queue_depth` is the channel's unsent count, which the medium never
 /// produces, so it is zero.
+///
+/// The mapping ships as `face::face`, behind the `face` feature, so a consumer does not
+/// re-derive it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NodeState {
     pub tx_frames: u32,

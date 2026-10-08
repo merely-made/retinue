@@ -1,11 +1,12 @@
-//! The lab topology's two traces: determinism, the routes they take, and the face mapping.
+//! The lab topology's two traces: determinism and the routes they take. The face mapping
+//! is tested in `face.rs`, under the `face` feature.
 
 #[path = "../examples/lab/scenarios.rs"]
 mod scenarios;
 
 use retinue::node::{DEFAULT_ROUTE_TTL, link_request_timeout};
 use retinue_sim::trace::{Event, FaceEventKind, Origin, PacketKind, Refusal};
-use retinue_sim::{NodeState, SCHEMA, Send, Trace, run};
+use retinue_sim::{SCHEMA, Send, Trace, run};
 
 fn path(names: &[&str]) -> Vec<String> {
     names.iter().map(|name| (*name).to_owned()).collect()
@@ -207,60 +208,6 @@ fn warm_cut_loses_sends_until_the_next_announce_then_reroutes() {
     for message in lost {
         assert!(message.sent_at > cut_at && message.sent_at <= *via_church_at);
     }
-}
-
-/// Every node state fills radio-face's TRAFFIC page and ticker without truncation.
-#[test]
-fn node_states_fill_the_traffic_page_and_ticker() {
-    let mut checked = 0;
-    for scenario in [scenarios::cold(), scenarios::warm()] {
-        for event in run(&scenario).unwrap().events {
-            let state: NodeState = match event {
-                Event::Transmit { state, .. }
-                | Event::Receive { state, .. }
-                | Event::LinkRequestExpired { state, .. } => state,
-                _ => continue,
-            };
-            let local = radio_face::LocalStatus {
-                tx_frames: state.tx_frames,
-                rx_frames: state.rx_frames,
-                last_tx: state
-                    .last_tx_len
-                    .map_or(radio_face::TxResult::None, |frame_len| {
-                        radio_face::TxResult::Sent { frame_len }
-                    }),
-                last_rx: state.last_rx_len.map(|frame_len| radio_face::RxSummary {
-                    frame_len,
-                    ..Default::default()
-                }),
-                ..Default::default()
-            };
-            assert_eq!(local.tx_frames, state.tx_frames);
-            let event = state.event.map(|event| radio_face::UiEvent {
-                source: radio_face::EventSource::Local,
-                kind: match event.kind {
-                    FaceEventKind::Info => radio_face::EventKind::Info,
-                    FaceEventKind::Received => radio_face::EventKind::Received,
-                    FaceEventKind::Transmitted => radio_face::EventKind::Transmitted,
-                    FaceEventKind::Delivered => radio_face::EventKind::Delivered,
-                    FaceEventKind::Propagated => radio_face::EventKind::Propagated,
-                    FaceEventKind::Failed => radio_face::EventKind::Failed,
-                },
-                text: radio_face::Text::try_from_str(&event.text).expect("fits the ticker"),
-            });
-            let host = radio_face::HostSnapshot {
-                personality: radio_face::Personality::Retinue,
-                link_count: state.links as u8,
-                admitted_links: state.links as u8,
-                event,
-                ..Default::default()
-            };
-            let mut wire = [0_u8; radio_face::MAX_SNAPSHOT_LEN];
-            radio_face::encode_snapshot(&host, &mut wire).expect("a valid snapshot");
-            checked += 1;
-        }
-    }
-    assert!(checked > 100);
 }
 
 /// S7's wedge, end to end. Four sends lost behind the cut fill fire's four pending slots, and

@@ -214,6 +214,8 @@ interop. `tulle` — the shared radio interface layer beneath retinue, sennet an
 tucket. `radio-face` — firmware crate rendering bounded on-device UI status.
 `radio-mirror` — unpublished browser realization of radio-face: RGBA
 framebuffer, the firmware's `Controller`, wasm exports.
+`retinue-sim` — unpublished in-process route-trace harness over Retinue nodes;
+its `face` feature maps node states onto radio-face and emits face tracks.
 `radio-hand` — board-agnostic firmware crate that owns the shared board
 executive, radio work, and durable control decisions. Retinue is its RNS
 adapter/router, not the executive. Firmware slot activation remains Linkboy
@@ -265,7 +267,7 @@ provisioning and physical acceptance. Total decoder peak allocation remains unme
 | [Retinue v0 plan](2026-07-06_retinue_v0_plan.md) | Historical protocol ledger. R0–R10 all closed. Its "next actions" block is not a queue. |
 | [RNS wire format reference](2026-07-13_rns_wire_format_reference.md) | Wire reference. Historical byte-fixture corpus is pinned at RNS 1.3.8; current announce and route probes use RNS 1.5.4. |
 | [Announce timebase plan](2026-08-25_announce_timebase_plan.md) | Active phased plan for the 5+5 announce blob, persistent stock-RNS decision probes, bounded receive freshness, and crash-monotonic firmware reservations. |
-| [retinue-sim plan](2026-10-01_retinue_sim_plan.md) | S7 of mer3ly's site-canvas plan: `Node` first-relay addressing and `next_hop`, and the unpublished `retinue-sim` route-trace harness. Records the warm-cut reroute timing, a sender's own-data echo, self-learning, the pending-link wedge, and nine open forks. |
+| [retinue-sim plan](2026-10-01_retinue_sim_plan.md) | S7 of mer3ly's site-canvas plan: `Node` first-relay addressing and `next_hop`, and the unpublished `retinue-sim` route-trace harness. Landed on `main` in `fa4f925` (2026-10-02); forks 1-5 and 9 ruled by site Rulings 27-30, 6-8 stand as built. Records the warm-cut reroute timing, a sender's own-data echo, self-learning and the pending-link wedge. S7c (2026-10-07, on `main` from branch `radio-consumers`): the shipped `face` mapping and the `retinue-sim.face-track/v1` file. |
 | [Node link lifecycle and 0.2.0 plan](2026-10-02_node_link_lifecycle_plan.md) | Rulings 27-61 of mer3ly's site-canvas plan applied to the published crate: route learning, `open_link(now)`, link-request expiry, own-echo and self-announce filtering, 0.2.0, and the source-review provenance record for this batch. |
 | [RNS 1.5.4 repin receipt](../testing/receipts/rns-1.5.4-repin/README.md) | Superseded live oracle (see the 1.5.6 and 1.5.7 receipts): Retinue, LXMF 1.1.1, repeated Resources, timebase and route decisions. Separate host/core boundary repair tests; physical scope remains historical. |
 | [RNS 1.5.6 repin receipt](../testing/receipts/rns-1.5.6-repin/README.md) | Superseded live oracle, 2026-10-03, Windows host: every gate passed in at least one run; `interop_ifac` intermittent on an RNS-side race also present on 1.5.4; route decisions identical to 1.5.4; V1 re-checks. |
@@ -308,7 +310,7 @@ provisioning and physical acceptance. Total decoder peak allocation remains unme
 | [Magnetic pocket-node plan](2026-09-07_magnetic_pocket_node_plan.md) | PN0–PN8. Autonomous NFC-only and optional-Bluetooth nodes, LC0/AT0 attachment, durable custody, M4/iPhone probe, receiver-only charging, RF mechanics, and conditional phone-charging bridge. |
 | [Hardware-family plan](2026-09-07_radio_hand_hardware_family_plan.md) | HW0–HW8. `radio-hand` platform admission, powered-edge and solar nodes, energy-aware work, multi-radio ownership, adjacent bearer/protocol admission, and exact-SKU qualification. |
 | [On-device UI plan](2026-07-28_on_device_ui_implementation_plan.md) | U0–U5, all closed. |
-| [radio-mirror plan](2026-10-01_radio_mirror_plan.md) | M1: radio-face in the browser (mer3ly S8). Built on a lane branch; forks F1–F8 open. |
+| [radio-mirror plan](2026-10-01_radio_mirror_plan.md) | M1: radio-face in the browser (mer3ly S8). Landed on `main` in `fa4f925` (2026-10-02); forks F1–F8 ruled by site Rulings 31–38. wasm-bindgen `=0.2.129` under site Ruling 126 (2026-10-07, branch `radio-consumers`), superseding Ruling 35's `=0.2.127`. |
 | [On-device UI direction](2026-07-25_on_device_ui.md) | PANEL×LEDGER face, accepted direction. |
 | [Mesh household](2026-07-20_mesh_household_tulle_tucket_sennet.md) | Crate topology and naming authority. **Its "no code exists yet" status line is false** — all three crates exist. |
 | [Heltec RNode and embedded Rust](2026-07-19_heltec_rnode_and_embedded_rust.md) | Donor, licensing and architecture record. |
