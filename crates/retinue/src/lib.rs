@@ -35,7 +35,8 @@
 //! [`endpoint::RoutingPolicy`]); the default posture is endpoint-scoped. On-air interfaces
 //! (RNode serial, direct PHY) live in the sibling `tulle` crate and are proven over real
 //! RF; endpoint-level resource sessions, route expiry, and announce budgeting are
-//! implemented. Ratcheted single packets use caller-owned rotation and retained-key state.
+//! implemented. Ratcheted single packets rotate at announce and retain epochs by count, with
+//! a host hook persisting the signed ratchet snapshot before a new ratchet is advertised.
 //! Host IFAC virtual-network authentication is applied at TCP and Tulle carrier
 //! boundaries. The firmware Node carrier has a separate, still-open IFAC gate.
 //! See the README's *Maturity* section and

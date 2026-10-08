@@ -1954,11 +1954,14 @@ struct Registered {
     /// it can be answered by re-announcing it as a path response.
     name: DestinationName,
     app_data: Vec<u8>,
-    /// Receive ratchets supplied and persisted by the host. `Some` also means identity-key
+    /// Receive ratchets, owned here and rotated at announce. `Some` also means identity-key
     /// fallback is refused for single packets, preventing an advertised ratchet from being
-    /// silently downgraded.
-    ratchets: Option<RatchetStore>,
+    /// silently downgraded. Shared so inbound trial decryption never copies the store.
+    ratchets: Option<Arc<RatchetStore>>,
 }
+
+/// The host's durable store for a ratcheted destination's signed snapshot.
+type RatchetPersistence = alloc::boxed::Box<dyn FnMut(AddressHash, &[u8]) -> io::Result<()> + Send>;
 
 #[derive(Clone, Copy)]
 enum RegistrationKind {
@@ -2000,6 +2003,9 @@ struct Shared {
     address_book: Mutex<AddressBook>,
     links: Links,
     registered: Mutex<Vec<Registered>>,
+    /// The host's ratchet persistence hook. Its lock also serializes ratchet rotation, so
+    /// two announces cannot rotate one store twice or persist out of order.
+    ratchet_persistence: Mutex<Option<RatchetPersistence>>,
     /// Per-destination host announce ordinals. A destination needs its own strictly increasing
     /// timebase, because it is the destination's signed blob that receivers retain.
     announce_timebases: Mutex<HashMap<AddressHash, TimebaseGenerator>>,
@@ -2420,13 +2426,88 @@ impl Shared {
     /// The deterministic half of [`Self::path_response`]. Keeping the clock source at this
     /// seam lets the production path and its boundary cases share the same blob minting rule.
     fn path_response_at(&self, target: AddressHash, source_seconds: u64) -> Option<Packet> {
-        let reg = self.registered.lock().unwrap();
-        let r = reg.iter().find(|r| r.dest == target)?;
-        let ratchet = r.ratchets.as_ref().and_then(RatchetStore::current_public);
-        let mut pkt =
-            self.build_announce_at(&r.name, ratchet.as_ref(), &r.app_data, source_seconds);
+        let (name, app_data) = {
+            let reg = self.registered.lock().unwrap();
+            let r = reg.iter().find(|r| r.dest == target)?;
+            (r.name.clone(), r.app_data.clone())
+        };
+        // A path response is an announce, so it rotates a due ratchet too (`Destination.py`
+        // 285-288 runs for both).
+        let ratchet = self.advertised_ratchet(target, source_seconds);
+        let mut pkt = self.build_announce_at(&name, ratchet.as_ref(), &app_data, source_seconds);
         pkt.context = crate::path::CTX_PATH_RESPONSE;
         Some(pkt)
+    }
+
+    fn registered_ratchets(&self, dest: AddressHash) -> Option<Arc<RatchetStore>> {
+        self.registered
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|registration| registration.dest == dest)?
+            .ratchets
+            .clone()
+    }
+
+    /// The ratchet public key an announce for `dest` carries at `now_seconds`, rotating the
+    /// store first when its interval has passed (`Destination.py` 228-242).
+    ///
+    /// Persist before advertise: a rotated store is handed to the persistence hook before it
+    /// is installed. If the hook fails, the previous epoch, which is already persisted, stays
+    /// advertised and the next announce retries.
+    fn advertised_ratchet(&self, dest: AddressHash, now_seconds: u64) -> Option<[u8; KEY_LEN]> {
+        let store = self.registered_ratchets(dest)?;
+        if !store.rotation_due(now_seconds as f64) {
+            return store.current_public();
+        }
+        let mut persistence = self.ratchet_persistence.lock().unwrap();
+        // Re-read under the rotation lock: a concurrent announce may have rotated already.
+        let store = self.registered_ratchets(dest)?;
+        if store.rotation_due(now_seconds as f64)
+            && let Ok(next) = self.commit_ratchets(
+                &mut persistence,
+                dest,
+                RatchetStore::clone(&store),
+                now_seconds,
+            )
+        {
+            let public = next.current_public();
+            if let Some(registration) = self
+                .registered
+                .lock()
+                .unwrap()
+                .iter_mut()
+                .find(|registration| registration.dest == dest)
+            {
+                registration.ratchets = Some(next);
+            }
+            return public;
+        }
+        store.current_public()
+    }
+
+    /// Rotate `ratchets` if due, then hand its identity-signed snapshot to the host before the
+    /// caller installs it. The caller holds `persistence`'s lock until it has installed the
+    /// result, so the installed store is always the one most recently persisted.
+    fn commit_ratchets(
+        &self,
+        persistence: &mut Option<RatchetPersistence>,
+        dest: AddressHash,
+        mut ratchets: RatchetStore,
+        now_seconds: u64,
+    ) -> io::Result<Arc<RatchetStore>> {
+        let now = now_seconds as f64;
+        if ratchets.rotation_due(now) {
+            let mut secret = [0; KEY_LEN];
+            fill_random(&mut secret);
+            ratchets
+                .rotate_if_due(secret, now)
+                .expect("whole host seconds are a finite timestamp");
+        }
+        if let Some(persist) = persistence {
+            persist(dest, &ratchets.encode_snapshot(&self.identity))?;
+        }
+        Ok(Arc::new(ratchets))
     }
 
     /// Build one locally owned announce from a typed blob. The generator is keyed by the
@@ -2647,15 +2728,6 @@ fn endpoint_closed() -> io::Error {
     io::Error::new(io::ErrorKind::BrokenPipe, "endpoint closed")
 }
 
-fn require_current_ratchet(ratchets: &RatchetStore) -> io::Result<()> {
-    ratchets.current_public().map(|_| ()).ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "ratchet store has no current epoch",
-        )
-    })
-}
-
 async fn recv_until_closed<T>(
     shared: &Arc<Shared>,
     receiver: &AsyncMutex<mpsc::UnboundedReceiver<T>>,
@@ -2707,6 +2779,7 @@ impl Endpoint {
             address_book: Mutex::new(AddressBook::new()),
             links: Arc::new(Mutex::new(HashMap::new())),
             registered: Mutex::new(Vec::new()),
+            ratchet_persistence: Mutex::new(None),
             announce_timebases: Mutex::new(HashMap::new()),
             interfaces: Mutex::new(Vec::new()),
             router_tx,
@@ -3283,20 +3356,19 @@ impl Endpoint {
     }
 
     /// Register a best-effort-link destination that also receives ratcheted single packets.
+    ///
+    /// The endpoint takes ownership of `ratchets`, which may be empty or restored from a
+    /// snapshot. It rotates the store whenever an announce or path response finds the
+    /// current epoch older than the policy's interval, and hands each new snapshot to the
+    /// [`set_ratchet_persistence`](Self::set_ratchet_persistence) hook before advertising
+    /// it. Registration fails if that hook refuses the initial snapshot.
     pub fn register_with_ratchets(
         &self,
         name: DestinationName,
         app_data: &[u8],
-        ratchets: &RatchetStore,
+        ratchets: RatchetStore,
     ) -> io::Result<()> {
-        require_current_ratchet(ratchets)?;
-        self.register_with(
-            name,
-            app_data,
-            RegistrationKind::BestEffort,
-            Some(ratchets.clone()),
-        );
-        Ok(())
+        self.register_ratcheted(name, app_data, RegistrationKind::BestEffort, ratchets)
     }
 
     /// Register a destination to accept **reliable** links on — the Channel/Buffer path with
@@ -3312,20 +3384,60 @@ impl Endpoint {
         self.register_with(name, app_data, RegistrationKind::Resource, None);
     }
 
-    /// Register a resource destination that also receives ratcheted single packets.
+    /// Register a resource destination that also receives ratcheted single packets. Ratchet
+    /// ownership and persistence are as for
+    /// [`register_with_ratchets`](Self::register_with_ratchets).
     pub fn register_resource_with_ratchets(
         &self,
         name: DestinationName,
         app_data: &[u8],
-        ratchets: &RatchetStore,
+        ratchets: RatchetStore,
     ) -> io::Result<()> {
-        require_current_ratchet(ratchets)?;
-        self.register_with(
-            name,
-            app_data,
-            RegistrationKind::Resource,
-            Some(ratchets.clone()),
-        );
+        self.register_ratcheted(name, app_data, RegistrationKind::Resource, ratchets)
+    }
+
+    /// Install the host's durable store for ratchet snapshots, `(destination, snapshot)`.
+    /// Install it before registering ratcheted destinations.
+    ///
+    /// The endpoint calls it with the identity-signed snapshot (restore it with
+    /// [`RatchetStore::restore`]) whenever a ratcheted destination is registered or updated
+    /// and whenever an announce rotates its ratchet, always before any announce carries the
+    /// new ratchet. An error keeps the previously persisted ratchet advertised. The hook runs
+    /// with rotation locked, so it must not call back into this endpoint. Without a hook,
+    /// ratchets live only in memory and retained epochs are lost on restart.
+    pub fn set_ratchet_persistence(
+        &self,
+        persist: impl FnMut(AddressHash, &[u8]) -> io::Result<()> + Send + 'static,
+    ) {
+        *self.shared.ratchet_persistence.lock().unwrap() = Some(alloc::boxed::Box::new(persist));
+    }
+
+    /// The id of the ratchet a registered destination currently advertises, if it has
+    /// ratchets.
+    pub fn current_ratchet_id(&self, name: &DestinationName) -> Option<NameHash> {
+        self.shared
+            .registered_ratchets(name.destination_hash(self.shared.identity.public()))?
+            .current_id()
+    }
+
+    fn register_ratcheted(
+        &self,
+        name: DestinationName,
+        app_data: &[u8],
+        kind: RegistrationKind,
+        ratchets: RatchetStore,
+    ) -> io::Result<()> {
+        let dest = name.destination_hash(self.shared.identity.public());
+        let ratchets = {
+            let mut persistence = self.shared.ratchet_persistence.lock().unwrap();
+            self.shared.commit_ratchets(
+                &mut persistence,
+                dest,
+                ratchets,
+                host_announce_seconds(),
+            )?
+        };
+        self.register_with(name, app_data, kind, Some(ratchets));
         Ok(())
     }
 
@@ -3334,7 +3446,7 @@ impl Endpoint {
         name: DestinationName,
         app_data: &[u8],
         kind: RegistrationKind,
-        ratchets: Option<RatchetStore>,
+        ratchets: Option<Arc<RatchetStore>>,
     ) {
         let dest = name.destination_hash(self.shared.identity.public());
         self.shared.registered.lock().unwrap().push(Registered {
@@ -3347,24 +3459,41 @@ impl Endpoint {
         self.announce(&name, app_data);
     }
 
-    /// Replace a registered destination's active receive-ratchet state and announce its
-    /// current public key. The caller retains the canonical store and persists its snapshot.
+    /// Replace a registered destination's receive-ratchet state, persist it through the
+    /// [`set_ratchet_persistence`](Self::set_ratchet_persistence) hook, and announce its
+    /// current public key. The endpoint owns the store from here on.
     pub fn update_ratchets(
         &self,
         name: &DestinationName,
-        ratchets: &RatchetStore,
+        ratchets: RatchetStore,
     ) -> io::Result<()> {
-        require_current_ratchet(ratchets)?;
         let dest = name.destination_hash(self.shared.identity.public());
+        let not_registered =
+            || io::Error::new(io::ErrorKind::NotFound, "destination is not registered");
         let app_data = {
+            let mut persistence = self.shared.ratchet_persistence.lock().unwrap();
+            if !self
+                .shared
+                .registered
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|registration| registration.dest == dest)
+            {
+                return Err(not_registered());
+            }
+            let ratchets = self.shared.commit_ratchets(
+                &mut persistence,
+                dest,
+                ratchets,
+                host_announce_seconds(),
+            )?;
             let mut registered = self.shared.registered.lock().unwrap();
             let registration = registered
                 .iter_mut()
                 .find(|registration| registration.dest == dest)
-                .ok_or_else(|| {
-                    io::Error::new(io::ErrorKind::NotFound, "destination is not registered")
-                })?;
-            registration.ratchets = Some(ratchets.clone());
+                .ok_or_else(not_registered)?;
+            registration.ratchets = Some(ratchets);
             registration.app_data.clone()
         };
         self.announce(name, &app_data);
@@ -3407,15 +3536,7 @@ impl Endpoint {
         source_seconds: u64,
     ) -> Packet {
         let dest = name.destination_hash(self.shared.identity.public());
-        let ratchet = self
-            .shared
-            .registered
-            .lock()
-            .unwrap()
-            .iter()
-            .find(|registration| registration.dest == dest)
-            .and_then(|registration| registration.ratchets.as_ref())
-            .and_then(RatchetStore::current_public);
+        let ratchet = self.shared.advertised_ratchet(dest, source_seconds);
         self.shared
             .build_announce_at(name, ratchet.as_ref(), app_data, source_seconds)
     }
@@ -5529,6 +5650,170 @@ mod tests {
         assert_eq!(emitted_timebase(&first_again), 701);
         assert_eq!(emitted_timebase(&path_response_again), 701);
         assert_eq!(path_response.context, crate::path::CTX_PATH_RESPONSE);
+    }
+
+    fn advertised_ratchet_id(packet: &Packet) -> NameHash {
+        let ratchet = Announce::decode(packet)
+            .expect("locally emitted announce verifies")
+            .ratchet
+            .expect("a ratcheted destination announces its ratchet");
+        NameHash::of(&ratchet)
+    }
+
+    /// Register a ratcheted destination whose current epoch was minted at `created_at`.
+    fn register_ratcheted_at(
+        ep: &Endpoint,
+        name: &DestinationName,
+        created_at: u64,
+    ) -> AddressHash {
+        let dest = name.destination_hash(ep.identity());
+        let mut store = crate::ratchet::RatchetStore::new(Default::default()).unwrap();
+        store
+            .rotate_if_due([0x41; KEY_LEN], created_at as f64)
+            .unwrap();
+        ep.shared.registered.lock().unwrap().push(Registered {
+            dest,
+            kind: RegistrationKind::Resource,
+            name: name.clone(),
+            app_data: b"ratchet".to_vec(),
+            ratchets: Some(Arc::new(store)),
+        });
+        dest
+    }
+
+    const RATCHET_INTERVAL: u64 = 30 * 60;
+
+    #[tokio::test]
+    async fn announces_and_path_responses_rotate_a_due_ratchet() {
+        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x93; 64]));
+        let name = DestinationName::new("retinue", ["ratchet-rotation"]);
+        let dest = register_ratcheted_at(&ep, &name, 10_000);
+        let first = ep.current_ratchet_id(&name).unwrap();
+
+        // Until the interval has passed, every announce carries the same epoch.
+        let held = ep.build_announce_at(&name, b"ratchet", 10_000 + RATCHET_INTERVAL);
+        assert_eq!(advertised_ratchet_id(&held), first);
+
+        // Past it, the announce rotates before it is built.
+        let rotated = ep.build_announce_at(&name, b"ratchet", 10_001 + RATCHET_INTERVAL);
+        let second = advertised_ratchet_id(&rotated);
+        assert_ne!(second, first);
+        assert_eq!(ep.current_ratchet_id(&name), Some(second));
+
+        // A path response is an announce, so it rotates too.
+        let response = ep
+            .shared
+            .path_response_at(dest, 10_002 + 2 * RATCHET_INTERVAL)
+            .expect("owned destination answers a path request");
+        let third = advertised_ratchet_id(&response);
+        assert_ne!(third, second);
+        assert_eq!(ep.current_ratchet_id(&name), Some(third));
+        assert_eq!(ep.shared.registered_ratchets(dest).unwrap().len(), 3);
+    }
+
+    #[tokio::test]
+    async fn a_rotated_ratchet_is_persisted_before_it_is_advertised() {
+        let identity = PrivateIdentity::from_secret_bytes(&[0x94; 64]);
+        let ep = Endpoint::new(identity.clone());
+        let name = DestinationName::new("retinue", ["ratchet-persist"]);
+        let dest = register_ratcheted_at(&ep, &name, 10_000);
+        let first = ep.current_ratchet_id(&name).unwrap();
+
+        type Persisted = Vec<(Vec<u8>, Option<NameHash>)>;
+        let persisted: Arc<Mutex<Persisted>> = Arc::default();
+        let refuse = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        ep.set_ratchet_persistence({
+            let shared = Arc::downgrade(&ep.shared);
+            let persisted = Arc::clone(&persisted);
+            let refuse = Arc::clone(&refuse);
+            move |persisted_dest, snapshot| {
+                assert_eq!(persisted_dest, dest);
+                // What the endpoint would advertise while the host is still persisting.
+                let installed = shared
+                    .upgrade()
+                    .and_then(|shared| shared.registered_ratchets(persisted_dest))
+                    .and_then(|store| store.current_id());
+                persisted
+                    .lock()
+                    .unwrap()
+                    .push((snapshot.to_vec(), installed));
+                if refuse.load(Ordering::SeqCst) {
+                    Err(io::Error::other("disk full"))
+                } else {
+                    Ok(())
+                }
+            }
+        });
+
+        // A snapshot the host could not persist is never advertised.
+        let later = 10_001 + RATCHET_INTERVAL;
+        let refused = ep.build_announce_at(&name, b"ratchet", later);
+        assert_eq!(advertised_ratchet_id(&refused), first);
+        assert_eq!(ep.current_ratchet_id(&name), Some(first));
+
+        refuse.store(false, Ordering::SeqCst);
+        let accepted = ep.build_announce_at(&name, b"ratchet", later);
+        let second = advertised_ratchet_id(&accepted);
+        assert_ne!(second, first);
+
+        let persisted = persisted.lock().unwrap();
+        assert_eq!(persisted.len(), 2, "one refused and one accepted rotation");
+        let (snapshot, installed_while_persisting) = &persisted[1];
+        assert_eq!(
+            *installed_while_persisting,
+            Some(first),
+            "the new epoch was persisted before it was installed or advertised"
+        );
+        let (restored, _) = crate::ratchet::RatchetStore::restore(
+            Default::default(),
+            snapshot,
+            identity.public(),
+            later as f64,
+        )
+        .unwrap();
+        assert_eq!(restored.current_id(), Some(second));
+        assert_eq!(restored.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn an_epoch_superseded_at_announce_still_decrypts() {
+        let identity = PrivateIdentity::from_secret_bytes(&[0x95; 64]);
+        let ep = Endpoint::new(identity.clone());
+        let name = DestinationName::new("retinue", ["ratchet-retained"]);
+        let dest = register_ratcheted_at(&ep, &name, 10_000);
+        let first = ep.current_ratchet_id(&name).unwrap();
+        let old_public = ep
+            .shared
+            .registered_ratchets(dest)
+            .and_then(|store| store.current_public())
+            .unwrap();
+        ep.build_announce_at(&name, b"ratchet", 10_001 + RATCHET_INTERVAL);
+        assert_ne!(ep.current_ratchet_id(&name), Some(first));
+
+        let payload = crate::token::encrypt_to_ratchet(
+            identity.public(),
+            &old_public,
+            &[0x17; KEY_LEN],
+            &[0x18; IV_LEN],
+            b"older epoch",
+        );
+        let packet = Packet {
+            ifac: false,
+            header_type: crate::packet::HeaderType::Type1,
+            context_flag: false,
+            propagation: crate::packet::Propagation::Broadcast,
+            destination_type: DestinationType::Single,
+            packet_type: PacketType::Data,
+            hops: 0,
+            transport: None,
+            destination: dest,
+            context: 0,
+            payload,
+        };
+        deliver_single(&ep.shared, 1, &packet);
+        let received = ep.accept_single().await.unwrap();
+        assert_eq!(received.data, b"older epoch");
+        assert_eq!(received.ratchet_id, Some(first));
     }
 
     /// The link packet memory holds its bound, forgets oldest first, and leaves alone the

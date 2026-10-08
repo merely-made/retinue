@@ -7,7 +7,7 @@ use outrider::{
     DeliveryAnnounce, LxmfPayload, delivery_destination, register_opportunistic, send_opportunistic,
 };
 use retinue::endpoint::Endpoint;
-use retinue::identity::{KEY_LEN, PrivateIdentity};
+use retinue::identity::PrivateIdentity;
 use retinue::ratchet::{RatchetPolicy, RatchetStore};
 
 const SENDER_SEED: [u8; 64] = [0x55; 64];
@@ -22,9 +22,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         display_name: Some(b"Outrider Opportunistic Sender".to_vec()),
         stamp_cost: None,
     };
-    let mut ratchets = RatchetStore::new(RatchetPolicy::default())?;
-    ratchets.rotate_if_due([0x54; KEY_LEN], 0.0)?;
-    register_opportunistic(&endpoint, &announce, &ratchets)?;
+    let ratchets = RatchetStore::new(RatchetPolicy::default())?;
+    register_opportunistic(&endpoint, &announce, ratchets)?;
     println!("LISTENING {}", address.port());
 
     let announcer = tokio::spawn({

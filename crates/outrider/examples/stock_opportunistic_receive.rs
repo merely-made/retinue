@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use outrider::{DeliveryAnnounce, receive_opportunistic_with_stamp_cost, register_opportunistic};
 use retinue::endpoint::Endpoint;
-use retinue::identity::{KEY_LEN, PrivateIdentity};
+use retinue::identity::PrivateIdentity;
 use retinue::ratchet::{RatchetPolicy, RatchetStore};
 
 const RECEIVER_SEED: [u8; 64] = [0x66; 64];
@@ -20,9 +20,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         display_name: Some(b"Outrider Opportunistic Receiver".to_vec()),
         stamp_cost: None,
     };
-    let mut ratchets = RatchetStore::new(RatchetPolicy::default())?;
-    ratchets.rotate_if_due([0x51; KEY_LEN], 0.0)?;
-    let destination = register_opportunistic(&endpoint, &delivery_announce, &ratchets)?;
+    let ratchets = RatchetStore::new(RatchetPolicy::default())?;
+    let destination = register_opportunistic(&endpoint, &delivery_announce, ratchets)?;
 
     println!("LISTENING {}", address.port());
     println!("DESTINATION {destination}");

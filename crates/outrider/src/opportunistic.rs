@@ -43,13 +43,13 @@ pub struct ReceivedOpportunistic {
 
 /// Register `lxmf.delivery` for link, Resource, and ratcheted opportunistic delivery.
 ///
-/// The caller owns and persists `ratchets`; call [`Endpoint::update_ratchets`] after rotating
-/// it. Ordinary delivery re-announces through [`Endpoint::announce`], which automatically
-/// includes the registered current ratchet.
+/// The endpoint takes ownership of `ratchets` (empty, or restored from a snapshot). Each
+/// [`Endpoint::announce`] rotates it when due and carries the current ratchet; install
+/// [`Endpoint::set_ratchet_persistence`] first to keep retained epochs across restarts.
 pub fn register(
     endpoint: &Endpoint,
     announce: &DeliveryAnnounce,
-    ratchets: &RatchetStore,
+    ratchets: RatchetStore,
 ) -> Result<AddressHash, OpportunisticError> {
     let app_data = announce.encode()?;
     let name = delivery_name();
