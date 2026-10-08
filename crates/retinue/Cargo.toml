@@ -74,6 +74,10 @@ name = "ratchet_packet_vector"
 required-features = ["alloc"]
 
 [[example]]
+name = "ratchet_rotation_oracle"
+required-features = ["tokio"]
+
+[[example]]
 name = "endpoint_stream"
 required-features = ["tokio"]
 

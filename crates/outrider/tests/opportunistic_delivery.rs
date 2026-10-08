@@ -6,14 +6,12 @@ use outrider::{
     register_opportunistic, send_opportunistic, send_opportunistic_stamped,
 };
 use retinue::endpoint::{Endpoint, PeerAnnounce};
-use retinue::identity::{KEY_LEN, PrivateIdentity};
+use retinue::identity::PrivateIdentity;
 use retinue::lossy::{LossModel, connect};
 use retinue::ratchet::{RatchetPolicy, RatchetStore};
 
-fn ratchets(secret: u8) -> RatchetStore {
-    let mut store = RatchetStore::new(RatchetPolicy::default()).unwrap();
-    store.rotate_if_due([secret; KEY_LEN], 0.0).unwrap();
-    store
+fn ratchets() -> RatchetStore {
+    RatchetStore::new(RatchetPolicy::default()).unwrap()
 }
 
 async fn peer(endpoint: &Endpoint, destination: retinue::AddressHash) -> PeerAnnounce {
@@ -37,19 +35,15 @@ async fn stamped_opportunistic_delivery_authenticates_without_a_link() {
     let receiver = Arc::new(Endpoint::new(receiver_identity.clone()));
     connect(&sender, &receiver, LossModel::new(31), LossModel::new(42));
 
-    let sender_destination = register_opportunistic(
-        &sender,
-        &DeliveryAnnounce::named(b"Sender"),
-        &ratchets(0x51),
-    )
-    .unwrap();
+    let sender_destination =
+        register_opportunistic(&sender, &DeliveryAnnounce::named(b"Sender"), ratchets()).unwrap();
     let receiver_destination = register_opportunistic(
         &receiver,
         &DeliveryAnnounce {
             display_name: Some(b"Receiver".to_vec()),
             stamp_cost: Some(8),
         },
-        &ratchets(0x52),
+        ratchets(),
     )
     .unwrap();
     let receiver_announce = peer(&sender, receiver_destination).await;
@@ -99,18 +93,11 @@ async fn opportunistic_delivery_crosses_a_transport_node() {
     let receiver = Endpoint::new(receiver_identity.clone());
     connect(&receiver, &hub, LossModel::new(3), LossModel::new(4));
 
-    let sender_destination = register_opportunistic(
-        &sender,
-        &DeliveryAnnounce::named(b"Sender"),
-        &ratchets(0x71),
-    )
-    .unwrap();
-    let receiver_destination = register_opportunistic(
-        &receiver,
-        &DeliveryAnnounce::named(b"Receiver"),
-        &ratchets(0x72),
-    )
-    .unwrap();
+    let sender_destination =
+        register_opportunistic(&sender, &DeliveryAnnounce::named(b"Sender"), ratchets()).unwrap();
+    let receiver_destination =
+        register_opportunistic(&receiver, &DeliveryAnnounce::named(b"Receiver"), ratchets())
+            .unwrap();
     let receiver_announce = peer(&sender, receiver_destination).await;
     let _sender_announce = peer(&receiver, sender_destination).await;
 

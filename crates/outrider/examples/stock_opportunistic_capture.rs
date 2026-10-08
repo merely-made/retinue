@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use outrider::{DeliveryAnnounce, delivery_destination, delivery_name};
 use retinue::endpoint::Endpoint;
-use retinue::identity::{KEY_LEN, PrivateIdentity};
+use retinue::identity::PrivateIdentity;
 use retinue::ratchet::{RatchetPolicy, RatchetStore};
 
 const RECEIVER_SEED: [u8; 64] = [0x66; 64];
@@ -27,15 +27,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app_data = announce.encode()?;
     let name = delivery_name();
     let destination = name.destination_hash(endpoint.identity());
-    let mut ratchets = RatchetStore::new(RatchetPolicy::default())?;
-    ratchets.rotate_if_due([0x51; KEY_LEN], 0.0)?;
-    endpoint.register_resource_with_ratchets(name.clone(), &app_data, &ratchets)?;
+    // The endpoint mints the first epoch at registration and rotates it at announce.
+    let ratchets = RatchetStore::new(RatchetPolicy::default())?;
+    endpoint.register_resource_with_ratchets(name.clone(), &app_data, ratchets)?;
 
     println!("LISTENING {}", address.port());
     println!("DESTINATION {destination}");
     println!(
         "RATCHET {}",
-        ratchets.current_id().expect("current ratchet")
+        endpoint.current_ratchet_id(&name).expect("current ratchet")
     );
 
     let announcer = tokio::spawn({
