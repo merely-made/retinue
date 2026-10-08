@@ -249,6 +249,29 @@ const MAX_HOPS: u8 = 128;
 /// How many recent announce packet-hashes to remember for de-duplication.
 const SEEN_ANNOUNCES: usize = 4096;
 
+/// Outstanding single-packet receipts kept for proof matching (RNS `Transport.MAX_RECEIPTS`).
+/// At capacity the oldest is culled.
+#[cfg(not(test))]
+const SINGLE_RECEIPTS: usize = 1024;
+#[cfg(test)]
+const SINGLE_RECEIPTS: usize = 4;
+
+/// A receipt's allowance per hop, and for the first hop (RNS `DEFAULT_PER_HOP_TIMEOUT`).
+const RECEIPT_TIMEOUT_PER_HOP: Duration = Duration::from_secs(6);
+
+/// The hop count a receipt assumes when no path is known (RNS `PATHFINDER_M`).
+const UNKNOWN_PATH_HOPS: u32 = 128;
+
+/// How long a carried packet's return path is kept for its proof (RNS
+/// `Transport.REVERSE_TIMEOUT`).
+const REVERSE_TIMEOUT: Duration = Duration::from_secs(8 * 60);
+
+/// Carried packets whose return path is remembered at once. At capacity the oldest goes.
+#[cfg(not(test))]
+const REVERSE_TABLE_CAPACITY: usize = 4096;
+#[cfg(test)]
+const REVERSE_TABLE_CAPACITY: usize = 4;
+
 /// Recent link packet hashes, both ways, across every link this endpoint holds.
 ///
 /// On a shared medium a relay's retransmission of our own link packet reaches us under the
@@ -1361,18 +1384,109 @@ pub struct ReceivedSingle {
     pub destination: AddressHash,
     pub interface: InterfaceId,
     pub data: Vec<u8>,
-    /// The retained receive ratchet that authenticated it. `None` means the destination was
-    /// registered without ratchets and the long-term identity key authenticated the token.
+    /// The retained receive ratchet that authenticated it. `None` means the long-term
+    /// identity key authenticated the token: the destination has no ratchets, or does not
+    /// enforce them and the sender knew none.
     pub ratchet_id: Option<NameHash>,
+    packet_hash: [u8; 32],
 }
 
-/// Evidence that a link-less packet was encrypted and accepted by local interface queues.
+impl ReceivedSingle {
+    /// The full packet hash, which a delivery proof signs.
+    pub fn packet_hash(&self) -> [u8; 32] {
+        self.packet_hash
+    }
+}
+
+/// When a registered destination proves the single packets it receives (RNS
+/// `Destination.set_proof_strategy`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ProofStrategy {
+    /// Never prove. The default, as in RNS.
+    #[default]
+    None,
+    /// The application decides per packet, by calling [`Endpoint::prove_single`].
+    App,
+    /// Prove every packet that decrypts.
+    All,
+}
+
+/// How a single packet's delivery receipt concluded (RNS `PacketReceipt` status).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SingleDelivery {
+    /// The destination proved receipt; `rtt` runs from queueing to the valid proof.
+    Delivered { rtt: Duration },
+    /// No valid proof arrived within the receipt's timeout. A destination that does not
+    /// prove, the RNS default, always ends here.
+    TimedOut,
+    /// The receipt was dropped for newer ones before it concluded.
+    Culled,
+}
+
+/// Evidence that a link-less packet was encrypted and accepted by local interface queues,
+/// and the handle that learns whether the destination proved it.
+#[derive(Debug)]
 pub struct SinglePacketReceipt {
     pub destination: AddressHash,
-    pub ratchet_id: NameHash,
+    /// The advertised ratchet the packet was encrypted to. `None` means the destination
+    /// advertised none, so its identity key was used.
+    pub ratchet_id: Option<NameHash>,
     /// One for a learned route; possibly several when an expired route requires broadcast.
     pub queued_interfaces: usize,
+    /// The full packet hash. The destination's proof signs it, and is addressed to its
+    /// truncation.
+    pub packet_hash: [u8; 32],
+    /// How long [`Self::delivery`] waits for a proof: a first-hop allowance plus one per hop
+    /// on the known path, or per hop of the protocol's ceiling when none is known.
+    pub timeout: Duration,
+    sent_at: tokio::time::Instant,
+    proved: oneshot::Receiver<SingleDelivery>,
+}
+
+impl SinglePacketReceipt {
+    /// Wait for the destination's proof, or the receipt's timeout.
+    pub async fn delivery(self) -> SingleDelivery {
+        match tokio::time::timeout_at(self.sent_at + self.timeout, self.proved).await {
+            Ok(Ok(outcome)) => outcome,
+            Ok(Err(_)) | Err(_) => SingleDelivery::TimedOut,
+        }
+    }
+}
+
+/// An outbound single packet awaiting its proof.
+struct PendingReceipt {
+    packet_hash: [u8; 32],
+    identity: Identity,
+    sent_at: tokio::time::Instant,
+    deadline: tokio::time::Instant,
+    proved: oneshot::Sender<SingleDelivery>,
+}
+
+/// The way back for a carried packet's proof.
+struct ReverseEntry {
+    received: InterfaceId,
+    outbound: InterfaceId,
+    at: Instant,
+}
+
+/// Make room for one more entry in a bounded table: drop what `expired` says has lapsed,
+/// then, still full, the entry with the smallest `age`, which is returned.
+fn make_room<V, A: Ord>(
+    table: &mut HashMap<AddressHash, V>,
+    capacity: usize,
+    expired: impl Fn(&V) -> bool,
+    age: impl Fn(&V) -> A,
+) -> Option<V> {
+    if table.len() < capacity {
+        return None;
+    }
+    table.retain(|_, entry| !expired(entry));
+    if table.len() < capacity {
+        return None;
+    }
+    let oldest = table.iter().min_by_key(|(_, entry)| age(entry))?.0;
+    let oldest = *oldest;
+    table.remove(&oldest)
 }
 
 /// An accepted inbound link and the destination it arrived on.
@@ -1619,6 +1733,9 @@ pub struct RoutingCounters {
     pub inbound_links_evicted: u64,
     /// Link packets dropped because the link's queue was full: its reader fell behind.
     pub link_queue_dropped: u64,
+    /// Validly signed announces rejected because they name a known destination under a
+    /// different public key.
+    pub key_mismatch_announces: u64,
 }
 
 /// The live counter cells behind [`RoutingCounters`].
@@ -1644,6 +1761,7 @@ struct RoutingStats {
     inbound_links_refused: AtomicU64,
     inbound_links_evicted: AtomicU64,
     link_queue_dropped: AtomicU64,
+    key_mismatch_announces: AtomicU64,
 }
 
 impl RoutingStats {
@@ -1669,6 +1787,7 @@ impl RoutingStats {
             inbound_links_refused: self.inbound_links_refused.load(Ordering::Relaxed),
             inbound_links_evicted: self.inbound_links_evicted.load(Ordering::Relaxed),
             link_queue_dropped: self.link_queue_dropped.load(Ordering::Relaxed),
+            key_mismatch_announces: self.key_mismatch_announces.load(Ordering::Relaxed),
         }
     }
 }
@@ -2231,10 +2350,12 @@ struct Registered {
     /// it can be answered by re-announcing it as a path response.
     name: DestinationName,
     app_data: Vec<u8>,
-    /// Receive ratchets supplied and persisted by the host. `Some` also means identity-key
-    /// fallback is refused for single packets, preventing an advertised ratchet from being
-    /// silently downgraded.
+    /// Receive ratchets supplied and persisted by the host.
     ratchets: Option<RatchetStore>,
+    /// Refuse single packets encrypted to the identity key rather than a ratchet, so an
+    /// advertised ratchet cannot be silently downgraded. Off by default, as in RNS.
+    enforce_ratchets: bool,
+    proof_strategy: ProofStrategy,
 }
 
 #[derive(Clone, Copy)]
@@ -2368,6 +2489,14 @@ struct Shared {
     /// Links being forwarded through us (this node is a transport hop): a link id maps to the
     /// two interfaces it bridges, so a proof or link data arriving on one goes out the other.
     link_transport: Mutex<HashMap<AddressHash, LinkBridge>>,
+    /// Return paths for the proofs of other packets we carried, keyed by truncated packet
+    /// hash. Bounded, expired after [`REVERSE_TIMEOUT`], and consumed by the proof.
+    reverse_table: Mutex<HashMap<AddressHash, ReverseEntry>>,
+    /// Our sent single packets awaiting proof, keyed by the truncated packet hash a proof is
+    /// addressed to. Bounded by [`SINGLE_RECEIPTS`].
+    single_receipts: Mutex<HashMap<AddressHash, PendingReceipt>>,
+    /// Whether our proofs carry the signature alone (RNS's default) or the hash too.
+    implicit_proofs: AtomicBool,
     /// Abort handles for every task the endpoint spawned (the router, interface readers and
     /// writers, TCP listeners, and link relays). [`Endpoint`]'s drop aborts them all, which is
     /// what lets the router's `Arc<Shared>` — and thus `Shared` and every socket — be released
@@ -3034,6 +3163,64 @@ impl Shared {
         true
     }
 
+    /// Remember the way back for a carried packet's proof (RNS `Transport.py` 2104-2110).
+    fn remember_reverse(&self, packet: AddressHash, received: InterfaceId, outbound: InterfaceId) {
+        let now = Instant::now();
+        let mut table = self.reverse_table.lock().unwrap();
+        if !table.contains_key(&packet) {
+            make_room(
+                &mut table,
+                REVERSE_TABLE_CAPACITY,
+                |entry| now.duration_since(entry.at) >= REVERSE_TIMEOUT,
+                |entry| entry.at,
+            );
+        }
+        table.insert(
+            packet,
+            ReverseEntry {
+                received,
+                outbound,
+                at: now,
+            },
+        );
+    }
+
+    /// Consume the return path for a proof addressed to `packet`, yielding the interface to
+    /// carry it out on if it arrived on the one the packet left by (RNS `Transport.py`
+    /// 2733-2744).
+    fn take_reverse(&self, packet: AddressHash, arrived: InterfaceId) -> Option<InterfaceId> {
+        let entry = self.reverse_table.lock().unwrap().remove(&packet)?;
+        (entry.at.elapsed() < REVERSE_TIMEOUT && entry.outbound == arrived)
+            .then_some(entry.received)
+    }
+
+    /// Prove a received single packet back out the interface it arrived on.
+    fn send_single_proof(&self, iface: InterfaceId, packet_hash: &[u8; 32]) {
+        let implicit = self.implicit_proofs.load(Ordering::Relaxed);
+        let proof = crate::proof::proof_packet(&self.identity, packet_hash, implicit);
+        self.send_on_class(iface, proof, TrafficClass::Control);
+    }
+
+    /// Conclude the receipt a valid proof answers. A proof that does not validate leaves the
+    /// receipt in place, so a forgery cannot strand the genuine proof behind it.
+    fn conclude_single_receipt(&self, proof: &Packet) -> bool {
+        let receipt = {
+            let mut receipts = self.single_receipts.lock().unwrap();
+            let valid = receipts.get(&proof.destination).is_some_and(|receipt| {
+                crate::proof::validate(&proof.payload, &receipt.packet_hash, &receipt.identity)
+            });
+            if !valid {
+                return false;
+            }
+            receipts.remove(&proof.destination)
+        };
+        if let Some(receipt) = receipt {
+            let rtt = receipt.sent_at.elapsed();
+            let _ = receipt.proved.send(SingleDelivery::Delivered { rtt });
+        }
+        true
+    }
+
     /// Whether this announce (by packet hash) is new; records it if so.
     fn announce_is_new(&self, hash: AddressHash) -> bool {
         let mut g = self.seen_announces.lock().unwrap();
@@ -3171,6 +3358,9 @@ impl Endpoint {
             path_request_budget: Mutex::new(HashMap::new()),
             path_request_stamps: Mutex::new(VecDeque::new()),
             link_transport: Mutex::new(HashMap::new()),
+            reverse_table: Mutex::new(HashMap::new()),
+            single_receipts: Mutex::new(HashMap::new()),
+            implicit_proofs: AtomicBool::new(true),
             tasks: Mutex::new(Vec::new()),
             drainable: Mutex::new(Vec::new()),
             active_resources: AtomicUsize::new(0),
@@ -3816,6 +4006,8 @@ impl Endpoint {
             name: name.clone(),
             app_data: app_data.to_vec(),
             ratchets,
+            enforce_ratchets: false,
+            proof_strategy: ProofStrategy::None,
         });
         self.announce(&name, app_data);
     }
@@ -3893,10 +4085,90 @@ impl Endpoint {
             .build_announce_at(name, ratchet.as_ref(), app_data, source_seconds)
     }
 
-    /// Encrypt and queue one link-less packet to a destination's advertised ratchet.
+    /// Set when a registered destination proves the single packets it receives.
+    pub fn set_proof_strategy(
+        &self,
+        name: &DestinationName,
+        strategy: ProofStrategy,
+    ) -> io::Result<()> {
+        self.with_registration(name, |registration| {
+            registration.proof_strategy = strategy;
+            Ok(())
+        })
+    }
+
+    /// Refuse, or again accept, single packets a ratcheted destination receives encrypted to
+    /// its identity key rather than one of its ratchets (RNS `Destination.enforce_ratchets`).
+    /// Enforcement needs ratchets, so it is refused for a destination registered without.
+    pub fn set_enforce_ratchets(&self, name: &DestinationName, enforce: bool) -> io::Result<()> {
+        self.with_registration(name, |registration| {
+            if enforce && registration.ratchets.is_none() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "destination has no ratchets to enforce",
+                ));
+            }
+            registration.enforce_ratchets = enforce;
+            Ok(())
+        })
+    }
+
+    /// Whether this endpoint's proofs carry the signature alone (`true`, RNS's default) or
+    /// the proved packet's hash as well. Senders accept both.
+    pub fn set_implicit_proofs(&self, implicit: bool) {
+        self.shared
+            .implicit_proofs
+            .store(implicit, Ordering::Relaxed);
+    }
+
+    /// Prove receipt of a single packet to its sender, for a destination whose strategy is
+    /// [`ProofStrategy::App`] (or `All`, which already proved it). A destination that does
+    /// not prove refuses.
+    pub fn prove_single(&self, received: &ReceivedSingle) -> io::Result<()> {
+        let strategy = self
+            .shared
+            .registered
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|registration| registration.dest == received.destination)
+            .map(|registration| registration.proof_strategy)
+            .ok_or_else(|| {
+                io::Error::new(io::ErrorKind::NotFound, "destination is not registered")
+            })?;
+        if strategy == ProofStrategy::None {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "destination does not prove",
+            ));
+        }
+        self.shared
+            .send_single_proof(received.interface, &received.packet_hash);
+        Ok(())
+    }
+
+    fn with_registration(
+        &self,
+        name: &DestinationName,
+        change: impl FnOnce(&mut Registered) -> io::Result<()>,
+    ) -> io::Result<()> {
+        let dest = name.destination_hash(self.shared.identity.public());
+        let mut registered = self.shared.registered.lock().unwrap();
+        let registration = registered
+            .iter_mut()
+            .find(|registration| registration.dest == dest)
+            .ok_or_else(|| {
+                io::Error::new(io::ErrorKind::NotFound, "destination is not registered")
+            })?;
+        change(registration)
+    }
+
+    /// Encrypt and queue one link-less packet to a destination: to its advertised ratchet, or
+    /// to its identity key when it advertises none, as RNS does.
     ///
-    /// This is delivery, not a receipt from the peer. Success means the packet was encrypted
-    /// to the latest validated announce and accepted by at least one local interface queue.
+    /// Success means the packet was encrypted to the latest validated announce and accepted
+    /// by at least one local interface queue. The receipt's [`delivery`](SinglePacketReceipt::delivery)
+    /// learns whether the destination proved it.
     pub fn send_single(&self, dest: AddressHash, data: &[u8]) -> io::Result<SinglePacketReceipt> {
         if !self.shared.is_running() {
             return Err(endpoint_closed());
@@ -3912,19 +4184,17 @@ impl Endpoint {
             let peer = address_book.resolve(dest).ok_or_else(|| {
                 io::Error::new(io::ErrorKind::NotFound, "destination has not announced")
             })?;
-            let ratchet = peer.ratchet.ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "destination did not advertise a ratchet",
-                )
-            })?;
-            (peer.identity, ratchet)
+            (peer.identity, peer.ratchet)
         };
 
         let mut ephemeral = [0u8; KEY_LEN];
         fill_random(&mut ephemeral);
-        let payload =
-            crate::token::encrypt_to_ratchet(&peer, &ratchet, &ephemeral, &next_iv(), data);
+        let payload = match &ratchet {
+            Some(ratchet) => {
+                crate::token::encrypt_to_ratchet(&peer, ratchet, &ephemeral, &next_iv(), data)
+            }
+            None => crate::token::encrypt_to_identity(&peer, &ephemeral, &next_iv(), data),
+        };
         let packet = Packet {
             ifac: false,
             header_type: crate::packet::HeaderType::Type1,
@@ -3940,8 +4210,45 @@ impl Endpoint {
         };
         debug_assert!(packet.within_mtu());
 
+        // Track the receipt before queueing, so a proof cannot outrun it (RNS `Packet.py`
+        // 413-433: a first-hop allowance plus one per hop).
+        let packet_hash = packet.full_hash();
+        let proof_destination = crate::proof::truncated(&packet_hash);
+        let hops = self
+            .route_to(dest)
+            .map_or(UNKNOWN_PATH_HOPS, |(_, hops)| u32::from(hops) + 1);
+        let timeout = RECEIPT_TIMEOUT_PER_HOP * (1 + hops);
+        let sent_at = tokio::time::Instant::now();
+        let (proved_tx, proved) = oneshot::channel();
+        {
+            let mut receipts = self.shared.single_receipts.lock().unwrap();
+            if let Some(culled) = make_room(
+                &mut receipts,
+                SINGLE_RECEIPTS,
+                |receipt| receipt.deadline <= sent_at || receipt.proved.is_closed(),
+                |receipt| receipt.sent_at,
+            ) {
+                let _ = culled.proved.send(SingleDelivery::Culled);
+            }
+            receipts.insert(
+                proof_destination,
+                PendingReceipt {
+                    packet_hash,
+                    identity: peer,
+                    sent_at,
+                    deadline: sent_at + timeout,
+                    proved: proved_tx,
+                },
+            );
+        }
+
         let queued = self.shared.queue_single(dest, packet);
         if queued.queued == 0 {
+            self.shared
+                .single_receipts
+                .lock()
+                .unwrap()
+                .remove(&proof_destination);
             if !queued.frame_capable
                 && let Some((actual, limit)) = queued.frame_limit_rejection
             {
@@ -3959,8 +4266,12 @@ impl Endpoint {
         }
         Ok(SinglePacketReceipt {
             destination: dest,
-            ratchet_id: NameHash::of(&ratchet),
+            ratchet_id: ratchet.as_ref().map(|ratchet| NameHash::of(ratchet)),
             queued_interfaces: queued.queued,
+            packet_hash,
+            timeout,
+            sent_at,
+            proved,
         })
     }
 
@@ -4582,27 +4893,42 @@ fn deliver_single(shared: &Arc<Shared>, iface: InterfaceId, pkt: &Packet) {
         .unwrap()
         .iter()
         .find(|registration| registration.dest == pkt.destination)
-        .map(|registration| registration.ratchets.clone());
-    let Some(ratchets) = registration else {
+        .map(|registration| {
+            (
+                registration.ratchets.clone(),
+                registration.enforce_ratchets,
+                registration.proof_strategy,
+            )
+        });
+    let Some((ratchets, enforce_ratchets, proof_strategy)) = registration else {
         return;
     };
 
-    let decrypted = match ratchets {
-        Some(ratchets) => ratchets
-            .decrypt(&shared.identity, &pkt.payload)
-            .ok()
-            .map(|(data, ratchet_id)| (data, Some(ratchet_id))),
+    // Retained ratchets first, then the identity key unless ratchets are enforced (RNS
+    // `Identity.decrypt`).
+    let ratcheted = ratchets
+        .and_then(|ratchets| ratchets.decrypt(&shared.identity, &pkt.payload).ok())
+        .map(|(data, ratchet_id)| (data, Some(ratchet_id)));
+    let decrypted = match ratcheted {
+        Some(decrypted) => Some(decrypted),
+        None if enforce_ratchets => None,
         None => crate::token::decrypt_to_identity(&shared.identity, &pkt.payload)
             .ok()
             .map(|data| (data, None)),
     };
-    if let Some((data, ratchet_id)) = decrypted {
-        let _ = shared.single_tx.send(ReceivedSingle {
-            destination: pkt.destination,
-            interface: iface,
-            data,
-            ratchet_id,
-        });
+    let Some((data, ratchet_id)) = decrypted else {
+        return;
+    };
+    let packet_hash = pkt.full_hash();
+    let _ = shared.single_tx.send(ReceivedSingle {
+        destination: pkt.destination,
+        interface: iface,
+        data,
+        ratchet_id,
+        packet_hash,
+    });
+    if proof_strategy == ProofStrategy::All {
+        shared.send_single_proof(iface, &packet_hash);
     }
 }
 
@@ -4706,6 +5032,15 @@ fn process_verified_announce(
     // from the packet loop; without one ordered bundle, two candidates could both evaluate as
     // admissible and publish/relay out of freshness order.
     let mut freshness = shared.announce_freshness.lock().unwrap();
+    // A known destination announced under another key is rejected outright, before it can
+    // touch freshness, a route, or a relay (RNS `Identity.validate_announce`).
+    if shared.address_book.lock().unwrap().key_conflicts(&announce) {
+        shared
+            .routing_stats
+            .key_mismatch_announces
+            .fetch_add(1, Ordering::Relaxed);
+        return;
+    }
     let candidate = AnnounceFreshnessCandidate {
         destination: announce.destination,
         blob: AnnounceBlob::from_wire(announce.rand_hash),
@@ -5221,6 +5556,24 @@ fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
             }
         }
         PacketType::Proof => {
+            // A single-packet proof: carry it back the way its packet came, or conclude one
+            // of our receipts (RNS `Transport.py` 2724-2761).
+            if !matches!(pkt.context, link::CTX_LRPROOF | link::CTX_RESOURCE_PRF) {
+                if let Some(back) = shared.take_reverse(pkt.destination, iface) {
+                    if policy.accepts_transit_from(iface) {
+                        forward_on(shared, back, pkt, &policy);
+                    } else {
+                        shared
+                            .routing_stats
+                            .policy_rejected
+                            .fetch_add(1, Ordering::Relaxed);
+                    }
+                    return;
+                }
+                if shared.conclude_single_receipt(&pkt) {
+                    return;
+                }
+            }
             // Complete a pending outbound link, binding it to the interface it came in on.
             // Validate the proof against the pending link BEFORE removing it: a forged proof
             // addressed to a real pending link id must not be able to evict it and strand the
@@ -5385,6 +5738,10 @@ fn forward(shared: &Arc<Shared>, from: InterfaceId, pkt: Packet, policy: &Routin
                 BridgeAdmission::New => admitted = Some(link_id),
                 BridgeAdmission::Known => {}
             }
+        } else if pkt.packet_type != PacketType::LinkRequest {
+            // RNS records a reverse entry for every other carried packet, so its proof can
+            // come back the same way (`Transport.py` 2104-2110).
+            shared.remember_reverse(pkt.hash(), from, out);
         }
         // A route carrying transit is in use, and RNS refreshes it (`Transport.py` 2113).
         shared.touch_path(dest);
@@ -6017,6 +6374,106 @@ fn next_iv() -> [u8; IV_LEN] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A peer announce, decoded, and the packet that carried it.
+    fn peer_announce(seed: u8, aspect: &str) -> (Packet, Announce) {
+        let id = PrivateIdentity::from_secret_bytes(&[seed; 64]);
+        let packet = announce::build(
+            &id,
+            DestinationName::new("retinue", [aspect]).name_hash(),
+            &AnnounceBlob::from_wire([seed; crate::announce::RAND_HASH_LEN]),
+            None,
+            b"",
+        );
+        let decoded = Announce::decode(&packet).unwrap();
+        (packet, decoded)
+    }
+
+    /// The reverse table carries a proof once, only from the interface its packet left by,
+    /// within `REVERSE_TIMEOUT`, and holds at most `REVERSE_TABLE_CAPACITY` return paths.
+    #[tokio::test]
+    async fn reverse_table_is_consumed_on_use_expires_and_is_bounded() {
+        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0xB1; 64]));
+        let shared = &ep.shared;
+        let packet = AddressHash::from_bytes([0xB2; 16]);
+
+        shared.remember_reverse(packet, 1, 2);
+        assert_eq!(shared.take_reverse(packet, 3), None, "wrong interface");
+        assert_eq!(shared.take_reverse(packet, 2), None, "consumed by the miss");
+
+        shared.remember_reverse(packet, 1, 2);
+        assert_eq!(shared.take_reverse(packet, 2), Some(1));
+        assert_eq!(shared.take_reverse(packet, 2), None, "consumed by the use");
+
+        if let Some(lapsed) = Instant::now().checked_sub(REVERSE_TIMEOUT) {
+            shared.remember_reverse(packet, 1, 2);
+            shared
+                .reverse_table
+                .lock()
+                .unwrap()
+                .get_mut(&packet)
+                .unwrap()
+                .at = lapsed;
+            assert_eq!(shared.take_reverse(packet, 2), None, "expired");
+        }
+
+        for byte in 0..=REVERSE_TABLE_CAPACITY as u8 {
+            shared.remember_reverse(AddressHash::from_bytes([byte; 16]), 1, 2);
+        }
+        assert_eq!(
+            shared.reverse_table.lock().unwrap().len(),
+            REVERSE_TABLE_CAPACITY
+        );
+    }
+
+    /// The outbound receipt table is bounded: past `SINGLE_RECEIPTS` the oldest receipt is
+    /// culled and says so (RNS `Transport.py` 744-749).
+    #[tokio::test]
+    async fn the_oldest_receipt_is_culled_at_capacity() {
+        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0xB3; 64]));
+        let _wire = ep.attach_interface();
+        let (_, peer) = peer_announce(0xB4, "receipts");
+        ep.shared.address_book.lock().unwrap().ingest(&peer);
+
+        let mut receipts: Vec<_> = (0..=SINGLE_RECEIPTS)
+            .map(|n| ep.send_single(peer.destination, &[n as u8; 8]).unwrap())
+            .collect();
+        assert_eq!(
+            ep.shared.single_receipts.lock().unwrap().len(),
+            SINGLE_RECEIPTS
+        );
+        let oldest = receipts.remove(0);
+        assert_eq!(oldest.delivery().await, SingleDelivery::Culled);
+    }
+
+    /// An announce naming a known destination under another key is rejected whole: the
+    /// known key stays, and no route or announcement follows (RNS `Identity.py` 569-577).
+    #[tokio::test]
+    async fn an_announce_with_a_different_key_for_a_known_destination_is_rejected() {
+        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0xB5; 64]));
+        let wire = ep.attach_interface();
+        let (packet, announce) = peer_announce(0xB6, "mismatch");
+        // A real impostor would need a hash collision; stand one in by swapping the key.
+        let mut known = announce.clone();
+        known.identity = *PrivateIdentity::from_secret_bytes(&[0xB7; 64]).public();
+        ep.shared.address_book.lock().unwrap().ingest(&known);
+
+        assert!(wire.sink().deliver(packet));
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while ep.routing_counters().key_mismatch_announces == 0 {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("the mismatch is counted");
+        assert_eq!(ep.resolve(announce.destination), Some(known.identity));
+        assert_eq!(ep.route_to(announce.destination), None);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), ep.next_announcement())
+                .await
+                .is_err()
+        );
+    }
 
     #[cfg(feature = "compression")]
     #[tokio::test]
@@ -6721,6 +7178,8 @@ mod tests {
             name: second_name.clone(),
             app_data: b"path-cap".to_vec(),
             ratchets: None,
+            enforce_ratchets: false,
+            proof_strategy: ProofStrategy::None,
         });
 
         let first = ep.build_announce_at(&first_name, b"first-cap", 700);

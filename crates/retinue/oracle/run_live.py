@@ -35,6 +35,7 @@ GATES = (
     "interop_transit_mtu.py",
     "interop_path_request.py",
     "interop_reliable_vanish.py",
+    "interop_single_proof.py",
 )
 
 

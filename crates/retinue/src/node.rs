@@ -447,6 +447,10 @@ pub const PATH_REQUEST_TAGS: usize = 8;
 /// The Reticulum transport hop ceiling.
 pub const DEFAULT_TRANSPORT_MAX_HOPS: u8 = 128;
 
+/// How long a carried packet's return path is kept for its delivery proof (RNS
+/// `Transport.REVERSE_TIMEOUT`, eight minutes).
+pub const REVERSE_TIMEOUT: u64 = 480_000;
+
 /// What this node agrees to carry for other destinations.
 ///
 /// Transport is explicit because many boards are endpoints, not routers. The firmware can opt
@@ -543,6 +547,9 @@ pub struct TransportCounters {
     pub own_echo_dropped: u16,
     /// Far-end link packets heard again, directly or from a relay, and dropped as copies.
     pub duplicate_dropped: u16,
+    /// Validly signed announces rejected because they name a known destination under a
+    /// different public key.
+    pub key_mismatch_announces: u16,
 }
 
 /// Side-effect-free local state relevant to pausing this node's radio.
@@ -758,6 +765,16 @@ impl<const N: usize> HashGenerations<N> {
     }
 }
 
+/// The way back for a carried packet's proof: RNS's reverse-table entry, keyed by the
+/// truncated packet hash the proof is addressed to.
+#[derive(Debug, Clone, Copy)]
+struct ReverseEntry {
+    packet: AddressHash,
+    received: InterfaceId,
+    outbound: InterfaceId,
+    seen: u64,
+}
+
 /// One derived resource IV: `full_hash(tag || identity secret || link id || counter)`.
 ///
 /// Deterministic on purpose — this layer holds no RNG — and unique by the counter, which
@@ -843,6 +860,9 @@ pub struct Node<
     /// link-data packet names a link id rather than its original destination, so this is the
     /// small fact that lets return traffic take the same bridge back.
     bridges: BoundedVec<LinkBridge, ROUTES>,
+    /// Return paths for the proofs of carried packets, consumed by the proof that uses them
+    /// and forgotten after [`REVERSE_TIMEOUT`]. The oldest gives way at capacity.
+    reverse: BoundedVec<ReverseEntry, ROUTES>,
     /// Recently relayed packet hashes. Bounded and time-limited because a shared radio hears
     /// its own relays; without this, one transport node can keep repeating the same frame.
     transit_filter: HashGenerations<TRANSPORT_DEDUP_HASHES>,
@@ -932,6 +952,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             bridges: BoundedVec::new(),
             transit_filter: HashGenerations::new(),
             path_request_tags: HashGenerations::new(),
+            reverse: BoundedVec::new(),
             sent_link_data: BoundedVec::new(),
             received_link_data: BoundedVec::new(),
             last_announce: None,
@@ -1600,6 +1621,8 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             self.transport_counters.expired_bridges =
                 self.transport_counters.expired_bridges.saturating_add(1);
         }
+        self.reverse
+            .retain(|entry| now.saturating_sub(entry.seen) < REVERSE_TIMEOUT);
     }
 
     fn expire_routes(&mut self, now: u64) {
@@ -1917,6 +1940,79 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         }) {
             // A route carrying transit is in use, and RNS refreshes it (`Transport.py` 2113).
             self.touch_route(packet.destination, now);
+            if packet.packet_type != PacketType::LinkRequest {
+                // RNS's reverse entry, so the packet's proof can come back (`Transport.py`
+                // 2104-2110). A link request's bridge was admitted before forwarding.
+                self.remember_reverse(packet.hash(), interface, route.interface, now);
+            }
+            self.transport_counters.forwarded_packets =
+                self.transport_counters.forwarded_packets.saturating_add(1);
+        }
+        true
+    }
+
+    /// Record the way back for a carried packet's proof (RNS `Transport.py` 2104-2110).
+    fn remember_reverse(
+        &mut self,
+        packet: AddressHash,
+        received: InterfaceId,
+        outbound: InterfaceId,
+        now: u64,
+    ) {
+        self.reverse.retain(|entry| entry.packet != packet);
+        if self.reverse.is_full()
+            && let Some(index) = self
+                .reverse
+                .iter()
+                .enumerate()
+                .min_by_key(|(_, entry)| entry.seen)
+                .map(|(index, _)| index)
+        {
+            self.reverse.swap_remove(index);
+        }
+        let _ = self.reverse.push(ReverseEntry {
+            packet,
+            received,
+            outbound,
+            seen: now,
+        });
+    }
+
+    /// Carry a delivery proof back along a remembered reverse path. The entry is consumed
+    /// either way; a proof arriving on any interface but the one the packet left by is not
+    /// carried (RNS `Transport.py` 2733-2744). Returns whether the proof was carried.
+    fn forward_reverse_proof(
+        &mut self,
+        interface: InterfaceId,
+        packet: &Packet,
+        actions: &mut Actions<ACTIONS>,
+    ) -> bool {
+        if !self.transport.relay_packets
+            || matches!(packet.context, link::CTX_LRPROOF | link::CTX_RESOURCE_PRF)
+        {
+            return false;
+        }
+        let Some(index) = self
+            .reverse
+            .iter()
+            .position(|entry| entry.packet == packet.destination)
+        else {
+            return false;
+        };
+        let entry = self.reverse.swap_remove(index);
+        if interface != entry.outbound {
+            return false;
+        }
+        let mut forwarded = packet.clone();
+        forwarded.hops = forwarded.hops.saturating_add(1);
+        if forwarded.encoded_len() > self.logical_mtu as usize {
+            self.refused_payloads = self.refused_payloads.saturating_add(1);
+            return true;
+        }
+        if actions.push(Action::Send {
+            interface: entry.received,
+            packet: forwarded,
+        }) {
             self.transport_counters.forwarded_packets =
                 self.transport_counters.forwarded_packets.saturating_add(1);
         }
@@ -2013,6 +2109,11 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         }
 
         self.expire_transport_state(now);
+        if packet.packet_type == PacketType::Proof
+            && self.forward_reverse_proof(interface, packet, &mut actions)
+        {
+            return actions;
+        }
         if packet.packet_type != PacketType::Announce
             && (self.forward_bridged_packet(interface, packet, now, &mut actions)
                 || self.forward_transport_packet(interface, packet, now, &mut actions))
@@ -2032,6 +2133,15 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                 // matches the announced identity, so an entry can only come from an
                 // announce whose maths checked out. The invalid fixtures are the proof.
                 if let Ok(announce) = Announce::decode(packet) {
+                    // A known destination announced under another key is rejected outright,
+                    // before freshness, routes or relaying (RNS `Identity.validate_announce`).
+                    if self.book.key_conflicts(&announce) {
+                        self.transport_counters.key_mismatch_announces = self
+                            .transport_counters
+                            .key_mismatch_announces
+                            .saturating_add(1);
+                        return actions;
+                    }
                     let candidate = AnnounceFreshnessCandidate {
                         destination: announce.destination,
                         blob: crate::announce::AnnounceBlob::from_wire(announce.rand_hash),
@@ -4683,6 +4793,144 @@ mod tests {
         assert_eq!(relay.pause_assessment().transit_bridges, 0);
         assert!(relay.ingest(IFACE, &late, 6).is_empty());
         assert!(relay.peers().knows(destination.destination()));
+    }
+
+    /// A relay remembers the way back for every packet it carries, and carries the proof
+    /// back once, only from the interface the packet left by, within `REVERSE_TIMEOUT`
+    /// (RNS `Transport.py` 2104-2110, 863-870, 2733-2744).
+    #[test]
+    fn transport_carries_a_single_packet_proof_back_once() {
+        const OUT: InterfaceId = IFACE + 1;
+        let (_, destination) = pair();
+        let mut relay = Node::<32, 8, 4, 4>::new(
+            PrivateIdentity::from_secret_bytes(&[0x44; 64]),
+            DestinationName::new("retinue", ["relay"]).name_hash(),
+        )
+        .with_transport_config(TransportConfig::transit());
+        relay.ingest(
+            OUT,
+            &destination.announce(&blob([0x77; RAND_HASH_LEN]), None),
+            0,
+        );
+
+        let carry = |relay: &mut Node<32, 8, 4, 4>, byte: u8, now: u64| {
+            let packet = Packet {
+                ifac: false,
+                header_type: HeaderType::Type2,
+                context_flag: false,
+                propagation: crate::packet::Propagation::Transport,
+                destination_type: crate::packet::DestinationType::Single,
+                packet_type: PacketType::Data,
+                hops: 0,
+                transport: Some(relay.identity.hash()),
+                destination: destination.destination(),
+                context: 0,
+                payload: vec![byte; 48],
+            };
+            let actions = relay.ingest(IFACE, &packet, now);
+            assert!(matches!(
+                actions.iter().next(),
+                Some(Action::Send { interface: OUT, .. })
+            ));
+            crate::proof::proof_packet(&destination.identity, &packet.full_hash(), true)
+        };
+
+        // Carried back from the egress interface, once.
+        let proof = carry(&mut relay, 1, 1);
+        let actions = relay.ingest(OUT, &proof, 2);
+        let Some(Action::Send { interface, packet }) = actions.iter().next() else {
+            panic!("the proof is carried back");
+        };
+        assert_eq!(*interface, IFACE);
+        assert_eq!(packet.hops, proof.hops + 1);
+        assert_eq!(packet.payload, proof.payload);
+        assert!(
+            relay.ingest(OUT, &proof, 3).is_empty(),
+            "the entry was consumed"
+        );
+
+        // A proof from any other interface consumes the entry without being carried.
+        let proof = carry(&mut relay, 2, 4);
+        assert!(relay.ingest(IFACE + 2, &proof, 5).is_empty());
+        assert!(relay.ingest(OUT, &proof, 6).is_empty());
+
+        // The way back is forgotten after REVERSE_TIMEOUT.
+        let proof = carry(&mut relay, 3, 10);
+        assert!(relay.ingest(OUT, &proof, 10 + REVERSE_TIMEOUT).is_empty());
+        assert_eq!(relay.transport_counters().forwarded_packets, 4);
+    }
+
+    /// The reverse table is bounded by `ROUTES`: the oldest way back gives way.
+    #[test]
+    fn reverse_table_is_bounded_by_routes() {
+        let (_, destination) = pair();
+        let mut relay = Node::<32, 8, 4, 2>::new(
+            PrivateIdentity::from_secret_bytes(&[0x44; 64]),
+            DestinationName::new("retinue", ["relay"]).name_hash(),
+        )
+        .with_transport_config(TransportConfig::transit());
+        relay.ingest(
+            IFACE + 1,
+            &destination.announce(&blob([0x77; RAND_HASH_LEN]), None),
+            0,
+        );
+        let mut proofs = vec![];
+        for byte in 0..3u8 {
+            let packet = Packet {
+                ifac: false,
+                header_type: HeaderType::Type2,
+                context_flag: false,
+                propagation: crate::packet::Propagation::Transport,
+                destination_type: crate::packet::DestinationType::Single,
+                packet_type: PacketType::Data,
+                hops: 0,
+                transport: Some(relay.identity.hash()),
+                destination: destination.destination(),
+                context: 0,
+                payload: vec![byte; 48],
+            };
+            assert!(sent(&relay.ingest(IFACE, &packet, u64::from(byte) + 1)).is_some());
+            proofs.push(crate::proof::proof_packet(
+                &destination.identity,
+                &packet.full_hash(),
+                false,
+            ));
+        }
+        assert_eq!(relay.reverse.len(), 2);
+        assert!(relay.ingest(IFACE + 1, &proofs[0], 5).is_empty());
+        assert!(sent(&relay.ingest(IFACE + 1, &proofs[1], 5)).is_some());
+        assert!(sent(&relay.ingest(IFACE + 1, &proofs[2], 5)).is_some());
+    }
+
+    /// A validly signed announce naming a known destination under a different key is
+    /// rejected before it can touch freshness, a route or a relay (RNS `Identity.py`
+    /// 569-577).
+    #[test]
+    fn an_announce_with_a_different_key_for_a_known_destination_is_rejected() {
+        let (_, destination) = pair();
+        let mut relay = Node::<32, 8, 4, 4>::new(
+            PrivateIdentity::from_secret_bytes(&[0x44; 64]),
+            DestinationName::new("retinue", ["relay"]).name_hash(),
+        )
+        .with_transport_config(TransportConfig::transit());
+        let packet = destination.announce(&blob([0x77; RAND_HASH_LEN]), None);
+        // Stand in for an earlier announce of the same destination hash under another key:
+        // a real one would need a hash collision.
+        let mut known = Announce::decode(&packet).unwrap();
+        known.identity = *PrivateIdentity::from_secret_bytes(&[0x45; 64]).public();
+        assert_eq!(relay.book.ingest(&known), Ingested::Learned);
+
+        assert!(relay.ingest(IFACE, &packet, 0).is_empty());
+        assert_eq!(relay.transport_counters().key_mismatch_announces, 1);
+        assert_eq!(relay.route_count(), 0);
+        assert_eq!(
+            relay
+                .peers()
+                .resolve(destination.destination())
+                .unwrap()
+                .identity,
+            known.identity
+        );
     }
 
     /// A transit source addresses its own request to the relay that taught it the route, and

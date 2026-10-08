@@ -78,6 +78,10 @@ name = "endpoint_stream"
 required-features = ["tokio"]
 
 [[example]]
+name = "single_proof_interop"
+required-features = ["tokio"]
+
+[[example]]
 name = "reliable_stream_oracle"
 required-features = ["tokio"]
 
