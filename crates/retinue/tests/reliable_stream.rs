@@ -164,3 +164,100 @@ async fn reliable_exchange_survives_loss_including_identify() {
         "client received the exact response over loss"
     );
 }
+
+/// A peer that vanishes mid-stream fails the stream and closes the link (review #15).
+///
+/// RNS gives each channel packet five tries, then tears the link down. Before, the driver
+/// retransmitted forever and the reader waited forever. Here both directions are cut after a
+/// first exchange, the client writes again, and its reader must end with `TimedOut` while
+/// the driver sends a link close and forgets the link.
+#[tokio::test]
+async fn a_vanished_peer_fails_the_stream_and_closes_the_link() {
+    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+
+    use retinue::link::CTX_LINKCLOSE;
+
+    let server_id = PrivateIdentity::from_secret_bytes(&[0x52; 64]);
+    let client_id = PrivateIdentity::from_secret_bytes(&[0x25; 64]);
+    let server = Arc::new(Endpoint::new(server_id.clone()));
+    let client = Endpoint::new(client_id);
+
+    let name = DestinationName::new("retinue", ["reliable-vanish"]);
+    let dest = name.destination_hash(server_id.public());
+    server.register_reliable(name, b"");
+
+    // Hand-rolled pumps, so the wire can be cut and the client's last packets inspected.
+    let alive = Arc::new(AtomicBool::new(true));
+    let closes_after_cut = Arc::new(AtomicU32::new(0));
+    let (mut client_out, client_sink) = client.attach_interface().split();
+    let (mut server_out, server_sink) = server.attach_interface().split();
+    tokio::spawn({
+        let alive = Arc::clone(&alive);
+        let closes = Arc::clone(&closes_after_cut);
+        async move {
+            while let Some(pkt) = client_out.recv().await {
+                if alive.load(Ordering::SeqCst) {
+                    server_sink.deliver(pkt);
+                } else if pkt.context == CTX_LINKCLOSE {
+                    closes.fetch_add(1, Ordering::SeqCst);
+                }
+            }
+        }
+    });
+    tokio::spawn({
+        let alive = Arc::clone(&alive);
+        async move {
+            while let Some(pkt) = server_out.recv().await {
+                if alive.load(Ordering::SeqCst) {
+                    client_sink.deliver(pkt);
+                }
+            }
+        }
+    });
+
+    let server_task = tokio::spawn({
+        let server = Arc::clone(&server);
+        async move {
+            let mut stream = server.accept_reliable().await.unwrap();
+            let mut first = [0u8; 5];
+            stream.read_exact(&mut first).await.unwrap();
+            // Keep the stream open; the wire is about to be cut under it.
+            (stream, first)
+        }
+    });
+
+    let mut stream = tokio::time::timeout(
+        Duration::from_secs(10),
+        client.open_reliable(dest, *server_id.public()),
+    )
+    .await
+    .expect("link opens within timeout")
+    .expect("reliable stream");
+    let link_id = stream.link_id();
+    stream.write_all(b"hello").await.unwrap();
+    let (_server_stream, first) = tokio::time::timeout(Duration::from_secs(10), server_task)
+        .await
+        .expect("server read the first bytes")
+        .unwrap();
+    assert_eq!(&first, b"hello");
+    // Let the proofs of the first bytes land before the cut.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    alive.store(false, Ordering::SeqCst);
+    stream.write_all(b"into the void").await.unwrap();
+
+    let mut sink = Vec::new();
+    let error = tokio::time::timeout(Duration::from_secs(30), stream.read_to_end(&mut sink))
+        .await
+        .expect("the stream must fail rather than wait forever")
+        .expect_err("a vanished peer is an error, not a clean end of stream");
+    assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+    assert!(
+        closes_after_cut.load(Ordering::SeqCst) >= 1,
+        "the driver sent a link close"
+    );
+    assert!(
+        client.link_facts().iter().all(|fact| fact.id != link_id),
+        "and forgot the link"
+    );
+}

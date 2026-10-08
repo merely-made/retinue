@@ -34,6 +34,7 @@ GATES = (
     "interop_link_liveness.py",
     "interop_transit_mtu.py",
     "interop_path_request.py",
+    "interop_reliable_vanish.py",
 )
 
 
