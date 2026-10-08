@@ -139,6 +139,10 @@ pub enum Propagation {
 /// A decoded packet.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Packet {
+    /// Bit 7 as it arrived. A logical packet never carries it: IFAC is the interface's
+    /// envelope, which [`crate::ifac::Ifac::seal`] adds and [`crate::ifac::Ifac::open`]
+    /// removes, so a decoded packet with this set reached a decoder that skipped IFAC and
+    /// must be refused. [`Packet::encode`] never writes it.
     pub ifac: bool,
     pub header_type: HeaderType,
     /// Bit 5. On an announce this means "a ratchet key is present in the payload".
@@ -270,11 +274,12 @@ impl Packet {
     }
 
     /// Encode a packet for the wire.
+    ///
+    /// The IFAC flag is left clear whatever [`Self::ifac`] says. Only an IFAC interface's
+    /// [`crate::ifac::Ifac::seal`] sets it, so a forwarded copy of a received packet does
+    /// not leave a plain interface carrying a flag every RNS peer drops it for.
     pub fn encode(&self) -> Vec<u8> {
         let mut flags = 0u8;
-        if self.ifac {
-            flags |= 0b1000_0000;
-        }
         if matches!(self.header_type, HeaderType::Type2) {
             flags |= 0b0100_0000;
         }
@@ -334,6 +339,21 @@ mod tests {
         assert!(p.context_flag);
         assert_eq!(p.packet_type, PacketType::Announce);
         assert_eq!(p.encode()[0], 0x21);
+    }
+
+    #[test]
+    fn encode_never_sets_the_ifac_flag() {
+        // An IFAC-flagged frame decodes with the flag recorded, but its forwarded copy
+        // leaves with bit 7 clear; only `Ifac::seal` sets it.
+        let mut v = vec![0x80 | 0x21, 0x03];
+        v.extend_from_slice(&[0xAA; 16]);
+        v.push(0x00);
+        let p = Packet::decode(&v).unwrap();
+        assert!(p.ifac);
+        let wire = p.encode();
+        assert_eq!(wire[0] & 0x80, 0);
+        assert_eq!(wire[0], 0x21);
+        assert_eq!(wire[1..], v[1..]);
     }
 
     #[test]

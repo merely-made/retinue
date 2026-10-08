@@ -1305,6 +1305,10 @@ pub struct RoutingCounters {
     pub policy_rejected: u64,
     /// Packets dropped for reaching the policy's hop ceiling.
     pub hop_limit_dropped: u64,
+    /// Packets dropped for carrying the IFAC flag into an interface without IFAC. An IFAC
+    /// interface strips the flag when it verifies a frame, so any flag that reaches the
+    /// router came off a plain interface, where RNS drops it too.
+    pub ifac_flag_rejected: u64,
     /// Announces turned away by a full address book, and therefore not routed, relayed, or
     /// published either. Climbing means the book is at capacity, which is worth knowing:
     /// past that point this endpoint is deaf to peers it has not already met.
@@ -1347,6 +1351,7 @@ struct RoutingStats {
     forwarded_announces: AtomicU64,
     policy_rejected: AtomicU64,
     hop_limit_dropped: AtomicU64,
+    ifac_flag_rejected: AtomicU64,
     refused_announces: AtomicU64,
     held_announces: AtomicU64,
     held_announces_dropped: AtomicU64,
@@ -1369,6 +1374,7 @@ impl RoutingStats {
             forwarded_announces: self.forwarded_announces.load(Ordering::Relaxed),
             policy_rejected: self.policy_rejected.load(Ordering::Relaxed),
             hop_limit_dropped: self.hop_limit_dropped.load(Ordering::Relaxed),
+            ifac_flag_rejected: self.ifac_flag_rejected.load(Ordering::Relaxed),
             refused_announces: self.refused_announces.load(Ordering::Relaxed),
             held_announces: self.held_announces.load(Ordering::Relaxed),
             held_announces_dropped: self.held_announces_dropped.load(Ordering::Relaxed),
@@ -1489,7 +1495,9 @@ impl InterfaceSink {
     /// Authenticate and decode one complete carrier frame, then deliver it.
     ///
     /// An IFAC-configured interface rejects open, incorrectly keyed, and
-    /// modified frames before they reach the endpoint router.
+    /// modified frames before they reach the endpoint router. An interface
+    /// without IFAC hands a frame carrying the IFAC flag on, and the router
+    /// drops it and counts it in [`RoutingCounters::ifac_flag_rejected`].
     pub fn deliver_frame(&self, frame: &[u8]) -> crate::Result<bool> {
         let packet = match &self.ifac {
             Some(ifac) => Packet::decode(&ifac.open(frame)?)?,
@@ -2711,6 +2719,15 @@ impl Endpoint {
         let router = Arc::clone(&shared);
         track(&shared, async move {
             while let Some((iface, pkt)) = router_rx.recv().await {
+                // Every ingress path (TCP, `deliver`, `deliver_frame`) funnels through here,
+                // so this is the one place a flagged frame from a plain interface is refused.
+                if pkt.ifac {
+                    router
+                        .routing_stats
+                        .ifac_flag_rejected
+                        .fetch_add(1, Ordering::Relaxed);
+                    continue;
+                }
                 route(&router, iface, pkt);
             }
         });

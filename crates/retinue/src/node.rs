@@ -839,7 +839,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
     }
 
     /// Oversized inbound packets, relay packets, announcements and outbound resource
-    /// requests refused so far.
+    /// requests refused so far, plus inbound packets refused for carrying the IFAC flag.
     /// `send` is immutable and reports its refusal through `None`.
     pub fn refused_payloads(&self) -> u64 {
         self.refused_payloads
@@ -1685,6 +1685,13 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
     ) -> Actions<ACTIONS> {
         let mut actions = Actions::new();
 
+        // IFAC is the interface's envelope: `Ifac::open` strips the flag, so a packet still
+        // carrying it was decoded raw off an interface without IFAC. RNS drops those.
+        if packet.ifac {
+            self.refused_payloads = self.refused_payloads.saturating_add(1);
+            return actions;
+        }
+
         if packet.encoded_len() > self.payload_limits.max_ingress_bytes {
             self.refused_payloads = self.refused_payloads.saturating_add(1);
             return actions;
@@ -2330,6 +2337,21 @@ mod tests {
         assert!(sent(&actions).is_none());
         assert_eq!(relay.refused_payloads(), 1);
         assert!(relay.peers().knows(peer.destination()));
+    }
+
+    #[test]
+    fn ingest_refuses_a_packet_carrying_the_ifac_flag() {
+        let (mut node, peer) = pair();
+        let mut flagged = peer.announce(&blob([5; RAND_HASH_LEN]), None);
+        flagged.ifac = true;
+        assert!(node.ingest(IFACE, &flagged, 0).is_empty());
+        assert_eq!(node.refused_payloads(), 1);
+        assert!(!node.peers().knows(peer.destination()));
+
+        flagged.ifac = false;
+        node.ingest(IFACE, &flagged, 0);
+        assert_eq!(node.refused_payloads(), 1);
+        assert!(node.peers().knows(peer.destination()));
     }
 
     /// Two nodes that have not met.

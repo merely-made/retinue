@@ -739,9 +739,13 @@ fn carrier_refuses_envelope_flag_as_logical_packet() {
     let blob = retinue::announce::AnnounceBlob::mint([1; 5], 1).unwrap();
     let mut packet = runtime.retinue().node().announce(&blob, None);
     packet.ifac = true;
+    // `Packet::encode` never writes the flag, so put it on the frame as a peer would.
+    let mut flagged = packet.encode();
+    assert_eq!(flagged[0] & 0x80, 0);
+    flagged[0] |= 0x80;
     let plain = RetinueCarrier::default();
     assert!(matches!(
-        plain.decode(&packet.encode()),
+        plain.decode(&flagged),
         Err(retinue::Error::BadIfac)
     ));
     assert!(matches!(
