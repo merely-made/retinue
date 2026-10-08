@@ -27,7 +27,6 @@ pub fn retinue_node(seed: u8) -> RetinueNode {
     .with_freshness_policy(FreshnessPolicy {
         max_destinations: 8,
         max_blobs_per_destination: 2,
-        retention: 604_800_000,
     })
     .expect("nonzero fixture capacities")
 }
