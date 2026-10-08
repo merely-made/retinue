@@ -43,8 +43,52 @@ pub const SDU: usize = 464;
 pub const FLAG_ENCRYPTED: u64 = 0x01;
 /// Advertisement flag bit: the payload is bz2-compressed.
 pub const FLAG_COMPRESSED: u64 = 0x02;
+/// Advertisement flag bit: the resource is one segment of a larger, split resource.
+pub const FLAG_SPLIT: u64 = 0x04;
+/// Advertisement flag bit: this Resource carries a request too large for one packet.
+pub const FLAG_REQUEST: u64 = 0x08;
 /// Advertisement flag bit: this Resource carries a request response.
 pub const FLAG_RESPONSE: u64 = 0x10;
+/// Advertisement flag bit: the first segment's data starts with metadata (see
+/// [`pack_metadata`]). `RNS.ResourceAdvertisement`'s `x` flag.
+pub const FLAG_METADATA: u64 = 0x20;
+
+/// The largest packed metadata a resource carries: its length rides in three bytes.
+/// `RNS.Resource.METADATA_MAX_SIZE`.
+pub const METADATA_MAX_SIZE: usize = (1 << 24) - 1;
+
+/// Bytes of the big-endian length that prefixes a resource's metadata.
+const METADATA_LEN_BYTES: usize = 3;
+
+/// Frame already-packed (msgpack) metadata for the front of a resource's data:
+/// `len(3, big-endian) || metadata`, as RNS does. Returns [`Error::CapacityExceeded`] past
+/// [`METADATA_MAX_SIZE`].
+pub fn pack_metadata(metadata: &[u8]) -> Result<Vec<u8>> {
+    if metadata.len() > METADATA_MAX_SIZE {
+        return Err(Error::CapacityExceeded);
+    }
+    let mut out = Vec::with_capacity(METADATA_LEN_BYTES + metadata.len());
+    out.extend_from_slice(&(metadata.len() as u32).to_be_bytes()[1..]);
+    out.extend_from_slice(metadata);
+    Ok(out)
+}
+
+/// Split the metadata framed by [`pack_metadata`] off the front of a recovered resource's
+/// data, in place: `data` keeps the payload and the packed metadata is returned.
+pub fn split_metadata(data: &mut Vec<u8>) -> Result<Vec<u8>> {
+    let len = data
+        .get(..METADATA_LEN_BYTES)
+        .ok_or(Error::Truncated)?
+        .iter()
+        .fold(0_usize, |len, &b| (len << 8) | usize::from(b));
+    let end = METADATA_LEN_BYTES + len;
+    let metadata = data
+        .get(METADATA_LEN_BYTES..end)
+        .ok_or(Error::Truncated)?
+        .to_vec();
+    data.drain(..end);
+    Ok(metadata)
+}
 
 /// The resource hash: `SHA256(uncompressed_data || random_hash)`. It binds the resource to
 /// its content and this transfer's random hash. Verified against RNS 1.3.8.
@@ -371,6 +415,11 @@ impl Advertisement {
     pub fn hashmap_parts(&self) -> usize {
         self.hashmap.len() / MAPHASH_LEN
     }
+
+    /// Whether the data is preceded by metadata ([`FLAG_METADATA`]).
+    pub fn has_metadata(&self) -> bool {
+        self.flags & FLAG_METADATA != 0
+    }
 }
 
 /// Bytes of hashmap an advertisement carries at most. `RNS.ResourceAdvertisement`'s
@@ -380,6 +429,18 @@ pub const HASHMAP_MAX_PARTS: usize = 74;
 /// The most parts a receiver accepts for one segment unless told otherwise: roughly 1 MB at
 /// the default part size, which is the single-segment ceiling the format already implies.
 pub const DEFAULT_MAX_PARTS: usize = 4096;
+
+/// The widest receive window: how far past the first missing part a receiver requests and
+/// matches parts. `RNS.Resource.WINDOW_MAX_FAST`.
+pub const WINDOW_MAX: usize = 75;
+
+/// How many times a sender re-draws its random hash to clear a map-hash collision before it
+/// sends the map as it is. RNS only needs the hashes unique within its
+/// `COLLISION_GUARD_SIZE` (224 parts) so a window-bounded match is unambiguous; a sender
+/// here keeps them unique across the whole segment, which also keeps its own lookups
+/// unambiguous. A collision among a segment's few thousand parts is rare and repeating it
+/// vanishingly so; the bound only keeps the loop finite.
+const MAX_REROLLS: usize = 8;
 
 /// A parsed part request (context `RESOURCE_REQ`).
 ///
@@ -519,19 +580,36 @@ pub fn parse_hmu(payload: &[u8]) -> Result<Hmu> {
 /// Receiver state for one incoming resource segment.
 ///
 /// Drives the windowed transfer: parse the advertisement's first hashmap, request parts,
-/// collect them by map hash, solicit more hashmap via [`Hmu`] when the advertised hashes run
+/// collect them by position, solicit more hashmap via [`Hmu`] when the advertised hashes run
 /// out, and finally reassemble, decrypt, decompress, verify, and prove. One `Incoming`
 /// handles one segment (a resource up to ~1 MB is a single segment).
+///
+/// Parts are stored by index, as RNS stores them. A received part is matched against the
+/// map hashes in the window after the last consecutively received part, so a map hash that
+/// repeats elsewhere in a large resource cannot misplace it.
 pub struct Incoming {
     hash: [u8; 32],
     random_hash: Vec<u8>,
     compressed: bool,
+    has_metadata: bool,
     total_parts: usize,
-    /// Map hashes in transfer order. Starts with the advertisement's hashmap and grows as
-    /// each [`Hmu`] arrives.
-    order: Vec<[u8; MAPHASH_LEN]>,
-    /// Collected parts, keyed by map hash. Never exceeds `order`, which `max_parts` caps.
-    parts: alloc::collections::BTreeMap<[u8; MAPHASH_LEN], Vec<u8>>,
+    /// Map hashes by part index; `None` until the advertisement or an [`Hmu`] names them.
+    hashmap: Vec<Option<[u8; MAPHASH_LEN]>>,
+    /// How many entries of `hashmap` are known.
+    hashmap_height: usize,
+    /// Hashes per hashmap segment: an [`Hmu`] for segment `s` starts at `s * segment_len`.
+    /// RNS fixes this at [`HASHMAP_MAX_PARTS`]; a sender on a narrow link advertises fewer,
+    /// and the advertisement's own count is the segment length it then uses.
+    segment_len: usize,
+    /// Collected parts by index. Never longer than the advertised count, which `max_parts`
+    /// caps.
+    parts: Vec<Option<Vec<u8>>>,
+    /// How many entries of `parts` are filled.
+    received: usize,
+    /// The index of the first missing part: every part before it has arrived.
+    consecutive: usize,
+    /// How many parts past `consecutive` are requested and matched.
+    window: usize,
     /// The most parts this receiver will accept for one segment.
     ///
     /// A runtime cap rather than a const generic, because the count is large and
@@ -558,31 +636,63 @@ impl Incoming {
         if adv.parts > max_parts as u64 {
             return Err(Error::CapacityExceeded);
         }
+        let total_parts = adv.parts as usize;
         // The initial hashmap is peer input too. A small advertised count must
-        // not bypass the retained-hash ceiling before the first HMU arrives.
+        // not bypass the retained-hash ceiling before the first HMU arrives, and a
+        // partial map must name at least one part, or there is no segment length.
+        let advertised = adv.hashmap.len() / MAPHASH_LEN;
         if !adv.hashmap.len().is_multiple_of(MAPHASH_LEN)
-            || adv.hashmap.len() / MAPHASH_LEN > adv.parts as usize
+            || advertised > total_parts
+            || (advertised == 0 && total_parts > 0)
             || adv.random_hash.len() != RANDOM_HASH_LEN
         {
             return Err(Error::BadRequest);
         }
         let mut hash = [0u8; 32];
         hash.copy_from_slice(&adv.resource_hash);
-        let order = adv.hashmap.as_chunks::<MAPHASH_LEN>().0.to_vec();
+        let mut hashmap = vec![None; total_parts];
+        for (slot, m) in hashmap
+            .iter_mut()
+            .zip(adv.hashmap.as_chunks::<MAPHASH_LEN>().0)
+        {
+            *slot = Some(*m);
+        }
         Ok(Self {
             hash,
             random_hash: adv.random_hash.clone(),
             compressed: adv.flags & FLAG_COMPRESSED != 0,
-            total_parts: adv.parts as usize,
-            order,
-            parts: alloc::collections::BTreeMap::new(),
+            has_metadata: adv.has_metadata(),
+            total_parts,
+            hashmap,
+            hashmap_height: advertised,
+            segment_len: if advertised < total_parts {
+                advertised
+            } else {
+                HASHMAP_MAX_PARTS
+            },
+            parts: vec![None; total_parts],
+            received: 0,
+            consecutive: 0,
+            window: HASHMAP_MAX_PARTS,
             max_parts,
         })
+    }
+
+    /// Request and match at most `window` parts past the first missing one (clamped to
+    /// `1..=`[`WINDOW_MAX`]). The default is [`HASHMAP_MAX_PARTS`].
+    pub fn with_window(mut self, window: usize) -> Self {
+        self.window = window.clamp(1, WINDOW_MAX);
+        self
     }
 
     /// Whether the advertisement said the payload is bz2-compressed.
     pub fn is_compressed(&self) -> bool {
         self.compressed
+    }
+
+    /// Whether the advertisement said the data starts with metadata.
+    pub fn has_metadata(&self) -> bool {
+        self.has_metadata
     }
 
     /// Total parts in this segment.
@@ -592,31 +702,41 @@ impl Incoming {
 
     /// How many part hashes are known so far (advertisement + ingested HMUs).
     pub fn order_len(&self) -> usize {
-        self.order.len()
+        self.hashmap_height
     }
 
-    /// Known map hashes not yet collected. These are what to ask for next.
+    /// The parts in the window after the first missing part, up to the first whose map hash
+    /// is not yet known. These are what to ask for next.
+    fn window_range(&self) -> core::ops::Range<usize> {
+        self.consecutive..(self.consecutive + self.window).min(self.total_parts)
+    }
+
+    /// Known map hashes not yet collected in the current window. These are what to ask for
+    /// next. The scan stops at the first part whose hash is not yet known.
     pub fn missing_known(&self) -> Vec<[u8; MAPHASH_LEN]> {
-        self.order
-            .iter()
-            .filter(|m| !self.parts.contains_key(*m))
-            .copied()
+        self.window_range()
+            .map_while(|i| self.hashmap[i].map(|m| (i, m)))
+            .filter(|&(i, _)| self.parts[i].is_none())
+            .map(|(_, m)| m)
             .collect()
     }
 
     /// Whether every known map hash has been collected (but more may remain via HMU).
     pub fn all_known_collected(&self) -> bool {
-        self.order.iter().all(|m| self.parts.contains_key(m))
+        // Parts are only ever placed where a hash is known.
+        self.received == self.hashmap_height
     }
 
     /// Whether the full hashmap is known (all part hashes, via advertisement + HMUs).
     pub fn have_all_hashes(&self) -> bool {
-        self.order.len() >= self.total_parts
+        self.hashmap_height >= self.total_parts
     }
 
-    /// Whether more hashmap is needed: known hashes exhausted, parts remain.
+    /// Whether more hashmap is needed: the first missing part's hash is not yet known.
     pub fn needs_hmu(&self) -> bool {
-        self.all_known_collected() && !self.have_all_hashes()
+        self.hashmap
+            .get(self.consecutive)
+            .is_some_and(|m| m.is_none())
     }
 
     /// A normal request for the given map hashes.
@@ -626,26 +746,34 @@ impl Incoming {
 
     /// An exhausted request soliciting more hashmap, referencing the last known map hash.
     pub fn solicit_hmu(&self) -> Vec<u8> {
-        let last = self.order.last().copied().unwrap_or([0u8; MAPHASH_LEN]);
+        let last = self
+            .hashmap_height
+            .checked_sub(1)
+            .and_then(|i| self.hashmap[i])
+            .unwrap_or([0u8; MAPHASH_LEN]);
         build_exhausted_request(&last, &self.hash, &[])
     }
 
-    /// Ingest an HMU's hashes, appending any new ones in order. Returns how many were added.
+    /// Ingest an HMU's hashes at their place in the map: segment `s` starts at part
+    /// `s * segment_len`, as RNS places it. Returns how many hashes were newly learned.
     ///
-    /// Stops at the advertised part count, itself capped by `max_parts`.
-    /// Bounding `order` bounds `parts` too, because a part is only
-    /// accepted for a hash already listed here.
+    /// Nothing lands past the advertised part count, itself capped by `max_parts`, and a
+    /// hash already known is kept, so a repeated HMU changes nothing.
     pub fn ingest_hmu(&mut self, hmu: &Hmu) -> usize {
+        let Some(start) = usize::try_from(hmu.segment)
+            .ok()
+            .and_then(|segment| segment.checked_mul(self.segment_len))
+        else {
+            return 0;
+        };
         let mut added = 0;
-        for h in &hmu.hashes {
-            if self.order.len() >= self.total_parts {
-                break;
-            }
-            if !self.order.contains(h) {
-                self.order.push(*h);
+        for (slot, m) in self.hashmap.iter_mut().skip(start).zip(&hmu.hashes) {
+            if slot.is_none() {
+                *slot = Some(*m);
                 added += 1;
             }
         }
+        self.hashmap_height += added;
         added
     }
 
@@ -654,33 +782,57 @@ impl Incoming {
         self.max_parts
     }
 
-    /// Take a received part (a raw token slice). Returns true only when it adds a
-    /// previously-missing known part; unknown and duplicate parts return false.
+    /// Take a received part (a raw token slice). Returns true only when it fills a missing
+    /// part in the current window; unknown, out-of-window and duplicate parts return false.
     pub fn accept_part(&mut self, part: &[u8]) -> bool {
         let m = map_hash(part, &self.random_hash);
-        if self.order.contains(&m) && !self.parts.contains_key(&m) {
-            self.parts.insert(m, part.to_vec());
-            true
-        } else {
-            false
+        let Some(i) = self
+            .window_range()
+            .find(|&i| self.parts[i].is_none() && self.hashmap[i] == Some(m))
+        else {
+            return false;
+        };
+        self.parts[i] = Some(part.to_vec());
+        self.received += 1;
+        while self
+            .parts
+            .get(self.consecutive)
+            .is_some_and(Option::is_some)
+        {
+            self.consecutive += 1;
         }
+        true
     }
 
     /// Whether every part of the segment has arrived.
     pub fn is_complete(&self) -> bool {
-        self.have_all_hashes() && self.all_known_collected()
+        self.received == self.total_parts
     }
 
     /// Reassemble the token in transfer order. Verifies nothing; call [`recover`](Self::recover).
     pub fn assemble_token(&self) -> Result<Vec<u8>> {
-        if !self.is_complete() {
-            return Err(Error::Truncated);
-        }
-        let mut token = Vec::new();
-        for m in &self.order {
-            token.extend_from_slice(self.parts.get(m).ok_or(Error::Truncated)?);
+        let mut token = Vec::with_capacity(self.token_len()?);
+        for part in self.parts.iter().flatten() {
+            token.extend_from_slice(part);
         }
         Ok(token)
+    }
+
+    /// [`assemble_token`](Self::assemble_token), releasing each part as it is copied, so the
+    /// parts and the token are not both held whole. The parts are gone afterwards.
+    pub fn take_token(&mut self) -> Result<Vec<u8>> {
+        let mut token = Vec::with_capacity(self.token_len()?);
+        for part in self.parts.iter_mut().filter_map(Option::take) {
+            token.extend_from_slice(&part);
+        }
+        Ok(token)
+    }
+
+    /// The reassembled token's length, or [`Error::Truncated`] while any part is missing.
+    fn token_len(&self) -> Result<usize> {
+        self.parts.iter().try_fold(0, |len, part| {
+            Ok(len + part.as_ref().ok_or(Error::Truncated)?.len())
+        })
     }
 
     /// Recover the payload from the decrypted transfer blob: decompress if the
@@ -759,18 +911,21 @@ pub struct Outgoing {
     /// the FIRST segment's hash, shared, so the receiver groups the segments.
     original_hash: [u8; 32],
     random_hash: [u8; RANDOM_HASH_LEN],
-    transfer_size: u64,
     compressed: bool,
+    has_metadata: bool,
     /// 1-based segment index and total segment count. Single-segment resources are (1, 1).
     segment_index: i64,
     total_segments: i64,
     /// The full resource's data size, carried in every segment's advertisement `d` field.
     total_data_size: u64,
     request_id: Option<[u8; 16]>,
+    /// The sealed token, held once; part `i` is its `i`th `part_size` slice.
+    token: Vec<u8>,
+    part_size: usize,
     /// All part map hashes, in transfer order.
     map_hashes: Vec<[u8; MAPHASH_LEN]>,
-    /// Parts (raw token slices) keyed by map hash.
-    by_hash: alloc::collections::BTreeMap<[u8; MAPHASH_LEN], Vec<u8>>,
+    /// `(map hash, part index)` for every part, sorted, to find a requested part.
+    by_hash: Vec<([u8; MAPHASH_LEN], usize)>,
     expected_proof: [u8; 32],
 }
 
@@ -794,26 +949,60 @@ impl Outgoing {
         compressed: bool,
         part_size: usize,
     ) -> Self {
+        Self::from_token(data, token.to_vec(), random_hash, compressed, part_size)
+    }
+
+    /// [`new_with_part_size`](Self::new_with_part_size), taking ownership of the token
+    /// rather than copying it.
+    ///
+    /// If two different parts share a map hash, the random hash is re-drawn (derived from
+    /// the previous one) until every map hash is unique, as RNS re-draws on a collision.
+    /// The resource hash, map hashes and expected proof all follow the final random hash;
+    /// the token, whose plaintext carries the caller's, is unchanged. The receiver strips
+    /// that prefix without reading it, as it does for RNS, whose prefix is an independent
+    /// random value.
+    pub fn from_token(
+        data: &[u8],
+        token: Vec<u8>,
+        mut random_hash: [u8; RANDOM_HASH_LEN],
+        compressed: bool,
+        part_size: usize,
+    ) -> Self {
+        let part_size = part_size.clamp(1, SDU);
+        let mut rerolls = 0;
+        let (map_hashes, by_hash) = loop {
+            let map_hashes: Vec<_> = token
+                .chunks(part_size)
+                .map(|part| map_hash(part, &random_hash))
+                .collect();
+            let mut by_hash: Vec<_> = map_hashes.iter().copied().zip(0..).collect();
+            by_hash.sort_unstable();
+            // Byte-identical parts share a hash harmlessly: either copy serves either slot.
+            let part = |i: usize| &token[i * part_size..((i + 1) * part_size).min(token.len())];
+            let collides = by_hash
+                .windows(2)
+                .any(|pair| pair[0].0 == pair[1].0 && part(pair[0].1) != part(pair[1].1));
+            if !collides || rerolls == MAX_REROLLS {
+                break (map_hashes, by_hash);
+            }
+            rerolls += 1;
+            let redrawn = full_hash(&random_hash);
+            random_hash.copy_from_slice(&redrawn[..RANDOM_HASH_LEN]);
+        };
         let hash = resource_hash(data, &random_hash);
-        let (parts, _hashmap) = split_parts_with_size(token, &random_hash, part_size);
-        let mut map_hashes = Vec::with_capacity(parts.len());
-        let mut by_hash = alloc::collections::BTreeMap::new();
-        for p in parts {
-            let m = map_hash(&p, &random_hash);
-            map_hashes.push(m);
-            by_hash.insert(m, p);
-        }
         Self {
             hash,
             original_hash: hash,
             random_hash,
-            transfer_size: token.len() as u64,
             compressed,
+            has_metadata: false,
             segment_index: 1,
             total_segments: 1,
             total_data_size: data.len() as u64,
             request_id: None,
             expected_proof: proof(data, &hash),
+            token,
+            part_size,
             map_hashes,
             by_hash,
         }
@@ -843,6 +1032,13 @@ impl Outgoing {
         self
     }
 
+    /// Mark the data as starting with metadata framed by [`pack_metadata`], which sets
+    /// [`FLAG_METADATA`] on the advertisement.
+    pub fn with_metadata(mut self) -> Self {
+        self.has_metadata = true;
+        self
+    }
+
     /// The advertisement, carrying the first [`HASHMAP_MAX_PARTS`] map hashes.
     pub fn advertisement(&self) -> Advertisement {
         self.advertisement_with_hash_limit(HASHMAP_MAX_PARTS)
@@ -865,8 +1061,11 @@ impl Outgoing {
         if self.request_id.is_some() {
             flags |= FLAG_RESPONSE;
         }
+        if self.has_metadata {
+            flags |= FLAG_METADATA;
+        }
         Advertisement {
-            transfer_size: self.transfer_size,
+            transfer_size: self.token.len() as u64,
             data_size: self.total_data_size,
             parts: self.map_hashes.len() as u64,
             resource_hash: self.hash.to_vec(),
@@ -880,12 +1079,38 @@ impl Outgoing {
         }
     }
 
-    /// The parts to send in response to a request (those whose map hashes we hold).
-    pub fn serve(&self, request: &Request) -> Vec<Vec<u8>> {
+    /// Part `index`, a slice of the sealed token.
+    pub fn part(&self, index: usize) -> Option<&[u8]> {
+        let start = index.checked_mul(self.part_size)?;
+        self.token
+            .get(start..(start + self.part_size).min(self.token.len()))
+            .filter(|part| !part.is_empty())
+    }
+
+    /// The indices of the parts with map hash `m`, in transfer order.
+    fn indices_of(&self, m: [u8; MAPHASH_LEN]) -> impl Iterator<Item = usize> + '_ {
+        let first = self.by_hash.partition_point(|(h, _)| *h < m);
+        self.by_hash[first..]
+            .iter()
+            .take_while(move |(h, _)| *h == m)
+            .map(|&(_, i)| i)
+    }
+
+    /// The indices of the parts a request names, in request order. A hash this sender does
+    /// not hold names nothing.
+    pub fn requested_indices(&self, request: &Request) -> Vec<usize> {
         request
             .wanted
             .iter()
-            .filter_map(|m| self.by_hash.get(m).cloned())
+            .filter_map(|m| self.indices_of(*m).next())
+            .collect()
+    }
+
+    /// The parts to send in response to a request (those whose map hashes we hold).
+    pub fn serve(&self, request: &Request) -> Vec<Vec<u8>> {
+        self.requested_indices(request)
+            .into_iter()
+            .filter_map(|i| self.part(i).map(<[u8]>::to_vec))
             .collect()
     }
 
@@ -901,25 +1126,30 @@ impl Outgoing {
         last_map_hash: &[u8; MAPHASH_LEN],
         hash_limit: usize,
     ) -> Vec<u8> {
-        let start = self
-            .map_hashes
-            .iter()
-            .position(|m| m == last_map_hash)
-            .map(|i| i + 1)
-            .unwrap_or(self.map_hashes.len());
-        // An HMU occupies the same 74-hash window as the advertisement. Derive its segment
-        // from the requested map position instead of advancing mutable state: a repeated
-        // solicitation must reproduce the same HMU after packet loss.
+        // An HMU occupies the same window as the advertisement. Derive its segment from the
+        // requested map position instead of advancing mutable state: a repeated
+        // solicitation must reproduce the same HMU after packet loss. A receiver solicits
+        // after the last hash of a segment, so prefer that position among identical parts.
         let hash_limit = hash_limit.clamp(1, HASHMAP_MAX_PARTS);
+        let start = self
+            .indices_of(*last_map_hash)
+            .map(|i| i + 1)
+            .reduce(|found, next| if found % hash_limit == 0 { found } else { next })
+            .unwrap_or(self.map_hashes.len());
         let end = (start + hash_limit).min(self.map_hashes.len());
-        let batch: Vec<[u8; MAPHASH_LEN]> = self.map_hashes[start..end].to_vec();
         let seg = (start / hash_limit) as i64;
-        build_hmu(&self.hash, seg, &batch)
+        build_hmu(&self.hash, seg, &self.map_hashes[start..end])
     }
 
     /// The resource hash.
     pub fn resource_hash(&self) -> [u8; 32] {
         self.hash
+    }
+
+    /// The random hash the map hashes and resource hash are salted with: the caller's, or
+    /// a re-drawn one if the caller's produced a map-hash collision.
+    pub fn random_hash(&self) -> [u8; RANDOM_HASH_LEN] {
+        self.random_hash
     }
 
     /// The proof the receiver must return for a correct transfer.
@@ -1485,6 +1715,182 @@ mod tests {
             assembled.extend_from_slice(&body);
         }
         assert_eq!(assembled, data);
+    }
+
+    /// Two different 3-byte parts whose map hashes collide under random hash `01020304`
+    /// (`7f83d108`), found by a birthday search.
+    const COLLIDING: [[u8; 3]; 2] = [[0x00, 0x5d, 0x3c], [0x00, 0xf7, 0x30]];
+    const COLLIDING_SALT: [u8; RANDOM_HASH_LEN] = [1, 2, 3, 4];
+
+    /// Drive `out` into `inc` to completion, returning the reassembled token.
+    fn drive(out: &mut Outgoing, inc: &mut Incoming) -> Vec<u8> {
+        for _ in 0..10_000 {
+            if inc.is_complete() {
+                return inc.assemble_token().unwrap();
+            }
+            let want = inc.missing_known();
+            if !want.is_empty() {
+                let request = parse_request(&inc.request(&want)).unwrap();
+                for part in out.serve(&request) {
+                    inc.accept_part(&part);
+                }
+            } else {
+                assert!(
+                    inc.needs_hmu(),
+                    "stuck: nothing to request and no HMU needed"
+                );
+                let solicit = parse_request(&inc.solicit_hmu()).unwrap();
+                let hmu = parse_hmu(&out.hmu_after(&solicit.last_map_hash.unwrap())).unwrap();
+                assert!(inc.ingest_hmu(&hmu) > 0, "the HMU added hashes");
+            }
+        }
+        panic!("the transfer did not complete");
+    }
+
+    #[test]
+    fn the_collision_fixture_collides() {
+        assert_eq!(
+            map_hash(&COLLIDING[0], &COLLIDING_SALT),
+            map_hash(&COLLIDING[1], &COLLIDING_SALT)
+        );
+        assert_ne!(COLLIDING[0], COLLIDING[1]);
+    }
+
+    /// A receiver stores parts by position, so two parts sharing a map hash both land, in
+    /// order. Keyed by hash, the second was taken for a duplicate of the first and the
+    /// token reassembled with the first part twice.
+    #[test]
+    fn colliding_map_hashes_are_placed_by_position() {
+        let token = COLLIDING.concat();
+        let (_, hashmap) = split_parts_with_size(&token, &COLLIDING_SALT, 3);
+        let advertisement = Advertisement {
+            transfer_size: token.len() as u64,
+            data_size: 1,
+            parts: 2,
+            resource_hash: vec![0; 32],
+            original_hash: vec![0; 32],
+            random_hash: COLLIDING_SALT.to_vec(),
+            flags: FLAG_ENCRYPTED,
+            hashmap,
+            i: 1,
+            l: 1,
+            q: None,
+        };
+        let mut inc = Incoming::new(&advertisement).unwrap();
+        assert_eq!(inc.missing_known().len(), 2, "both are asked for");
+        assert!(inc.accept_part(&COLLIDING[0]));
+        assert!(inc.accept_part(&COLLIDING[1]));
+        assert!(!inc.accept_part(&COLLIDING[1]), "and neither twice");
+        assert!(inc.is_complete());
+        assert_eq!(inc.assemble_token().unwrap(), token);
+    }
+
+    /// A sender whose random hash makes two different parts share a map hash draws another,
+    /// as RNS does, so every request names exactly one part.
+    #[test]
+    fn a_sender_redraws_a_colliding_random_hash() {
+        let data = b"data";
+        let token = COLLIDING.concat();
+        let mut out = Outgoing::from_token(data, token.clone(), COLLIDING_SALT, false, 3);
+        assert_ne!(out.random_hash(), COLLIDING_SALT, "re-drawn");
+        let advertisement = out.advertisement();
+        let hashes = advertisement.hashmap.as_chunks::<MAPHASH_LEN>().0;
+        assert_ne!(hashes[0], hashes[1]);
+        assert_eq!(
+            out.resource_hash(),
+            resource_hash(data, &out.random_hash()),
+            "the resource hash follows the new random hash"
+        );
+        assert_eq!(out.expected_proof(), proof(data, &out.resource_hash()));
+        for (index, hash) in hashes.iter().enumerate() {
+            let request = parse_request(&build_request(&out.resource_hash(), &[*hash])).unwrap();
+            assert_eq!(out.serve(&request), vec![COLLIDING[index].to_vec()]);
+        }
+        let mut inc = Incoming::new(&advertisement).unwrap();
+        assert_eq!(drive(&mut out, &mut inc), token);
+    }
+
+    /// Byte-identical parts share a map hash harmlessly. Across hashmap segments the
+    /// repeat used to be dropped from the receiver's map, which then never filled.
+    #[test]
+    fn identical_parts_in_different_hashmap_segments_complete() {
+        let mut token = vec![0_u8; SDU * (HASHMAP_MAX_PARTS + 20)];
+        for (index, part) in token.chunks_mut(SDU).enumerate() {
+            // Part HASHMAP_MAX_PARTS + 6 repeats part 3; every other part is distinct.
+            let tag = if index == HASHMAP_MAX_PARTS + 6 {
+                3
+            } else {
+                index
+            };
+            part[..4].copy_from_slice(&(tag as u32).to_be_bytes());
+        }
+        let mut out = Outgoing::new(b"data", &token, [5, 6, 7, 8], false);
+        assert_eq!(
+            out.random_hash(),
+            [5, 6, 7, 8],
+            "identical parts need no re-draw"
+        );
+        let mut inc = Incoming::new(&out.advertisement()).unwrap();
+        assert_eq!(drive(&mut out, &mut inc), token);
+    }
+
+    /// An HMU lands at `segment * 74`, as RNS places it, whatever order HMUs arrive in.
+    /// Appended in arrival order, a later segment heard first scrambled the token.
+    #[test]
+    fn hashmap_updates_land_by_segment() {
+        let mut token = vec![0_u8; SDU * (HASHMAP_MAX_PARTS * 2 + 30)];
+        for (index, part) in token.chunks_mut(SDU).enumerate() {
+            part[..4].copy_from_slice(&(index as u32).to_be_bytes());
+        }
+        let mut out = Outgoing::new(b"data", &token, [5, 6, 7, 8], false);
+        let advertisement = out.advertisement();
+        let mut inc = Incoming::new(&advertisement).unwrap();
+        let map: Vec<[u8; MAPHASH_LEN]> = token
+            .chunks(SDU)
+            .map(|part| map_hash(part, &out.random_hash()))
+            .collect();
+        let second = parse_hmu(&out.hmu_after(&map[2 * HASHMAP_MAX_PARTS - 1])).unwrap();
+        let first = parse_hmu(&out.hmu_after(&map[HASHMAP_MAX_PARTS - 1])).unwrap();
+        assert_eq!((first.segment, second.segment), (1, 2));
+        assert_eq!(inc.ingest_hmu(&second), 30);
+        assert_eq!(inc.ingest_hmu(&first), HASHMAP_MAX_PARTS);
+        assert_eq!(inc.ingest_hmu(&first), 0, "a repeated HMU changes nothing");
+        assert!(inc.have_all_hashes());
+        assert_eq!(drive(&mut out, &mut inc), token);
+    }
+
+    /// A part is matched only within the window after the first missing part, so a part
+    /// that arrives early, past the window, is not taken.
+    #[test]
+    fn parts_are_matched_within_the_window() {
+        let mut token = vec![0_u8; SDU * 8];
+        for (index, part) in token.chunks_mut(SDU).enumerate() {
+            part[..4].copy_from_slice(&(index as u32).to_be_bytes());
+        }
+        let out = Outgoing::new(b"data", &token, [5, 6, 7, 8], false);
+        let mut inc = Incoming::new(&out.advertisement()).unwrap().with_window(2);
+        assert_eq!(inc.missing_known().len(), 2);
+        assert!(!inc.accept_part(out.part(5).unwrap()), "past the window");
+        assert!(inc.accept_part(out.part(1).unwrap()));
+        assert!(inc.accept_part(out.part(0).unwrap()));
+        assert_eq!(inc.missing_known().len(), 2, "the window moved past both");
+        assert!(inc.accept_part(out.part(2).unwrap()));
+    }
+
+    #[test]
+    fn metadata_frames_and_splits() {
+        let framed = pack_metadata(b"meta").unwrap();
+        assert_eq!(framed, b"\x00\x00\x04meta");
+        let mut data = framed;
+        data.extend_from_slice(b"body");
+        assert_eq!(split_metadata(&mut data).unwrap(), b"meta");
+        assert_eq!(data, b"body");
+        let mut short = b"\x00\x00\x09meta".to_vec();
+        assert_eq!(split_metadata(&mut short), Err(Error::Truncated));
+        assert_eq!(
+            pack_metadata(&vec![0; METADATA_MAX_SIZE + 1]),
+            Err(Error::CapacityExceeded)
+        );
     }
 
     #[test]
