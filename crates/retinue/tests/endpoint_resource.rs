@@ -9,6 +9,7 @@ use retinue::endpoint::{Endpoint, PayloadMode, ReceivedPayload, ResourceTransfer
 use retinue::identity::PrivateIdentity;
 use retinue::link::CTX_RESOURCE_PRF;
 use retinue::lossy::{LossModel, connect};
+use retinue::packet::PacketType;
 use retinue::request::Request;
 
 fn connect_dropping_first_resource_proof(a: &Endpoint, b: &Endpoint) -> Arc<AtomicBool> {
@@ -174,6 +175,72 @@ async fn endpoint_publish_survives_a_lost_completion_proof() {
         "the test must remove the receiver's first completion proof"
     );
     assert_eq!(receiver.await.unwrap(), ReceivedPayload::Resource(expected));
+}
+
+/// The receiver's completion proof crosses the wire as a PROOF-type packet, the only form
+/// RNS accepts, and the publishing Endpoint completes on it.
+#[tokio::test]
+async fn endpoint_resource_proof_is_proof_typed_and_completes_the_publisher() {
+    let server_id = PrivateIdentity::from_secret_bytes(&[0x26; 64]);
+    let client_id = PrivateIdentity::from_secret_bytes(&[0x15; 64]);
+    let server = Arc::new(Endpoint::new(server_id.clone()));
+    let client = Endpoint::new(client_id);
+
+    let name = DestinationName::new("retinue", ["resource-proof-type"]);
+    let destination = name.destination_hash(server_id.public());
+    server.register_resource(name, b"");
+
+    let (mut a_out, a_sink) = client.attach_interface().split();
+    let (mut b_out, b_sink) = server.attach_interface().split();
+    tokio::spawn(async move {
+        while let Some(packet) = a_out.recv().await {
+            if !b_sink.deliver(packet) {
+                break;
+            }
+        }
+    });
+    let proof_types = Arc::new(std::sync::Mutex::new(Vec::new()));
+    tokio::spawn({
+        let proof_types = Arc::clone(&proof_types);
+        async move {
+            while let Some(packet) = b_out.recv().await {
+                if packet.context == CTX_RESOURCE_PRF {
+                    proof_types.lock().unwrap().push(packet.packet_type);
+                }
+                if !a_sink.deliver(packet) {
+                    break;
+                }
+            }
+        }
+    });
+
+    let payload: Vec<u8> = (0..3_000_u32).map(|n| n.wrapping_mul(17) as u8).collect();
+    let receiver = tokio::spawn({
+        let server = Arc::clone(&server);
+        async move {
+            let mut accepted = server.accept_resource().await.unwrap();
+            accepted.session.receive().await.unwrap()
+        }
+    });
+    let sent = client
+        .send_payload_with_config(
+            destination,
+            *server_id.public(),
+            &payload,
+            ResourceTransferConfig {
+                timeout: Duration::from_secs(5),
+                retry_interval: Duration::from_millis(100),
+                request_window: 4,
+            },
+        )
+        .await
+        .expect("the publisher completes on the PROOF-type receipt");
+    assert_eq!(sent, PayloadMode::Resource);
+    assert_eq!(receiver.await.unwrap(), ReceivedPayload::Resource(payload));
+
+    let proof_types = proof_types.lock().unwrap();
+    assert!(!proof_types.is_empty());
+    assert!(proof_types.iter().all(|t| *t == PacketType::Proof));
 }
 
 #[tokio::test]

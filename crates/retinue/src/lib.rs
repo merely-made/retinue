@@ -183,6 +183,13 @@ pub enum Error {
     /// advertisement claiming more parts than the receive limit, or a table already at its
     /// bound. The node stays live and refuses the work.
     CapacityExceeded,
+    /// A compressed resource decompressed past the receiver's size limit. The transfer is
+    /// failed rather than inflated, so a peer cannot spend this node's memory with a small
+    /// bz2 bomb.
+    DecompressionLimit,
+    /// A resource advertisement named more than one segment. Segment accumulation is not
+    /// implemented, so the offer is refused rather than truncated to its first segment.
+    MultiSegmentResource,
 }
 
 impl core::fmt::Display for Error {
@@ -205,6 +212,8 @@ impl core::fmt::Display for Error {
             Self::ResourceCorrupt => "reassembled resource does not match its hash",
             Self::Unsupported => "operation needs a disabled feature",
             Self::CapacityExceeded => "peer asked for more state than the capacity policy allows",
+            Self::DecompressionLimit => "decompressed resource exceeds the size limit",
+            Self::MultiSegmentResource => "multi-segment resources are not supported",
         };
         f.write_str(s)
     }
