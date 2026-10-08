@@ -5,8 +5,8 @@
 //! whoever owns the destination (or a transport node holding its announce) replies with a
 //! *path response*: an ordinary announce whose context byte is [`CTX_PATH_RESPONSE`] rather
 //! than `0`. retinue *sends* path requests, *ingests* the announces that result, and
-//! *answers* path requests for destinations it owns (see [`parse_request`] and the endpoint's
-//! path-response handling). It does not yet answer on behalf of others (no announce cache).
+//! *answers* path requests for destinations it owns (see [`PathRequest`]), on the interface the
+//! request came in on. It does not yet answer on behalf of others (no announce cache).
 //!
 //! The request is a plain data packet:
 //!
@@ -73,17 +73,79 @@ pub fn path_request(target: AddressHash, tag: &[u8; TAG_LEN]) -> Packet {
 /// Parse an incoming path request, returning the destination hash being sought.
 ///
 /// Returns `None` unless `packet` is a plain data packet addressed to
-/// [`path_request_destination`] carrying at least a 16-byte target hash. The trailing request
-/// tag is the requester's private correlation value and is not needed to answer, so it is
-/// ignored here.
+/// [`path_request_destination`] carrying at least a 16-byte target hash. The tag is ignored,
+/// so a tagless request parses too; a responder should use [`PathRequest::parse`], which
+/// keeps the tag RNS deduplicates by.
 pub fn parse_request(packet: &Packet) -> Option<AddressHash> {
-    if packet.packet_type != PacketType::Data
-        || packet.destination_type != DestinationType::Plain
-        || packet.destination != path_request_destination()
-    {
-        return None;
+    PathRequest::parse(packet).map(|request| request.target)
+}
+
+/// An incoming path request, with the fields RNS reads from it.
+///
+/// RNS sends `target || tag`, or `target || transport id || tag` from a transport-enabled
+/// instance (`Transport.py` 3295-3296), and a responder reads the payload by its length:
+/// anything past 32 bytes is the three-field form, anything past 16 the two-field form
+/// (`Transport.py` 1835-1836, 3390-3401).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PathRequest {
+    /// The destination being sought.
+    pub target: AddressHash,
+    /// The requesting transport instance, present only in the three-field form.
+    pub requestor: Option<AddressHash>,
+    tag: [u8; TAG_LEN],
+    tag_len: u8,
+}
+
+impl PathRequest {
+    /// Parse a path request, or `None` if `packet` is not one. A tagless request (a bare
+    /// target) parses, and reports no [`Self::unique_tag`]; RNS ignores those.
+    pub fn parse(packet: &Packet) -> Option<Self> {
+        if packet.packet_type != PacketType::Data
+            || packet.destination_type != DestinationType::Plain
+            || packet.destination != path_request_destination()
+        {
+            return None;
+        }
+        let data = &packet.payload;
+        let target = AddressHash::from_slice(data)?;
+        let hash_len = crate::hash::ADDRESS_HASH_LEN;
+        let (requestor, tag) = if data.len() > 2 * hash_len {
+            (
+                AddressHash::from_slice(&data[hash_len..]),
+                &data[2 * hash_len..],
+            )
+        } else {
+            (None, &data[hash_len..])
+        };
+        // RNS truncates an over-long tag to the hash length.
+        let tag = &tag[..tag.len().min(TAG_LEN)];
+        let mut bytes = [0; TAG_LEN];
+        bytes[..tag.len()].copy_from_slice(tag);
+        Some(Self {
+            target,
+            requestor,
+            tag: bytes,
+            tag_len: tag.len() as u8,
+        })
     }
-    AddressHash::from_slice(&packet.payload)
+
+    /// The request tag, or `None` for a tagless request.
+    pub fn tag(&self) -> Option<&[u8]> {
+        (self.tag_len > 0).then(|| &self.tag[..usize::from(self.tag_len)])
+    }
+
+    /// The key a responder remembers to ignore a repeat: the target and the tag, as RNS's
+    /// `unique_tag` (`Transport.py` 1847), hashed down to 16 bytes. `None` for a tagless
+    /// request, which a responder drops.
+    pub fn unique_tag(&self) -> Option<AddressHash> {
+        let tag = self.tag()?;
+        let mut key = [0; crate::hash::ADDRESS_HASH_LEN + TAG_LEN];
+        key[..crate::hash::ADDRESS_HASH_LEN].copy_from_slice(self.target.as_slice());
+        key[crate::hash::ADDRESS_HASH_LEN..][..tag.len()].copy_from_slice(tag);
+        Some(AddressHash::of(
+            &key[..crate::hash::ADDRESS_HASH_LEN + tag.len()],
+        ))
+    }
 }
 
 #[cfg(test)]
@@ -146,5 +208,46 @@ mod tests {
         let mut short = path_request(AddressHash::from_bytes([1; 16]), &[0; TAG_LEN]);
         short.payload.truncate(8);
         assert_eq!(parse_request(&short), None);
+    }
+
+    /// RNS reads the tag by payload length: the two-field form from an ordinary instance,
+    /// the three-field form from a transport, and a bare target is tagless.
+    #[test]
+    fn path_request_tags_are_read_as_rns_reads_them() {
+        let target = AddressHash::from_bytes([0x5A; 16]);
+        let two = PathRequest::parse(&path_request(target, &[0x11; TAG_LEN])).unwrap();
+        assert_eq!(two.target, target);
+        assert_eq!(two.requestor, None);
+        assert_eq!(two.tag(), Some(&[0x11; TAG_LEN][..]));
+
+        let mut three = path_request(target, &[0x22; TAG_LEN]);
+        three.payload.splice(16..16, [0x33; 16]);
+        let three = PathRequest::parse(&three).unwrap();
+        assert_eq!(three.requestor, Some(AddressHash::from_bytes([0x33; 16])));
+        assert_eq!(three.tag(), Some(&[0x22; TAG_LEN][..]));
+
+        let mut long = path_request(target, &[0x44; TAG_LEN]);
+        long.payload.extend_from_slice(&[0x55; 20]);
+        let long = PathRequest::parse(&long).unwrap();
+        assert_eq!(long.tag().map(<[u8]>::len), Some(TAG_LEN), "truncated");
+
+        let mut short_tag = path_request(target, &[0x66; TAG_LEN]);
+        short_tag.payload.truncate(20);
+        let short_tag = PathRequest::parse(&short_tag).unwrap();
+        assert_eq!(short_tag.tag(), Some(&[0x66; 4][..]));
+
+        let mut tagless = path_request(target, &[0; TAG_LEN]);
+        tagless.payload.truncate(16);
+        let tagless = PathRequest::parse(&tagless).unwrap();
+        assert_eq!((tagless.tag(), tagless.unique_tag()), (None, None));
+
+        assert_ne!(two.unique_tag(), three.unique_tag());
+        assert_ne!(
+            two.unique_tag(),
+            PathRequest::parse(&path_request(AddressHash::from_bytes([1; 16]), &[0x11; 16]))
+                .unwrap()
+                .unique_tag(),
+            "the same tag for another target is another request"
+        );
     }
 }

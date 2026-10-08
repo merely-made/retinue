@@ -521,7 +521,7 @@ mod tests {
             "local",
             &radio,
             &management,
-            capture_at + Duration::from_secs(60 * 60),
+            capture_at + Duration::from_millis(retinue::node::DEFAULT_ROUTE_TTL),
         );
         assert!(expired.routes.is_empty());
         assert!(expired.generation > snapshot.generation);
