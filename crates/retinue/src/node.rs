@@ -188,7 +188,8 @@ pub const MAX_RESOURCE_PARTS: usize = 32;
 /// finite values with [`Node::new_with_payload_limits`]. The caller must also
 /// bound raw input before decoding a [`Packet`] and bound retained action queues.
 /// Inbound uncompressed resources are bounded by `max_resource_parts` times
-/// `max_ingress_bytes`; this does not bound decompression with `compression` on.
+/// `max_ingress_bytes`. With `compression` on, a compressed resource is also refused once
+/// it inflates past [`DEFAULT_MAX_DECOMPRESSED_SIZE`](crate::resource::DEFAULT_MAX_DECOMPRESSED_SIZE).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PayloadLimits {
     pub max_ingress_bytes: usize,
@@ -739,8 +740,9 @@ pub struct Node<
     /// Announces refused because the address book was full. The book keeps serving every
     /// peer it already knows; this says how many new ones were turned away.
     refused_peers: u16,
-    /// Resource offers refused: an advertisement past the part ceiling, or arriving with
-    /// every receiver slot held. The peer's ambition, counted rather than honoured.
+    /// Resource offers refused: an advertisement past the part ceiling or naming several
+    /// segments, a body past the decompression limit, or arriving with every receiver slot
+    /// held. The peer's ambition, counted rather than honoured.
     refused_offers: u16,
     transport_counters: TransportCounters,
 }
@@ -1792,7 +1794,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                 }
             }
             PacketType::LinkRequest => self.on_link_request(interface, packet, now, &mut actions),
-            PacketType::Proof => self.on_proof(packet, now, &mut actions),
+            PacketType::Proof => self.on_proof(interface, packet, now, &mut actions),
             PacketType::Data => self.on_link_data(interface, packet, now, &mut actions),
         }
 
@@ -1850,8 +1852,30 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         }
     }
 
-    /// A proof for a link we opened.
-    fn on_proof(&mut self, packet: &Packet, now: u64, actions: &mut Actions<ACTIONS>) {
+    /// A proof for a link we opened, or a resource proof for a transfer we are sending.
+    fn on_proof(
+        &mut self,
+        interface: InterfaceId,
+        packet: &Packet,
+        now: u64,
+        actions: &mut Actions<ACTIONS>,
+    ) {
+        // RNS proves receipt of a resource with a PROOF-type packet on the link. It belongs
+        // to an outbound transfer only, so with no sender on that link it is dropped rather
+        // than handed to a receiver it could only confuse.
+        if packet.context == link::CTX_RESOURCE_PRF {
+            let link_id = packet.destination;
+            if self.senders.iter().any(|(id, _, _)| *id == link_id)
+                && let Some(index) = self
+                    .links
+                    .iter()
+                    .position(|(link, _, _)| link.id() == link_id)
+            {
+                self.links[index].2 = now;
+                self.on_resource(interface, link_id, index, packet, now, actions);
+            }
+            return;
+        }
         let Some(index) = self
             .pending
             .iter()
@@ -2020,6 +2044,11 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                 data: data.to_vec(),
             });
             self.receivers.swap_remove(pos);
+        } else if self.receivers[pos].1.failure().is_some() {
+            // A multi-segment offer, or a body past the decompression limit: its cancel
+            // went out above, and nothing further is held for it.
+            self.receivers.swap_remove(pos);
+            self.refused_offers = self.refused_offers.saturating_add(1);
         } else if self.receivers[pos].1.is_canceled() {
             self.receivers.swap_remove(pos);
         }
@@ -3369,6 +3398,129 @@ mod tests {
         assert!(answer.is_empty(), "b says nothing rather than starting");
         assert!(!b.transfer_active(id), "and holds no reassembly state");
         assert!(b.has_link(id), "while the link itself is untouched");
+    }
+
+    /// Run a transfer from `a` to `b` until `b` proves receipt, returning that proof
+    /// undelivered. `a`'s sender is still waiting for it.
+    fn transfer_until_proof(
+        a: &mut Node<32, 8, 4>,
+        b: &mut Node<32, 8, 4>,
+        id: AddressHash,
+    ) -> Packet {
+        let payload: Vec<u8> = (0..2_000u32).map(|i| (i.wrapping_mul(13)) as u8).collect();
+        let started = a
+            .publish(
+                id,
+                IFACE,
+                &payload,
+                [0x5A; 4],
+                &[8; crate::token::IV_LEN],
+                0,
+            )
+            .unwrap();
+        let mut to_b = vec![sent(&started).unwrap()];
+        for _ in 0..64 {
+            let mut to_a = Vec::new();
+            for packet in to_b.drain(..) {
+                for action in b.ingest(IFACE, &packet, 0) {
+                    if let Action::Send { packet, .. } = action {
+                        to_a.push(packet);
+                    }
+                }
+            }
+            if let Some(index) = to_a
+                .iter()
+                .position(|p| p.context == link::CTX_RESOURCE_PRF)
+            {
+                return to_a.swap_remove(index);
+            }
+            for packet in to_a {
+                for action in a.ingest(IFACE, &packet, 0) {
+                    if let Action::Send { packet, .. } = action {
+                        to_b.push(packet);
+                    }
+                }
+            }
+        }
+        panic!("b never proved receipt");
+    }
+
+    /// A Node proves a resource with the PROOF-type packet RNS accepts, and a Node sender
+    /// completes on one. Before, a PROOF-type packet only ever reached link setup, so a
+    /// Node publishing to RNS never saw its receipt and held the sender until it expired.
+    #[test]
+    fn a_proof_type_resource_proof_completes_a_node_sender() {
+        let (mut a, mut b, id) = linked();
+        let proof = transfer_until_proof(&mut a, &mut b, id);
+        assert_eq!(proof.packet_type, PacketType::Proof);
+        assert!(a.transfer_active(id), "a is still waiting for the receipt");
+
+        assert!(a.ingest(IFACE, &proof, 0).is_empty());
+        assert!(
+            !a.transfer_active(id),
+            "the PROOF-type receipt completes a's sender"
+        );
+        assert!(a.has_link(id));
+    }
+
+    /// For one release a Node sender still accepts the DATA-type proof older retinue sent.
+    #[test]
+    fn a_node_sender_still_accepts_the_legacy_data_type_proof() {
+        let (mut a, mut b, id) = linked();
+        let mut proof = transfer_until_proof(&mut a, &mut b, id);
+        proof.packet_type = PacketType::Data;
+        a.ingest(IFACE, &proof, 0);
+        assert!(!a.transfer_active(id));
+    }
+
+    /// A PROOF-type resource proof on a link with no outbound transfer is dropped: it is
+    /// not an offer, so it neither opens a receiver nor counts as a refused one.
+    #[test]
+    fn a_stray_resource_proof_opens_nothing() {
+        let (mut a, b, id) = linked();
+        let link = b.links.iter().find(|(l, _, _)| l.id() == id).unwrap();
+        let stray = link.0.resource_proof_packet(&[1; 32], &[2; 32]);
+        assert!(a.ingest(IFACE, &stray, 0).is_empty());
+        assert!(!a.transfer_active(id));
+        assert_eq!(a.refused_offers(), 0);
+    }
+
+    /// A multi-segment offer is refused with a sealed cancel and holds no state, rather
+    /// than being received as its first segment.
+    #[test]
+    fn a_multi_segment_offer_is_refused_with_a_cancel() {
+        let (a, mut b, id) = linked();
+        let link = a
+            .links
+            .iter()
+            .find(|(l, _, _)| l.id() == id)
+            .unwrap()
+            .0
+            .clone();
+        let segment = [0x42_u8; 600];
+        let random_hash = [1, 2, 3, 4];
+        let iv = [0x11; crate::token::IV_LEN];
+        let token = link.seal(&crate::resource::content(&segment, &random_hash), &iv);
+        let out = crate::resource::Outgoing::new(&segment, &token, random_hash, false)
+            .with_segment(
+                1,
+                3,
+                1_800,
+                crate::resource::resource_hash(&segment, &random_hash),
+            );
+        let advertisement =
+            link.sealed_packet(link::CTX_RESOURCE_ADV, &out.advertisement().pack(), &iv);
+
+        let answer = b.ingest(IFACE, &advertisement, 0);
+        let cancel = sent(&answer).expect("b tells the sender to stop");
+        assert_eq!(cancel.context, link::CTX_RESOURCE_RCL);
+        assert_eq!(link.decrypt(&cancel).unwrap(), out.resource_hash().to_vec());
+        assert!(
+            !answer.iter().any(|x| matches!(x, Action::Resource { .. })),
+            "no data"
+        );
+        assert!(!b.transfer_active(id), "and holds no reassembly state");
+        assert_eq!(b.refused_offers(), 1);
     }
 
     /// A shell that could not send the announce can say so, and the next poll announces

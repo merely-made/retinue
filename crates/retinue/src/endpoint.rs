@@ -652,6 +652,8 @@ impl ResourceSession {
                         if let Some(data) = receiver.data().map(|data| data.to_vec()) {
                             queue_resource_proof_replays(&shared, iface, &mut receiver);
                             return Ok(data);
+                        } else if let Some(error) = receiver.failure() {
+                            return Err(resource_receive_failure(error));
                         } else if receiver.is_canceled() {
                             return Err(io::Error::new(
                                 io::ErrorKind::ConnectionAborted,
@@ -724,6 +726,8 @@ impl ResourceSession {
                         if let Some(data) = receiver.data().map(|data| data.to_vec()) {
                             queue_resource_proof_replays(&shared, iface, &mut receiver);
                             return Ok((identified, ReceivedPayload::Resource(data)));
+                        } else if let Some(error) = receiver.failure() {
+                            return Err(resource_receive_failure(error));
                         } else if receiver.is_canceled() {
                             return Err(io::Error::new(
                                 io::ErrorKind::ConnectionAborted,
@@ -959,6 +963,8 @@ impl ResourceSession {
                             }
                             receiver =
                                 ResourceReceiver::with_request_window(link.clone(), request_window);
+                        } else if let Some(error) = receiver.failure() {
+                            return Err(resource_receive_failure(error));
                         } else if receiver.is_canceled() {
                             return Err(io::Error::new(
                                 io::ErrorKind::ConnectionAborted,
@@ -987,6 +993,17 @@ impl Drop for ResourceSession {
             .send_on(self.iface, self.link.close_packet(&next_iv()));
         self.shared.end_resource();
     }
+}
+
+/// The I/O error for a resource this endpoint refused to receive: one that needs segment
+/// accumulation, or whose body inflated past the decompression limit. The receiver has
+/// already sent the sender its cancel.
+fn resource_receive_failure(error: crate::Error) -> io::Error {
+    let kind = match error {
+        crate::Error::MultiSegmentResource => io::ErrorKind::Unsupported,
+        _ => io::ErrorKind::InvalidData,
+    };
+    io::Error::new(kind, error)
 }
 
 /// Queue bounded duplicate receipts while the resource link is still registered.

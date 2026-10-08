@@ -81,8 +81,11 @@ pub fn compress(content: &[u8]) -> Vec<u8> {
     enc.finish().expect("finishing a Vec encoder cannot fail")
 }
 
-/// Decompress bz2 content. The inverse of [`compress`]; used on a received resource whose
-/// advertisement set [`FLAG_COMPRESSED`]. Returns [`Error::BadPadding`] on malformed input.
+/// Decompress bz2 content. The inverse of [`compress`]. Returns [`Error::BadPadding`] on
+/// malformed input.
+///
+/// Unbounded: the output grows to whatever the input inflates to. A received resource is
+/// recovered through [`Incoming::recover_with_limit`] instead, which bounds it.
 #[cfg(feature = "compression")]
 pub fn decompress(compressed: &[u8]) -> Result<Vec<u8>> {
     use std::io::Read;
@@ -92,8 +95,12 @@ pub fn decompress(compressed: &[u8]) -> Result<Vec<u8>> {
     Ok(out)
 }
 
-/// Failure of the bounded stream-frame decoder. Resource recovery deliberately uses
-/// [`decompress`] and retains its advertisement/hash semantics.
+/// The most bytes a received compressed resource may decompress to unless a receiver is
+/// told otherwise: 64 MiB, RNS's `Resource.AUTO_COMPRESS_MAX_SIZE`, which RNS also uses as
+/// its receive-side ceiling.
+pub const DEFAULT_MAX_DECOMPRESSED_SIZE: usize = 64 * 1024 * 1024;
+
+/// Failure of the bounded bz2 decoder used by resource recovery and stream frames.
 #[cfg(feature = "compression")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BoundedDecompressError {
@@ -101,10 +108,13 @@ pub(crate) enum BoundedDecompressError {
     LimitExceeded,
 }
 
-/// Decode one stream frame with a hard bound on the owned output `Vec` allocation.
-/// The output allocation is exactly `limit + 1` bytes, including the sentinel byte
-/// used to distinguish an exact fit from an oversized frame. The bz2 decoder's own
-/// workspace is separate and is not covered by this output bound.
+/// Decode bz2 with a hard bound on the owned output `Vec` allocation.
+///
+/// The output grows geometrically as data actually arrives, and never past `limit + 1`
+/// bytes: the extra sentinel byte distinguishes an exact fit from an oversized input. A
+/// large limit therefore costs nothing up front, and an oversized input is refused once it
+/// has produced `limit + 1` bytes. The bz2 decoder's own workspace is separate and is not
+/// covered by this output bound.
 #[cfg(feature = "compression")]
 pub(crate) fn decompress_bounded(
     compressed: &[u8],
@@ -112,18 +122,28 @@ pub(crate) fn decompress_bounded(
 ) -> core::result::Result<Vec<u8>, BoundedDecompressError> {
     use std::io::Read;
 
+    /// First output allocation; doubled as the decoder fills it.
+    const INITIAL: usize = 4096;
+
     // Callers validate the limit before storing it; never allow an overflowing or
     // unrepresentable allocation even if this helper is called directly.
     let capacity = limit
         .checked_add(1)
         .filter(|&n| n <= isize::MAX as usize)
         .ok_or(BoundedDecompressError::LimitExceeded)?;
-    let mut output = vec![0u8; capacity];
+    let mut output = Vec::new();
     let mut decoder = bzip2::read::BzDecoder::new(compressed);
     let mut used = 0;
     loop {
-        if used == capacity {
-            return Err(BoundedDecompressError::LimitExceeded);
+        if used == output.len() {
+            if used == capacity {
+                return Err(BoundedDecompressError::LimitExceeded);
+            }
+            let grown = used
+                .saturating_mul(2)
+                .clamp(INITIAL.min(capacity), capacity);
+            output.reserve_exact(grown - used);
+            output.resize(grown, 0);
         }
         let n = decoder
             .read(&mut output[used..])
@@ -667,10 +687,20 @@ impl Incoming {
     /// advertisement flagged it, strip the `random_hash` prefix, and verify against the
     /// resource hash. This is the whole receive tail in one call.
     ///
-    /// Returns [`Error::ResourceCorrupt`] if the recovered data does not match the hash, and
+    /// Decompression is bounded by [`DEFAULT_MAX_DECOMPRESSED_SIZE`]; see
+    /// [`recover_with_limit`](Self::recover_with_limit).
+    pub fn recover(&self, decrypted: &[u8]) -> Result<Vec<u8>> {
+        self.recover_with_limit(decrypted, DEFAULT_MAX_DECOMPRESSED_SIZE)
+    }
+
+    /// [`recover`](Self::recover) with an explicit ceiling on the decompressed size.
+    ///
+    /// Returns [`Error::DecompressionLimit`] if a compressed body inflates past
+    /// `max_decompressed` bytes (the output buffer never grows past that bound),
+    /// [`Error::ResourceCorrupt`] if the recovered data does not match the hash, and
     /// [`Error::Unsupported`] if the resource is compressed but the `compression` feature is
     /// off.
-    pub fn recover(&self, decrypted: &[u8]) -> Result<Vec<u8>> {
+    pub fn recover_with_limit(&self, decrypted: &[u8], max_decompressed: usize) -> Result<Vec<u8>> {
         // The transferred blob is `random_hash || body`, where body is the payload,
         // bz2-compressed if the advertisement flagged it. The random-hash prefix sits
         // OUTSIDE the compression, so strip it first, then decompress.
@@ -678,10 +708,14 @@ impl Incoming {
         let data = if self.compressed {
             #[cfg(feature = "compression")]
             {
-                decompress(body)?
+                decompress_bounded(body, max_decompressed).map_err(|e| match e {
+                    BoundedDecompressError::InvalidData => Error::BadPadding,
+                    BoundedDecompressError::LimitExceeded => Error::DecompressionLimit,
+                })?
             }
             #[cfg(not(feature = "compression"))]
             {
+                let _ = max_decompressed;
                 return Err(Error::Unsupported);
             }
         } else {
@@ -1471,6 +1505,30 @@ mod tests {
         let squished = compress(&content);
         assert!(squished.len() < content.len());
         assert_eq!(decompress(&squished).unwrap(), content);
+    }
+
+    /// Recovery inflates a compressed body only up to its limit: an exact fit (past the
+    /// bounded decoder's first allocation, so it grows) is returned, one byte over is a
+    /// typed refusal rather than the data.
+    #[cfg(feature = "compression")]
+    #[test]
+    fn recovery_bounds_the_decompressed_size() {
+        let data: Vec<u8> = (0..20_000u32).map(|i| (i / 100) as u8).collect();
+        let random_hash = [0x0A, 0x0B, 0x0C, 0x0D];
+        let squished = compress(&data);
+        let (adv, _) = advertise(&data, &squished, random_hash, true);
+        let incoming = Incoming::new(&adv).unwrap();
+        let decrypted = content(&squished, &random_hash);
+
+        assert_eq!(
+            incoming.recover_with_limit(&decrypted, data.len()),
+            Ok(data.clone())
+        );
+        assert_eq!(
+            incoming.recover_with_limit(&decrypted, data.len() - 1),
+            Err(Error::DecompressionLimit)
+        );
+        assert_eq!(incoming.recover(&decrypted), Ok(data));
     }
 
     #[test]
