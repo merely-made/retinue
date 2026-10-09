@@ -41,7 +41,8 @@ impl ResourceSession {
     ///
     /// `idle` is the longest wait with nothing heard; past it the call fails with
     /// [`io::ErrorKind::TimedOut`]. A failed or refused Resource is dropped and the wait
-    /// goes on. Requests are bounded as in [`receive_raw_request`]; the accept hook from
+    /// goes on. A Resource still arriving when a request or packet returns first is kept
+    /// for the next call, as RNS keeps a link's transfers apart from its packets. Requests are bounded as in [`receive_raw_request`]; the accept hook from
     /// [`set_accept`] sees request advertisements too, flagged `FLAG_REQUEST`.
     ///
     /// [`receive_raw_request`]: Self::receive_raw_request
@@ -50,9 +51,13 @@ impl ResourceSession {
         let max_request = self.max_request_size;
         let make = self.receivers(None, true);
         let new_receiver = move || make().with_filter(|adv| adv.flags & FLAG_RESPONSE == 0);
-        let mut receiver = new_receiver();
-        let mut pace = Pace::new(idle);
-        let mut kept = 0;
+        let (mut receiver, mut pace, mut kept) = match self.inbound.take() {
+            Some((receiver, mut pace, kept)) => {
+                pace.resume(idle);
+                (receiver, pace, kept)
+            }
+            None => (new_receiver(), Pace::new(idle), 0),
+        };
         let closed = || io::Error::new(io::ErrorKind::BrokenPipe, "resource link closed");
         loop {
             tokio::select! {
@@ -66,11 +71,13 @@ impl ResourceSession {
                     }
                     match self.link.receive(&packet) {
                         Some(Inbound::Data(data)) => {
+                            self.inbound = Some((receiver, pace, kept));
                             return Ok(SessionInbound::Data(ReceivedLinkData { data, packet }));
                         }
                         Some(Inbound::Request(bytes))
                             if max_request.is_none_or(|max| bytes.len() <= max) =>
                         {
+                            self.inbound = Some((receiver, pace, kept));
                             return Ok(SessionInbound::Request(ReceivedRawRequest {
                                 packed: bytes,
                                 request_id: packet.hash(),

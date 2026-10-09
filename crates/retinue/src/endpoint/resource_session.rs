@@ -69,6 +69,9 @@ pub struct ResourceSession {
     metadata: Option<Vec<u8>>,
     pub(super) max_resource_size: usize,
     pub(super) max_request_size: Option<usize>,
+    /// A Resource [`next_inbound`](Self::next_inbound) was receiving when a request or
+    /// packet came first, with its clock and the segment proofs kept.
+    pub(super) inbound: Option<(SegmentedReceiver, Pace, usize)>,
 }
 
 /// A resource accept policy shared by every receive on a session; see
@@ -562,5 +565,6 @@ pub(super) fn register_resource_session(
         metadata: None,
         max_resource_size: DEFAULT_MAX_RESOURCE_SIZE,
         max_request_size: None,
+        inbound: None,
     })
 }
