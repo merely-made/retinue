@@ -51,7 +51,7 @@ impl FieldKey {
     /// The field stock LXMF carries audio in, observed as 7 by
     /// `oracle/capture_fields.py` against LXMF 0.9.6 and re-confirmed against 1.1.1,
     /// which added five fields (48, 49, 64, 65, 66) without moving any existing one.
-    pub const AUDIO: Self = Self(7);
+    pub const AUDIO: Self = Self(crate::fields::AUDIO as u64);
 }
 
 /// The audio mode meaning "a codec outside the standard list", observed as
@@ -60,7 +60,7 @@ impl FieldKey {
 /// Pipit clips are sent under this rather than under a Codec2 or Opus mode,
 /// because they are not those and a client should not try to decode them as
 /// though they were.
-pub const AM_CUSTOM: u8 = 255;
+pub const AM_CUSTOM: u8 = crate::fields::audio::CUSTOM;
 
 /// What a clip says about itself, read from its header without decoding any
 /// audio.

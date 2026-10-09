@@ -48,6 +48,8 @@
 
 extern crate alloc;
 
+/// LXMF's field numbers and specifiers. `no_std`.
+pub mod fields;
 /// The `no_std` codec, built beside the shipping one. See its own docs for the bar it
 /// must clear before it replaces `codec`.
 pub mod portable;
