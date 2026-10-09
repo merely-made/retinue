@@ -19,51 +19,60 @@ pub(super) struct TxRequest {
 }
 
 /// The pump's ends of the channels it shares with its
-/// [`RNodeSerialLink`](super::RNodeSerialLink).
+/// [`RNodeSerialLink`](super::RNodeSerialLink), kept across reopened ports.
 pub(super) struct PumpChannels {
     pub(super) tx_rx: mpsc::Receiver<TxRequest>,
     pub(super) rx_tx: mpsc::Sender<Received>,
     pub(super) status_tx: watch::Sender<PumpStatus>,
     pub(super) error_tx: mpsc::Sender<Vec<u8>>,
+    pub(super) shutdown: oneshot::Receiver<()>,
+    /// A frame taken from `tx_rx` and not yet answered.
+    pub(super) pending: Option<TxRequest>,
 }
 
+impl PumpChannels {
+    /// Answer the frame in hand, if any, with `error`.
+    pub(super) fn fail_pending(&mut self, error: TransmitError) {
+        if let Some(request) = self.pending.take() {
+            let _ = request.done.send(Err(error));
+        }
+    }
+}
+
+/// Run one open port. `Ok` means stop for good: shutdown, or nobody left to deliver to.
+/// `Err` is a port or device failure that a supervisor may answer by reopening.
 pub(super) async fn run_pump<T>(
     mut io: T,
-    mut link: RadioLink<RNode>,
-    config: SerialPumpConfig,
-    channels: PumpChannels,
-    mut shutdown: oneshot::Receiver<()>,
+    link: &mut RadioLink<RNode>,
+    config: &SerialPumpConfig,
+    ch: &mut PumpChannels,
 ) -> Result<(), io::Error>
 where
     T: AsyncRead + AsyncWrite + Unpin,
 {
-    let PumpChannels {
-        mut tx_rx,
-        rx_tx,
-        status_tx,
-        error_tx,
-    } = channels;
     let epoch = Instant::now();
+    let _ = ch.status_tx.send(PumpStatus::Settling);
     if !config.open_settle.is_zero() {
         tokio::select! {
             _ = sleep(config.open_settle) => {}
-            _ = &mut shutdown => return Ok(()),
+            _ = &mut ch.shutdown => return Ok(()),
         }
     }
 
-    let _ = status_tx.send(PumpStatus::Initializing);
+    let _ = ch.status_tx.send(PumpStatus::Initializing);
     link.modem_mut().start();
-    flush_modem(&mut io, &mut link).await?;
+    flush_modem(&mut io, link).await?;
     let mut next_init = Instant::now() + config.init_retry;
     let mut next_tx = Instant::now();
-    let mut pending: Option<TxRequest> = None;
+    let mut locked_at = Instant::now();
+    let mut last_read = Instant::now();
     let mut tx_closed = false;
     let mut announced_online = false;
     let mut read_buf = [0u8; 1024];
 
     loop {
         while let Some(received) = link.recv() {
-            if rx_tx.send(received).await.is_err() {
+            if ch.rx_tx.send(received).await.is_err() {
                 return Ok(());
             }
         }
@@ -71,82 +80,86 @@ where
         // The device's own complaints. Dropped rather than blocking the pump
         // if nobody is draining them: diagnostics must never stall traffic.
         if let Some(error) = link.modem_mut().take_last_error() {
-            let _ = error_tx.try_send(error);
+            let _ = ch.error_tx.try_send(error);
+        }
+        if let Some(fault) = link.modem_mut().take_fault() {
+            return Err(io::Error::other(fault));
         }
 
-        if link.modem().is_online() && !announced_online {
+        let online = link.modem().is_online();
+        if online && !announced_online {
             announced_online = true;
-            let _ = status_tx.send(PumpStatus::Online {
+            let _ = ch.status_tx.send(PumpStatus::Online {
                 firmware: link.modem().fw_version(),
             });
         }
 
         let now = Instant::now();
-        if !link.modem().is_online() && now >= next_init {
+        if !online && now >= next_init {
             link.modem_mut().start();
-            flush_modem(&mut io, &mut link).await?;
+            flush_modem(&mut io, link).await?;
             next_init = Instant::now() + config.init_retry;
         }
+        if link.modem().is_flow_locked() && now >= locked_at + config.flow_unlock {
+            link.modem_mut().release();
+        }
 
-        if pending.is_some() && link.modem().is_online() && now >= next_tx {
-            let request = pending.take().expect("checked above");
+        if ch.pending.is_some() && online && now >= next_tx {
+            let request = ch.pending.take().expect("checked above");
             let now_ms = epoch.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
             let outcome = if request.announce {
                 link.send_announcement(&request.frame, now_ms)
             } else {
                 link.send(&request.frame, now_ms)
             };
-            match outcome {
+            let answer = match outcome {
                 SendOutcome::Sent { airtime } => {
-                    if let Err(error) = flush_modem(&mut io, &mut link).await {
+                    if let Err(error) = flush_modem(&mut io, link).await {
                         let _ = request
                             .done
                             .send(Err(TransmitError::Transport(error.to_string())));
                         return Err(error);
                     }
-                    next_tx = Instant::now() + airtime + config.turnaround;
-                    let _ = request.done.send(Ok(airtime));
+                    locked_at = Instant::now();
+                    next_tx = locked_at + airtime + config.turnaround;
+                    Ok(airtime)
                 }
                 SendOutcome::DutyCycleBlocked {
                     retry_at_ms: Some(retry_at_ms),
-                } => {
-                    next_tx = epoch + Duration::from_millis(retry_at_ms);
-                    pending = Some(request);
                 }
-                SendOutcome::DutyCycleBlocked { retry_at_ms: None } => {
-                    let _ = request.done.send(Err(TransmitError::DutyCycleImpossible));
-                }
-                SendOutcome::AnnouncePaced {
+                | SendOutcome::AnnouncePaced {
                     retry_at_ms: Some(retry_at_ms),
                 } => {
                     next_tx = epoch + Duration::from_millis(retry_at_ms);
-                    pending = Some(request);
-                }
-                SendOutcome::AnnouncePaced { retry_at_ms: None } => {
-                    let _ = request.done.send(Err(TransmitError::AnnouncementDisabled));
+                    ch.pending = Some(request);
+                    continue;
                 }
                 SendOutcome::Failed(ModemError::Busy) => {
                     next_tx = Instant::now() + config.busy_retry;
-                    pending = Some(request);
+                    ch.pending = Some(request);
+                    continue;
+                }
+                SendOutcome::DutyCycleBlocked { retry_at_ms: None } => {
+                    Err(TransmitError::DutyCycleImpossible)
+                }
+                SendOutcome::AnnouncePaced { retry_at_ms: None } => {
+                    Err(TransmitError::AnnouncementDisabled)
                 }
                 SendOutcome::Failed(ModemError::TooLong { max }) => {
-                    let _ = request.done.send(Err(TransmitError::TooLong { max }));
+                    Err(TransmitError::TooLong { max })
                 }
-                SendOutcome::Failed(ModemError::Unsupported) => {
-                    let _ = request.done.send(Err(TransmitError::Unsupported));
-                }
+                SendOutcome::Failed(ModemError::Unsupported) => Err(TransmitError::Unsupported),
                 SendOutcome::Failed(ModemError::Transport(error)) => {
-                    let _ = request
-                        .done
-                        .send(Err(TransmitError::Transport(error.to_string())));
+                    Err(TransmitError::Transport(error.to_string()))
                 }
-            }
+            };
+            let _ = request.done.send(answer);
             continue;
         }
 
-        let wake = if !link.modem().is_online() {
+        let wake = if !online {
             next_init
-        } else if pending.is_some() {
+        } else if ch.pending.is_some() {
             next_tx
         } else {
             // A bounded wake keeps status/event draining prompt even on serial drivers that
@@ -156,18 +169,27 @@ where
 
         tokio::select! {
             biased;
-            _ = &mut shutdown => return Ok(()),
+            _ = &mut ch.shutdown => {
+                // The detach handshake, best effort: the port may already be gone.
+                link.modem_mut().leave();
+                let _ = flush_modem(&mut io, link).await;
+                return Ok(());
+            }
             read = io.read(&mut read_buf) => {
                 let count = read?;
                 if count == 0 {
                     return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "serial port closed"));
                 }
+                if last_read.elapsed() > config.idle_reset {
+                    link.modem_mut().reset_partial();
+                }
+                last_read = Instant::now();
                 link.modem_mut().on_serial(&read_buf[..count]);
-                flush_modem(&mut io, &mut link).await?;
+                flush_modem(&mut io, link).await?;
             }
-            request = tx_rx.recv(), if pending.is_none() && !tx_closed => {
+            request = ch.tx_rx.recv(), if ch.pending.is_none() && !tx_closed => {
                 match request {
-                    Some(request) => pending = Some(request),
+                    Some(request) => ch.pending = Some(request),
                     None => tx_closed = true,
                 }
             }

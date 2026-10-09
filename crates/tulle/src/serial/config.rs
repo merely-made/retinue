@@ -20,6 +20,13 @@ pub struct SerialPumpConfig {
     pub tx_queue: usize,
     /// Maximum number of received frames waiting for the protocol consumer.
     pub rx_queue: usize,
+    /// A half-read frame is discarded after this long without bytes (`RNodeInterface.py`
+    /// 1137-1143).
+    pub idle_reset: Duration,
+    /// A flow-control lock the device never releases is lifted after this.
+    pub flow_unlock: Duration,
+    /// Delay before a supervised link reopens a failed port (`RNodeInterface.py` 1175-1187).
+    pub reconnect: Duration,
 }
 
 impl Default for SerialPumpConfig {
@@ -32,6 +39,9 @@ impl Default for SerialPumpConfig {
             busy_retry: Duration::from_millis(50),
             tx_queue: 32,
             rx_queue: 32,
+            idle_reset: Duration::from_millis(100),
+            flow_unlock: Duration::from_secs(5),
+            reconnect: Duration::from_secs(5),
         }
     }
 }

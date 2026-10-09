@@ -1,32 +1,36 @@
 //! The host handle to a running RNode serial pump.
 
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
+use tokio::time::sleep;
 
 use super::pump::{PumpChannels, TxRequest, run_pump};
 use super::{PumpError, PumpStatus, SerialPumpConfig, TransmitError};
 use crate::airtime::AirtimeBudget;
 use crate::link::{RadioLink, Received};
 use crate::lora::LoRaParams;
-use crate::rnode::RNode;
+use crate::rnode::{RNode, RNodeConfig};
 
 /// A running RNode serial interface.
 ///
-/// Opening asserts DTR, explicitly deasserts RTS, and starts one Tokio task that owns all
-/// serial reads and writes. [`send`](Self::send) completes after the frame passes the airtime
-/// gate and its KISS bytes have been written. [`recv`](Self::recv) yields complete RF frames.
+/// Opening asserts DTR and explicitly deasserts RTS, best effort, and starts one Tokio task
+/// that owns all serial reads and writes. [`send`](Self::send) completes after the frame
+/// passes the airtime gate and its KISS bytes have been written. [`recv`](Self::recv) yields
+/// complete RF frames. Shutting down, or dropping the handle, turns the radio off and sends
+/// LEAVE before the port closes.
 pub struct RNodeSerialLink {
     tx: mpsc::Sender<TxRequest>,
     rx: mpsc::Receiver<Received>,
     errors: mpsc::Receiver<Vec<u8>>,
-    status: watch::Receiver<PumpStatus>,
+    pub(super) status: watch::Receiver<PumpStatus>,
     shutdown: Option<oneshot::Sender<()>>,
     task: Option<JoinHandle<Result<(), io::Error>>>,
+    supervised: bool,
 }
 
 impl RNodeSerialLink {
@@ -37,21 +41,45 @@ impl RNodeSerialLink {
         budget: AirtimeBudget,
         config: SerialPumpConfig,
     ) -> Result<Self, PumpError> {
-        if config.tx_queue == 0 || config.rx_queue == 0 {
-            return Err(PumpError::Io(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "serial pump queue capacities must be non-zero",
-            )));
-        }
-
-        let port = serial2_tokio::SerialPort::open(path, config.baud_rate)?;
-        // nRF USB CDC gates output on DTR. On ESP32, RTS is wired into reset/boot and must
-        // remain deasserted (asserting it wedged a board in a live harness).
-        port.set_dtr(true)?;
-        port.set_rts(false)?;
-        Ok(Self::spawn_io(port, params, budget, config))
+        Self::open_with(path, RNodeConfig::new(params), budget, config)
     }
 
+    /// Open a real serial port with a full RNode configuration. The pump ends on the first
+    /// port or device failure.
+    pub fn open_with(
+        path: impl AsRef<Path>,
+        rnode: RNodeConfig,
+        budget: AirtimeBudget,
+        config: SerialPumpConfig,
+    ) -> Result<Self, PumpError> {
+        check(&rnode, &config)?;
+        let mut port = Some(open_port(path.as_ref(), config.baud_rate)?);
+        let open = move || port.take().ok_or_else(|| io::ErrorKind::NotFound.into());
+        Ok(Self::spawn(open, rnode, budget, config, false))
+    }
+
+    /// Run an RNode that is reopened [`SerialPumpConfig::reconnect`] after any port or device
+    /// failure, as RNS reconnects (`RNodeInterface.py` 1175-1187). Frames offered while it is
+    /// down fail with [`TransmitError::Offline`].
+    pub fn supervise(
+        path: impl Into<PathBuf>,
+        rnode: RNodeConfig,
+        budget: AirtimeBudget,
+        config: SerialPumpConfig,
+    ) -> Result<Self, PumpError> {
+        check(&rnode, &config)?;
+        let path = path.into();
+        let baud = config.baud_rate;
+        Ok(Self::spawn(
+            move || open_port(&path, baud),
+            rnode,
+            budget,
+            config,
+            true,
+        ))
+    }
+
+    #[cfg(test)]
     pub(super) fn spawn_io<T>(
         io: T,
         params: LoRaParams,
@@ -61,35 +89,58 @@ impl RNodeSerialLink {
     where
         T: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
+        let mut io = Some(io);
+        let open = move || io.take().ok_or_else(|| io::ErrorKind::NotFound.into());
+        Self::spawn(open, RNodeConfig::new(params), budget, config, false)
+    }
+
+    pub(super) fn spawn<T, F>(
+        mut open: F,
+        rnode: RNodeConfig,
+        budget: AirtimeBudget,
+        config: SerialPumpConfig,
+        supervised: bool,
+    ) -> Self
+    where
+        T: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+        F: FnMut() -> io::Result<T> + Send + 'static,
+    {
         let (tx, tx_rx) = mpsc::channel(config.tx_queue);
         let (rx_tx, rx) = mpsc::channel(config.rx_queue);
         let (status_tx, status) = watch::channel(PumpStatus::Settling);
         let (error_tx, errors) = mpsc::channel(config.rx_queue);
         let (shutdown, shutdown_rx) = oneshot::channel();
-        let task_status = status_tx.clone();
+        let mut ch = PumpChannels {
+            tx_rx,
+            rx_tx,
+            status_tx,
+            error_tx,
+            shutdown: shutdown_rx,
+            pending: None,
+        };
         let task = tokio::spawn(async move {
-            let result = run_pump(
-                io,
-                RadioLink::new(RNode::new(params), budget),
-                config,
-                PumpChannels {
-                    tx_rx,
-                    rx_tx,
-                    status_tx,
-                    error_tx,
-                },
-                shutdown_rx,
-            )
-            .await;
-            match &result {
-                Ok(()) => {
-                    let _ = task_status.send(PumpStatus::Stopped);
+            let mut link = RadioLink::new(RNode::with_config(rnode), budget);
+            loop {
+                let result = match open() {
+                    Ok(io) => run_pump(io, &mut link, &config, &mut ch).await,
+                    Err(error) => Err(error),
+                };
+                let error = match result {
+                    Ok(()) => break,
+                    Err(error) => error,
+                };
+                let _ = ch.status_tx.send(PumpStatus::Fault(error.to_string()));
+                if !supervised {
+                    return Err(error);
                 }
-                Err(error) => {
-                    let _ = task_status.send(PumpStatus::Fault(error.to_string()));
+                ch.fail_pending(TransmitError::Offline);
+                if !wait_offline(config.reconnect, &mut ch).await {
+                    break;
                 }
+                link.modem_mut().reopen();
             }
-            result
+            let _ = ch.status_tx.send(PumpStatus::Stopped);
+            Ok(())
         });
 
         Self {
@@ -99,6 +150,7 @@ impl RNodeSerialLink {
             status,
             shutdown: Some(shutdown),
             task: Some(task),
+            supervised,
         }
     }
 
@@ -107,12 +159,16 @@ impl RNodeSerialLink {
         self.status.borrow().clone()
     }
 
-    /// Wait until the RNode confirms that its radio is online.
+    /// Wait until the RNode confirms that its radio is online. A supervised link keeps
+    /// waiting through faults, since it reopens.
     pub async fn wait_online(&mut self) -> Result<Option<(u8, u8)>, PumpError> {
         loop {
             match self.status.borrow().clone() {
                 PumpStatus::Online { firmware } => return Ok(firmware),
-                PumpStatus::Fault(message) => return Err(PumpError::Fault(message)),
+                PumpStatus::Fault(message) if !self.supervised => {
+                    return Err(PumpError::Fault(message));
+                }
+                PumpStatus::Fault(_) => {}
                 PumpStatus::Stopped => return Err(PumpError::Stopped),
                 PumpStatus::Settling | PumpStatus::Initializing => {}
             }
@@ -178,13 +234,54 @@ impl RNodeSerialLink {
     }
 }
 
+/// Signals the task rather than aborting it, so it can still send the detach handshake.
 impl Drop for RNodeSerialLink {
     fn drop(&mut self) {
         if let Some(shutdown) = self.shutdown.take() {
             let _ = shutdown.send(());
         }
-        if let Some(task) = self.task.take() {
-            task.abort();
+    }
+}
+
+fn check(rnode: &RNodeConfig, config: &SerialPumpConfig) -> Result<(), PumpError> {
+    let invalid =
+        |message: String| PumpError::Io(io::Error::new(io::ErrorKind::InvalidInput, message));
+    if config.tx_queue == 0 || config.rx_queue == 0 {
+        return Err(invalid(
+            "serial pump queue capacities must be non-zero".into(),
+        ));
+    }
+    rnode.validate().map_err(|error| invalid(error.to_string()))
+}
+
+fn open_port(path: &Path, baud: u32) -> io::Result<serial2_tokio::SerialPort> {
+    let port = serial2_tokio::SerialPort::open(path, baud)?;
+    // nRF USB CDC gates output on DTR. On ESP32, RTS is wired into reset/boot and must
+    // remain deasserted (asserting it wedged a board in a live harness). A pty has neither
+    // line, so ENOTTY and EINVAL are tolerated, as pyserial tolerates them.
+    for line in [port.set_dtr(true), port.set_rts(false)] {
+        line.or_else(|error| match error.raw_os_error() {
+            Some(22 | 25) => Ok(()),
+            _ => Err(error),
+        })?;
+    }
+    Ok(port)
+}
+
+/// Fail offered frames until `delay` passes. False if the link was shut down meanwhile.
+async fn wait_offline(delay: Duration, ch: &mut PumpChannels) -> bool {
+    let reopen = sleep(delay);
+    tokio::pin!(reopen);
+    loop {
+        tokio::select! {
+            _ = &mut reopen => return true,
+            _ = &mut ch.shutdown => return false,
+            request = ch.tx_rx.recv() => match request {
+                Some(request) => {
+                    let _ = request.done.send(Err(TransmitError::Offline));
+                }
+                None => return false,
+            },
         }
     }
 }
