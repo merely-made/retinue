@@ -15,11 +15,9 @@
 //!   `STAT_SNR(0x24)` (dB = raw as i8 / 4), then `DATA(0x00)` with the packet verbatim.
 //! - Unsolicited channel-stat (`0x25`) and battery (`0x27`) frames ride alongside.
 //!
-//! RNS 1.5.7 semantics on top of the capture (`RNodeInterface.py` 428-500, 619-744,
-//! 1076-1209): airtime locks, echo validation before going online, a firmware floor, READY
-//! flow control, `ERROR` classification, the online-reset check, and the detach handshake.
-//!
-//! Sans-io: feed device bytes to [`RNode::on_serial`], write out whatever
+//! On top of the capture, RNS 1.5.7's semantics (`RNodeInterface.py` 428-500, 619-744,
+//! 1076-1209): airtime locks, echo validation, a firmware floor, READY flow control, `ERROR`
+//! classification, the online-reset check, and the detach handshake. Sans-io: feed device bytes to [`RNode::on_serial`], write out whatever
 //! [`RNode::take_outbound`] returns, drain events via [`Modem::poll`]. The pump owns the
 //! serial port and the clock.
 
@@ -31,44 +29,11 @@ use crate::modem::{Modem, ModemError, ModemEvent};
 
 mod config;
 
+use config::coding_rate_wire;
 pub use config::{
-    ConfigError, DeviceError, FREQ_MAX, FREQ_MIN, FREQ_TOLERANCE_HZ, Fault, HW_MTU, MIN_FIRMWARE,
-    Mismatch, RNodeConfig, Reported,
+    ConfigError, DETECT_REQ, DETECT_RESP, DeviceError, FREQ_MAX, FREQ_MIN, FREQ_TOLERANCE_HZ,
+    Fault, HW_MTU, MIN_FIRMWARE, Mismatch, RESET_MARKER, RNodeConfig, RSSI_OFFSET, Reported, cmd,
 };
-
-/// KISS command bytes (`RNodeInterface.py` 40-82).
-pub mod cmd {
-    pub const DATA: u8 = 0x00;
-    pub const FREQUENCY: u8 = 0x01;
-    pub const BANDWIDTH: u8 = 0x02;
-    pub const TXPOWER: u8 = 0x03;
-    pub const SF: u8 = 0x04;
-    pub const CR: u8 = 0x05;
-    pub const RADIO_STATE: u8 = 0x06;
-    pub const DETECT: u8 = 0x08;
-    pub const LEAVE: u8 = 0x0A;
-    pub const ST_ALOCK: u8 = 0x0B;
-    pub const LT_ALOCK: u8 = 0x0C;
-    pub const READY: u8 = 0x0F;
-    pub const STAT_RSSI: u8 = 0x23;
-    pub const STAT_SNR: u8 = 0x24;
-    pub const STAT_CHTM: u8 = 0x25;
-    pub const STAT_BAT: u8 = 0x27;
-    pub const PLATFORM: u8 = 0x48;
-    pub const MCU: u8 = 0x49;
-    pub const FW_VERSION: u8 = 0x50;
-    pub const RESET: u8 = 0x55;
-    pub const ERROR: u8 = 0x90;
-}
-
-/// Detect request/response magic bytes.
-pub const DETECT_REQ: u8 = 0x73;
-pub const DETECT_RESP: u8 = 0x46;
-/// The `RESET` payload a device sends after it restarts (`RNodeInterface.py` 1091-1092).
-pub const RESET_MARKER: u8 = 0xF8;
-
-/// RSSI on the wire is offset by this: `dBm = raw - 157`.
-pub const RSSI_OFFSET: i16 = 157;
 
 /// A sans-io RNode: implements [`Modem`] on top of the captured host protocol.
 pub struct RNode {
@@ -119,9 +84,7 @@ impl RNode {
     }
 
     fn queue_cmd(&mut self, command: u8, payload: &[u8]) {
-        let mut frame = Vec::with_capacity(1 + payload.len());
-        frame.push(command);
-        frame.extend_from_slice(payload);
+        let frame = [&[command][..], payload].concat();
         self.outbound.extend_from_slice(&kiss::encode(&frame));
     }
 
@@ -293,26 +256,10 @@ impl RNode {
         self.last_error.as_deref()
     }
 
-    /// Take the last `ERROR` frame payload, clearing it.
-    ///
-    /// A pump calls this to forward the device's own complaints to the host
-    /// instead of latching them where nobody looks. Worth surfacing: a device
-    /// that silently declines to transmit is indistinguishable from a healthy
-    /// one unless something reads this
-    /// (`design_docs/2026-07-26_rnode_bulk_frame_loss.md`).
+    /// Take the last `ERROR` frame payload, clearing it, so a pump can forward the device's
+    /// complaints (`design_docs/2026-07-26_rnode_bulk_frame_loss.md`).
     pub fn take_last_error(&mut self) -> Option<Vec<u8>> {
         self.last_error.take()
-    }
-}
-
-/// The CR wire value: RNode takes the denominator (5..=8 for 4/5..4/8).
-fn coding_rate_wire(p: &LoRaParams) -> u8 {
-    use crate::lora::CodingRate::*;
-    match p.coding_rate {
-        Cr45 => 5,
-        Cr46 => 6,
-        Cr47 => 7,
-        Cr48 => 8,
     }
 }
 

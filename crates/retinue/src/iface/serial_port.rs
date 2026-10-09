@@ -1,4 +1,5 @@
-//! Opening a serial line: serial2 for a real port, and a fallback for a pty.
+//! Opening a serial line: serial2 for a real port, with RNS's line settings, and a fallback
+//! for a pty.
 //!
 //! macOS sets the line speed with an ioctl a pty refuses with ENOTTY, so serial2 cannot open
 //! one. Such a line is used as its other end configured it, which is what a pty pair wants.
@@ -7,10 +8,10 @@ use alloc::boxed::Box;
 
 use std::io;
 
-use serial2_tokio::SerialPort;
+use serial2_tokio::{CharSize, FlowControl, SerialPort, Settings, StopBits};
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use super::SerialConfig;
+use super::{Parity, SerialConfig};
 
 /// An open line.
 pub(super) trait Port: AsyncRead + AsyncWrite + Unpin + Send {}
@@ -34,6 +35,44 @@ pub(super) fn open(config: &SerialConfig) -> io::Result<Box<dyn Port>> {
         })?;
     }
     Ok(Box::new(port))
+}
+
+impl SerialConfig {
+    pub(super) fn char_size(&self) -> io::Result<CharSize> {
+        Ok(match self.databits {
+            5 => CharSize::Bits5,
+            6 => CharSize::Bits6,
+            7 => CharSize::Bits7,
+            8 => CharSize::Bits8,
+            _ => return Err(invalid("databits must be 5 to 8")),
+        })
+    }
+
+    pub(super) fn stop_bits(&self) -> io::Result<StopBits> {
+        Ok(match self.stopbits {
+            1 => StopBits::One,
+            2 => StopBits::Two,
+            _ => return Err(invalid("stopbits must be 1 or 2")),
+        })
+    }
+
+    fn apply(&self, mut settings: Settings) -> io::Result<Settings> {
+        settings.set_raw();
+        settings.set_baud_rate(self.speed)?;
+        settings.set_char_size(self.char_size()?);
+        settings.set_stop_bits(self.stop_bits()?);
+        settings.set_parity(match self.parity {
+            Parity::None => serial2_tokio::Parity::None,
+            Parity::Even => serial2_tokio::Parity::Even,
+            Parity::Odd => serial2_tokio::Parity::Odd,
+        });
+        settings.set_flow_control(FlowControl::None);
+        Ok(settings)
+    }
+}
+
+fn invalid(message: &str) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidInput, message)
 }
 
 #[cfg(target_os = "macos")]

@@ -51,13 +51,7 @@ async fn emulate(mut device: DuplexStream, fail_when_online: bool) -> Vec<Instan
     let mut deframer = kiss::Deframer::new(600);
     let mut read = [0u8; 256];
     let mut data_times = Vec::new();
-    loop {
-        let Ok(count) = device.read(&mut read).await else {
-            break;
-        };
-        if count == 0 {
-            break;
-        }
+    while let Ok(count @ 1..) = device.read(&mut read).await {
         let mut frames = Vec::new();
         deframer.push(&read[..count], &mut frames);
         for frame in frames {

@@ -1,10 +1,54 @@
-//! RNode carrier configuration, the device's echoes of it, and how its complaints are
-//! classified (`RNodeInterface.py` 110-160, 307-349, 650-695, 1076-1097).
+//! The RNode command table, carrier configuration, the device's echoes of it, and how its
+//! complaints are classified (`RNodeInterface.py` 110-160, 307-349, 650-695, 1076-1097).
 
 use core::fmt;
 
-use super::cmd;
 use crate::lora::LoRaParams;
+
+/// KISS command bytes (`RNodeInterface.py` 40-82).
+pub mod cmd {
+    pub const DATA: u8 = 0x00;
+    pub const FREQUENCY: u8 = 0x01;
+    pub const BANDWIDTH: u8 = 0x02;
+    pub const TXPOWER: u8 = 0x03;
+    pub const SF: u8 = 0x04;
+    pub const CR: u8 = 0x05;
+    pub const RADIO_STATE: u8 = 0x06;
+    pub const DETECT: u8 = 0x08;
+    pub const LEAVE: u8 = 0x0A;
+    pub const ST_ALOCK: u8 = 0x0B;
+    pub const LT_ALOCK: u8 = 0x0C;
+    pub const READY: u8 = 0x0F;
+    pub const STAT_RSSI: u8 = 0x23;
+    pub const STAT_SNR: u8 = 0x24;
+    pub const STAT_CHTM: u8 = 0x25;
+    pub const STAT_BAT: u8 = 0x27;
+    pub const PLATFORM: u8 = 0x48;
+    pub const MCU: u8 = 0x49;
+    pub const FW_VERSION: u8 = 0x50;
+    pub const RESET: u8 = 0x55;
+    pub const ERROR: u8 = 0x90;
+}
+
+/// Detect request/response magic bytes.
+pub const DETECT_REQ: u8 = 0x73;
+pub const DETECT_RESP: u8 = 0x46;
+/// The `RESET` payload a device sends after it restarts (`RNodeInterface.py` 1091-1092).
+pub const RESET_MARKER: u8 = 0xF8;
+
+/// RSSI on the wire is offset by this: `dBm = raw - 157`.
+pub const RSSI_OFFSET: i16 = 157;
+
+/// The CR wire value: RNode takes the denominator (5..=8 for 4/5..4/8).
+pub(super) fn coding_rate_wire(p: &LoRaParams) -> u8 {
+    use crate::lora::CodingRate::*;
+    match p.coding_rate {
+        Cr45 => 5,
+        Cr46 => 6,
+        Cr47 => 7,
+        Cr48 => 8,
+    }
+}
 
 /// The largest DATA payload: a 500-byte packet plus the default 8-byte IFAC
 /// (`RNodeInterface.py` 110, 195).
@@ -151,7 +195,7 @@ impl Reported {
                 Mismatch::SpreadingFactor,
             ),
             (
-                self.coding_rate == Some(super::coding_rate_wire(p)),
+                self.coding_rate == Some(coding_rate_wire(p)),
                 Mismatch::CodingRate,
             ),
             (self.radio_state == Some(1), Mismatch::RadioState),

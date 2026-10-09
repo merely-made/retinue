@@ -79,7 +79,8 @@ fn airtime_locks_are_sent_before_the_radio_comes_up() {
 #[test]
 fn mismatched_echoes_fault_instead_of_going_online() {
     let config = RNodeConfig::new(params());
-    let cases: [(fn(&mut Vec<Vec<u8>>), Option<Mismatch>); 5] = [
+    type Tweak = fn(&mut Vec<Vec<u8>>);
+    let cases: [(Tweak, Option<Mismatch>); 5] = [
         (|e| e[5][1] -= 1, Some(Mismatch::TxPower)),
         (|e| e[3][4] = e[3][4].wrapping_add(100), None),
         (

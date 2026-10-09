@@ -13,7 +13,6 @@ use std::io;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use serial2_tokio::{CharSize, FlowControl, Settings, StopBits};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::watch;
 use tokio::time::{Instant, sleep_until};
@@ -63,38 +62,6 @@ impl SerialConfig {
             parity: Parity::None,
             stopbits: 1,
         }
-    }
-
-    fn char_size(&self) -> io::Result<CharSize> {
-        Ok(match self.databits {
-            5 => CharSize::Bits5,
-            6 => CharSize::Bits6,
-            7 => CharSize::Bits7,
-            8 => CharSize::Bits8,
-            _ => return Err(invalid("databits must be 5 to 8")),
-        })
-    }
-
-    fn stop_bits(&self) -> io::Result<StopBits> {
-        Ok(match self.stopbits {
-            1 => StopBits::One,
-            2 => StopBits::Two,
-            _ => return Err(invalid("stopbits must be 1 or 2")),
-        })
-    }
-
-    fn apply(&self, mut settings: Settings) -> io::Result<Settings> {
-        settings.set_raw();
-        settings.set_baud_rate(self.speed)?;
-        settings.set_char_size(self.char_size()?);
-        settings.set_stop_bits(self.stop_bits()?);
-        settings.set_parity(match self.parity {
-            Parity::None => serial2_tokio::Parity::None,
-            Parity::Even => serial2_tokio::Parity::Even,
-            Parity::Odd => serial2_tokio::Parity::Odd,
-        });
-        settings.set_flow_control(FlowControl::None);
-        Ok(settings)
     }
 }
 
@@ -300,10 +267,6 @@ where
 
 #[path = "serial_port.rs"]
 mod port;
-
-fn invalid(message: &str) -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidInput, message)
-}
 
 #[cfg(test)]
 #[path = "serial_tests.rs"]

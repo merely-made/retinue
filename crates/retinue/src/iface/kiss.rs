@@ -35,12 +35,11 @@ pub const FLOW_UNLOCK_MS: u64 = 5_000;
 
 /// Encode one KISS frame: `FEND`, the command byte, the escaped payload, `FEND`.
 pub fn encode(command: u8, payload: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(payload.len() + 4);
-    out.extend_from_slice(&[FEND, command]);
+    let mut out = alloc::vec![FEND, command];
     for &byte in payload {
         match byte {
-            FEND => out.extend_from_slice(&[FESC, TFEND]),
-            FESC => out.extend_from_slice(&[FESC, TFESC]),
+            FEND => out.extend([FESC, TFEND]),
+            FESC => out.extend([FESC, TFESC]),
             other => out.push(other),
         }
     }
@@ -71,7 +70,7 @@ impl Default for TncConfig {
     }
 }
 
-/// One deframed KISS frame: the command with its port nibble stripped, and the payload.
+/// Reassembles KISS frames as (command with its port nibble stripped, payload).
 #[derive(Debug, Default)]
 struct Deframer {
     command: Option<u8>,
@@ -85,15 +84,11 @@ impl Deframer {
     /// Feed one byte; a completed frame comes back as `(command, payload)`.
     fn push(&mut self, byte: u8) -> Option<(u8, Vec<u8>)> {
         if byte == FEND {
-            let done = self.in_frame && !self.poisoned;
-            let frame = self
-                .command
-                .filter(|_| done)
-                .map(|c| (c, core::mem::take(&mut self.buf)));
-            *self = Self {
-                in_frame: true,
-                ..Self::default()
-            };
+            let complete = self.in_frame && !self.poisoned;
+            let command = self.command.filter(|_| complete);
+            let frame = command.map(|c| (c, core::mem::take(&mut self.buf)));
+            *self = Self::default();
+            self.in_frame = true;
             return frame;
         }
         if !self.in_frame || self.poisoned {
@@ -104,7 +99,7 @@ impl Deframer {
             self.command = Some(byte & 0x0F);
             return None;
         }
-        let byte = match (self.escaped, byte) {
+        let byte = match (core::mem::take(&mut self.escaped), byte) {
             (false, FESC) => {
                 self.escaped = true;
                 return None;
@@ -118,7 +113,6 @@ impl Deframer {
                 return None;
             }
         };
-        self.escaped = false;
         // Oversize frames are dropped, not truncated as RNS does (`KISSInterface.py` 320).
         if self.buf.len() == HW_MTU {
             self.poisoned = true;
@@ -230,18 +224,24 @@ impl KissTnc {
 mod tests {
     use super::*;
     use alloc::vec;
-    use core::time::Duration;
+
+    fn flow_controlled(beacon: Option<Beacon>) -> KissTnc {
+        let config = TncConfig {
+            flow_control: true,
+            ..TncConfig::default()
+        };
+        let mut tnc = KissTnc::new(config, beacon);
+        tnc.startup();
+        tnc
+    }
 
     #[test]
     fn startup_matches_rns_for_the_defaults() {
         let mut tnc = KissTnc::new(TncConfig::default(), None);
-        assert_eq!(
-            tnc.startup(),
-            [
-                0xC0, 0x01, 35, 0xC0, 0xC0, 0x04, 2, 0xC0, 0xC0, 0x02, 64, 0xC0, 0xC0, 0x03, 2,
-                0xC0, 0xC0, 0x0F, 0x01, 0xC0,
-            ]
-        );
+        // TXDELAY 350 ms, TXTAIL 20 ms, P 64, SLOTTIME 20 ms, READY.
+        let expected =
+            [[1, 35], [4, 2], [2, 64], [3, 2], [0x0F, 1]].map(|[c, v]| [FEND, c, v, FEND]);
+        assert_eq!(tnc.startup(), expected.concat());
         assert!(tnc.is_ready());
     }
 
@@ -271,33 +271,22 @@ mod tests {
 
     #[test]
     fn flow_control_holds_one_frame_until_ready_or_timeout() {
-        let config = TncConfig {
-            flow_control: true,
-            ..TncConfig::default()
-        };
-        let mut tnc = KissTnc::new(config, None);
-        tnc.startup();
+        let mut tnc = flow_controlled(None);
         tnc.send(b"one", 1_000);
         assert!(!tnc.is_ready());
         tnc.receive(&encode(cmd::READY, &[1]), &mut Vec::new());
         assert!(tnc.is_ready());
         tnc.send(b"two", 2_000);
         assert_eq!(tnc.wake_at_ms(), Some(7_001));
-        assert_eq!(tnc.poll(7_000), None);
-        assert!(!tnc.is_ready());
+        assert_eq!((tnc.poll(7_000), tnc.is_ready()), (None, false));
         tnc.poll(7_001);
         assert!(tnc.is_ready(), "unlocked after 5 s");
     }
 
     #[test]
     fn beacon_waits_for_ready_and_does_not_repeat() {
-        let config = TncConfig {
-            flow_control: true,
-            ..TncConfig::default()
-        };
-        let beacon = Beacon::kiss(b"N0CALL", Duration::from_secs(3));
-        let mut tnc = KissTnc::new(config, Some(beacon));
-        tnc.startup();
+        let beacon = Beacon::kiss(b"N0CALL", core::time::Duration::from_secs(3));
+        let mut tnc = flow_controlled(Some(beacon));
         tnc.send(b"traffic", 0);
         assert_eq!(tnc.poll(3_001), None, "locked: the beacon waits");
         tnc.receive(&encode(cmd::READY, &[1]), &mut Vec::new());
