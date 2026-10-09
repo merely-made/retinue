@@ -5,13 +5,15 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use outrider::{
-    DeliveryAnnounce, LxmfPayload, PropagationAnnounce, PropagationBatch, PropagationCosts,
-    PropagationStore, PropagationStoreLimits, StoreRestoreReceipt, fetch_propagation,
-    prepare_propagation, register_delivery, register_propagation, serve_fetch,
+    DeliveryAnnounce, FetchPolicy, LxmfPayload, PreparedPropagation, PropagationAnnounce,
+    PropagationBatch, PropagationCosts, PropagationStamps, PropagationStore,
+    PropagationStoreLimits, StoreRestoreReceipt, delivery_destination, fetch_propagation,
+    prepare_propagation_with, register_delivery, register_propagation, serve_fetch,
 };
 use retinue::endpoint::Endpoint;
-use retinue::identity::PrivateIdentity;
+use retinue::identity::{Identity, PrivateIdentity};
 use retinue::lossy::{LossModel, connect};
+use retinue::token::encrypt_to_identity;
 
 struct SnapshotFile(PathBuf);
 
@@ -46,6 +48,45 @@ impl SnapshotFile {
 impl Drop for SnapshotFile {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+fn sealed(
+    sender: &PrivateIdentity,
+    recipient: &Identity,
+    payload: &LxmfPayload,
+    key: u8,
+) -> PreparedPropagation {
+    let stamps = PropagationStamps {
+        delivery_cost: None,
+        propagation_cost: 0,
+        seed: [0; 32],
+        max_attempts: 1,
+    };
+    prepare_propagation_with(
+        sender,
+        delivery_destination(recipient),
+        payload,
+        &stamps,
+        |plaintext| {
+            let iv = [key.wrapping_add(0x10); 16];
+            Ok((
+                encrypt_to_identity(recipient, &[key; 32], &iv, plaintext),
+                None,
+            ))
+        },
+    )
+    .unwrap()
+}
+
+/// One message per fetch. Retaining keeps this test on the node's explicit `haves` path.
+fn policy(retain_on_node: bool) -> FetchPolicy {
+    FetchPolicy {
+        max_messages: 1,
+        retain_on_node,
+        max_entry_bytes: 2 * 1024,
+        max_message_bytes: 2 * 1024,
+        ..FetchPolicy::default()
     }
 }
 
@@ -117,28 +158,18 @@ async fn a_host_snapshot_survives_restart_and_preserves_owner_scoping_and_acknow
     )
     .unwrap();
 
-    let first = prepare_propagation(
+    let first = sealed(
         &node_identity,
         first_recipient_identity.public(),
         &LxmfPayload::text(1_753_603_204.0, b"FIRST", b"for the first owner"),
-        &[0x31; 32],
-        &[0x41; 16],
-        [0; 32],
-        0,
-        1,
-    )
-    .unwrap();
-    let second = prepare_propagation(
+        0x31,
+    );
+    let second = sealed(
         &node_identity,
         second_recipient_identity.public(),
         &LxmfPayload::text(1_753_603_205.0, b"SECOND", b"for the second owner"),
-        &[0x32; 32],
-        &[0x42; 16],
-        [0; 32],
-        0,
-        1,
-    )
-    .unwrap();
+        0x32,
+    );
     let limits = PropagationStoreLimits {
         max_entries: 4,
         max_bytes: 8 * 1024,
@@ -198,13 +229,10 @@ async fn a_host_snapshot_survives_restart_and_preserves_owner_scoping_and_acknow
     });
     let first_fetch = fetch_propagation(
         &first_recipient,
-        &first_recipient_identity,
         &first_node_announce,
-        &[],
-        1,
         1_753_603_209.0,
-        2 * 1024,
-        2 * 1024,
+        |_| false,
+        &policy(true),
     )
     .await
     .unwrap();
@@ -229,13 +257,10 @@ async fn a_host_snapshot_survives_restart_and_preserves_owner_scoping_and_acknow
     });
     let acknowledged = fetch_propagation(
         &first_recipient,
-        &first_recipient_identity,
         &first_node_announce,
-        &[first.transient_id],
-        1,
         1_753_603_210.0,
-        2 * 1024,
-        2 * 1024,
+        |id| *id == first.transient_id,
+        &policy(false),
     )
     .await
     .unwrap();
@@ -264,13 +289,10 @@ async fn a_host_snapshot_survives_restart_and_preserves_owner_scoping_and_acknow
     });
     let second_fetch = fetch_propagation(
         &second_recipient,
-        &second_recipient_identity,
         &second_node_announce,
-        &[],
-        1,
         1_753_603_212.0,
-        2 * 1024,
-        2 * 1024,
+        |_| false,
+        &policy(true),
     )
     .await
     .unwrap();

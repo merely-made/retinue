@@ -3,12 +3,13 @@ use std::time::Duration;
 
 use outrider::{
     LxmfPayload, PROPAGATION_METADATA_NAME, PropagationAnnounce, PropagationBatch,
-    PropagationCosts, prepare_propagation, receive_submission, register_propagation,
-    submit_propagation_with_resource_config,
+    PropagationCosts, PropagationStamps, delivery_destination, prepare_propagation_with,
+    receive_submission, register_propagation, submit_propagation_with_resource_config,
 };
 use retinue::endpoint::{Endpoint, PayloadMode, ResourceTransferConfig};
 use retinue::identity::PrivateIdentity;
 use retinue::lossy::{LossModel, connect};
+use retinue::token::encrypt_to_identity;
 use rmpv::Value;
 
 #[tokio::test]
@@ -42,15 +43,26 @@ async fn stamped_submission_crosses_the_propagation_boundary() {
         .unwrap()
         .unwrap();
 
-    let prepared = prepare_propagation(
+    let stamps = PropagationStamps {
+        delivery_cost: None,
+        propagation_cost: 8,
+        seed: [0; 32],
+        max_attempts: 100_000,
+    };
+    let prepared = prepare_propagation_with(
         &sender_identity,
-        recipient_identity.public(),
+        delivery_destination(recipient_identity.public()),
         &LxmfPayload::text(1_753_603_204.5, b"PROPAGATION TITLE", b"PROPAGATION BODY"),
-        &[0x31; 32],
-        &[0x41; 16],
-        [0; 32],
-        8,
-        100_000,
+        &stamps,
+        |plaintext| {
+            let token = encrypt_to_identity(
+                recipient_identity.public(),
+                &[0x31; 32],
+                &[0x41; 16],
+                plaintext,
+            );
+            Ok((token, None))
+        },
     )
     .unwrap();
     let batch = PropagationBatch {

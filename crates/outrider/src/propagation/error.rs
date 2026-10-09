@@ -56,6 +56,16 @@ pub enum PropagationError {
     UnexpectedTransientId,
     #[error("the decrypted message source {0} has no validated delivery announce")]
     UnknownSource(AddressHash),
+    #[error("the recipient {0} has no validated delivery announce")]
+    UnknownRecipient(AddressHash),
+    #[error("the propagated message could not be decrypted: {0}")]
+    Decrypt(#[source] std::io::Error),
+    #[error("the message's delivery stamp does not meet the required cost")]
+    InvalidDeliveryStamp,
+    #[error("the propagation node requires the link to be identified")]
+    NoIdentity,
+    #[error("the propagation node refused access to this identity")]
+    NoAccess,
     #[error("propagation fetch request has the wrong shape")]
     InvalidFetchRequest,
     #[error("propagation fetch link did not identify its owner")]

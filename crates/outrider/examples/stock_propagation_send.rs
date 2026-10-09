@@ -4,8 +4,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use outrider::{
-    DeliveryAnnounce, LxmfPayload, PropagationAnnounce, PropagationBatch, announce_delivery,
-    prepare_propagation, register_delivery, submit_propagation,
+    DeliveryAnnounce, LxmfPayload, PropagationAnnounce, PropagationBatch, PropagationStamps,
+    announce_delivery, delivery_destination, prepare_propagation, register_delivery,
+    submit_propagation,
 };
 use retinue::endpoint::Endpoint;
 use retinue::identity::PrivateIdentity;
@@ -37,18 +38,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    let node = loop {
+    // The node's announce gives its cost; the recipient's gives its ratchet and stamp cost.
+    let recipient_destination = delivery_destination(recipient.public());
+    let mut node = None;
+    let mut recipient_cost = None;
+    while node.is_none() || recipient_cost.is_none() {
         let candidate = tokio::time::timeout(Duration::from_secs(60), endpoint.next_announcement())
             .await
-            .map_err(|_| "timed out waiting for stock propagation announce")??;
-        if let Ok(announce) = PropagationAnnounce::decode(&candidate.app_data) {
+            .map_err(|_| "timed out waiting for the stock node and recipient announces")??;
+        if candidate.destination == recipient_destination {
+            let cost = DeliveryAnnounce::decode(&candidate.app_data)?.stamp_cost;
+            println!(
+                "STOCK_RECIPIENT_ANNOUNCE {} cost={cost:?}",
+                candidate.destination
+            );
+            recipient_cost = Some(cost);
+        } else if node.is_none()
+            && let Ok(announce) = PropagationAnnounce::decode(&candidate.app_data)
+        {
             println!(
                 "STOCK_PROPAGATION_ANNOUNCE {} cost={}",
                 candidate.destination, announce.costs.propagation
             );
-            break (candidate, announce);
+            node = Some((candidate, announce));
         }
-    };
+    }
+    let (node, recipient_cost) = (node.unwrap(), recipient_cost.unwrap());
 
     let content = if std::env::var("OUTRIDER_LARGE").is_ok_and(|value| value == "1") {
         (0..4_096_u32)
@@ -58,15 +73,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         b"PROPAGATION BODY".to_vec()
     };
     let prepared = prepare_propagation(
+        &endpoint,
         &sender,
-        recipient.public(),
+        recipient_destination,
         &LxmfPayload::text(TIMESTAMP, b"PROPAGATION TITLE", content),
-        &[0x31; 32],
-        &[0x41; 16],
-        [0; 32],
-        u16::from(node.1.costs.propagation),
-        1_000_000,
+        &PropagationStamps {
+            delivery_cost: recipient_cost,
+            propagation_cost: u16::from(node.1.costs.propagation),
+            seed: [0; 32],
+            max_attempts: 1_000_000,
+        },
     )?;
+    let ratchet = prepared
+        .ratchet_id
+        .map_or_else(|| "none".into(), |id| hex::encode(id.as_slice()));
+    println!("RATCHET_ID {ratchet}");
     let batch = PropagationBatch {
         transfer_time: TIMESTAMP + 0.5,
         entries: vec![prepared.entry],

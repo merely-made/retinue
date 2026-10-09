@@ -2,10 +2,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use outrider::{
-    DeliveryAnnounce, PropagationAnnounce, PropagationBatch, PropagationCosts, PropagationStore,
-    PropagationStoreLimits, prepare_propagation, receive_direct_with_stamp_cost,
-    receive_submission, register_delivery, register_propagation, send_direct_stamped, serve_fetch,
-    submit_propagation_with_resource_config,
+    DeliveryAnnounce, FetchPolicy, PropagationAnnounce, PropagationBatch, PropagationCosts,
+    PropagationStamps, PropagationStore, PropagationStoreLimits, Verification, prepare_propagation,
+    receive_direct_with_stamp_cost, receive_submission, register_delivery, register_propagation,
+    send_direct_stamped, serve_fetch, submit_propagation_with_resource_config,
 };
 use postilion::Event;
 use retinue::endpoint::{Endpoint, PeerAnnounce, ResourceTransferConfig};
@@ -161,6 +161,9 @@ async fn file_backed_voice_crosses_a_propagation_node_once_and_retains_receipts(
     let node_destination = *outrider::propagation_destination(node.identity()).as_bytes();
     let sender_node = wait_for_announce(&sender, node_destination).await;
     let recipient_node = wait_for_announce(&recipient, node_destination).await;
+    let recipient_destination = outrider::delivery_destination(recipient_identity.public());
+    register_delivery(&recipient, &DeliveryAnnounce::named(b"Voice recipient")).unwrap();
+    wait_for_announce(&sender, *recipient_destination.as_bytes()).await;
 
     let fixture = tempfile::tempdir().unwrap();
     let pcm_path = fixture.path().join("voice-drop.pcm16le");
@@ -204,14 +207,16 @@ async fn file_backed_voice_crosses_a_propagation_node_once_and_retains_receipts(
     assert_eq!(attached_clip, clip.encoded());
 
     let prepared = prepare_propagation(
+        &sender,
         &sender_identity,
-        recipient_identity.public(),
+        recipient_destination,
         &payload,
-        &[0x31; 32],
-        &[0x41; 16],
-        [0; 32],
-        0,
-        100_000,
+        &PropagationStamps {
+            delivery_cost: None,
+            propagation_cost: 0,
+            seed: [0; 32],
+            max_attempts: 100_000,
+        },
     )
     .unwrap();
     let batch = PropagationBatch {
@@ -264,19 +269,18 @@ async fn file_backed_voice_crosses_a_propagation_node_once_and_retains_receipts(
                 .unwrap()
         }
     });
-    let fetched = outrider::fetch_propagation_with_resource_config(
-        &recipient,
-        &recipient_identity,
-        &recipient_node,
-        &[],
-        1,
-        NOW + 1.0,
-        64 * 1024,
-        32 * 1024,
-        resource_config(),
-    )
-    .await
-    .unwrap();
+    let policy = FetchPolicy {
+        max_messages: 1,
+        retain_on_node: true,
+        max_entry_bytes: 64 * 1024,
+        max_message_bytes: 32 * 1024,
+        resource: resource_config(),
+        ..FetchPolicy::default()
+    };
+    let fetched =
+        outrider::fetch_propagation(&recipient, &recipient_node, NOW + 1.0, |_| false, &policy)
+            .await
+            .unwrap();
     let served = server.await.unwrap();
     let transfer_mode = served.message_mode.expect("node served one batch");
     assert_eq!(served.served, fetched.offered);
@@ -287,7 +291,10 @@ async fn file_backed_voice_crosses_a_propagation_node_once_and_retains_receipts(
         &fetched.message.payload,
         MessagePeer::new(
             fetched.message.source,
-            Some(*fetched.source_identity.ed25519_bytes()),
+            match &fetched.verification {
+                Verification::Verified(identity) => Some(*identity.ed25519_bytes()),
+                Verification::SourceUnknown => None,
+            },
         ),
         recipient_peer,
         fetched.message.message_id,

@@ -1,14 +1,47 @@
 use std::time::Duration;
 
-use retinue::identity::PrivateIdentity;
-use retinue::token::IV_LEN;
+use retinue::identity::{Identity, PrivateIdentity};
+use retinue::token::{IV_LEN, encrypt_to_identity};
 use rmpv::Value;
 
-use super::msgpack::{decode_fetch_selection, decode_offer_request, decode_one, encode_value};
+use super::msgpack::{
+    decode_entry_response, decode_fetch_selection, decode_id_response, decode_offer_request,
+    decode_one, encode_value,
+};
 use super::*;
 use crate::announce::delivery_destination;
 use crate::codec::LxmfPayload;
 use crate::stamp::STAMP_LEN;
+
+/// Prepare to the recipient's identity key with a fixed ephemeral key and IV.
+fn sealed(
+    sender: &PrivateIdentity,
+    recipient: &Identity,
+    payload: &LxmfPayload,
+    key: u8,
+    propagation_cost: u16,
+    max_attempts: u64,
+) -> Result<PreparedPropagation, PropagationError> {
+    let stamps = PropagationStamps {
+        delivery_cost: None,
+        propagation_cost,
+        seed: [0; STAMP_LEN],
+        max_attempts,
+    };
+    prepare_propagation_with(
+        sender,
+        delivery_destination(recipient),
+        payload,
+        &stamps,
+        |plaintext| {
+            let iv = [key.wrapping_add(0x10); IV_LEN];
+            Ok((
+                encrypt_to_identity(recipient, &[key; 32], &iv, plaintext),
+                None,
+            ))
+        },
+    )
+}
 
 fn captured_announce() -> Vec<u8> {
     hex::decode(
@@ -45,17 +78,7 @@ fn prepared_entry_decrypts_and_authenticates() {
     let sender = PrivateIdentity::from_secret_bytes(&[0x61; 64]);
     let recipient = PrivateIdentity::from_secret_bytes(&[0x62; 64]);
     let payload = LxmfPayload::text(1_753_603_204.5, b"TITLE", b"BODY");
-    let prepared = prepare_propagation(
-        &sender,
-        recipient.public(),
-        &payload,
-        &[0x31; 32],
-        &[0x41; IV_LEN],
-        [0; STAMP_LEN],
-        8,
-        100_000,
-    )
-    .unwrap();
+    let prepared = sealed(&sender, recipient.public(), &payload, 0x31, 8, 100_000).unwrap();
     assert_eq!(prepared.transient_id, prepared.entry.transient_id());
     assert!(prepared.entry.validate_stamp(8));
     let decoded = prepared
@@ -65,6 +88,79 @@ fn prepared_entry_decrypts_and_authenticates() {
     assert_eq!(decoded.message_id, prepared.message_id);
     assert_eq!(decoded.payload.title, b"TITLE");
     assert_eq!(decoded.payload.content, b"BODY");
+}
+
+#[test]
+fn delivery_cost_mints_a_stamp_on_the_message_id_inside_the_encryption() {
+    let sender = PrivateIdentity::from_secret_bytes(&[0x61; 64]);
+    let recipient = PrivateIdentity::from_secret_bytes(&[0x62; 64]);
+    let payload = LxmfPayload::text(1_753_603_204.5, b"TITLE", b"BODY");
+    let unstamped = sealed(&sender, recipient.public(), &payload, 0x31, 0, 1).unwrap();
+    let ratchet = retinue::hash::NameHash::of(&[0x77; 32]);
+    let stamps = PropagationStamps {
+        delivery_cost: Some(8),
+        propagation_cost: 0,
+        seed: [0; STAMP_LEN],
+        max_attempts: 100_000,
+    };
+    let stamped = prepare_propagation_with(
+        &sender,
+        delivery_destination(recipient.public()),
+        &payload,
+        &stamps,
+        |plaintext| {
+            let token =
+                encrypt_to_identity(recipient.public(), &[0x31; 32], &[0x41; 16], plaintext);
+            Ok((token, Some(ratchet)))
+        },
+    )
+    .unwrap();
+    assert_eq!(stamped.ratchet_id, Some(ratchet));
+    assert_eq!(stamped.message_id, unstamped.message_id);
+    let decoded = stamped.entry.decrypt(&recipient, 4_096).unwrap();
+    assert!(delivery_stamp_valid(&decoded, 8));
+    let plain = unstamped.entry.decrypt(&recipient, 4_096).unwrap();
+    assert!(plain.payload.stamp.is_none());
+    assert!(!delivery_stamp_valid(&plain, 8));
+
+    let exhausted = PropagationStamps {
+        delivery_cost: Some(32),
+        max_attempts: 1,
+        ..stamps
+    };
+    assert!(matches!(
+        prepare_propagation_with(
+            &sender,
+            delivery_destination(recipient.public()),
+            &payload,
+            &exhausted,
+            |_| unreachable!("no stamp, no encryption"),
+        ),
+        Err(PropagationError::StampBudgetExhausted)
+    ));
+}
+
+#[test]
+fn node_error_codes_are_typed() {
+    let response = |code: u64| {
+        encode_value(&Value::Array(vec![
+            Value::Binary(vec![0; 16]),
+            Value::from(code),
+        ]))
+        .unwrap()
+    };
+    assert!(matches!(
+        decode_id_response(&response(0xf0)),
+        Err(PropagationError::NoIdentity)
+    ));
+    assert!(matches!(
+        decode_entry_response(&response(0xf1)),
+        Err(PropagationError::NoAccess)
+    ));
+    assert!(matches!(
+        decode_id_response(&response(0xf2)),
+        Err(PropagationError::InvalidFetchResponse)
+    ));
 }
 
 #[test]
@@ -91,24 +187,20 @@ fn batch_is_one_timestamp_and_binary_entry_list() {
 fn store_is_bounded_expires_and_acknowledges_by_owner() {
     let sender = PrivateIdentity::from_secret_bytes(&[0x61; 64]);
     let recipient = PrivateIdentity::from_secret_bytes(&[0x62; 64]);
-    let first = prepare_propagation(
+    let first = sealed(
         &sender,
         recipient.public(),
         &LxmfPayload::text(1.0, b"A", b"one"),
-        &[0x31; 32],
-        &[0x41; IV_LEN],
-        [0; STAMP_LEN],
+        0x31,
         0,
         1,
     )
     .unwrap();
-    let second = prepare_propagation(
+    let second = sealed(
         &sender,
         recipient.public(),
         &LxmfPayload::text(2.0, b"B", b"two"),
-        &[0x32; 32],
-        &[0x42; IV_LEN],
-        [0; STAMP_LEN],
+        0x32,
         0,
         1,
     )
@@ -146,13 +238,11 @@ fn store_is_bounded_expires_and_acknowledges_by_owner() {
     let later = PropagationBatch {
         transfer_time: 4.0,
         entries: vec![
-            prepare_propagation(
+            sealed(
                 &sender,
                 recipient.public(),
                 &LxmfPayload::text(4.0, b"C", b"three"),
-                &[0x33; 32],
-                &[0x43; IV_LEN],
-                [0; STAMP_LEN],
+                0x33,
                 0,
                 1,
             )
@@ -170,24 +260,20 @@ fn store_snapshot_round_trip_rederives_ids_bytes_and_owner_scope() {
     let sender = PrivateIdentity::from_secret_bytes(&[0x61; 64]);
     let first_recipient = PrivateIdentity::from_secret_bytes(&[0x62; 64]);
     let second_recipient = PrivateIdentity::from_secret_bytes(&[0x63; 64]);
-    let first = prepare_propagation(
+    let first = sealed(
         &sender,
         first_recipient.public(),
         &LxmfPayload::text(10.0, b"A", b"first"),
-        &[0x31; 32],
-        &[0x41; IV_LEN],
-        [0; STAMP_LEN],
+        0x31,
         0,
         1,
     )
     .unwrap();
-    let second = prepare_propagation(
+    let second = sealed(
         &sender,
         second_recipient.public(),
         &LxmfPayload::text(11.0, b"B", b"second"),
-        &[0x32; 32],
-        &[0x42; IV_LEN],
-        [0; STAMP_LEN],
+        0x32,
         0,
         1,
     )
@@ -271,13 +357,11 @@ fn restore_reapplies_expiry_and_current_capacity_limits() {
     let recipient = PrivateIdentity::from_secret_bytes(&[0x62; 64]);
     let prepared: Vec<_> = (0..3_u8)
         .map(|index| {
-            prepare_propagation(
+            sealed(
                 &sender,
                 recipient.public(),
                 &LxmfPayload::text(f64::from(index), [index], [index; 8]),
-                &[0x31 + index; 32],
-                &[0x41 + index; IV_LEN],
-                [0; STAMP_LEN],
+                0x31 + index,
                 0,
                 1,
             )
