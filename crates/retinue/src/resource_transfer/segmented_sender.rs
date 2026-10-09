@@ -20,14 +20,14 @@ pub enum ResourceKind {
     /// Application data.
     Data,
     /// A request too large for one packet, named by the truncated hash of its packed form
-    /// (`Link.py` 498-503).
+    /// (`Link.py` 503-506).
     Request([u8; 16]),
     /// The response to the named request.
     Response([u8; 16]),
 }
 
 /// How many segments a resource of `total_size` bytes (data plus framed metadata) splits
-/// into: one per [`MAX_SEGMENT_SIZE`] (`Resource.py` 304).
+/// into: one per [`MAX_SEGMENT_SIZE`] (`Resource.py` 307).
 pub fn segment_count(total_size: usize) -> usize {
     total_size.saturating_sub(1) / MAX_SEGMENT_SIZE + 1
 }

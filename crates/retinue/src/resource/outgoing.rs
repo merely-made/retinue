@@ -155,7 +155,7 @@ impl Outgoing {
     }
 
     /// Mark this Resource as carrying a request too large for one packet, `request_id`
-    /// being the request's truncated hash (`Link.py` 498-503).
+    /// being the request's truncated hash (`Link.py` 503-506).
     pub fn with_request(mut self, request_id: [u8; 16]) -> Self {
         self.request_id = Some(request_id);
         self.is_request = true;

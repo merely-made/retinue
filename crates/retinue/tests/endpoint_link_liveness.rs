@@ -165,7 +165,7 @@ async fn a_431_byte_request_and_response_each_fit_one_packet() {
             .iter()
             .any(|p| one_packet(p, link::CTX_RESPONSE))
     );
-    // And one byte more goes as a Resource instead (`Link.py` 498-503).
+    // And one byte more goes as a Resource instead (`Link.py` 503-506).
     let _ = tokio::time::timeout(
         Duration::from_secs(2),
         session.request_raw(&request_packing_to(432).pack()),
