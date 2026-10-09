@@ -365,9 +365,10 @@ impl ResourceSession {
                             io::Error::new(io::ErrorKind::BrokenPipe, "resource link closed")
                         })?;
                         // The sender's IDENTIFY, signed under the link: what authenticates a
-                        // first message from a peer we have never heard announce.
+                        // first message from a peer we have never heard announce. The first
+                        // one stands (`Link.py` 973-990).
                         if let Some(identity) = link.read_identify(&packet) {
-                            identified = Some(identity);
+                            identified.get_or_insert(identity);
                             continue;
                         }
                         match link.receive(&packet) {

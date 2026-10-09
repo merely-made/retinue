@@ -354,6 +354,23 @@ pub(super) fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
             } else {
                 // A link-data proof, for the reliable or resource driver. Best-effort links
                 // never request proofs.
+                // RNS hands a resource proof to the link, which holds it to the link's
+                // interface (`Link.py` 938-941); other proofs conclude receipts wherever
+                // they arrive.
+                if pkt.context == link::CTX_RESOURCE_PRF
+                    && shared
+                        .links
+                        .lock()
+                        .unwrap()
+                        .get(&pkt.destination)
+                        .is_some_and(|e| e.iface != iface)
+                {
+                    shared
+                        .routing_stats
+                        .filtered_packets
+                        .fetch_add(1, Ordering::Relaxed);
+                    return;
+                }
                 let packets = shared
                     .links
                     .lock()
@@ -377,6 +394,17 @@ pub(super) fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
             let (link, raw, best) = {
                 let links = shared.links.lock().unwrap();
                 match links.get(&pkt.destination) {
+                    // A link's packets arrive on its own interface (`Link.py` 938-941,
+                    // `Transport.py` 2573-2574). Refused before the duplicate memory sees it,
+                    // so the genuine copy still counts when it arrives (`Transport.py`
+                    // 2585-2593).
+                    Some(e) if e.iface != iface => {
+                        shared
+                            .routing_stats
+                            .filtered_packets
+                            .fetch_add(1, Ordering::Relaxed);
+                        return;
+                    }
                     Some(e) => match &e.kind {
                         LinkKind::Reliable { packets } | LinkKind::Resource { packets } => {
                             (Some(e.link.clone()), Some(packets.clone()), None)

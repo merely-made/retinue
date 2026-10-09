@@ -107,8 +107,9 @@ impl ResourceSession {
                 let packet = packets.recv().await.ok_or_else(|| {
                     io::Error::new(io::ErrorKind::BrokenPipe, "request link closed")
                 })?;
+                // The first IDENTIFY stands (`Link.py` 973-990).
                 if let Some(identity) = link.read_identify(&packet) {
-                    peer = Some(identity);
+                    peer.get_or_insert(identity);
                     continue;
                 }
                 match link.receive(&packet) {
