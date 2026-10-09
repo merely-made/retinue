@@ -78,6 +78,8 @@ fn harness(state: DesktopState) -> App {
             state,
             logic: root as Logic,
             sheet: SHEET.to_string(),
+            fonts: Vec::new(),
+            images: Vec::new(),
         },
         hooks,
     );
@@ -528,6 +530,7 @@ fn the_device_page_is_operable_from_the_keyboard_alone() {
             "Devices".to_string(),
             "Network".to_string(),
             "Messages".to_string(),
+            "Radio".to_string(),
             "Map".to_string(),
             "Browse".to_string(),
             "COM7 — HeltecV4, region US915, channel modem".to_string(),
@@ -551,6 +554,7 @@ fn the_device_page_is_operable_from_the_keyboard_alone() {
     h.tab(true); // wraps to Devices
     h.tab(true); // Network
     h.tab(true); // Messages
+    h.tab(true); // Radio
     h.tab(true); // Map
     h.tab(true); // Browse
     h.tab(true); // the device row
@@ -575,6 +579,7 @@ fn the_revision_field_takes_typing_through_the_text_seam() {
     h.tab(true); // Devices
     h.tab(true); // Network
     h.tab(true); // Messages
+    h.tab(true); // Radio
     h.tab(true); // Map
     h.tab(true); // Browse
     h.tab(true); // device row

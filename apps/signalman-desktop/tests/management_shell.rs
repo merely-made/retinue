@@ -73,6 +73,8 @@ fn harness() -> App {
             state,
             logic: root as Logic,
             sheet: SHEET.to_owned(),
+            fonts: Vec::new(),
+            images: Vec::new(),
         },
         hooks,
     );

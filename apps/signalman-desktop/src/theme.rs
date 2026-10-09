@@ -73,14 +73,14 @@ pub const SHEET: &str = "
 
 .revision-row { display: block; margin-bottom: 16px; }
 /* The label wraps the field, so it must be block-level too — an inline label
-   puts its <input> back in a shared line fragment, where it has no rect of its
+   puts its field back in a shared line fragment, where it has no rect of its
    own and a reader's cursor has nothing to land on. */
 .revision-label { display: block; }
 .revision-wrap { display: block; margin: 6px 0; }
-/* The tag, not a class: `text_field` renders a bare `<input>` and gives it no
-   class of its own, so a class selector here would silently style nothing —
-   which is exactly how the field came out invisible the first time. */
-input {
+/* The role, not a class: `text_field` renders a `div role=textbox` and gives
+   it no class of its own, so a class selector here would silently style
+   nothing — which is exactly how the field came out invisible the first time. */
+[role=textbox] {
     display: block;
     width: 240px;
     padding: 8px 10px;
@@ -88,7 +88,7 @@ input {
     color: #e8e6e1;
     border: 1px solid #2b3441;
 }
-input:focus { border: 1px solid #a8c8ee; }
+[role=textbox]:focus { border: 1px solid #a8c8ee; }
 .hint { display: block; color: #7e8896; font-size: 13px; margin-top: 4px; width: 620px; }
 
 .actions { display: block; margin-top: 18px; }

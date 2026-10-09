@@ -500,6 +500,8 @@ fn main() {
                 state,
                 logic: root as Logic,
                 sheet: sheet(),
+                fonts: Vec::new(),
+                images: Vec::new(),
             }
         },
         hooks,
