@@ -63,7 +63,8 @@ impl TcpInterface {
         Ok(Self::from_stream(TcpStream::connect(addr).await?))
     }
 
-    /// Dial a peer through an IFAC-authenticated virtual network.
+    /// Dial a peer through an IFAC-authenticated virtual network. A stock TCP peer expects
+    /// [`Ifac::for_stream`] unless its config sets `ifac_size`.
     pub async fn connect_with_ifac(addr: SocketAddr, ifac: Ifac) -> io::Result<Self> {
         Ok(Self::from_stream_with_ifac(
             TcpStream::connect(addr).await?,
