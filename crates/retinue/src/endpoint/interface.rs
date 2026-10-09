@@ -155,7 +155,12 @@ pub(super) struct Iface {
 pub(super) enum QueueAdmission {
     Queued,
     Full,
-    FrameLimit { actual: usize, limit: usize },
+    /// The interface is detached or receive-only (`outgoing = False`): no retry helps.
+    Refused,
+    FrameLimit {
+        actual: usize,
+        limit: usize,
+    },
 }
 
 impl Iface {

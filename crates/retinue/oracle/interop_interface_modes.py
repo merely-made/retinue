@@ -12,6 +12,10 @@ The transport relays A's announce and announces a destination of its own. Two sc
   roaming  A's and B's interfaces are ROAMING: B learns only the transport's own
            destination; a roaming-to-roaming relay is blocked.
 
+After the matrix settles, B requests a path to the transport's own destination. The answer
+is a path response on B's interface, which the mode rules exempt, so B's has_path turning
+true proves B's connection was up all along (the `answered` entry).
+
 A2 (FULL) must learn both in every scenario. Each matrix is read from the stock observers'
 own RNS.Transport.has_path, and must match both the expected matrix and the one a stock RNS
 transport produces in retinue's place.
@@ -34,10 +38,12 @@ SCENARIOS = {
     # name: (A's mode, B's mode, expected {(observer, which): has_path})
     "ap": ("full", "access_point",
            {("A2", "relayed"): True, ("A2", "own"): True,
-            ("B", "relayed"): False, ("B", "own"): False}),
+            ("B", "relayed"): False, ("B", "own"): False,
+            ("B", "answered"): True}),
     "roaming": ("roaming", "roaming",
                 {("A2", "relayed"): True, ("A2", "own"): True,
-                 ("B", "relayed"): False, ("B", "own"): True}),
+                 ("B", "relayed"): False, ("B", "own"): True,
+                 ("B", "answered"): True}),
 }
 
 
@@ -56,7 +62,7 @@ def child_config(extra: str, transport: bool) -> str:
 
 
 def serve_commands(destination_factory) -> None:
-    """Answer `announce` and `has <hex>` lines on stdin until it closes."""
+    """Answer `announce`, `has <hex>` and `request <hex>` lines on stdin until it closes."""
     destination = None
     for line in sys.stdin:
         cmd = line.split()
@@ -66,6 +72,8 @@ def serve_commands(destination_factory) -> None:
             say(f"DEST {destination.hash.hex()}")
         elif cmd[:1] == ["has"]:
             say(f"HAS {cmd[1]} {int(RNS.Transport.has_path(bytes.fromhex(cmd[1])))}")
+        elif cmd[:1] == ["request"]:
+            RNS.Transport.request_path(bytes.fromhex(cmd[1]))
     RNS.exit(0)
 
 
@@ -174,11 +182,20 @@ def run_scenario(name: str, stock: bool) -> dict:
 
     deadline = time.time() + WINDOW
     while time.time() < deadline:
-        if all(matrix()[key] for key, want in expected.items() if want):
+        seen = matrix()
+        if all(seen[key] for key, want in expected.items() if want and key in seen):
             break
         time.sleep(0.5)
     time.sleep(SETTLE)
     seen = matrix()
+    nodes["B"].send(f"request {own}")
+    deadline = time.time() + WINDOW
+    answered = False
+    while not answered and time.time() < deadline:
+        time.sleep(0.5)
+        nodes["B"].send(f"has {own}")
+        answered = nodes["B"].expect(f"HAS {own}", 5).split()[2] == "1"
+    seen[("B", "answered")] = answered
     for proc in (transport, *nodes.values()):
         proc.kill()
     return seen
@@ -201,7 +218,7 @@ def main() -> int:
         ok &= passed
         print("\n" + "=" * 68)
         for key in expected:
-            print(f"{name:8} {key[0]:2} has_path({key[1]:7}) "
+            print(f"{name:8} {key[0]:2} has_path({key[1]:8}) "
                   f"expected {expected[key]!s:5} retinue {got[key]!s:5} stock {control[key]!s:5}")
         print(f"MODES-{name.upper()}: {'PASS' if passed else 'FAIL'}")
         print("=" * 68 + "\n")

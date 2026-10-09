@@ -10,8 +10,8 @@ use alloc::vec::Vec;
 
 use crate::hash::AddressHash;
 use crate::node::{
-    ANNOUNCE_CAP_PERCENT, InterfaceId, LOCAL_REBROADCASTS_MAX, QUEUED_ANNOUNCE_LIFE,
-    REBROADCAST_GRACE, REBROADCAST_WINDOW,
+    ANNOUNCE_CAP_PERCENT, FIRST_HOP_ALLOWANCE_BITS, InterfaceId, LOCAL_REBROADCASTS_MAX,
+    QUEUED_ANNOUNCE_LIFE, REBROADCAST_GRACE, REBROADCAST_WINDOW,
 };
 use crate::packet::Packet;
 
@@ -177,31 +177,49 @@ impl Rebroadcasts {
     }
 }
 
-/// One interface's announce budget: the airtime of one 500-byte MTU (`first_hop_airtime`)
-/// and the share of it announces may use, in percent (`Reticulum.py` 286-289).
+/// One interface's announce budget: the airtime of one 500-byte MTU and the share of it
+/// announces may use, in percent (`Reticulum.py` 286-289). The airtime is the fraction
+/// `mtu_ms / per` milliseconds, so a configured bitrate paces exactly (RNS works in float
+/// seconds) rather than from a whole-millisecond [`first_hop_airtime`](crate::node::first_hop_airtime).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct CapRate {
-    pub(crate) mtu_airtime: u64,
-    pub(crate) percent: u64,
+    mtu_ms: u64,
+    per: u64,
+    percent: u64,
 }
 
 impl CapRate {
-    /// At RNS's default share, [`ANNOUNCE_CAP_PERCENT`].
-    pub(crate) const fn new(mtu_airtime: u64) -> Self {
+    /// From a carrier's MTU airtime in milliseconds.
+    pub(crate) const fn from_airtime(mtu_ms: u64, percent: u64) -> Self {
         Self {
-            mtu_airtime,
-            percent: ANNOUNCE_CAP_PERCENT,
+            mtu_ms,
+            per: 1,
+            percent,
         }
+    }
+
+    /// From a bitrate in bits per second, which must be nonzero.
+    pub(crate) const fn from_bitrate(bps: u64, percent: u64) -> Self {
+        Self {
+            mtu_ms: FIRST_HOP_ALLOWANCE_BITS * 1_000,
+            per: bps,
+            percent,
+        }
+    }
+
+    /// From a carrier's MTU airtime, at RNS's default share, [`ANNOUNCE_CAP_PERCENT`].
+    pub(crate) const fn new(mtu_ms: u64) -> Self {
+        Self::from_airtime(mtu_ms, ANNOUNCE_CAP_PERCENT)
     }
 }
 
-/// The wait after sending `len` bytes before the next relayed announce: the transmission time
-/// over the cap share (`Transport.py` 1526-1528). A zero share counts as 1 %.
+/// The wait after sending `len` bytes before the next relayed announce, in whole milliseconds
+/// rounded up: the transmission time over the cap share (`Transport.py` 1526-1528). A zero
+/// share counts as 1 %.
 pub(crate) fn cap_wait(len: usize, rate: CapRate) -> u64 {
-    rate.mtu_airtime
-        .saturating_mul(len as u64)
-        .saturating_mul(100)
-        .div_ceil(500 * rate.percent.max(1))
+    let num = len as u128 * 100 * u128::from(rate.mtu_ms);
+    let den = 500 * u128::from(rate.percent.max(1)) * u128::from(rate.per.max(1));
+    u64::try_from(num.div_ceil(den)).unwrap_or(u64::MAX)
 }
 
 /// What [`AnnounceCap::offer`] did with an announce.
@@ -412,10 +430,7 @@ mod tests {
 
     #[test]
     fn an_extreme_airtime_saturates() {
-        assert_eq!(
-            cap_wait(500, CapRate::new(u64::MAX)),
-            u64::MAX.div_ceil(500 * ANNOUNCE_CAP_PERCENT)
-        );
+        assert_eq!(cap_wait(500, CapRate::new(u64::MAX)), u64::MAX);
         let mut cap = AnnounceCap::new(1);
         assert!(matches!(
             cap.offer(rebroadcast(1, 1, 0), 5, CapRate::new(u64::MAX)),
@@ -430,19 +445,22 @@ mod tests {
 
     #[test]
     fn the_share_scales_the_wait() {
-        // 1200 bps at 5 %: a 300-byte announce takes 2 s, so 40 s, plus the MTU airtime's
-        // rounding up to whole milliseconds.
-        let airtime = crate::node::first_hop_airtime(1_200);
-        let rate = CapRate {
-            mtu_airtime: airtime,
-            percent: 5,
-        };
-        assert_eq!(cap_wait(300, rate), 40_008);
-        assert_eq!(cap_wait(300, CapRate::new(airtime)), 100_020);
+        // 1200 bps at 5 %: a 300-byte announce takes 2 s, so 40 s.
+        let rate = CapRate::from_bitrate(1_200, 5);
+        assert_eq!(cap_wait(300, rate), 40_000);
+        assert_eq!(cap_wait(300, CapRate::from_bitrate(1_200, 2)), 100_000);
         assert_eq!(
-            cap_wait(300, CapRate { percent: 0, ..rate }),
-            cap_wait(300, CapRate { percent: 1, ..rate })
+            cap_wait(300, CapRate::from_bitrate(1_200, 0)),
+            cap_wait(300, CapRate::from_bitrate(1_200, 1))
         );
+    }
+
+    #[test]
+    fn a_fast_bitrate_paces_finer_than_its_mtu_airtime() {
+        // 100 Mbps at 2 %: a 167-byte announce takes 13.36 us, so 0.668 ms, one tick; a
+        // whole-millisecond MTU airtime would make it 17 ms.
+        assert_eq!(cap_wait(167, CapRate::from_bitrate(100_000_000, 2)), 1);
+        assert_eq!(cap_wait(167, CapRate::new(1)), 17);
     }
 
     #[test]

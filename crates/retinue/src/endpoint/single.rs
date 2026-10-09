@@ -133,6 +133,7 @@ impl SingleQueueResult {
                 self.frame_capable = true;
             }
             QueueAdmission::Full => self.frame_capable = true,
+            QueueAdmission::Refused => {}
             QueueAdmission::FrameLimit { actual, limit } => {
                 if self
                     .frame_limit_rejection
@@ -343,6 +344,12 @@ impl Endpoint {
                     format!(
                         "single packet is {actual} bytes after encryption, interface frame limit is {limit}"
                     ),
+                ));
+            }
+            if !queued.frame_capable {
+                return Err(io::Error::new(
+                    io::ErrorKind::NotConnected,
+                    "no transmitting interface reaches the destination",
                 ));
             }
             return Err(io::Error::new(

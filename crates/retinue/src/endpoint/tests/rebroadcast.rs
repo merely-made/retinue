@@ -190,6 +190,37 @@ async fn a_receive_only_interface_stays_silent() {
         next(&mut silent, Duration::from_secs(10)).await.is_none(),
         "relay or retry"
     );
+    let refused = ep.send_single(announce.destination, b"hi").unwrap_err();
+    assert_eq!(
+        refused.kind(),
+        std::io::ErrorKind::NotConnected,
+        "a path on a receive-only interface is no usable route, not queue pressure"
+    );
+}
+
+/// A relay leaves only while the destination's path lives: a lapsed path blocks the retry, as
+/// RNS blocks a broadcast with no next-hop interface (`Transport.py` 1461-1469).
+#[tokio::test(start_paused = true)]
+async fn a_lapsed_path_blocks_the_relay() {
+    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0xA4; 64]));
+    let mut radio = ep.attach_interface();
+    ep.enable_routing();
+    ep.set_relay_jitter(Duration::ZERO);
+    let (packet, announce) = peer_announce(0xA5, "lapsed");
+    assert!(radio.sink().deliver(packet));
+    next(&mut radio, Duration::from_secs(1))
+        .await
+        .expect("first");
+    ep.shared
+        .path_table
+        .lock()
+        .unwrap()
+        .remove(&announce.destination);
+    assert!(
+        next(&mut radio, Duration::from_secs(30)).await.is_none(),
+        "retry"
+    );
+    assert_eq!(ep.routing_counters().forwarded_announces, 1);
 }
 
 /// A configured bitrate gives the cap its airtime, and the configured share sets the spacing:

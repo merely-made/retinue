@@ -388,14 +388,14 @@ impl Shared {
         class: TrafficClass,
     ) -> QueueAdmission {
         if !self.iface_policy(iface).outgoing {
-            return QueueAdmission::Full;
+            return QueueAdmission::Refused;
         }
         self.interfaces
             .lock()
             .unwrap()
             .iter()
             .find(|i| i.id == iface)
-            .map_or(QueueAdmission::Full, |i| i.push(pkt, class))
+            .map_or(QueueAdmission::Refused, |i| i.push(pkt, class))
     }
 
     /// The airtime of one 500-byte MTU on `iface`, in milliseconds: from its configured
