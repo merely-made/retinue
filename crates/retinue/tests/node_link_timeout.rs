@@ -37,6 +37,12 @@ fn sent<const N: usize>(actions: &Actions<N>) -> Packet {
         .expect("a packet to send")
 }
 
+/// A transport node's rebroadcast of `announce`, from the poll it falls due in.
+fn relayed(relay: &mut Board, announce: &Packet, now: u64) -> Packet {
+    relay.ingest(IFACE, announce, now);
+    sent(&relay.poll(relay.next_rebroadcast().expect("scheduled"), IFACE, None))
+}
+
 fn links_down<const N: usize>(actions: &Actions<N>) -> Vec<AddressHash> {
     actions
         .iter()
@@ -124,8 +130,8 @@ fn the_deadline_scales_with_relays_and_a_late_proof_is_ignored() {
     let mut near = transit(0x48, "near");
     let mut far = transit(0x49, "far");
     let announce = destination.announce(&blob(0x79), None);
-    let via_far = sent(&far.ingest(IFACE, &announce, 0));
-    let via_near = sent(&near.ingest(IFACE, &via_far, 0));
+    let via_far = relayed(&mut far, &announce, 0);
+    let via_near = relayed(&mut near, &via_far, 0);
     source.ingest(IFACE, &via_near, 0);
     let to = destination.destination();
     assert_eq!(source.next_hop(to, 0).unwrap().hops, 2);

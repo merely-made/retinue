@@ -28,8 +28,8 @@ impl Endpoint {
     /// Spread announce relays over a random delay of `0..=max`, so neighbours relaying the
     /// same announce on a shared medium do not transmit simultaneously.
     ///
-    /// Off by default: it costs latency and buys nothing point to point. On a shared radio,
-    /// set it near the air time of an announce.
+    /// RNS's 0.5 s by default ([`crate::node::REBROADCAST_WINDOW`]). Zero sends the first
+    /// transmission at once; the retry still follows the grace.
     pub fn set_relay_jitter(&self, max: Duration) {
         let ms = max.as_millis().min(u128::from(u64::MAX)) as u64;
         self.shared.relay_jitter_ms.store(ms, Ordering::Relaxed);

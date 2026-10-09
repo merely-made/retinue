@@ -27,6 +27,7 @@ use super::dedup::{HashList, LinkPacketMemory, PACKET_HASHES, PATH_REQUEST_TAGS}
 use super::facts::PeerAnnounce;
 use super::inbound::{Accepted, AcceptedResource, InboundLinks};
 use super::interface::InterfaceId;
+use super::rebroadcast::{Rebroadcasting, start_rebroadcast_driver};
 use super::router::route;
 use super::routing::{RoutingPolicy, RoutingStats};
 use super::shared::{Lifecycle, Quiesce, Shared};
@@ -123,7 +124,9 @@ impl Endpoint {
             routing_stats: RoutingStats::default(),
             diagnostic_generation: AtomicU64::new(0),
             diagnostic_barrier: RwLock::new(()),
-            relay_jitter_ms: AtomicU64::new(0),
+            relay_jitter_ms: AtomicU64::new(crate::node::REBROADCAST_WINDOW),
+            rebroadcasts: Mutex::new(Rebroadcasting::new()),
+            rebroadcast_wake: tokio::sync::Notify::new(),
             reliable_initial_rtt_ms: AtomicU64::new(DEFAULT_RELIABLE_INITIAL_RTT_MS),
             reliable_max_window: AtomicU32::new(DEFAULT_RELIABLE_MAX_WINDOW),
             reliable_decoded_frame_limit: AtomicUsize::new(DEFAULT_DECODED_FRAME_LIMIT),
@@ -174,6 +177,7 @@ impl Endpoint {
                 route(&router, iface, pkt);
             }
         });
+        start_rebroadcast_driver(&shared);
         let watchdog = Arc::clone(&shared);
         track(&shared, async move {
             let mut tick = tokio::time::interval(LINK_WATCHDOG_TICK);

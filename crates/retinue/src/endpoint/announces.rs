@@ -15,12 +15,10 @@ use crate::announce_freshness::{
 };
 use crate::packet::Packet;
 
-use super::entropy::fill_random;
 use super::facts::PeerAnnounce;
 use super::interface::InterfaceId;
 use super::runtime::{Endpoint, recv_until_closed, track};
 use super::shared::Shared;
-use super::transit::relay_announce;
 
 /// Host-owned policy for receive-side announce freshness: whether a verified announce may
 /// change peer, path, publication, or relay state. Independent of the packet-loop cache, and
@@ -120,17 +118,6 @@ impl Shared {
         }
         queue.push_back(held);
         true
-    }
-
-    /// A fresh random delay in `0..=relay_jitter_ms`, or zero when jitter is off.
-    fn relay_jitter(&self) -> Duration {
-        let max = self.relay_jitter_ms.load(Ordering::Relaxed);
-        if max == 0 {
-            return Duration::ZERO;
-        }
-        let mut b = [0u8; 8];
-        fill_random(&mut b);
-        Duration::from_millis(u64::from_le_bytes(b) % (max + 1))
     }
 }
 
@@ -401,7 +388,7 @@ pub(super) fn process_verified_announce(
     }
 
     // Relay as a transport node: hops+1, stamped with our identity so downstream peers
-    // address replies through us, out every permitted interface but the ingress one.
+    // address replies through us, from the rebroadcast table.
     let policy = shared.routing.lock().unwrap().clone();
     if !policy.relays_announce_from(iface) || !shared.announce_is_new(pkt.hash()) {
         return;
@@ -430,17 +417,5 @@ pub(super) fn process_verified_announce(
     fwd.hops += 1;
     fwd.header_type = crate::packet::HeaderType::Type2;
     fwd.transport = Some(shared.identity.public().hash());
-    // Every neighbour that heard this announce relays it too; jitter keeps them from
-    // transmitting on top of each other.
-    let jitter = shared.relay_jitter();
-    if jitter.is_zero() {
-        relay_announce(shared, iface, fwd, &policy.allowed_egress);
-    } else {
-        let shared = Arc::clone(shared);
-        let egress = policy.allowed_egress.clone();
-        track(&Arc::clone(&shared), async move {
-            tokio::time::sleep(jitter).await;
-            relay_announce(&shared, iface, fwd, &egress);
-        });
-    }
+    shared.schedule_rebroadcast(iface, fwd, candidate.blob.timebase());
 }

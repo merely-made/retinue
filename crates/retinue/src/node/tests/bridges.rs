@@ -28,7 +28,7 @@ fn relayed_request(
     .with_transport_config(TransportConfig::transit());
     relay.set_logical_mtu(relay_mtu).unwrap();
     let announce = destination.announce(&blob([0x77; RAND_HASH_LEN]), None);
-    let relayed = sent(&relay.ingest(DESTINATION_SIDE, &announce, 0)).unwrap();
+    let relayed = relayed(&mut relay, DESTINATION_SIDE, &announce, 0).unwrap();
     source.ingest(IFACE, &relayed, 1);
     let mut request = sent(
         &source

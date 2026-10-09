@@ -1,5 +1,5 @@
-//! The same signed announce has different relay recipients in the two host models.
-//! A Node shell drives one shared radio; an Endpoint routes among distinct interfaces.
+//! The same signed announce in the two host models. A Node shell drives one shared radio;
+//! an Endpoint relays on every permitted interface, the ingress one included, as RNS does.
 #![cfg(feature = "tokio")]
 
 use std::time::Duration;
@@ -47,7 +47,7 @@ async fn outbound(iface: &mut Interface) -> Packet {
 }
 
 #[tokio::test]
-async fn equivalent_announce_uses_radio_rebroadcast_or_other_interface_egress() {
+async fn equivalent_announce_rebroadcasts_on_the_radio_or_every_interface() {
     let first = signed_announce(10);
     let destination = first.destination;
 
@@ -57,7 +57,12 @@ async fn equivalent_announce_uses_radio_rebroadcast_or_other_interface_egress() 
         DestinationName::new("topology", ["relay"]).name_hash(),
     )
     .with_transport_config(TransportConfig::transit());
-    let actions = node.ingest(17, &first, 0);
+    assert!(
+        node.ingest(17, &first, 0)
+            .iter()
+            .all(|action| !matches!(action, Action::Send { .. }))
+    );
+    let actions = node.poll(node.next_rebroadcast().expect("scheduled"), 17, None);
     let sends: Vec<_> = actions
         .iter()
         .filter_map(|action| match action {
@@ -81,19 +86,17 @@ async fn equivalent_announce_uses_radio_rebroadcast_or_other_interface_egress() 
     assert!(ingress.sink().deliver(first.clone()));
     wait_for_route(&ep, destination).await;
     assert_eq!(ep.route_to(destination), Some((ingress.id(), 0)));
-    for relayed in [outbound(&mut other_a).await, outbound(&mut other_b).await] {
+    for relayed in [
+        outbound(&mut ingress).await,
+        outbound(&mut other_a).await,
+        outbound(&mut other_b).await,
+    ] {
         assert_eq!(relayed.packet_type, PacketType::Announce);
         assert_eq!(relayed.destination, destination);
         assert_eq!(relayed.hops, 1);
         assert_eq!(relayed.header_type, HeaderType::Type2);
         assert_eq!(relayed.transport, Some(ep.identity().hash()));
     }
-    assert!(
-        tokio::time::timeout(Duration::from_millis(50), ingress.next_outbound())
-            .await
-            .is_err(),
-        "a separate ingress link is excluded from Endpoint relay"
-    );
 
     // Replaying the identical signed packet from another interface changes neither route nor
     // recipients. Suppression precedes learning and relay in both runtimes.

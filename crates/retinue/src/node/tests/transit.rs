@@ -16,7 +16,7 @@ fn transport_relays_announce_request_and_proof() {
     .with_transport_config(TransportConfig::transit());
 
     let announce = destination.announce(&blob([0x77; RAND_HASH_LEN]), None);
-    let relayed_announce = sent(&relay.ingest(IFACE, &announce, 0))
+    let relayed_announce = relayed(&mut relay, IFACE, &announce, 0)
         .expect("a transport node re-broadcasts a verified announce");
     assert_eq!(relayed_announce.header_type, HeaderType::Type2);
     assert_eq!(relayed_announce.transport, Some(relay.identity.hash()));
@@ -249,8 +249,8 @@ fn non_transit_sender_addresses_its_first_relay_and_forwards_nothing() {
     let mut far = transit(0x49, "far");
 
     let announce = destination.announce(&blob([0x79; RAND_HASH_LEN]), None);
-    let via_far = sent(&far.ingest(IFACE, &announce, 0)).unwrap();
-    let via_near = sent(&near.ingest(IFACE, &via_far, 1)).unwrap();
+    let via_far = relayed(&mut far, IFACE, &announce, 0).unwrap();
+    let via_near = relayed(&mut near, IFACE, &via_far, 1).unwrap();
     let heard = source.ingest(IFACE, &via_near, 2);
     assert!(sent(&heard).is_none(), "a leaf does not re-broadcast");
     let hop = source.next_hop(destination.destination(), 2).unwrap();

@@ -6,6 +6,7 @@ mod interfaces;
 mod packets;
 mod path_requests;
 mod ratchets;
+mod rebroadcast;
 mod reliable;
 mod routes;
 mod transit;

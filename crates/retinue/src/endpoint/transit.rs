@@ -10,9 +10,9 @@ use crate::hash::AddressHash;
 use crate::link;
 use crate::packet::{Packet, PacketType};
 
-use super::interface::{InterfaceId, QueueAdmission};
+use super::interface::InterfaceId;
 use super::queue::TrafficClass;
-use super::routing::{InterfaceSelector, RoutingPolicy};
+use super::routing::RoutingPolicy;
 use super::shared::Shared;
 
 /// How long a validated bridge is remembered after its last packet: far longer than a live
@@ -118,30 +118,6 @@ pub(super) fn make_room<V, A: Ord>(
 }
 
 impl Shared {
-    /// Relay a packet out every permitted interface but the one it arrived on. Returns how
-    /// many it went out on.
-    fn broadcast_transit(
-        &self,
-        except: InterfaceId,
-        pkt: Packet,
-        egress: &InterfaceSelector,
-    ) -> usize {
-        let mut sent = 0;
-        for i in self.interfaces.lock().unwrap().iter() {
-            // Others' announces queue as transit, behind this node's own traffic.
-            if i.id != except
-                && egress.allows(i.id)
-                && matches!(
-                    i.push(pkt.clone(), TrafficClass::Transit),
-                    QueueAdmission::Queued
-                )
-            {
-                sent += 1;
-            }
-        }
-        sent
-    }
-
     /// Remember the way back for a carried packet's proof (RNS `Transport.py` 2104-2110).
     pub(super) fn remember_reverse(
         &self,
@@ -320,21 +296,6 @@ fn admit_link_request(
     }
     bridges.insert(link_id, bridge);
     BridgeAdmission::New
-}
-
-/// Put a relayed announce on every permitted interface, counting it if it went anywhere.
-pub(super) fn relay_announce(
-    shared: &Arc<Shared>,
-    from: InterfaceId,
-    pkt: Packet,
-    egress: &InterfaceSelector,
-) {
-    if shared.broadcast_transit(from, pkt, egress) > 0 {
-        shared
-            .routing_stats
-            .forwarded_announces
-            .fetch_add(1, Ordering::Relaxed);
-    }
 }
 
 /// Re-address a forwarded packet for the interface it leaves on (stripping our transport

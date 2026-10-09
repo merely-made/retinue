@@ -9,12 +9,13 @@ use super::Action;
 use super::tables::HashGenerations;
 use super::{
     AppDataTooLarge, DEFAULT_ANNOUNCE_INTERVAL, FreshnessPolicy, LINK_MTU, LogicalMtuError,
-    MIN_LOGICAL_MTU, Node, PayloadLimits, TransportConfig, TransportCounters,
+    MIN_LOGICAL_MTU, Node, PayloadLimits, REBROADCAST_SLOTS, TransportConfig, TransportCounters,
 };
 use crate::address_book::AddressBook;
 use crate::announce_freshness::{AnnounceFreshness, AnnounceFreshnessConfig};
 use crate::hash::{AddressHash, NameHash};
 use crate::identity::PrivateIdentity;
+use crate::rebroadcast::Rebroadcasts;
 
 impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES: usize>
     Node<PEERS, ACTIONS, LINKS, ROUTES>
@@ -41,6 +42,8 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             transit_filter: HashGenerations::new(),
             path_request_tags: HashGenerations::new(),
             reverse: BoundedVec::new(),
+            rebroadcasts: Rebroadcasts::new(REBROADCAST_SLOTS),
+            announce_caps: BoundedVec::new(),
             sent_link_data: BoundedVec::new(),
             received_link_data: BoundedVec::new(),
             last_announce: None,

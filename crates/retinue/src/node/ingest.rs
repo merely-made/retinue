@@ -90,6 +90,9 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                             .saturating_add(1);
                         return actions;
                     }
+                    if packet.transport.is_some() {
+                        self.hear_rebroadcast(announce.destination, packet.hops, now);
+                    }
                     let candidate = AnnounceFreshnessCandidate {
                         destination: announce.destination,
                         blob: crate::announce::AnnounceBlob::from_wire(announce.rand_hash),
@@ -161,7 +164,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                             destination: announce.destination,
                         });
                     }
-                    self.relay_announce(interface, packet, announce.destination, now, &mut actions);
+                    self.relay_announce(interface, packet, candidate.blob.timebase(), now);
                 }
             }
             PacketType::LinkRequest => self.on_link_request(interface, packet, now, &mut actions),

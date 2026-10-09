@@ -134,6 +134,10 @@ pub(super) fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                 return;
             }
             if let Ok(a) = Announce::decode(&pkt) {
+                if pkt.transport.is_some() && !shared.address_book.lock().unwrap().key_conflicts(&a)
+                {
+                    shared.hear_rebroadcast(a.destination, pkt.hops);
+                }
                 let route_is_known = shared
                     .path_table
                     .lock()

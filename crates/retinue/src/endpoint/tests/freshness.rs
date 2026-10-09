@@ -75,6 +75,7 @@ async fn freshness_replay_and_stale_rejection_leave_all_announce_effects_unchang
 async fn held_older_announce_cannot_publish_after_newer_direct_ingress() {
     let hub = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0xA1; 64]));
     hub.enable_routing();
+    hub.set_relay_jitter(Duration::ZERO);
     let noisy = hub.attach_interface();
     let noisy_id = noisy.id();
     let noisy_sink = noisy.sink();
@@ -149,7 +150,13 @@ async fn held_older_announce_cannot_publish_after_newer_direct_ingress() {
         .unwrap();
     let sequence_before_release = hub.shared.announce_sequence.load(Ordering::Relaxed);
     assert_eq!(sequence_before_release, 3);
+    // The three accepted announces' first transmissions; retries are seconds away.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
+    while hub.routing_counters().forwarded_announces < 3 && tokio::time::Instant::now() < deadline {
+        tokio::task::yield_now().await;
+    }
     let forwards_before_release = hub.routing_counters().forwarded_announces;
+    assert_eq!(forwards_before_release, 3);
 
     let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
     while hub.announce_ingress_counters(noisy_id).released == 0
@@ -337,7 +344,6 @@ async fn address_book_refusal_still_learns_the_path() {
 async fn a_full_address_book_evicts_a_peer_whose_path_expired() {
     let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x4B; 64]));
     let a = ep.attach_interface();
-    let b = ep.attach_interface();
     ep.enable_routing();
     *ep.shared.address_book.lock().unwrap() = AddressBook::with_max_peers(2);
     let announcements: Vec<_> = (0..4u8)
@@ -347,9 +353,11 @@ async fn a_full_address_book_evicts_a_peer_whose_path_expired() {
         })
         .collect();
     let relayed = |destination: AddressHash| {
-        let sent = b.outbound.queues.pop();
-        b.outbound.queues.delivery_complete();
-        sent.is_some_and(|p| p.destination == destination)
+        ep.shared
+            .rebroadcasts
+            .lock()
+            .unwrap()
+            .scheduled(destination)
     };
 
     for (packet, announcement) in &announcements[..3] {

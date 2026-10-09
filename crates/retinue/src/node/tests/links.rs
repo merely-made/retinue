@@ -112,7 +112,7 @@ fn a_senders_own_data_overheard_from_a_relay_is_not_received() {
     .with_transport_config(TransportConfig::transit());
 
     let announce = destination.announce(&blob([0x77; RAND_HASH_LEN]), None);
-    let relayed_announce = sent(&relay.ingest(IFACE, &announce, 0)).unwrap();
+    let relayed_announce = relayed(&mut relay, IFACE, &announce, 0).unwrap();
     source.ingest(IFACE, &relayed_announce, 1);
     let mut request = sent(
         &source

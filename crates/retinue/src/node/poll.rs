@@ -117,6 +117,8 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             now.saturating_sub(*at) < RESOURCE_PROOF_CACHE_TTL
                 && self.links.iter().any(|(link, _, _)| link.id() == *id)
         });
+        // Last, so relayed announces take only the room this node's own work left.
+        self.poll_rebroadcasts(now, &mut actions);
 
         actions
     }
