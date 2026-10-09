@@ -30,6 +30,7 @@ mod resource_session;
 mod router;
 mod routing;
 mod runtime;
+mod sealing;
 mod shared;
 mod single;
 mod stream;

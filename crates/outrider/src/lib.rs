@@ -112,17 +112,17 @@ pub use opportunistic::{
 };
 #[cfg(feature = "std")]
 pub use propagation::{
-    DEFAULT_MAX_PROPAGATION_ANNOUNCE_BYTES, DEFAULT_MAX_PROPAGATION_BATCH_BYTES,
+    Acknowledgement, DEFAULT_MAX_PROPAGATION_ANNOUNCE_BYTES, DEFAULT_MAX_PROPAGATION_BATCH_BYTES,
     DEFAULT_MAX_PROPAGATION_ENTRIES, DEFAULT_MAX_PROPAGATION_STORE_SNAPSHOT_BYTES,
-    DEFAULT_MAX_STORED_MESSAGE_BYTES, FETCH_LIMIT, FETCH_PATH_HASH, FetchedPropagation,
-    MIN_ENCRYPTED_MESSAGE_BYTES, PROPAGATION_METADATA_NAME, PreparedPropagation,
-    PropagationAnnounce, PropagationBatch, PropagationCosts, PropagationEntry, PropagationError,
-    PropagationFetchReceipt, PropagationMessage, PropagationStore, PropagationStoreLimits,
-    PropagationSubmitReceipt, ReceivedPropagationBatch, ServedFetch, StoreReceipt,
-    StoreRestoreReceipt, announce_propagation, fetch as fetch_propagation,
-    fetch_with_resource_config as fetch_propagation_with_resource_config, prepare_propagation,
-    propagation_destination, propagation_name, receive_submission, register_propagation,
-    serve_fetch, submit as submit_propagation,
+    DEFAULT_MAX_STORED_MESSAGE_BYTES, FETCH_LIMIT, FETCH_PATH_HASH, FetchPolicy,
+    FetchedPropagation, MIN_ENCRYPTED_MESSAGE_BYTES, PROPAGATION_METADATA_NAME,
+    PreparedPropagation, PropagationAnnounce, PropagationBatch, PropagationCosts, PropagationEntry,
+    PropagationError, PropagationFetchReceipt, PropagationMessage, PropagationStamps,
+    PropagationStore, PropagationStoreLimits, PropagationSubmitReceipt, ReceivedPropagationBatch,
+    RejectedPropagation, ServedFetch, StoreReceipt, StoreRestoreReceipt, announce_propagation,
+    delivery_stamp_valid, fetch as fetch_propagation, prepare_propagation,
+    prepare_propagation_with, propagation_destination, propagation_name, receive_submission,
+    register_propagation, serve_fetch, submit as submit_propagation,
     submit_with_resource_config as submit_propagation_with_resource_config,
 };
 pub use stamp::{

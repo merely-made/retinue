@@ -9,11 +9,12 @@ use std::time::Duration;
 
 use outrider::{
     DeliveryAnnounce, LxmfPayload, PropagationAnnounce, PropagationBatch, PropagationError,
-    PropagationSubmitReceipt, announce_delivery, prepare_propagation, register_delivery,
-    submit_propagation,
+    PropagationStamps, PropagationSubmitReceipt, announce_delivery, delivery_destination,
+    prepare_propagation_with, register_delivery, submit_propagation,
 };
 use retinue::endpoint::{Endpoint, PeerAnnounce};
 use retinue::identity::PrivateIdentity;
+use retinue::token::encrypt_to_identity;
 
 const SENDER_SEED: [u8; 64] = [0x61; 64];
 const RECEIVER_SEED: [u8; 64] = [0x62; 64];
@@ -37,15 +38,21 @@ async fn submit(
     getrandom::fill(&mut iv).map_err(|error| error.to_string())?;
     let mut nonce = 0_u8;
     let prepared = loop {
-        let prepared = prepare_propagation(
+        let stamps = PropagationStamps {
+            delivery_cost: None,
+            propagation_cost: target,
+            seed: [nonce; 32],
+            max_attempts: 1_000_000,
+        };
+        let prepared = prepare_propagation_with(
             sender,
-            recipient.public(),
+            delivery_destination(recipient.public()),
             &payload,
-            &ephemeral,
-            &iv,
-            [nonce; 32],
-            target,
-            1_000_000,
+            &stamps,
+            |plaintext| {
+                let token = encrypt_to_identity(recipient.public(), &ephemeral, &iv, plaintext);
+                Ok((token, None))
+            },
         )?;
         if under.is_none_or(|floor| prepared.stamp_value < floor) {
             break prepared;

@@ -10,12 +10,13 @@ use std::io;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
+use outrider::propagation::Verification;
 use outrider::{
-    DEFAULT_MAX_MESSAGE_BYTES, DeliveryAnnounce, LxmfPayload, PROPAGATION_METADATA_NAME,
-    PropagationAnnounce, PropagationBatch, PropagationCosts, PropagationStore,
-    PropagationStoreLimits, fetch_propagation_with_resource_config, prepare_propagation,
-    receive_direct_with_stamp_cost_and_resource_config, receive_submission, register_delivery,
-    register_propagation, send_direct_stamped_with_resource_config, serve_fetch,
+    DEFAULT_MAX_MESSAGE_BYTES, DeliveryAnnounce, FetchPolicy, LxmfPayload,
+    PROPAGATION_METADATA_NAME, PropagationAnnounce, PropagationBatch, PropagationCosts,
+    PropagationStamps, PropagationStore, PropagationStoreLimits, fetch_propagation,
+    prepare_propagation, receive_direct_with_stamp_cost_and_resource_config, receive_submission,
+    register_delivery, register_propagation, send_direct_stamped_with_resource_config, serve_fetch,
     submit_propagation_with_resource_config,
 };
 use radio_face::{DetailPolicy, EventKind, IfacState};
@@ -381,14 +382,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let propagation_content = b"stored then fetched over RF".to_vec();
     let prepared = prepare_propagation(
+        &pair.right,
         &right_identity,
-        left_identity.public(),
+        left_announce.destination,
         &LxmfPayload::text(TIMESTAMP, b"U4 PROPAGATION", propagation_content.clone()),
-        &[0x31; 32],
-        &[0x41; 16],
-        [0x20; 32],
-        u16::from(STAMP_COST),
-        100_000,
+        &PropagationStamps {
+            delivery_cost: Some(STAMP_COST),
+            propagation_cost: u16::from(STAMP_COST),
+            seed: [0x20; 32],
+            max_attempts: 100_000,
+        },
     )?;
     let batch = PropagationBatch {
         transfer_time: TIMESTAMP + 0.5,
@@ -515,16 +518,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let fetch = async {
         let receipt = tokio::time::timeout(
             operation_timeout,
-            fetch_propagation_with_resource_config(
+            fetch_propagation(
                 &pair.left,
-                &left_identity,
                 &propagation_node,
-                &[],
-                1,
                 TIMESTAMP + 2.0,
-                4_096,
-                DEFAULT_MAX_MESSAGE_BYTES,
-                resource_config,
+                |_| false,
+                &FetchPolicy {
+                    max_messages: 1,
+                    retain_on_node: true,
+                    stamp_cost: Some(STAMP_COST),
+                    max_entry_bytes: 4_096,
+                    max_message_bytes: DEFAULT_MAX_MESSAGE_BYTES,
+                    resource: resource_config,
+                    ..FetchPolicy::default()
+                },
             ),
         )
         .await??;
@@ -538,7 +545,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         || fetched.offered.len() != 1
         || fetched.messages.len() != 1
         || fetched.messages[0].transient_id != prepared.transient_id
-        || fetched.messages[0].source_identity != *right_identity.public()
+        || fetched.messages[0].verification != Verification::Verified(*right_identity.public())
         || fetched.messages[0].message.payload.title != b"U4 PROPAGATION"
         || fetched.messages[0].message.payload.content != propagation_content
     {

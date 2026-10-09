@@ -4,11 +4,12 @@ use std::io::Cursor;
 
 use rmpv::Value;
 
-use super::{
-    DEFAULT_MAX_PROPAGATION_ENTRIES, FETCH_PATH_HASH, PropagationError, PropagationMessage,
-};
+use super::{DEFAULT_MAX_PROPAGATION_ENTRIES, FETCH_PATH_HASH, PropagationError};
 
 type FetchSelection = (Vec<[u8; 32]>, Vec<[u8; 32]>, u64);
+
+const ERROR_NO_IDENTITY: u64 = 0xf0;
+const ERROR_NO_ACCESS: u64 = 0xf1;
 
 pub(super) fn encode_value(value: &Value) -> Result<Vec<u8>, PropagationError> {
     let mut encoded = Vec::new();
@@ -33,7 +34,16 @@ pub(super) fn decode_response(bytes: &[u8]) -> Result<Value, PropagationError> {
     {
         return Err(PropagationError::InvalidFetchResponse);
     }
-    Ok(envelope.pop().expect("two-item response"))
+    // A node answers with a bare error code instead of a list (`LXMPeer.py` ERROR_NO_*).
+    match envelope.pop().expect("two-item response") {
+        Value::Integer(code) if code.as_u64() == Some(ERROR_NO_IDENTITY) => {
+            Err(PropagationError::NoIdentity)
+        }
+        Value::Integer(code) if code.as_u64() == Some(ERROR_NO_ACCESS) => {
+            Err(PropagationError::NoAccess)
+        }
+        value => Ok(value),
+    }
 }
 
 pub(super) fn decode_id_response(bytes: &[u8]) -> Result<Vec<[u8; 32]>, PropagationError> {
@@ -51,10 +61,9 @@ pub(super) fn decode_id_response(bytes: &[u8]) -> Result<Vec<[u8; 32]>, Propagat
         .collect()
 }
 
-pub(super) fn decode_entry_response(
-    bytes: &[u8],
-    max_entry_bytes: usize,
-) -> Result<Vec<PropagationMessage>, PropagationError> {
+/// The raw entries of a `/get` response, each decoded by the caller so one bad entry does
+/// not cost the others.
+pub(super) fn decode_entry_response(bytes: &[u8]) -> Result<Vec<Vec<u8>>, PropagationError> {
     let Value::Array(values) = decode_response(bytes)? else {
         return Err(PropagationError::InvalidFetchResponse);
     };
@@ -64,7 +73,7 @@ pub(super) fn decode_entry_response(
     values
         .into_iter()
         .map(|value| match value {
-            Value::Binary(entry) => PropagationMessage::decode(&entry, max_entry_bytes),
+            Value::Binary(entry) => Ok(entry),
             _ => Err(PropagationError::InvalidFetchResponse),
         })
         .collect()

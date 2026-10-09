@@ -4,6 +4,7 @@
 
 mod client;
 mod error;
+mod fetch;
 mod msgpack;
 mod node;
 mod store;
@@ -12,10 +13,14 @@ mod tests;
 mod wire;
 
 pub use client::{
-    FetchedPropagation, PreparedPropagation, PropagationFetchReceipt, PropagationSubmitReceipt,
-    fetch, fetch_with_resource_config, prepare_propagation, submit, submit_with_resource_config,
+    PreparedPropagation, PropagationStamps, PropagationSubmitReceipt, prepare_propagation,
+    prepare_propagation_with, submit, submit_with_resource_config,
 };
 pub use error::PropagationError;
+pub use fetch::{
+    Acknowledgement, FetchPolicy, FetchedPropagation, PropagationFetchReceipt, RejectedPropagation,
+    Verification, delivery_stamp_valid, fetch,
+};
 pub use node::{
     ReceivedPropagationBatch, ServedFetch, announce_propagation, propagation_destination,
     propagation_name, receive_submission, register_propagation, serve_fetch,

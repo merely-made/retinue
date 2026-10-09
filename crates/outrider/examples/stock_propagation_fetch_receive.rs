@@ -3,12 +3,14 @@
 use std::io;
 use std::time::Duration;
 
+use outrider::propagation::Verification;
 use outrider::{
-    DeliveryAnnounce, PropagationAnnounce, announce_delivery, fetch_propagation,
-    propagation_destination, register_delivery,
+    Acknowledgement, DeliveryAnnounce, FetchPolicy, PropagationAnnounce, announce_delivery,
+    fetch_propagation, propagation_destination, register_opportunistic,
 };
 use retinue::endpoint::Endpoint;
 use retinue::identity::PrivateIdentity;
+use retinue::ratchet::RatchetStore;
 
 const RECEIVER_SEED: [u8; 64] = [0x62; 64];
 
@@ -19,7 +21,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let endpoint = Endpoint::new(identity.clone());
     endpoint.attach_tcp_client(address).await?;
     let delivery = DeliveryAnnounce::named(b"Outrider Propagation Receiver");
-    register_delivery(&endpoint, &delivery)?;
+    register_opportunistic(&endpoint, &delivery, RatchetStore::new(Default::default())?)?;
     for _ in 0..3 {
         announce_delivery(&endpoint, &delivery)?;
         tokio::time::sleep(Duration::from_millis(300)).await;
@@ -39,29 +41,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut trigger = String::new();
     io::stdin().read_line(&mut trigger)?;
 
-    let receipt = fetch_propagation(
-        &endpoint,
-        &identity,
-        &node,
-        &[],
-        1,
-        1_785_206_500.5,
-        16 * 1024 * 1024,
-        outrider::DEFAULT_MAX_MESSAGE_BYTES,
-    )
-    .await?;
+    let policy = FetchPolicy {
+        max_messages: 1,
+        ..FetchPolicy::default()
+    };
+    let receipt = fetch_propagation(&endpoint, &node, 1_785_206_500.5, |_| false, &policy).await?;
     println!("OFFERED {}", receipt.offered.len());
     println!("FETCHED {}", receipt.messages.len());
     for fetched in &receipt.messages {
         println!("TRANSIENT_ID {}", hex::encode(fetched.transient_id));
         println!("MESSAGE_ID {}", hex::encode(fetched.message.message_id));
         println!("TITLE {}", hex::encode(&fetched.message.payload.title));
+        let ratchet = fetched
+            .ratchet_id
+            .map_or_else(|| "none".into(), |id| hex::encode(id.as_slice()));
+        println!("RATCHET_ID {ratchet}");
+        println!(
+            "VERIFIED {}",
+            matches!(fetched.verification, Verification::Verified(_))
+        );
         if std::env::var("OUTRIDER_SUMMARY").is_ok_and(|value| value == "1") {
             println!("CONTENT_LEN {}", fetched.message.payload.content.len());
         } else {
             println!("CONTENT {}", hex::encode(&fetched.message.payload.content));
         }
     }
+    for rejected in &receipt.rejected {
+        println!(
+            "REJECTED {} {}",
+            hex::encode(rejected.transient_id),
+            rejected.error
+        );
+    }
+    println!(
+        "ACKNOWLEDGED {}",
+        matches!(receipt.acknowledgement, Acknowledgement::Confirmed)
+    );
     println!(
         "PRODUCTION_FETCH {}",
         receipt.offered.len() == 1 && receipt.messages.len() == 1

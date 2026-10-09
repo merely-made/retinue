@@ -316,9 +316,18 @@ impl PropagationMessage {
             return Err(PropagationError::WrongDestination);
         }
         let remainder = decrypt_to_identity(recipient, &self.encrypted)?;
+        self.open(&remainder, max_message_bytes)
+    }
+
+    /// Rebuild the signed LXMF object from this message's decrypted remainder.
+    pub(super) fn open(
+        &self,
+        remainder: &[u8],
+        max_message_bytes: usize,
+    ) -> Result<DecodedLxmf, PropagationError> {
         let mut packed = Vec::with_capacity(16 + remainder.len());
         packed.extend_from_slice(&self.destination);
-        packed.extend_from_slice(&remainder);
+        packed.extend_from_slice(remainder);
         let message = decode_bounded(&packed, max_message_bytes.min(DEFAULT_MAX_MESSAGE_BYTES))?;
         if message.destination != self.destination {
             return Err(PropagationError::WrongDestination);
