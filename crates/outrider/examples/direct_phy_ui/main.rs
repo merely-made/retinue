@@ -7,8 +7,7 @@
 //! Tulle carries them opaquely while its packet driver owns each radio.
 
 use std::io;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use outrider::{
@@ -19,231 +18,23 @@ use outrider::{
     register_propagation, send_direct_stamped_with_resource_config, serve_fetch,
     submit_propagation_with_resource_config,
 };
-use radio_face::{
-    DetailPolicy, EventKind, EventSource, HostSnapshot, IfacState, NodeSummary, PeerPath,
-    PeerSummary, Personality, Text, UiEvent, encode_snapshot,
-};
+use radio_face::{DetailPolicy, EventKind, IfacState};
 use retinue::Ifac;
-use retinue::endpoint::{Endpoint, PayloadMode, ResourceTransferConfig};
+use retinue::endpoint::{PayloadMode, ResourceTransferConfig};
 use retinue::hash::AddressHash;
-use retinue::identity::{Identity, PrivateIdentity};
-use retinue::iface::tulle::drive;
+use retinue::identity::PrivateIdentity;
 use rmpv::Value;
-use tokio::task::JoinHandle;
-use tulle::PhyProfile;
-use tulle::airtime::AirtimeBudget;
-use tulle::direct_phy_serial::{DirectPhySerialConfig, DirectPhySerialLink, DirectPhyUiControl};
+
+mod radio;
+mod ui;
+
+use radio::RadioPair;
+use ui::{STAGE_SECS, publish, view};
 
 const STAMP_COST: u8 = 8;
 const LEFT_SEED: [u8; 64] = [0x31; 64];
 const RIGHT_SEED: [u8; 64] = [0x42; 64];
 const TIMESTAMP: f64 = 1_753_603_204.5;
-static STAGE_SECS: AtomicU64 = AtomicU64::new(0);
-
-fn profile(bandwidth_hz: u32) -> PhyProfile {
-    PhyProfile {
-        frequency_hz: 906_875_000,
-        bandwidth_hz,
-        spreading_factor: 8,
-        coding_rate_denominator: 5,
-        preamble_symbols: 16,
-        sync_word: 0x12,
-        explicit_header: true,
-        crc: true,
-        invert_iq: false,
-        tx_power_dbm: 17,
-    }
-}
-
-struct RadioPair {
-    left: Arc<Endpoint>,
-    right: Arc<Endpoint>,
-    left_ui: DirectPhyUiControl,
-    right_ui: DirectPhyUiControl,
-    left_driver: JoinHandle<io::Result<()>>,
-    right_driver: JoinHandle<io::Result<()>>,
-}
-
-impl RadioPair {
-    async fn open(
-        left_port: &str,
-        right_port: &str,
-        bandwidth_hz: u32,
-        left_identity: &PrivateIdentity,
-        right_identity: &PrivateIdentity,
-        ifac: Option<Ifac>,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
-        let radio_config = DirectPhySerialConfig {
-            online_timeout: Duration::from_secs(10),
-            transmit_timeout: Duration::from_secs(10),
-            ..DirectPhySerialConfig::default()
-        };
-        let mut left_radio = DirectPhySerialLink::open(
-            left_port,
-            profile(bandwidth_hz),
-            AirtimeBudget::new(60_000, 60_000),
-            radio_config.clone(),
-        )?;
-        let mut right_radio = DirectPhySerialLink::open(
-            right_port,
-            profile(bandwidth_hz),
-            AirtimeBudget::new(60_000, 60_000),
-            radio_config,
-        )?;
-        let left_ui = left_radio.ui_control();
-        let right_ui = right_radio.ui_control();
-        tokio::time::timeout(Duration::from_secs(15), left_radio.wait_online()).await??;
-        tokio::time::timeout(Duration::from_secs(15), right_radio.wait_online()).await??;
-
-        let left = Arc::new(Endpoint::new(left_identity.clone()));
-        let right = Arc::new(Endpoint::new(right_identity.clone()));
-        let logical_mtu = 255 - ifac.as_ref().map_or(0, Ifac::size);
-        left.set_link_mtu(logical_mtu as u32);
-        right.set_link_mtu(logical_mtu as u32);
-        let left_interface = match &ifac {
-            Some(ifac) => left.attach_interface_with_ifac(255, ifac.clone())?,
-            None => left.attach_interface(),
-        };
-        let right_interface = match ifac {
-            Some(ifac) => right.attach_interface_with_ifac(255, ifac)?,
-            None => right.attach_interface(),
-        };
-        let left_driver = tokio::spawn(drive(left_interface, left_radio));
-        let right_driver = tokio::spawn(drive(right_interface, right_radio));
-        Ok(Self {
-            left,
-            right,
-            left_ui,
-            right_ui,
-            left_driver,
-            right_driver,
-        })
-    }
-
-    async fn shutdown(self) -> Result<(), Box<dyn std::error::Error>> {
-        let Self {
-            left,
-            right,
-            left_driver,
-            right_driver,
-            ..
-        } = self;
-        tokio::join!(
-            left.shutdown(Duration::from_secs(3)),
-            right.shutdown(Duration::from_secs(3))
-        );
-        tokio::time::timeout(Duration::from_secs(10), left_driver).await???;
-        tokio::time::timeout(Duration::from_secs(10), right_driver).await???;
-        Ok(())
-    }
-}
-
-struct View<'a> {
-    endpoint: &'a Endpoint,
-    identity: &'a Identity,
-    node_name: &'a str,
-    peer_name: Option<&'a str>,
-    detail: DetailPolicy,
-    ifac: IfacState,
-    links: u8,
-    admitted: u8,
-    event_kind: EventKind,
-    event_text: &'a str,
-    started: Instant,
-}
-
-fn host_snapshot(view: &View<'_>) -> HostSnapshot {
-    let identity_hash = *view.identity.hash().as_bytes();
-    let destination = outrider::delivery_destination(view.identity);
-    let mut address_tail = [0_u8; 8];
-    address_tail.copy_from_slice(&destination.as_bytes()[8..]);
-    let named = view.detail == DetailPolicy::Named;
-    HostSnapshot {
-        valid_for_secs: radio_face::MAX_VALIDITY_SECS,
-        personality: Personality::Retinue,
-        detail: view.detail,
-        node: named.then_some(NodeSummary {
-            name: Text::from_truncated(view.node_name),
-            address_tail,
-            fingerprint: identity_hash,
-            role: Text::from_truncated("OUTRIDER"),
-            uptime_secs: view.started.elapsed().as_secs().min(u64::from(u32::MAX)) as u32,
-        }),
-        link_count: view.links,
-        admitted_links: view.admitted,
-        queue_depth: view
-            .endpoint
-            .outbound_queue_depth()
-            .min(usize::from(u16::MAX)) as u16,
-        ifac: view.ifac,
-        peers: [
-            view.peer_name.map(|name| PeerSummary {
-                name: Text::from_truncated(name),
-                path: PeerPath::Direct,
-                age_secs: 0,
-            }),
-            None,
-            None,
-        ],
-        peer_overflow: 0,
-        event: Some(UiEvent {
-            source: EventSource::Host,
-            kind: view.event_kind,
-            text: Text::from_truncated(view.event_text),
-        }),
-    }
-}
-
-async fn publish(
-    control: &DirectPhyUiControl,
-    view: &View<'_>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let snapshot = host_snapshot(view);
-    let mut encoded = [0_u8; radio_face::MAX_SNAPSHOT_LEN];
-    let len = encode_snapshot(&snapshot, &mut encoded).map_err(|error| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("host snapshot did not encode: {error:?}"),
-        )
-    })?;
-    control.publish(&encoded[..len]).await?;
-    let stage_secs = STAGE_SECS.load(Ordering::Relaxed);
-    if stage_secs > 0 {
-        println!("ui stage: {} for {stage_secs}s", view.event_text);
-        tokio::time::sleep(Duration::from_secs(stage_secs)).await;
-    }
-    Ok(())
-}
-
-#[allow(clippy::too_many_arguments)]
-fn view<'a>(
-    endpoint: &'a Endpoint,
-    identity: &'a Identity,
-    node_name: &'a str,
-    peer_name: Option<&'a str>,
-    started: Instant,
-    detail: DetailPolicy,
-    ifac: IfacState,
-    links: u8,
-    admitted: u8,
-    event_kind: EventKind,
-    event_text: &'a str,
-) -> View<'a> {
-    View {
-        endpoint,
-        identity,
-        node_name,
-        peer_name,
-        detail,
-        ifac,
-        links,
-        admitted,
-        event_kind,
-        event_text,
-        started,
-    }
-}
-
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
