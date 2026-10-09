@@ -104,8 +104,8 @@ def main():
             "exe_sha256":hashlib.sha256(a.exe.read_bytes()).hexdigest(),
             "baseline":{},"restoration":{},"transcript":[],"passed":False}
     report["harness_config"]={"deadline_text":a.deadline_text,"settle_ms":a.settle_ms,"fresh_dut_baseline":a.fresh_dut_baseline}
-    source_paths=["Cargo.lock", "crates/retinue/Cargo.toml", "crates/retinue/examples/murmuration_probe.rs",
-                  "crates/retinue/examples/murmuration/session.rs", "crates/retinue/src/node.rs",
+    probe=sorted(str(p) for p in Path("crates/retinue/examples/murmuration_probe").rglob("*.rs"))
+    source_paths=["Cargo.lock", "crates/retinue/Cargo.toml", *probe, "crates/retinue/src/node.rs",
                   "crates/retinue/src/resource_transfer.rs", "crates/retinue/src/resource.rs",
                   "crates/selvage/src/personality.rs", "crates/selvage/src/lib.rs",
                   "crates/tulle/src/personality.rs", "crates/tulle/src/personality_serial.rs",

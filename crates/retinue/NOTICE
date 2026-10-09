@@ -35,7 +35,7 @@ translated line by line. The findings are recorded in
   key, and the responder's identity key, which is verified from link-request
   bytes 32..64. RNS `Link.py` 186-189, 274-285, 326-331, 378-408, 970-992,
   1189-1196; `Packet.py` 338-343, 449-458.
-  Targets: `src/link.rs`, `src/reliable.rs`, `src/endpoint.rs`.
+  Targets: `src/link/`, `src/reliable.rs`, `src/endpoint.rs`.
 - LINKCLOSE closes a link only when its payload decrypts to the link id.
   RNS `Link.py` 674-683.
   Target: `src/endpoint.rs`.
@@ -83,11 +83,11 @@ From the Priority 1 batch (2026-10-08), same source:
 - Link MTU is clamped in transit, at the terminus and at the initiator. RNS
   `Transport.py` 2058-2088, 2538-2566; `Link.py` 144-216, 300-312, 366-376,
   391-424.
-  Targets: `src/link.rs`, `src/node.rs`, `src/endpoint.rs`.
+  Targets: `src/link/`, `src/node.rs`, `src/endpoint.rs`.
 - Transit bridges have validated state, a proof deadline, and capacity that
   never evicts a validated link. RNS `Transport.py` 872-955, 2060-2160,
   2605-2671, 3200-3202.
-  Targets: `src/link.rs`, `src/node.rs`, `src/endpoint.rs`.
+  Targets: `src/link/`, `src/node.rs`, `src/endpoint.rs`.
 - Link liveness: measured RTT, keepalives, stale teardown and the handshake
   deadline. RNS `Link.py` 80-106, 204, 245-262, 282-283, 419-438, 516-538,
   652-655, 712-805, 929-946, 1130-1135; `Packet.py` 302, 462.
