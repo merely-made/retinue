@@ -153,23 +153,63 @@ pub async fn receive_submission(
     })
 }
 
+/// Register the node's destination and announce it. Path responses rebuild the app data
+/// with the timebase of the moment (`LXMRouter.py` 193, 332-346); `announce.unix_time` is
+/// not used.
 pub fn register_propagation(
     endpoint: &Endpoint,
     announce: &PropagationAnnounce,
 ) -> Result<AddressHash, PropagationError> {
-    let app_data = announce.encode()?;
+    let app_data = announce_at(announce, unix_now())?;
     let name = propagation_name();
     let destination = name.destination_hash(endpoint.identity());
-    endpoint.register_resource(name, &app_data);
+    endpoint.register_resource(name.clone(), &app_data);
+    install_app_data(endpoint, &name, announce)?;
     Ok(destination)
 }
 
+/// Announce the node with the timebase set to now, and make `announce` what later path
+/// responses carry, as stock re-reads its state at each announce.
 pub fn announce_propagation(
     endpoint: &Endpoint,
     announce: &PropagationAnnounce,
 ) -> Result<(), PropagationError> {
-    endpoint.announce(&propagation_name(), &announce.encode()?);
+    let name = propagation_name();
+    let app_data = announce_at(announce, unix_now())?;
+    // An unregistered node has no path responses to keep current.
+    let _ = install_app_data(endpoint, &name, announce);
+    endpoint.announce(&name, &app_data);
     Ok(())
+}
+
+fn announce_at(
+    announce: &PropagationAnnounce,
+    unix_time: u64,
+) -> Result<Vec<u8>, PropagationError> {
+    PropagationAnnounce {
+        unix_time,
+        ..announce.clone()
+    }
+    .encode()
+}
+
+fn install_app_data(
+    endpoint: &Endpoint,
+    name: &DestinationName,
+    announce: &PropagationAnnounce,
+) -> Result<(), PropagationError> {
+    let announce = announce.clone();
+    // `announce` encoded once already, so this cannot fail.
+    endpoint.set_app_data_source(name, move |seconds| {
+        announce_at(&announce, seconds).unwrap_or_default()
+    })?;
+    Ok(())
+}
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_secs())
 }
 
 pub fn propagation_name() -> DestinationName {

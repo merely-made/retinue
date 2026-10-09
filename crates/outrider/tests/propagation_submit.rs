@@ -24,8 +24,8 @@ async fn stamped_submission_crosses_the_propagation_boundary() {
         legacy: false,
         unix_time: 1_753_603_200,
         active: true,
-        transfer_limit_kib: 256,
-        sync_limit_kib: 10_240,
+        transfer_limit_kb: 256.0,
+        sync_limit_kb: 10_240.0,
         costs: PropagationCosts {
             propagation: 8,
             flexibility: 3,

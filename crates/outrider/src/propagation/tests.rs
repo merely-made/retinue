@@ -23,8 +23,8 @@ fn stock_announce_decodes_and_round_trips_exactly() {
     let announce = PropagationAnnounce::decode(&bytes).unwrap();
     assert!(!announce.legacy);
     assert!(announce.active);
-    assert_eq!(announce.transfer_limit_kib, 256);
-    assert_eq!(announce.sync_limit_kib, 10_240);
+    assert_eq!(announce.transfer_limit_kb, 256.0);
+    assert_eq!(announce.sync_limit_kb, 10_240.0);
     assert_eq!(
         announce.costs,
         PropagationCosts {
@@ -38,6 +38,60 @@ fn stock_announce_decodes_and_round_trips_exactly() {
         Some(b"Stock Propagation Oracle".as_slice())
     );
     assert_eq!(announce.encode().unwrap(), bytes);
+}
+
+/// lxmd announces float limits when configured, may append elements and costs, and stock
+/// never checks the legacy flag's type (`LXMF.py` 225-250).
+#[test]
+fn tolerant_announce_shapes_decode_as_stock_validates_them() {
+    let mut parts = match decode_one(&captured_announce()).unwrap() {
+        Value::Array(parts) => parts,
+        _ => unreachable!(),
+    };
+    parts[0] = Value::Nil;
+    parts[1] = Value::F64(1_760_000_000.75);
+    parts[3] = Value::F32(256.5);
+    parts[4] = Value::F64(0.38);
+    parts[5] = Value::Array(vec![13.into(), Value::F64(3.0), 8.into(), 99.into()]);
+    parts.push(Value::from("future"));
+    let announce =
+        PropagationAnnounce::decode(&encode_value(&Value::Array(parts)).unwrap()).unwrap();
+    assert!(!announce.legacy);
+    assert_eq!(announce.unix_time, 1_760_000_000);
+    assert_eq!(announce.transfer_limit_kb, 256.5);
+    assert_eq!(announce.transfer_limit_bytes(), 256_500);
+    assert_eq!(announce.sync_limit_bytes(), 380);
+    assert_eq!(announce.costs.flexibility, 3);
+    assert_eq!(
+        announce.name(),
+        Some(b"Stock Propagation Oracle".as_slice())
+    );
+
+    let float = PropagationAnnounce::decode(&announce.encode().unwrap()).unwrap();
+    assert_eq!(float.transfer_limit_kb, 256.5);
+}
+
+#[test]
+fn announces_stock_would_refuse_are_refused() {
+    let with = |index: usize, value: Value| {
+        let Value::Array(mut parts) = decode_one(&captured_announce()).unwrap() else {
+            unreachable!()
+        };
+        parts[index] = value;
+        PropagationAnnounce::decode(&encode_value(&Value::Array(parts)).unwrap())
+    };
+    assert!(with(1, Value::from("now")).is_err());
+    assert!(with(2, Value::Nil).is_err());
+    assert!(with(3, Value::Nil).is_err());
+    assert!(with(5, Value::Array(vec![13.into(), 3.into()])).is_err());
+    assert!(with(6, Value::Array(Vec::new())).is_err());
+    assert!(with(2, Value::from(1)).unwrap().active);
+    let short = &captured_announce();
+    let Value::Array(mut parts) = decode_one(short).unwrap() else {
+        unreachable!()
+    };
+    parts.pop();
+    assert!(PropagationAnnounce::decode(&encode_value(&Value::Array(parts)).unwrap()).is_err());
 }
 
 #[test]

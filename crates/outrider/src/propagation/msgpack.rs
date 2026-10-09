@@ -132,10 +132,3 @@ pub(super) fn decode_one(bytes: &[u8]) -> Result<Value, PropagationError> {
     }
     Ok(value)
 }
-
-pub(super) fn byte(value: &Value) -> Result<u8, PropagationError> {
-    value
-        .as_u64()
-        .and_then(|value| value.try_into().ok())
-        .ok_or(PropagationError::InvalidAnnounce)
-}

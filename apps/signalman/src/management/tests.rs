@@ -113,8 +113,8 @@ fn snapshot() -> ManagementSnapshot {
                     legacy: false,
                     unix_time: 1,
                     active: true,
-                    transfer_limit_kib: 1,
-                    sync_limit_kib: 1,
+                    transfer_limit_kb: 1.0,
+                    sync_limit_kb: 1.0,
                     costs: PropagationCosts {
                         propagation: 1,
                         flexibility: 1,

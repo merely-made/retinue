@@ -22,6 +22,7 @@ fn register_ratcheted_at(ep: &Endpoint, name: &DestinationName, created_at: u64)
         kind: RegistrationKind::Resource,
         name: name.clone(),
         app_data: b"ratchet".to_vec(),
+        app_data_source: None,
         ratchets: Some(Arc::new(store)),
         enforce_ratchets: false,
         proof_strategy: ProofStrategy::None,

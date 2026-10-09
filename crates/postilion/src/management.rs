@@ -295,8 +295,8 @@ mod tests {
             legacy: false,
             unix_time: 42,
             active: true,
-            transfer_limit_kib: 128,
-            sync_limit_kib: 64,
+            transfer_limit_kb: 128.0,
+            sync_limit_kb: 64.0,
             costs: PropagationCosts {
                 propagation: 1,
                 flexibility: 2,
