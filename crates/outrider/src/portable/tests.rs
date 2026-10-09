@@ -194,3 +194,104 @@ fn malformed_messages_are_refused() {
         Err(CodecError::InvalidFields)
     );
 }
+
+fn packed(payload: &[u8]) -> Vec<u8> {
+    let mut packed = [[1_u8; 16].as_slice(), &[2; 16], &[4; 64]].concat();
+    packed.extend_from_slice(payload);
+    packed
+}
+
+fn id_over(hashed: &[u8]) -> [u8; 32] {
+    message_id([1; 16], [2; 16], hashed)
+}
+
+/// Stock's decode takes str title and content without checking (`LXMessage.py` 772-774).
+/// Both codecs read them as their UTF-8 bytes, flag them, and write them back as str.
+#[test]
+fn string_typed_text_parts_are_read_and_written_back() {
+    // [1.5, "Hi", "Body", {}]
+    let payload = [
+        &[0x94, 0xcb][..],
+        &1.5_f64.to_be_bytes(),
+        &[0xa2, b'H', b'i', 0xa4, b'B', b'o', b'd', b'y', 0x80],
+    ]
+    .concat();
+    let bytes = packed(&payload);
+    let mine = decode(&bytes).unwrap();
+    assert_eq!(mine.payload.title, b"Hi");
+    assert_eq!(mine.payload.content, b"Body");
+    assert_eq!(
+        mine.payload.str_parts,
+        StrParts {
+            title: true,
+            content: true
+        }
+    );
+    assert_eq!(mine.message_id, id_over(&payload));
+    assert_eq!(encode_payload(&mine.payload, false).unwrap(), payload);
+
+    #[cfg(feature = "std")]
+    {
+        let theirs = crate::codec::decode(&bytes).unwrap();
+        assert_eq!(theirs.message_id, mine.message_id);
+        assert_eq!(theirs.payload.str_parts, mine.payload.str_parts);
+        let prepared = crate::codec::prepare([1; 16], [2; 16], &theirs.payload).unwrap();
+        assert_eq!(prepared.finish([4; 64]), bytes);
+    }
+
+    // A str must be UTF-8, as stock's MessagePack decoder requires.
+    let mut invalid = payload.clone();
+    invalid[11] = 0xff;
+    assert_eq!(decode(&packed(&invalid)), Err(CodecError::InvalidTextParts));
+    let mut flagged = Payload::text(1.0, [0xff], b"");
+    flagged.str_parts.title = true;
+    assert_eq!(
+        encode_payload(&flagged, false),
+        Err(CodecError::InvalidTextParts)
+    );
+}
+
+/// The rule for a stamped payload's id, held by both codecs: its first four elements as
+/// received, behind a four-element header. For a canonical encoding that is stock's re-pack;
+/// a non-canonical one keeps the bytes its sender hashed.
+#[test]
+fn a_stamped_payload_is_hashed_over_its_body_as_received() {
+    let body = [
+        &[0xcb][..],
+        &1.5_f64.to_be_bytes(),
+        // A two-byte title in bin16, which no canonical encoder writes.
+        &[0xc5, 0x00, 0x02, b'H', b'i', 0xc4, 0x00, 0x80],
+    ]
+    .concat();
+    let stamp = [0xc4, 0x02, 0xaa, 0xbb];
+    let hashed = [&[0x94][..], &body].concat();
+    for header in [&[0x95][..], &[0xdc, 0x00, 0x05]] {
+        let bytes = packed(&[header, &body, &stamp].concat());
+        let mine = decode(&bytes).unwrap();
+        assert_eq!(mine.message_id, id_over(&hashed), "header {header:02x?}");
+        assert_eq!(mine.payload.stamp.as_deref(), Some(&[0xaa, 0xbb][..]));
+        #[cfg(feature = "std")]
+        {
+            let theirs = crate::codec::decode(&bytes).unwrap();
+            assert_eq!(theirs.message_id, mine.message_id);
+            assert_eq!(theirs.signing_bytes(), mine.signing_bytes());
+        }
+    }
+}
+
+#[test]
+fn more_than_five_elements_are_refused() {
+    let payload = [
+        &[0x96, 0xcb][..],
+        &1.5_f64.to_be_bytes(),
+        &[0xc4, 0x00, 0xc4, 0x00, 0x80, 0xc4, 0x00, 0xc0],
+    ]
+    .concat();
+    let bytes = packed(&payload);
+    assert_eq!(decode(&bytes), Err(CodecError::InvalidPayloadShape));
+    #[cfg(feature = "std")]
+    assert_eq!(
+        crate::codec::decode(&bytes),
+        Err(CodecError::InvalidPayloadShape)
+    );
+}

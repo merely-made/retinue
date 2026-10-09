@@ -19,7 +19,9 @@ pub struct Peer {
 
 impl Peer {
     pub(crate) fn from_announce(announce: PeerAnnounce) -> Self {
-        let decoded = DeliveryAnnounce::decode(&announce.app_data).ok();
+        let decoded = (announce.destination == delivery_destination(&announce.identity))
+            .then(|| DeliveryAnnounce::decode(&announce.app_data).ok())
+            .flatten();
         Self {
             destination: announce.destination,
             stamp_cost: decoded.as_ref().and_then(|delivery| delivery.stamp_cost),

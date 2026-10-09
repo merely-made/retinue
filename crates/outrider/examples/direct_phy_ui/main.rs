@@ -361,8 +361,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         legacy: false,
         unix_time: TIMESTAMP as u64,
         active: true,
-        transfer_limit_kib: 256,
-        sync_limit_kib: 10_240,
+        transfer_limit_kb: 256.0,
+        sync_limit_kb: 10_240.0,
         costs: PropagationCosts {
             propagation: STAMP_COST,
             flexibility: 3,

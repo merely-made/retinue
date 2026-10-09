@@ -101,11 +101,16 @@ impl Shared {
         target: AddressHash,
         source_seconds: u64,
     ) -> Option<Packet> {
-        let (name, app_data) = {
+        let (name, app_data, source) = {
             let reg = self.registered.lock().unwrap();
             let r = reg.iter().find(|r| r.dest == target)?;
-            (r.name.clone(), r.app_data.clone())
+            (
+                r.name.clone(),
+                r.app_data.clone(),
+                r.app_data_source.clone(),
+            )
         };
+        let app_data = source.map_or(app_data, |source| source(source_seconds));
         // A path response is an announce, so it rotates a due ratchet too (`Destination.py`
         // 285-288 runs for both).
         let ratchet = self.advertised_ratchet(target, source_seconds);

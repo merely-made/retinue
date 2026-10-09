@@ -75,6 +75,7 @@ async fn endpoint_and_owned_path_response_keep_timebases_per_destination() {
         kind: RegistrationKind::BestEffort,
         name: second_name.clone(),
         app_data: b"path-cap".to_vec(),
+        app_data_source: None,
         ratchets: None,
         enforce_ratchets: false,
         proof_strategy: ProofStrategy::None,
@@ -96,6 +97,32 @@ async fn endpoint_and_owned_path_response_keep_timebases_per_destination() {
     assert_eq!(emitted_timebase(&first_again), 701);
     assert_eq!(emitted_timebase(&path_response_again), 701);
     assert_eq!(path_response.context, crate::path::CTX_PATH_RESPONSE);
+}
+
+/// A destination with an app data source answers each path request with app data built at
+/// that response's time (RNS's callable default app data).
+#[tokio::test]
+async fn a_path_response_builds_app_data_from_the_registered_source() {
+    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x93; 64]));
+    let name = DestinationName::new("retinue", ["app-data-source"]);
+    let dest = name.destination_hash(ep.identity());
+    ep.register(name.clone(), b"fixed");
+    let app_data = |seconds| {
+        let packet = ep.shared.path_response_at(dest, seconds).unwrap();
+        Announce::decode(&packet).unwrap().app_data
+    };
+    assert_eq!(app_data(800), b"fixed");
+
+    ep.set_app_data_source(&name, |seconds| seconds.to_be_bytes().to_vec())
+        .unwrap();
+    assert_eq!(app_data(801), 801_u64.to_be_bytes());
+    assert_eq!(app_data(900), 900_u64.to_be_bytes());
+
+    let unregistered = DestinationName::new("retinue", ["nowhere"]);
+    assert!(
+        ep.set_app_data_source(&unregistered, |_| Vec::new())
+            .is_err()
+    );
 }
 
 #[tokio::test]

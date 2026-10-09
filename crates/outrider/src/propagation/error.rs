@@ -46,8 +46,6 @@ pub enum PropagationError {
     WrongSource,
     #[error("the decrypted LXMF signature is invalid")]
     BadSignature,
-    #[error("the announced propagation node is inactive")]
-    InactiveNode,
     #[error("the local recipient identity is not the endpoint identity")]
     LocalIdentityMismatch,
     #[error("propagation fetch response has the wrong shape")]

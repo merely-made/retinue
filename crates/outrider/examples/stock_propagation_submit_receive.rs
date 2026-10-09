@@ -24,8 +24,8 @@ fn propagation_announce() -> PropagationAnnounce {
         legacy: false,
         unix_time: started,
         active: true,
-        transfer_limit_kib: 256,
-        sync_limit_kib: 10_240,
+        transfer_limit_kb: 256.0,
+        sync_limit_kb: 10_240.0,
         costs: PropagationCosts {
             propagation: 13,
             flexibility: 3,

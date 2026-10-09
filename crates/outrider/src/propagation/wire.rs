@@ -5,7 +5,7 @@ use retinue::identity::{Identity, PrivateIdentity};
 use retinue::token::decrypt_to_identity;
 use rmpv::Value;
 
-use super::msgpack::{byte, decode_one, encode_value};
+use super::msgpack::{decode_one, encode_value};
 use super::{
     DEFAULT_MAX_PROPAGATION_ANNOUNCE_BYTES, DEFAULT_MAX_PROPAGATION_BATCH_BYTES,
     DEFAULT_MAX_PROPAGATION_ENTRIES, MIN_ENCRYPTED_MESSAGE_BYTES, PROPAGATION_METADATA_NAME,
@@ -22,17 +22,25 @@ pub struct PropagationCosts {
     pub peering: u8,
 }
 
-/// The seven-item application data announced by an LXMF propagation node.
+/// The application data announced by an LXMF propagation node (`LXMRouter.py` 332-346):
+/// `[legacy, timebase, active, transfer_limit, sync_limit, [costs...], metadata]`.
 ///
-/// Field names here are limited to behavior independently varied in stock
-/// black-box captures. Unknown metadata keys remain opaque MessagePack.
+/// Decoding is as tolerant as stock's `pn_announce_data_is_valid` (`LXMF.py` 225-250): extra
+/// elements and extra costs are ignored, the legacy flag may be any type, and numbers may be
+/// anything `int()` takes, floats included (lxmd configures its limits as floats). A negative
+/// timebase reads as 0 and costs saturate to 0..=255. Unknown metadata keys remain opaque
+/// MessagePack.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PropagationAnnounce {
     pub legacy: bool,
+    /// The node's clock at announce. [`register_propagation`](super::register_propagation)
+    /// and [`announce_propagation`](super::announce_propagation) set it to now.
     pub unix_time: u64,
     pub active: bool,
-    pub transfer_limit_kib: u64,
-    pub sync_limit_kib: u64,
+    /// Largest transfer the node accepts, in KB of 1000 bytes.
+    pub transfer_limit_kb: f64,
+    /// Largest peer sync the node accepts, in KB of 1000 bytes.
+    pub sync_limit_kb: f64,
     pub costs: PropagationCosts,
     pub metadata: Vec<(Value, Value)>,
 }
@@ -43,8 +51,8 @@ impl PropagationAnnounce {
             Value::Boolean(self.legacy),
             Value::from(self.unix_time),
             Value::Boolean(self.active),
-            Value::from(self.transfer_limit_kib),
-            Value::from(self.sync_limit_kib),
+            encode_number(self.transfer_limit_kb)?,
+            encode_number(self.sync_limit_kb)?,
             Value::Array(vec![
                 Value::from(self.costs.propagation),
                 Value::from(self.costs.flexibility),
@@ -62,48 +70,59 @@ impl PropagationAnnounce {
         let Value::Array(parts) = decode_one(bytes)? else {
             return Err(PropagationError::InvalidAnnounce);
         };
-        if parts.len() != 7 {
-            return Err(PropagationError::InvalidAnnounce);
-        }
-        let (
-            Value::Boolean(legacy),
-            Some(unix_time),
-            Value::Boolean(active),
-            Some(transfer_limit_kib),
-            Some(sync_limit_kib),
-            Value::Array(costs),
-            Value::Map(metadata),
-        ) = (
-            &parts[0],
-            parts[1].as_u64(),
-            &parts[2],
-            parts[3].as_u64(),
-            parts[4].as_u64(),
-            &parts[5],
-            &parts[6],
-        )
+        let [
+            legacy,
+            unix_time,
+            active,
+            transfer,
+            sync,
+            costs,
+            metadata,
+            ..,
+        ] = parts.as_slice()
         else {
             return Err(PropagationError::InvalidAnnounce);
         };
-        if costs.len() != 3 {
+        let (Value::Array(costs), Value::Map(metadata)) = (costs, metadata) else {
             return Err(PropagationError::InvalidAnnounce);
-        }
-        let propagation = byte(&costs[0])?;
-        let flexibility = byte(&costs[1])?;
-        let peering = byte(&costs[2])?;
+        };
+        let [propagation, flexibility, peering, ..] = costs.as_slice() else {
+            return Err(PropagationError::InvalidAnnounce);
+        };
+        // Stock compares with `== True`, which a numeric 0 or 1 passes and text does not.
+        let active = match active {
+            Value::Boolean(active) => *active,
+            Value::Integer(_) | Value::F32(_) | Value::F64(_) => match number(active)? {
+                0.0 => false,
+                1.0 => true,
+                _ => return Err(PropagationError::InvalidAnnounce),
+            },
+            _ => return Err(PropagationError::InvalidAnnounce),
+        };
         Ok(Self {
-            legacy: *legacy,
-            unix_time,
-            active: *active,
-            transfer_limit_kib,
-            sync_limit_kib,
+            legacy: matches!(legacy, Value::Boolean(true)),
+            // Saturating: a negative timebase reads as 0.
+            unix_time: number(unix_time)? as u64,
+            active,
+            transfer_limit_kb: number(transfer)?,
+            sync_limit_kb: number(sync)?,
             costs: PropagationCosts {
-                propagation,
-                flexibility,
-                peering,
+                propagation: cost(propagation)?,
+                flexibility: cost(flexibility)?,
+                peering: cost(peering)?,
             },
             metadata: metadata.clone(),
         })
+    }
+
+    /// The transfer limit in bytes, rounded down, as stock compares it.
+    pub fn transfer_limit_bytes(&self) -> u64 {
+        (self.transfer_limit_kb * 1000.0) as u64
+    }
+
+    /// The sync limit in bytes, rounded down.
+    pub fn sync_limit_bytes(&self) -> u64 {
+        (self.sync_limit_kb * 1000.0) as u64
     }
 
     pub fn name(&self) -> Option<&[u8]> {
@@ -113,6 +132,45 @@ impl PropagationAnnounce {
                 .flatten()
         })
     }
+}
+
+/// A finite number as Python's `int()` takes it: an integer, float or bool, or text or
+/// bytes spelling a decimal integer.
+fn number(value: &Value) -> Result<f64, PropagationError> {
+    let text = |bytes: &[u8]| {
+        let text = core::str::from_utf8(bytes).ok()?;
+        text.trim().parse::<i64>().ok().map(|int| int as f64)
+    };
+    match value {
+        Value::Integer(int) => int.as_f64(),
+        Value::F32(float) => Some(f64::from(*float)),
+        Value::F64(float) => Some(*float),
+        Value::Boolean(flag) => Some(f64::from(u8::from(*flag))),
+        Value::String(string) => text(string.as_bytes()),
+        Value::Binary(bytes) => text(bytes),
+        _ => None,
+    }
+    .filter(|number| number.is_finite())
+    .ok_or(PropagationError::InvalidAnnounce)
+}
+
+/// A stamp cost, truncated as `int()` does and held to 0..=255 where stock keeps any integer.
+fn cost(value: &Value) -> Result<u8, PropagationError> {
+    Ok(number(value)?.trunc() as u8)
+}
+
+/// An integer when the value is whole, so integral limits stay byte-identical to stock's.
+fn encode_number(value: f64) -> Result<Value, PropagationError> {
+    if !value.is_finite() {
+        return Err(PropagationError::InvalidAnnounce);
+    }
+    Ok(
+        if value.fract() == 0.0 && (0.0..=u64::MAX as f64).contains(&value) {
+            Value::from(value as u64)
+        } else {
+            Value::F64(value)
+        },
+    )
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -313,12 +371,8 @@ impl PropagationBatch {
         if parts.len() != 2 {
             return Err(PropagationError::InvalidBatch);
         }
-        let Value::F64(transfer_time) = parts[0] else {
-            return Err(PropagationError::InvalidTransferTime);
-        };
-        if !transfer_time.is_finite() {
-            return Err(PropagationError::InvalidTransferTime);
-        }
+        // Stock's own type check here is always true (`LXMRouter.py` 2410); a number will do.
+        let transfer_time = number(&parts[0]).map_err(|_| PropagationError::InvalidTransferTime)?;
         let Value::Array(entries) = &parts[1] else {
             return Err(PropagationError::InvalidBatch);
         };

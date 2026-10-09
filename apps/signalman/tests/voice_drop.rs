@@ -148,8 +148,8 @@ async fn file_backed_voice_crosses_a_propagation_node_once_and_retains_receipts(
         legacy: false,
         unix_time: NOW as u64,
         active: true,
-        transfer_limit_kib: 256,
-        sync_limit_kib: 10_240,
+        transfer_limit_kb: 256.0,
+        sync_limit_kb: 10_240.0,
         costs: PropagationCosts {
             propagation: 0,
             flexibility: 0,

@@ -101,10 +101,9 @@ pub async fn submit_with_resource_config(
     if node.destination != propagation_destination(&node.identity) {
         return Err(PropagationError::WrongDestination);
     }
+    // An inactive node is not refused: stock submits to whichever node it is pointed at, and
+    // `announce.active` is the caller's to weigh.
     let announce = PropagationAnnounce::decode(&node.app_data)?;
-    if !announce.active {
-        return Err(PropagationError::InactiveNode);
-    }
     let target = u16::from(announce.costs.propagation);
     if batch
         .entries
@@ -114,11 +113,7 @@ pub async fn submit_with_resource_config(
         return Err(PropagationError::InvalidStamp);
     }
     let packed_batch = batch.encode()?;
-    let announced_limit = announce
-        .transfer_limit_kib
-        .saturating_mul(1_000)
-        .min(usize::MAX as u64) as usize;
-    if packed_batch.len() > announced_limit {
+    if packed_batch.len() as u64 > announce.transfer_limit_bytes() {
         return Err(PropagationError::BatchTooLarge);
     }
     let transient_ids = batch
