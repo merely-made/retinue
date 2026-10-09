@@ -47,7 +47,8 @@ pub struct PayloadReceipt {
 
 impl ResourceSession {
     /// Send `data` as one link data packet and wait for the peer's proof of it, or the
-    /// receipt's timeout: six round trips, and never under [`LINK_RECEIPT_FLOOR`].
+    /// receipt's timeout: six round trips, and never under the one second RNS takes to
+    /// notice a lapsed receipt.
     pub async fn send_proved(&mut self, data: &[u8]) -> io::Result<LinkDelivery> {
         if data.len() > write_chunk_for_mtu(self.link.mtu()) {
             return Err(io::Error::new(
