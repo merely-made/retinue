@@ -14,16 +14,11 @@
 //! the ingress interface's release count when it was published. Commands on stdin, one per
 //! line: `request <dest>`, `route <dest>`, `counters`.
 
-#[cfg(feature = "tokio")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     probe::run().await
 }
 
-#[cfg(not(feature = "tokio"))]
-fn main() {}
-
-#[cfg(feature = "tokio")]
 mod probe {
     use std::io::BufRead;
     use std::sync::Arc;

@@ -106,6 +106,10 @@ name = "path_request_oracle"
 required-features = ["tokio"]
 
 [[example]]
+name = "ingress_probe"
+required-features = ["tokio"]
+
+[[example]]
 name = "node_resource_oracle"
 required-features = ["tokio"]
 

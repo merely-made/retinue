@@ -76,7 +76,6 @@ impl Default for IfacePolicy {
 
 impl Shared {
     /// The policy of interface `id`; the default if it is unset or not attached.
-    #[allow(dead_code, reason = "read by the router and carriers as they land")]
     pub(super) fn iface_policy(&self, id: InterfaceId) -> IfacePolicy {
         let policies = self.iface_policies.lock().unwrap();
         policies.get(&id).copied().unwrap_or_default()

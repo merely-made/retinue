@@ -2,9 +2,12 @@
 //!
 //! Endpoint owns packets and queues. This module owns only rate budgets and counters.
 //! The former Prns-influenced implementation is retained in Git history and the donor
-//! ledger. The replacement follows the Retinue-owned contract in that ledger; public
-//! policy fields/defaults remain compatible. Interface bursts are not reference scheduler
-//! parity; the destination announce rate follows RNS (`Transport.py` 2298-2338).
+//! ledger. The replacement follows the Retinue-owned contract in that ledger. Interface
+//! bursts are not reference scheduler parity. The destination announce rate follows RNS
+//! (`Transport.py` 2298-2338): `destination_*` default to RNS `default_ar_*` (3600 s, 5, 0)
+//! and count violations, where they were once a token budget defaulting to 1 s, 0, 0.
+
+use alloc::vec::Vec;
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -162,39 +165,40 @@ impl AnnounceAdmission {
         self.policy
     }
 
-    pub(crate) fn set_policy(&mut self, policy: AnnounceIngressPolicy) {
+    /// Replace the policy, returning the interfaces whose rows a smaller capacity evicted.
+    pub(crate) fn set_policy(&mut self, policy: AnnounceIngressPolicy) -> Vec<u32> {
         self.policy = policy;
         // Keep accounting and in-flight cooldowns; reset only rate debt.
         for row in self.interfaces.values_mut() {
             row.arrival = row.last_used;
         }
-        while self.interfaces.len() > policy.interface_capacity {
-            let oldest = self
-                .interfaces
-                .iter()
-                .min_by_key(|(key, row)| (row.last_used, **key))
-                .map(|(key, _)| *key);
-            if let Some(key) = oldest {
-                self.interfaces.remove(&key);
-            }
-        }
         self.destinations.clear();
+        let excess = self
+            .interfaces
+            .len()
+            .saturating_sub(policy.interface_capacity);
+        (0..excess)
+            .filter_map(|_| self.evict_oldest_interface())
+            .collect()
     }
 
-    pub(crate) fn attach_interface(&mut self, id: u32, now: u64) {
+    fn evict_oldest_interface(&mut self) -> Option<u32> {
+        let (&oldest, _) = self
+            .interfaces
+            .iter()
+            .min_by_key(|(key, row)| (row.last_used, **key))?;
+        self.interfaces.remove(&oldest);
+        Some(oldest)
+    }
+
+    /// Give `id` a row, returning the interface whose row it evicted, if any.
+    pub(crate) fn attach_interface(&mut self, id: u32, now: u64) -> Option<u32> {
         if self.policy.interface_capacity == 0 || self.interfaces.contains_key(&id) {
-            return;
+            return None;
         }
-        if self.interfaces.len() >= self.policy.interface_capacity {
-            let oldest = self
-                .interfaces
-                .iter()
-                .min_by_key(|(key, row)| (row.last_used, **key))
-                .map(|(key, _)| *key);
-            if let Some(key) = oldest {
-                self.interfaces.remove(&key);
-            }
-        }
+        let evicted = (self.interfaces.len() >= self.policy.interface_capacity)
+            .then(|| self.evict_oldest_interface())
+            .flatten();
         self.interfaces.insert(
             id,
             InterfaceBudget {
@@ -205,6 +209,7 @@ impl AnnounceAdmission {
                 counters: AnnounceIngressCounters::default(),
             },
         );
+        evicted
     }
 
     pub(crate) fn forget_interface(&mut self, id: u32) {
@@ -214,14 +219,25 @@ impl AnnounceAdmission {
     /// Charge one verified announce to interface `id`, under `policy` (its override, else
     /// the endpoint's). Every announce counts toward the burst (`Transport.py` 1812,
     /// `Interface.py` 303-305), but only one for an unknown destination is held (1814-1825).
+    /// Also returns the interface whose row a new one for `id` evicted.
     pub(crate) fn observe_interface(
         &mut self,
         id: u32,
         known: bool,
         now: u64,
         policy: Option<AnnounceIngressPolicy>,
+    ) -> (InterfaceVerdict, Option<u32>) {
+        let evicted = self.attach_interface(id, now);
+        (self.charge_interface(id, known, now, policy), evicted)
+    }
+
+    fn charge_interface(
+        &mut self,
+        id: u32,
+        known: bool,
+        now: u64,
+        policy: Option<AnnounceIngressPolicy>,
     ) -> InterfaceVerdict {
-        self.attach_interface(id, now);
         let policy = policy.unwrap_or(self.policy);
         let Some(row) = self.interfaces.get_mut(&id) else {
             return if known || !policy.enabled {
@@ -382,7 +398,7 @@ mod tests {
     #[test]
     fn burst_is_isolated_and_known_routes_still_progress() {
         let mut a = AnnounceAdmission::new(AnnounceIngressPolicy::default());
-        let mut observe = |id, known, t| held(a.observe_interface(id, known, t, None));
+        let mut observe = |id, known, t| held(a.observe_interface(id, known, t, None).0);
         let verdicts = [
             observe(1, false, 0),
             observe(1, false, 1),
@@ -398,8 +414,8 @@ mod tests {
     #[test]
     fn known_announces_are_charged_but_never_held() {
         let mut a = AnnounceAdmission::new(AnnounceIngressPolicy::default());
-        assert!((0..5).all(|t| !held(a.observe_interface(1, true, t, None))));
-        assert!(held(a.observe_interface(1, false, 5, None)));
+        assert!((0..5).all(|t| !held(a.observe_interface(1, true, t, None).0)));
+        assert!(held(a.observe_interface(1, false, 5, None).0));
     }
 
     #[test]
@@ -409,7 +425,7 @@ mod tests {
             enabled: false,
             ..Default::default()
         });
-        assert!((0..10).all(|t| !held(a.observe_interface(1, false, t, off))));
+        assert!((0..10).all(|t| !held(a.observe_interface(1, false, t, off).0)));
         assert_eq!(a.counters(1).observed, 10);
         assert_eq!(a.release_due(1, 10, off), Some(10));
     }
@@ -434,7 +450,7 @@ mod tests {
             ..Default::default()
         });
         assert!(matches!(
-            a.observe_interface(1, false, 0, None),
+            a.observe_interface(1, false, 0, None).0,
             InterfaceVerdict::Hold { .. }
         ));
         assert_eq!(
@@ -443,7 +459,7 @@ mod tests {
         );
         assert!(a.interfaces.is_empty() && a.destinations.is_empty());
         assert_eq!(
-            a.observe_interface(1, true, 0, None),
+            a.observe_interface(1, true, 0, None).0,
             InterfaceVerdict::Process
         );
     }
@@ -457,17 +473,23 @@ mod tests {
         };
         let mut a = AnnounceAdmission::new(p);
         for i in 1..4 {
-            a.observe_interface(i, false, u64::from(i), None);
+            let (_, evicted) = a.observe_interface(i, false, u64::from(i), None);
+            assert_eq!(evicted, (i > 1).then_some(i - 1));
             a.observe_destination(key(i as u8), AnnounceRate::default(), u64::from(i));
         }
         assert_eq!(a.interfaces.len(), 1);
         assert_eq!(a.destinations.len(), 1);
         assert!(a.interfaces.contains_key(&3));
         assert!(a.destinations.contains_key(&key(3)));
-        a.set_policy(p);
+        assert!(a.set_policy(p).is_empty());
         assert_eq!(a.interfaces.len(), 1);
         assert!(a.destinations.is_empty());
         assert_eq!(a.interfaces[&3].arrival, a.interfaces[&3].last_used);
+        let none = AnnounceIngressPolicy {
+            interface_capacity: 0,
+            ..p
+        };
+        assert_eq!(a.set_policy(none), [3]);
     }
 
     #[test]
@@ -475,7 +497,7 @@ mod tests {
         let mut a = AnnounceAdmission::new(AnnounceIngressPolicy::default());
         for t in (0..10_000).step_by(1_000) {
             assert_eq!(
-                a.observe_interface(1, false, t, None),
+                a.observe_interface(1, false, t, None).0,
                 InterfaceVerdict::Process
             );
         }

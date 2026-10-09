@@ -152,7 +152,7 @@ impl Endpoint {
                 AnnounceAdmission::new(AnnounceIngressPolicy::default()),
             ),
             announce_admission_started: tokio::time::Instant::now(),
-            held_announces: Mutex::new(VecDeque::new()),
+            held_announces: Mutex::default(),
             held_release_tasks: Mutex::new(HashSet::new()),
             held_release_wake: tokio::sync::Notify::new(),
             path_request_budget: Mutex::new(HashMap::new()),
