@@ -97,7 +97,10 @@ impl PropagationMessage {
     }
 
     /// Read an `lxm://` URI, scheme in any case. Like stock, every `/` after the scheme is
-    /// dropped and missing padding is restored.
+    /// dropped and missing padding is restored; ASCII whitespace, such as a scanner's
+    /// trailing newline or a line wrap, is dropped too, as stock's lenient base64 decoder
+    /// drops it (`LXMRouter.py` 2611-2627). Other characters outside the alphabet, which
+    /// stock would also drop, are refused.
     pub fn from_uri(uri: &str, max_message_bytes: usize) -> Result<Self, PropagationError> {
         let prefix = URI_SCHEMA.len() + "://".len();
         let body = uri
@@ -108,7 +111,7 @@ impl PropagationMessage {
         let sextets = body
             .trim_end_matches('=')
             .bytes()
-            .filter(|b| *b != b'/')
+            .filter(|b| *b != b'/' && !b.is_ascii_whitespace())
             .map(sextet)
             .collect::<Option<Vec<u8>>>()
             .ok_or(PropagationError::InvalidUri)?;
@@ -178,6 +181,7 @@ mod tests {
             format!("LXM://{body}"),
             format!("Lxm://{head}/{tail}/"),
             format!("lxm://{body}=="),
+            format!("lxm://{head}\r\n{tail} \n"),
         ] {
             assert_eq!(
                 PropagationMessage::from_uri(&variant, 4096).unwrap(),

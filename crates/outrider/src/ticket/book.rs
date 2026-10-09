@@ -86,6 +86,10 @@ impl TicketBook {
     /// Learn the ticket a received message carries, if it is unexpired and the message's
     /// signature verifies against `source`. The check is made here, so a message delivered
     /// unverified can never plant a ticket.
+    ///
+    /// Stock learns before it checks the stamp (`LXMRouter.py` 1917-1933), so a message
+    /// dropped for a bad stamp still plants its ticket. Here the lanes refuse such a message
+    /// before the host holds it, so its ticket is never learned.
     pub fn learn(&mut self, message: &DecodedLxmf, source: &Identity, now: f64) -> Option<Ticket> {
         let ticket = ticket_field(&message.payload.fields).filter(|t| t.is_valid_at(now))?;
         let address = delivery_destination(source);
