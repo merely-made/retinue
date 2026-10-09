@@ -27,7 +27,7 @@ pub struct TcpClient {
     pub host: String,
     /// Port to dial.
     pub port: u16,
-    /// Access code, if the hub uses one.
+    /// Access code, if the hub uses one; [`Ifac::for_stream`] matches a stock default.
     pub ifac: Option<Ifac>,
     /// Use RNS's slower keepalive profile for a tunnel through I2P.
     pub i2p_tunneled: bool,
@@ -90,7 +90,8 @@ impl Endpoint {
         self.attach_tcp_client_access(addr, None).await
     }
 
-    /// Dial an IFAC-authenticated TCP peer and attach it.
+    /// Dial an IFAC-authenticated TCP peer and attach it. A stock peer without `ifac_size`
+    /// expects [`Ifac::for_stream`]'s 16-byte codes.
     pub async fn attach_tcp_client_with_ifac(
         &self,
         addr: SocketAddr,

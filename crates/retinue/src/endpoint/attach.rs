@@ -201,8 +201,9 @@ impl Endpoint {
 
     /// Attach an IFAC-authenticated raw packet interface.
     ///
-    /// `max_frame_len` includes the access code, so an eight-byte IFAC leaves
-    /// eight fewer bytes for the logical packet on a fixed-size radio frame.
+    /// `max_frame_len` includes the access code, so an IFAC of `n` bytes leaves `n` fewer
+    /// bytes for the logical packet on a fixed-size radio frame. Stock serial and radio
+    /// peers default to [`Ifac::for_serial`]; TCP and Local peers to [`Ifac::for_stream`].
     pub fn attach_interface_with_ifac(
         &self,
         max_frame_len: usize,

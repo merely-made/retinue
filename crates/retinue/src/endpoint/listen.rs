@@ -70,7 +70,8 @@ impl Endpoint {
         Ok(listener.local_addr())
     }
 
-    /// Listen for IFAC-authenticated TCP connections.
+    /// Listen for IFAC-authenticated TCP connections. Stock TCP and Local peers without
+    /// `ifac_size` use [`Ifac::for_stream`]'s 16-byte codes.
     pub async fn listen_tcp_with_ifac(
         &self,
         addr: SocketAddr,
@@ -129,7 +130,7 @@ impl Endpoint {
         spawn(&self.shared, stream, &ListenPolicy::default()).0
     }
 
-    /// Attach an IFAC-authenticated connected TCP stream.
+    /// Attach an IFAC-authenticated connected TCP stream; see [`Ifac::for_stream`].
     pub fn attach_stream_with_ifac(&self, stream: TcpStream, ifac: Ifac) -> InterfaceId {
         let policy = ListenPolicy {
             ifac: Some(ifac),
