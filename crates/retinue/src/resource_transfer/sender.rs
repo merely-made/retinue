@@ -81,23 +81,7 @@ impl ResourceSender {
         request_id: Option<[u8; 16]>,
         has_metadata: bool,
     ) -> Self {
-        #[cfg(feature = "compression")]
-        let (transfer, compressed) = {
-            let encoded = compress(data);
-            if encoded.len() < data.len() {
-                (content(&encoded, &random_hash), true)
-            } else {
-                (content(data, &random_hash), false)
-            }
-        };
-        #[cfg(not(feature = "compression"))]
-        let (transfer, compressed) = (content(data, &random_hash), false);
-        let token = link.seal(&transfer, iv);
-        drop(transfer);
-        let part_size = (link.mtu() as usize)
-            .saturating_sub(crate::packet::HEADER_MIN_LEN)
-            .clamp(1, SDU);
-        let mut out = Outgoing::from_token(data, token, random_hash, compressed, part_size);
+        let mut out = outgoing(&link, data, random_hash, iv, true);
         if let Some(request_id) = request_id {
             out = out.with_request_id(request_id);
         }
@@ -285,4 +269,33 @@ impl ResourceSender {
     pub fn resource_hash(&self) -> [u8; 32] {
         self.out.resource_hash()
     }
+}
+
+/// Seal `data` into an [`Outgoing`] whose parts fit `link`'s MTU, bz2-compressing it first
+/// when `compress` is set and that shrinks it.
+pub(super) fn outgoing(
+    link: &Link,
+    data: &[u8],
+    random_hash: [u8; RANDOM_HASH_LEN],
+    iv: &[u8; IV_LEN],
+    try_compress: bool,
+) -> Outgoing {
+    #[cfg(feature = "compression")]
+    let encoded = try_compress
+        .then(|| compress(data))
+        .filter(|encoded| encoded.len() < data.len());
+    #[cfg(not(feature = "compression"))]
+    let encoded: Option<Vec<u8>> = {
+        let _ = try_compress;
+        None
+    };
+    let compressed = encoded.is_some();
+    let transfer = content(encoded.as_deref().unwrap_or(data), &random_hash);
+    drop(encoded);
+    let token = link.seal(&transfer, iv);
+    drop(transfer);
+    let part_size = (link.mtu() as usize)
+        .saturating_sub(crate::packet::HEADER_MIN_LEN)
+        .clamp(1, SDU);
+    Outgoing::from_token(data, token, random_hash, compressed, part_size)
 }

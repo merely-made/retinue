@@ -43,6 +43,9 @@ pub struct ResourceReceiver {
     failure: Option<Error>,
     outstanding: usize,
     response_request_id: Option<[u8; 16]>,
+    /// Whether one segment of a split resource is accepted; see
+    /// [`SegmentedReceiver`](super::SegmentedReceiver).
+    segmented: bool,
 }
 
 impl ResourceReceiver {
@@ -77,6 +80,7 @@ impl ResourceReceiver {
             failure: None,
             outstanding: 0,
             response_request_id: None,
+            segmented: false,
         }
     }
 
@@ -109,13 +113,20 @@ impl ResourceReceiver {
         self
     }
 
+    /// Accept one segment of a split resource as a whole transfer: the caller accumulates
+    /// the segments.
+    pub(super) fn allow_segments(mut self) -> Self {
+        self.segmented = true;
+        self
+    }
+
     /// The part ceiling this receiver enforces.
     pub fn max_parts(&self) -> usize {
         self.max_parts
     }
 
     /// Why this receiver failed, if it has: [`Error::MultiSegmentResource`] for an offer
-    /// it cannot reassemble whole, [`Error::CapacityExceeded`] for one past its part or
+    /// it cannot reassemble whole (see [`SegmentedReceiver`](super::SegmentedReceiver)), [`Error::CapacityExceeded`] for one past its part or
     /// size ceiling, [`Error::ResourceRejected`] for one its accept hook refused,
     /// [`Error::DecompressionLimit`] for a body that inflated past its limit, and
     /// [`Error::ResourceCorrupt`] for one that failed to open or verify. The sender has
@@ -246,9 +257,9 @@ impl ResourceReceiver {
     /// receiver cancel.
     fn admit(&self, adv: &Advertisement) -> Result<Incoming, Error> {
         // A resource past RNS's segment size arrives as `l` advertisements, one per
-        // segment. This receiver reassembles a single segment, so accepting the first
-        // would hand back its data as if it were the whole resource.
-        if adv.l > 1 {
+        // segment. Alone, this receiver would hand back the first segment's data as if it
+        // were the whole resource.
+        if adv.l > 1 && !self.segmented {
             return Err(Error::MultiSegmentResource);
         }
         #[cfg(not(feature = "compression"))]

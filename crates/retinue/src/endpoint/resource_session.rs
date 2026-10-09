@@ -16,7 +16,9 @@ use crate::link::{Inbound, Link};
 use crate::link_liveness::Liveness;
 use crate::packet::Packet;
 use crate::resource::{Advertisement, RANDOM_HASH_LEN};
-use crate::resource_transfer::{ResourceReceiver, ResourceSender};
+use crate::resource_transfer::{
+    DEFAULT_MAX_RESOURCE_SIZE, ResourceKind, ResourceReceiver, SegmentedReceiver, SegmentedSender,
+};
 
 use super::entropy::{fill_random, next_iv};
 use super::facts::{LinkDirection, LinkRemoteFact};
@@ -80,6 +82,8 @@ pub struct ResourceSession {
     pub(super) identified_peer: Option<Identity>,
     accept: Option<Arc<ResourceAccept>>,
     metadata: Option<Vec<u8>>,
+    pub(super) max_resource_size: usize,
+    pub(super) max_request_size: Option<usize>,
 }
 
 /// A resource accept policy shared by every receive on a session; see
@@ -134,22 +138,60 @@ impl ResourceSession {
         self.accept = Some(Arc::new(accept));
     }
 
+    /// Refuse a received Resource larger than `max_size` bytes in all, metadata included.
+    /// A Resource past one segment ([`MAX_SEGMENT_SIZE`]) is held whole until it
+    /// completes, so this caps the memory one receive may take. The default is
+    /// [`DEFAULT_MAX_RESOURCE_SIZE`].
+    ///
+    /// [`MAX_SEGMENT_SIZE`]: crate::resource::MAX_SEGMENT_SIZE
+    pub fn set_max_resource_size(&mut self, max_size: usize) {
+        self.max_resource_size = max_size;
+    }
+
+    /// Reject a request sent as a Resource whose size exceeds `max_size`, as RNS's
+    /// `Destination.max_request_size` does (`Link.py` 1036-1043). The default, `None`,
+    /// leaves only [`set_max_resource_size`](Self::set_max_resource_size)'s cap.
+    pub fn set_max_request_size(&mut self, max_size: Option<usize>) {
+        self.max_request_size = max_size;
+    }
+
     /// The packed (msgpack) metadata attached to the last Resource received on this
     /// session, taken. `None` if it carried none.
     pub fn take_metadata(&mut self) -> Option<Vec<u8>> {
         self.metadata.take()
     }
 
-    /// A receiver for one inbound Resource under this session's policy.
-    fn receiver(&self) -> ResourceReceiver {
-        let receiver =
-            ResourceReceiver::with_request_window(self.link.clone(), self.config.request_window);
-        match &self.accept {
-            Some(accept) => {
-                let accept = Arc::clone(accept);
-                receiver.with_accept(move |advertisement| accept(advertisement))
-            }
-            None => receiver,
+    /// Receivers for inbound Resources under this session's policy: its window and size
+    /// cap, `max_data_size` for each segment's advertised total, and, for application
+    /// Resources but not requests or responses (`Link.py` 1035-1076), its accept hook.
+    pub(super) fn receivers(
+        &self,
+        max_data_size: Option<usize>,
+        with_accept: bool,
+    ) -> impl Fn() -> SegmentedReceiver + Send + Sync + 'static {
+        let link = self.link.clone();
+        let window = self.config.request_window;
+        let accept = self.accept.clone().filter(|_| with_accept);
+        let max_size = max_data_size.map_or(self.max_resource_size, |max| {
+            max.min(self.max_resource_size)
+        });
+        move || {
+            let link = link.clone();
+            let accept = accept.clone();
+            SegmentedReceiver::new(link.clone(), move || {
+                let mut receiver = ResourceReceiver::with_request_window(link.clone(), window);
+                if let Some(max) = max_data_size {
+                    receiver = receiver.with_max_data_size(max);
+                }
+                match &accept {
+                    Some(accept) => {
+                        let accept = Arc::clone(accept);
+                        receiver.with_accept(move |advertisement| accept(advertisement))
+                    }
+                    None => receiver,
+                }
+            })
+            .with_max_size(max_size)
         }
     }
 
@@ -158,10 +200,11 @@ impl ResourceSession {
     pub async fn publish_with_metadata(&mut self, data: &[u8], metadata: &[u8]) -> io::Result<()> {
         let mut random_hash = [0_u8; RANDOM_HASH_LEN];
         fill_random(&mut random_hash);
-        let sender = ResourceSender::publish_with_metadata(
+        let sender = SegmentedSender::new(
             self.link.clone(),
             data,
-            metadata,
+            Some(metadata),
+            ResourceKind::Data,
             random_hash,
             &next_iv(),
         )
@@ -169,15 +212,32 @@ impl ResourceSession {
         self.publish_sender(sender).await
     }
 
-    /// Publish one payload and wait until the receiver proves complete receipt.
+    /// Publish one payload and wait until the receiver proves complete receipt. A payload
+    /// past one segment ([`MAX_SEGMENT_SIZE`]) goes as RNS segments, each proved before
+    /// the next is advertised; `timeout` covers the whole transfer.
+    ///
+    /// [`MAX_SEGMENT_SIZE`]: crate::resource::MAX_SEGMENT_SIZE
     pub async fn publish(&mut self, data: &[u8]) -> io::Result<()> {
-        let mut random_hash = [0_u8; RANDOM_HASH_LEN];
-        fill_random(&mut random_hash);
-        let sender = ResourceSender::publish(self.link.clone(), data, random_hash, &next_iv());
+        let sender = self.sender(data, ResourceKind::Data)?;
         self.publish_sender(sender).await
     }
 
-    pub(super) async fn publish_sender(&mut self, mut sender: ResourceSender) -> io::Result<()> {
+    /// A sender for `data` of `kind` on this session's link.
+    pub(super) fn sender<'a>(
+        &self,
+        data: &'a [u8],
+        kind: ResourceKind,
+    ) -> io::Result<SegmentedSender<&'a [u8]>> {
+        let mut random_hash = [0_u8; RANDOM_HASH_LEN];
+        fill_random(&mut random_hash);
+        SegmentedSender::new(self.link.clone(), data, None, kind, random_hash, &next_iv())
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))
+    }
+
+    pub(super) async fn publish_sender<D: AsRef<[u8]>>(
+        &mut self,
+        mut sender: SegmentedSender<D>,
+    ) -> io::Result<()> {
         self.shared
             .send_on(self.iface, sender.advertisement(&next_iv()));
 
@@ -219,25 +279,7 @@ impl ResourceSession {
                     }
                     _ = interval.tick() => {
                         quiet += 1;
-                        if !publishing.has_started() {
-                            shared.send_on(iface, publishing.advertisement(&next_iv()));
-                        } else if quiet.is_multiple_of(PROOF_WAIT_RETRIES)
-                            && publishing.awaiting_proof()
-                        {
-                            // Every part went out and no proof came back: ask the
-                            // receiver's cache, as RNS does, until those requests run out.
-                            if let Some(request) = publishing.cache_request() {
-                                shared.send_on(iface, request);
-                            } else {
-                                if let Some(cancel) = publishing.cancel(&next_iv()) {
-                                    shared.send_on(iface, cancel);
-                                }
-                                return Err(io::Error::new(
-                                    io::ErrorKind::TimedOut,
-                                    "resource proof never arrived",
-                                ));
-                            }
-                        }
+                        publish_tick(&shared, iface, publishing, quiet)?;
                     }
                 }
             }
@@ -268,7 +310,7 @@ impl ResourceSession {
     ///
     /// Metadata the publisher attached is kept for [`take_metadata`](Self::take_metadata).
     pub async fn fetch(&mut self) -> io::Result<Vec<u8>> {
-        let mut receiver = self.receiver();
+        let mut receiver = self.receivers(None, true)();
         let shared = Arc::clone(&self.shared);
         let iface = self.iface;
         let link = self.link.clone();
@@ -276,6 +318,7 @@ impl ResourceSession {
         let retry = self.config.retry_interval;
         let receiving = &mut receiver;
         let transfer = async move {
+            let mut kept = 0;
             let mut interval = tokio::time::interval(retry);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             interval.tick().await;
@@ -294,8 +337,8 @@ impl ResourceSession {
                         for outbound in receiving.on_packet(&packet, next_iv) {
                             shared.send_on(iface, outbound);
                         }
+                        keep_resource_proofs(&shared, iface, link.id(), receiving, &mut kept);
                         if receiving.is_complete() {
-                            keep_resource_proof(&shared, iface, link.id(), receiving);
                             return Ok(());
                         }
                         resource_receive_ended(receiving)?;
@@ -316,7 +359,7 @@ impl ResourceSession {
     /// Settle a receive that ended: on a timeout, tell the sender to stop.
     pub(super) fn settle_receive<T>(
         &self,
-        receiver: &mut ResourceReceiver,
+        receiver: &mut SegmentedReceiver,
         outcome: Result<io::Result<T>, tokio::time::error::Elapsed>,
         timed_out: &'static str,
     ) -> io::Result<T> {
@@ -330,7 +373,7 @@ impl ResourceSession {
 
     /// Take a completed receiver's payload, keeping its metadata for
     /// [`take_metadata`](Self::take_metadata).
-    fn take_received(&mut self, receiver: &mut ResourceReceiver) -> Vec<u8> {
+    fn take_received(&mut self, receiver: &mut SegmentedReceiver) -> Vec<u8> {
         let (data, metadata) = receiver
             .take_payload()
             .expect("a completed receiver holds its payload");
@@ -346,7 +389,7 @@ impl ResourceSession {
     ///
     /// [`Endpoint::register_resource`]: super::Endpoint::register_resource
     pub async fn receive(&mut self) -> io::Result<ReceivedPayload> {
-        let mut receiver = self.receiver();
+        let mut receiver = self.receivers(None, true)();
         let shared = Arc::clone(&self.shared);
         let link = self.link.clone();
         let iface = self.iface;
@@ -355,6 +398,7 @@ impl ResourceSession {
         let mut identified = self.identified_peer;
         let receiving = &mut receiver;
         let transfer = async move {
+            let mut kept = 0;
             let mut interval = tokio::time::interval(retry);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             interval.tick().await;
@@ -385,8 +429,8 @@ impl ResourceSession {
                         for outbound in receiving.on_packet(&packet, next_iv) {
                             shared.send_on(iface, outbound);
                         }
+                        keep_resource_proofs(&shared, iface, link.id(), receiving, &mut kept);
                         if receiving.is_complete() {
-                            keep_resource_proof(&shared, iface, link.id(), receiving);
                             return Ok((identified, None));
                         }
                         resource_receive_ended(receiving)?;
@@ -436,7 +480,7 @@ fn resource_receive_failure(error: crate::Error) -> io::Error {
 
 /// The error ending a receive whose transfer failed or was canceled by the sender, if it
 /// has.
-pub(super) fn resource_receive_ended(receiver: &ResourceReceiver) -> io::Result<()> {
+pub(super) fn resource_receive_ended(receiver: &SegmentedReceiver) -> io::Result<()> {
     if let Some(error) = receiver.failure() {
         Err(resource_receive_failure(error))
     } else if receiver.is_canceled() {
@@ -449,21 +493,56 @@ pub(super) fn resource_receive_ended(receiver: &ResourceReceiver) -> io::Result<
     }
 }
 
-/// Settle a completed receiver's proof: queue the copies after the one sent with
-/// completion (see [`RESOURCE_PROOF_MAX_SENDS`]), and keep it for its link so the router
-/// can answer the sender's cache request, or its re-advertisement, if every copy was lost.
-pub(super) fn keep_resource_proof(
+/// Keep each segment proof the receiver sent since `kept` segments, for its link, so the
+/// router can answer the sender's cache request, or its re-advertisement, if it was lost.
+/// The final proof also gets the copies after the one sent with completion (see
+/// [`RESOURCE_PROOF_MAX_SENDS`]).
+pub(super) fn keep_resource_proofs(
     shared: &Shared,
     iface: InterfaceId,
     link: AddressHash,
-    receiver: &ResourceReceiver,
+    receiver: &SegmentedReceiver,
+    kept: &mut usize,
 ) {
-    if let Some(proof) = receiver.proof_packet() {
-        for _ in 1..RESOURCE_PROOF_MAX_SENDS {
-            shared.send_on(iface, proof.clone());
-        }
-        shared.keep_resource_proof(link, proof);
+    if receiver.segments_proved() == *kept {
+        return;
     }
+    *kept = receiver.segments_proved();
+    if let Some(proof) = receiver.last_proof() {
+        if receiver.is_complete() {
+            for _ in 1..RESOURCE_PROOF_MAX_SENDS {
+                shared.send_on(iface, proof.clone());
+            }
+        }
+        shared.keep_resource_proof(link, proof.clone());
+    }
+}
+
+/// One quiet retry interval of a publish: re-advertise until the receiver starts, then,
+/// with every part sent and no proof back, ask the receiver's cache, as RNS does, until
+/// those requests run out.
+pub(super) fn publish_tick<D: AsRef<[u8]>>(
+    shared: &Shared,
+    iface: InterfaceId,
+    sender: &mut SegmentedSender<D>,
+    quiet: u32,
+) -> io::Result<()> {
+    if !sender.has_started() {
+        shared.send_on(iface, sender.advertisement(&next_iv()));
+    } else if quiet.is_multiple_of(PROOF_WAIT_RETRIES) && sender.awaiting_proof() {
+        if let Some(request) = sender.cache_request() {
+            shared.send_on(iface, request);
+        } else {
+            if let Some(cancel) = sender.cancel(&next_iv()) {
+                shared.send_on(iface, cancel);
+            }
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "resource proof never arrived",
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Register a link for endpoint-driven resource packets.
@@ -504,5 +583,7 @@ pub(super) fn register_resource_session(
         identified_peer: None,
         accept: None,
         metadata: None,
+        max_resource_size: DEFAULT_MAX_RESOURCE_SIZE,
+        max_request_size: None,
     })
 }

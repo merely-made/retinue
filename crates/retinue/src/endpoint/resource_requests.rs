@@ -9,12 +9,12 @@ use crate::hash::AddressHash;
 use crate::identity::Identity;
 use crate::link::Inbound;
 use crate::request::{Request, Response};
-use crate::resource::RANDOM_HASH_LEN;
-use crate::resource_transfer::{ResourceReceiver, ResourceSender};
+use crate::resource::FLAG_REQUEST;
+use crate::resource_transfer::ResourceKind;
 
-use super::entropy::{fill_random, next_iv};
+use super::entropy::next_iv;
 use super::resource_session::{
-    PayloadMode, ResourceSession, keep_resource_proof, resource_receive_ended,
+    PayloadMode, ResourceSession, keep_resource_proofs, publish_tick, resource_receive_ended,
 };
 use super::stream::write_chunk_for_mtu;
 
@@ -29,13 +29,14 @@ pub struct ReceivedRequest {
     pub peer: Option<Identity>,
 }
 
-/// One decrypted request packet before an application interprets its
+/// One decrypted request before an application interprets its
 /// MessagePack value.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReceivedRawRequest {
     /// Complete decrypted request structure.
     pub packed: Vec<u8>,
-    /// Hash of the encrypted request packet, echoed by the response.
+    /// Hash of the encrypted request packet, or of `packed` for a request that arrived as
+    /// a Resource, echoed by the response (`Link.py` 885-895).
     pub request_id: AddressHash,
     /// Identity proven by a preceding link IDENTIFY, when present.
     pub peer: Option<Identity>,
@@ -60,15 +61,7 @@ impl ResourceSession {
         request_id: AddressHash,
         packed_value: &[u8],
     ) -> io::Result<()> {
-        let mut random_hash = [0_u8; RANDOM_HASH_LEN];
-        fill_random(&mut random_hash);
-        let sender = ResourceSender::respond(
-            self.link.clone(),
-            packed_value,
-            *request_id.as_bytes(),
-            random_hash,
-            &next_iv(),
-        );
+        let sender = self.sender(packed_value, ResourceKind::Response(*request_id.as_bytes()))?;
         self.publish_sender(sender).await
     }
 
@@ -98,40 +91,79 @@ impl ResourceSession {
     /// RNS permits the request's third item to be an application value rather
     /// than a binary blob. Consumers with their own grammar use this method;
     /// byte-oriented requests can use [`receive_request`](Self::receive_request).
+    ///
+    /// A request too large for one packet arrives as a Resource, bounded by
+    /// [`set_max_request_size`](Self::set_max_request_size); one past it is rejected and the
+    /// wait goes on, as in RNS (`Link.py` 1036-1043).
     pub async fn receive_raw_request(&mut self) -> io::Result<ReceivedRawRequest> {
+        let make = self.receivers(self.max_request_size, false);
+        let new_receiver = move || make().with_filter(|adv| adv.flags & FLAG_REQUEST != 0);
+        let mut receiver = new_receiver();
         let link = self.link.clone();
+        let shared = Arc::clone(&self.shared);
+        let iface = self.iface;
+        let retry = self.config.retry_interval;
         let packets = &mut self.packets;
         let mut peer = self.identified_peer;
+        let receiving = &mut receiver;
         let receive = async move {
+            let mut kept = 0;
+            let mut interval = tokio::time::interval(retry);
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            interval.tick().await;
             loop {
-                let packet = packets.recv().await.ok_or_else(|| {
-                    io::Error::new(io::ErrorKind::BrokenPipe, "request link closed")
-                })?;
-                if let Some(identity) = link.read_identify(&packet) {
-                    peer = Some(identity);
-                    continue;
-                }
-                match link.receive(&packet) {
-                    Some(Inbound::Request(bytes)) => {
-                        return Ok(ReceivedRawRequest {
-                            packed: bytes,
-                            request_id: packet.hash(),
-                            peer,
-                        });
+                tokio::select! {
+                    maybe = packets.recv() => {
+                        let packet = maybe.ok_or_else(|| {
+                            io::Error::new(io::ErrorKind::BrokenPipe, "request link closed")
+                        })?;
+                        if let Some(identity) = link.read_identify(&packet) {
+                            peer = Some(identity);
+                            continue;
+                        }
+                        match link.receive(&packet) {
+                            Some(Inbound::Request(bytes)) => {
+                                return Ok(ReceivedRawRequest {
+                                    packed: bytes,
+                                    request_id: packet.hash(),
+                                    peer,
+                                });
+                            }
+                            Some(Inbound::Close) => {
+                                return Err(io::Error::new(
+                                    io::ErrorKind::BrokenPipe,
+                                    "request link closed",
+                                ));
+                            }
+                            _ => {}
+                        }
+                        for outbound in receiving.on_packet(&packet, next_iv) {
+                            shared.send_on(iface, outbound);
+                        }
+                        keep_resource_proofs(&shared, iface, link.id(), receiving, &mut kept);
+                        if let Some((packed, _)) = receiving.take_payload() {
+                            // Named by its packed form's hash (`Link.py` 885-889).
+                            return Ok(ReceivedRawRequest {
+                                request_id: AddressHash::of(&packed),
+                                packed,
+                                peer,
+                            });
+                        }
+                        if resource_receive_ended(receiving).is_err() {
+                            *receiving = new_receiver();
+                            kept = 0;
+                        }
                     }
-                    Some(Inbound::Close) => {
-                        return Err(io::Error::new(
-                            io::ErrorKind::BrokenPipe,
-                            "request link closed",
-                        ));
+                    _ = interval.tick() => {
+                        for outbound in receiving.retransmit(next_iv) {
+                            shared.send_on(iface, outbound);
+                        }
                     }
-                    _ => {}
                 }
             }
         };
-        let received = tokio::time::timeout(self.config.timeout, receive)
-            .await
-            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "request receive timed out"))??;
+        let outcome = tokio::time::timeout(self.config.timeout, receive).await;
+        let received = self.settle_receive(&mut receiver, outcome, "request receive timed out")?;
         self.identified_peer = received.peer;
         if let Some(identity) = received.peer {
             self.retain_identified_peer(identity);
@@ -210,39 +242,41 @@ impl ResourceSession {
     /// `max_response_size` bytes, as RNS's `Link.request(max_response_size=...)` does: a
     /// response Resource advertising more is rejected on the wire before any part is
     /// requested, and the call fails with [`io::ErrorKind::InvalidData`].
+    ///
+    /// A request too large for one packet goes as a Resource named by its packed form's
+    /// hash (`Link.py` 492-510).
     pub async fn request_raw_with_limit(
         &mut self,
         packed_request: &[u8],
         max_response_size: Option<usize>,
     ) -> io::Result<ReceivedRawResponse> {
-        // Outgoing request Resources are not implemented.
-        if packed_request.len() > write_chunk_for_mtu(self.link.mtu()) {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "request exceeds link packet capacity",
-            ));
-        }
-        let packet = self.link.request_packet(packed_request, &next_iv());
-        let request_id = packet.hash();
-        self.shared.send_on(self.iface, packet);
+        let (request_id, mut sending) =
+            if packed_request.len() <= write_chunk_for_mtu(self.link.mtu()) {
+                let packet = self.link.request_packet(packed_request, &next_iv());
+                let request_id = packet.hash();
+                self.shared.send_on(self.iface, packet);
+                (request_id, None)
+            } else {
+                let request_id = AddressHash::of(packed_request);
+                let kind = ResourceKind::Request(*request_id.as_bytes());
+                let sender = self.sender(packed_request, kind)?;
+                self.shared
+                    .send_on(self.iface, sender.advertisement(&next_iv()));
+                (request_id, Some(sender))
+            };
 
-        let link = self.link.clone();
         let shared = Arc::clone(&self.shared);
         let iface = self.iface;
+        let response_receiver = self.receivers(max_response_size, false);
         let packets = &mut self.packets;
         let retry = self.config.retry_interval;
-        let request_window = self.config.request_window;
-        let response_receiver = move || {
-            let receiver = ResourceReceiver::with_request_window(link.clone(), request_window);
-            match max_response_size {
-                Some(max) => receiver.with_max_data_size(max),
-                None => receiver,
-            }
-        };
         let mut receiver = response_receiver();
         let link = self.link.clone();
         let receiving = &mut receiver;
+        let request_sender = &mut sending;
         let receive = async move {
+            let mut kept = 0;
+            let mut quiet = 0_u32;
             let mut interval = tokio::time::interval(retry);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             interval.tick().await;
@@ -252,6 +286,18 @@ impl ResourceSession {
                         let packet = maybe.ok_or_else(|| {
                             io::Error::new(io::ErrorKind::BrokenPipe, "request link closed")
                         })?;
+                        quiet = 0;
+                        if let Some(sender) = request_sender.as_mut() {
+                            for outbound in sender.on_packet(&packet, next_iv) {
+                                shared.send_on(iface, outbound);
+                            }
+                            if sender.is_canceled() {
+                                return Err(io::Error::new(
+                                    io::ErrorKind::ConnectionAborted,
+                                    "request Resource refused by the responder",
+                                ));
+                            }
+                        }
                         match link.receive(&packet) {
                             Some(Inbound::Response(bytes)) => {
                                 let response_id = Response::request_id(&bytes).map_err(|_| {
@@ -286,12 +332,12 @@ impl ResourceSession {
                         for outbound in receiving.on_packet(&packet, next_iv) {
                             shared.send_on(iface, outbound);
                         }
-                        if receiving.is_complete() {
-                            keep_resource_proof(&shared, iface, link.id(), receiving);
-                            let advertised_id = receiving.response_request_id().map(AddressHash::from_bytes);
-                            let (packed, metadata) = receiving
-                                .take_payload()
-                                .expect("a completed receiver holds its payload");
+                        keep_resource_proofs(&shared, iface, link.id(), receiving, &mut kept);
+                        if let Some((packed, metadata)) = receiving.take_payload() {
+                            let advertised_id = match receiving.kind() {
+                                Some(ResourceKind::Response(id)) => Some(AddressHash::from_bytes(id)),
+                                _ => None,
+                            };
                             // A file response (one with metadata) carries the file's bytes,
                             // and only its advertisement names the request.
                             let response_id = match (&metadata, advertised_id) {
@@ -317,11 +363,16 @@ impl ResourceSession {
                                 });
                             }
                             *receiving = response_receiver();
+                            kept = 0;
                         } else {
                             resource_receive_ended(receiving)?;
                         }
                     }
                     _ = interval.tick() => {
+                        quiet += 1;
+                        if let Some(sender) = request_sender.as_mut().filter(|s| !s.is_done()) {
+                            publish_tick(&shared, iface, sender, quiet)?;
+                        }
                         for outbound in receiving.retransmit(next_iv) {
                             shared.send_on(iface, outbound);
                         }
@@ -330,6 +381,13 @@ impl ResourceSession {
             }
         };
         let outcome = tokio::time::timeout(self.config.timeout, receive).await;
+        if outcome.is_err()
+            && let Some(cancel) = sending
+                .as_mut()
+                .and_then(|sender| sender.cancel(&next_iv()))
+        {
+            self.shared.send_on(self.iface, cancel);
+        }
         self.settle_receive(&mut receiver, outcome, "response receive timed out")
     }
 }

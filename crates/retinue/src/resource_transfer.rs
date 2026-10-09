@@ -27,6 +27,10 @@
 //! (`Resource.cancel`, `Resource.reject`). A cancel is honoured only if it decrypts on the
 //! link and names the resource in progress.
 //!
+//! A resource past [`MAX_SEGMENT_SIZE`](crate::resource::MAX_SEGMENT_SIZE) travels as
+//! segments, each one transfer of its own; [`SegmentedSender`] and [`SegmentedReceiver`]
+//! sequence them over the per-segment halves.
+//!
 //! Both halves are sans-io: [`ResourceSender::on_packet`] / [`ResourceReceiver::on_packet`]
 //! take a received packet and return packets to send, and the retransmit helpers re-emit on a
 //! stall.
@@ -37,12 +41,16 @@ use crate::resource::Advertisement;
 
 mod cancel;
 mod receiver;
+mod segmented_receiver;
+mod segmented_sender;
 mod sender;
 #[cfg(test)]
 mod tests;
 
 pub use cancel::reject;
 pub use receiver::ResourceReceiver;
+pub use segmented_receiver::{DEFAULT_MAX_RESOURCE_SIZE, SegmentedReceiver};
+pub use segmented_sender::{ResourceKind, SegmentedSender, segment_count};
 pub use sender::ResourceSender;
 
 /// How many times a sender that has sent every part asks for its missing proof with a

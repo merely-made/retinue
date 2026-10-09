@@ -10,6 +10,7 @@ use crate::token::IV_LEN;
 
 mod proof;
 mod refusal;
+mod segments;
 mod transfer;
 
 /// An established link between a sender side and a receiver side.

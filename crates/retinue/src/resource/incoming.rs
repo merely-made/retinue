@@ -88,7 +88,8 @@ impl Incoming {
             hash,
             random_hash: adv.random_hash.clone(),
             compressed: adv.flags & FLAG_COMPRESSED != 0,
-            has_metadata: adv.has_metadata(),
+            // Later segments carry the flag, but only the first carries the metadata.
+            has_metadata: adv.has_metadata() && adv.i <= 1,
             total_parts,
             hashmap,
             hashmap_height: advertised,
