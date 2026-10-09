@@ -3,9 +3,7 @@
 use super::{Action, Actions, InterfaceId, Node};
 use crate::address_book::Ingested;
 use crate::announce::Announce;
-use crate::announce_freshness::{
-    AnnounceFreshnessCandidate, AnnounceFreshnessDecision, AnnounceFreshnessReject,
-};
+use crate::announce_freshness::{AnnounceFreshnessDecision, AnnounceFreshnessReject};
 use crate::packet::{DestinationType, HeaderType, Packet, PacketType};
 use crate::path::PathRequest;
 
@@ -78,11 +76,33 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                 if packet.destination == self.destination() {
                     return actions;
                 }
-                // `Announce::decode` verifies the signature and that the destination hash
-                // matches the announced identity.
+                // Freshness first: its rejection needs no signature, as the verified announce
+                // would carry the same destination and blob. Freshness belongs to the route, so
+                // a destination without a live one is a first sighting, as after an RNS cull.
+                let Some(candidate) = crate::announce::unverified_candidate(packet) else {
+                    return actions;
+                };
+                let route_live = self.routes.iter().any(|route| {
+                    route.destination == candidate.destination
+                        && route.live(now, self.transport.route_ttl)
+                });
+                let accepted = match self.freshness.evaluate(candidate, route_live) {
+                    AnnounceFreshnessDecision::Accept(accepted) => accepted,
+                    AnnounceFreshnessDecision::Reject(AnnounceFreshnessReject::Replay) => {
+                        self.transport_counters.replayed_announces =
+                            self.transport_counters.replayed_announces.saturating_add(1);
+                        return actions;
+                    }
+                    AnnounceFreshnessDecision::Reject(AnnounceFreshnessReject::StaleTimebase) => {
+                        self.transport_counters.stale_announces =
+                            self.transport_counters.stale_announces.saturating_add(1);
+                        return actions;
+                    }
+                };
+                // `Announce::decode` checks the destination binding, then the signature.
                 if let Ok(announce) = Announce::decode(packet) {
                     // A known destination announced under another key is rejected outright,
-                    // before freshness, routes or relaying (RNS `Identity.validate_announce`).
+                    // before routes or relaying (RNS `Identity.validate_announce`).
                     if self.book.key_conflicts(&announce) {
                         self.transport_counters.key_mismatch_announces = self
                             .transport_counters
@@ -90,31 +110,6 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                             .saturating_add(1);
                         return actions;
                     }
-                    let candidate = AnnounceFreshnessCandidate {
-                        destination: announce.destination,
-                        blob: crate::announce::AnnounceBlob::from_wire(announce.rand_hash),
-                    };
-                    // Freshness belongs to the route. A destination without a live one is a
-                    // first sighting, as after an RNS path cull.
-                    let route_live = self.routes.iter().any(|route| {
-                        route.destination == announce.destination
-                            && route.live(now, self.transport.route_ttl)
-                    });
-                    let accepted = match self.freshness.evaluate(candidate, route_live) {
-                        AnnounceFreshnessDecision::Accept(accepted) => accepted,
-                        AnnounceFreshnessDecision::Reject(AnnounceFreshnessReject::Replay) => {
-                            self.transport_counters.replayed_announces =
-                                self.transport_counters.replayed_announces.saturating_add(1);
-                            return actions;
-                        }
-                        AnnounceFreshnessDecision::Reject(
-                            AnnounceFreshnessReject::StaleTimebase,
-                        ) => {
-                            self.transport_counters.stale_announces =
-                                self.transport_counters.stale_announces.saturating_add(1);
-                            return actions;
-                        }
-                    };
 
                     // The book makes room by evicting the least recently heard peer with no
                     // live route. Links and pending requests carry their own copy of the

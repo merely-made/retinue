@@ -122,6 +122,33 @@ impl Shared {
         true
     }
 
+    /// Whether freshness rejects `pkt` before it is verified, counting the rejection. The
+    /// verified announce would carry the same destination and blob, so it would be rejected
+    /// all the same; an acceptance is decided again, under the lock, once it verifies.
+    pub(super) fn announce_is_stale_unverified(&self, pkt: &Packet) -> bool {
+        let Some(candidate) = crate::announce::unverified_candidate(pkt) else {
+            return false;
+        };
+        let route_live = self.has_live_route(candidate.destination);
+        let decision = self
+            .announce_freshness
+            .lock()
+            .unwrap()
+            .table
+            .evaluate(candidate, route_live);
+        let counter = match decision {
+            AnnounceFreshnessDecision::Accept(_) => return false,
+            AnnounceFreshnessDecision::Reject(AnnounceFreshnessReject::Replay) => {
+                &self.routing_stats.freshness_replays_rejected
+            }
+            AnnounceFreshnessDecision::Reject(AnnounceFreshnessReject::StaleTimebase) => {
+                &self.routing_stats.freshness_stale_rejected
+            }
+        };
+        counter.fetch_add(1, Ordering::Relaxed);
+        true
+    }
+
     /// A fresh random delay in `0..=relay_jitter_ms`, or zero when jitter is off.
     fn relay_jitter(&self) -> Duration {
         let max = self.relay_jitter_ms.load(Ordering::Relaxed);

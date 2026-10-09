@@ -11,6 +11,10 @@ use super::shared::Shared;
 /// How many recent announce packet-hashes to remember for de-duplication.
 pub(super) const SEEN_ANNOUNCES: usize = 4096;
 
+/// How many verified announces to remember, so a copy from another neighbour or interface
+/// costs a hash rather than a signature check.
+pub(super) const VERIFIED_ANNOUNCES: usize = 64;
+
 /// Recent link packet hashes, both ways, across every link this endpoint holds.
 ///
 /// On a shared medium a relay hands our own link packet back under the shared key with the
@@ -142,9 +146,9 @@ impl Shared {
     /// Record a transit or single packet's hash; false for a copy already seen. Resource parts
     /// and keepalives legitimately repeat their hash and are always new, as RNS exempts them
     /// (`Transport.py` 1635-1640). Channel is filtered, unlike RNS: see N10.
-    pub(super) fn packet_is_new(&self, pkt: &Packet) -> bool {
-        if !crate::node::is_deduplicated_link_context(pkt.context)
-            || self.packet_filter.lock().unwrap().insert(pkt.hash())
+    pub(super) fn packet_is_new(&self, context: u8, hash: AddressHash) -> bool {
+        if !crate::node::is_deduplicated_link_context(context)
+            || self.packet_filter.lock().unwrap().insert(hash)
         {
             return true;
         }

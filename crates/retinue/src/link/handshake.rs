@@ -91,6 +91,8 @@ impl PendingLink {
         if proof.payload.len() < SIGNATURE_LEN + KEY_LEN {
             return Err(Error::Truncated);
         }
+        #[cfg(test)]
+        crate::probe::hit(crate::probe::Probe::LinkProve);
 
         let signature: [u8; SIGNATURE_LEN] = proof.payload[..SIGNATURE_LEN]
             .try_into()

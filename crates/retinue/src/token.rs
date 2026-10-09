@@ -33,12 +33,11 @@
 //! crate gets this right on one code path and wrong on another, so it could not be trusted
 //! here.
 
-use alloc::vec;
 use alloc::vec::Vec;
 
 use aes::Aes256;
 use aes::cipher::block_padding::Pkcs7;
-use aes::cipher::{BlockModeDecrypt, BlockModeEncrypt, KeyIvInit};
+use aes::cipher::{BlockModeDecrypt, BlockModeEncrypt, InnerIvInit};
 use hkdf::Hkdf;
 use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
@@ -66,11 +65,12 @@ pub const TOKEN_OVERHEAD: usize = IV_LEN + MAC_LEN;
 /// Total bytes the HKDF produces, split evenly into signing and encryption keys.
 pub const DERIVED_KEY_LEN: usize = 64;
 
-/// The two symmetric keys for a token.
+/// The two symmetric keys for a token, held pre-keyed: the AES key schedule and the HMAC
+/// pads are computed once, at derivation, not per packet.
 #[derive(Clone)]
 pub struct DerivedKeys {
-    sign: [u8; 32],
-    enc: [u8; 32],
+    mac: HmacSha256,
+    aes: Aes256,
 }
 
 impl DerivedKeys {
@@ -82,12 +82,13 @@ impl DerivedKeys {
         let mut okm = [0u8; DERIVED_KEY_LEN];
         hk.expand(&[], &mut okm)
             .expect("64 bytes is a valid HKDF-SHA256 output length");
-
-        let mut sign = [0u8; 32];
-        let mut enc = [0u8; 32];
-        sign.copy_from_slice(&okm[..32]);
-        enc.copy_from_slice(&okm[32..]);
-        Self { sign, enc }
+        let (sign, enc) = okm.split_at(32);
+        #[cfg(test)]
+        crate::probe::hit(crate::probe::Probe::TokenKeying);
+        Self {
+            mac: <HmacSha256 as KeyInit>::new_from_slice(sign).expect("HMAC accepts a 32-byte key"),
+            aes: Aes256::new_from_slice(enc).expect("AES-256 takes a 32-byte key"),
+        }
     }
 
     /// Encrypt, producing `IV || ciphertext || HMAC`.
@@ -95,19 +96,17 @@ impl DerivedKeys {
     /// `iv` is supplied by the caller so this stays free of any RNG and reproducible in
     /// tests. It must be fresh and unpredictable in production.
     pub fn encrypt(&self, plaintext: &[u8], iv: &[u8; IV_LEN]) -> Vec<u8> {
-        let cipher = Aes256CbcEnc::new(&self.enc.into(), iv.into());
-
-        let mut out = Vec::with_capacity(IV_LEN + plaintext.len() + 16 + MAC_LEN);
+        // PKCS7 always pads, up to a whole block.
+        let padded = (plaintext.len() / 16 + 1) * 16;
+        let mut out = Vec::with_capacity(IV_LEN + padded + MAC_LEN);
         out.extend_from_slice(iv);
-
-        let mut buf = vec![0u8; plaintext.len() + 16];
-        let ct = cipher
-            .encrypt_padded_b2b::<Pkcs7>(plaintext, &mut buf)
+        out.extend_from_slice(plaintext);
+        out.resize(IV_LEN + padded, 0);
+        Aes256CbcEnc::inner_iv_init(self.aes.clone(), iv.into())
+            .encrypt_padded::<Pkcs7>(&mut out[IV_LEN..], plaintext.len())
             .expect("buffer has a full block of headroom");
-        out.extend_from_slice(ct);
 
-        let mut mac = <HmacSha256 as KeyInit>::new_from_slice(&self.sign)
-            .expect("HMAC accepts a 32-byte key");
+        let mut mac = self.mac.clone();
         mac.update(&out);
         out.extend_from_slice(&mac.finalize().into_bytes());
         out
@@ -122,8 +121,7 @@ impl DerivedKeys {
         }
         let (body, tag) = token.split_at(token.len() - MAC_LEN);
 
-        let mut mac = <HmacSha256 as KeyInit>::new_from_slice(&self.sign)
-            .expect("HMAC accepts a 32-byte key");
+        let mut mac = self.mac.clone();
         mac.update(body);
         mac.verify_slice(tag).map_err(|_| Error::BadMac)?;
 
@@ -133,12 +131,13 @@ impl DerivedKeys {
             return Err(Error::BadPadding);
         }
 
-        let cipher = Aes256CbcDec::new(&self.enc.into(), (&iv).into());
-        let mut buf = vec![0u8; ciphertext.len()];
-        let pt = cipher
-            .decrypt_padded_b2b::<Pkcs7>(ciphertext, &mut buf)
-            .map_err(|_| Error::BadPadding)?;
-        Ok(pt.to_vec())
+        let mut plaintext = ciphertext.to_vec();
+        let len = Aes256CbcDec::inner_iv_init(self.aes.clone(), (&iv).into())
+            .decrypt_padded::<Pkcs7>(&mut plaintext)
+            .map_err(|_| Error::BadPadding)?
+            .len();
+        plaintext.truncate(len);
+        Ok(plaintext)
     }
 }
 
@@ -252,6 +251,51 @@ pub fn encrypt_to_ratchet(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::vec;
+
+    #[test]
+    fn a_key_pair_is_keyed_once_for_any_number_of_tokens() {
+        use crate::probe::{Probe, take};
+
+        take(Probe::TokenKeying);
+        let keys = DerivedKeys::derive(&[5u8; KEY_LEN], AddressHash::from_bytes([6; 16]));
+        for len in [0, 1, 15, 16, 17, 383] {
+            let plaintext = vec![0xA5; len];
+            let token = keys.encrypt(&plaintext, &[len as u8; IV_LEN]);
+            assert_eq!(token.len(), TOKEN_OVERHEAD + (len / 16 + 1) * 16);
+            assert_eq!(keys.decrypt(&token).unwrap(), plaintext);
+        }
+        assert_eq!(take(Probe::TokenKeying), 1);
+    }
+
+    /// The cached schedules produce what keying the primitives afresh from the HKDF output
+    /// does, as the token was built before they were cached.
+    #[test]
+    fn cached_keys_match_freshly_keyed_primitives() {
+        use aes::cipher::KeyIvInit;
+
+        let (secret, salt) = ([5u8; KEY_LEN], AddressHash::from_bytes([6; 16]));
+        let mut okm = [0u8; DERIVED_KEY_LEN];
+        Hkdf::<Sha256>::new(Some(salt.as_slice()), &secret)
+            .expand(&[], &mut okm)
+            .unwrap();
+        let (iv, plaintext) = ([0x3C; IV_LEN], b"seventeen bytes!!");
+        let mut expected = iv.to_vec();
+        let mut buf = [0u8; 32];
+        expected.extend_from_slice(
+            Aes256CbcEnc::new(okm[32..].try_into().unwrap(), (&iv).into())
+                .encrypt_padded_b2b::<Pkcs7>(plaintext, &mut buf)
+                .unwrap(),
+        );
+        let mut mac = <HmacSha256 as KeyInit>::new_from_slice(&okm[..32]).unwrap();
+        mac.update(&expected);
+        expected.extend_from_slice(&mac.finalize().into_bytes());
+
+        assert_eq!(
+            DerivedKeys::derive(&secret, salt).encrypt(plaintext, &iv),
+            expected
+        );
+    }
 
     #[test]
     fn round_trip_through_our_own_code() {

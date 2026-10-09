@@ -40,6 +40,10 @@ use crate::identity::{IDENTITY_LEN, Identity, KEY_LEN, PrivateIdentity, SIGNATUR
 use crate::packet::{DestinationType, HeaderType, Packet, PacketType, Propagation};
 use crate::{Error, Result};
 
+mod verified;
+
+pub(crate) use verified::{VerifiedAnnounces, unverified_candidate};
+
 /// Length of the random hash carried in an announce.
 pub const RAND_HASH_LEN: usize = 10;
 
@@ -243,7 +247,15 @@ impl Announce {
     ///
     /// Returns [`Error::BadSignature`] if the signature does not check out, which is the
     /// only thing standing between us and a peer that announces someone else's identity.
+    /// The destination-hash binding is checked first: it costs two hashes, the signature a
+    /// curve operation.
     pub fn decode(packet: &Packet) -> Result<Self> {
+        Self::decode_checked(packet, true)
+    }
+
+    /// Decode, verifying the signature only when `verify`. `false` is for bytes that already
+    /// verified (see [`VerifiedAnnounces`]).
+    fn decode_checked(packet: &Packet, verify: bool) -> Result<Self> {
         if packet.packet_type != PacketType::Announce {
             return Err(Error::NotAnAnnounce);
         }
@@ -256,11 +268,17 @@ impl Announce {
         let p = &packet.payload;
 
         let public: [u8; IDENTITY_LEN] = p[..IDENTITY_LEN].try_into().expect("checked length");
-        let identity = Identity::from_public_bytes(&public)?;
-
         let mut off = IDENTITY_LEN;
         let name_hash = NameHash::from_slice(&p[off..]).ok_or(Error::Truncated)?;
         off += crate::hash::NAME_HASH_LEN;
+
+        // The destination hash comes from the header. It must be the one this identity and
+        // name imply, or a valid signature over an unrelated destination hash would pass.
+        let destination = packet.destination;
+        if destination_hash(name_hash, AddressHash::of(&public)) != destination {
+            return Err(Error::DestinationMismatch);
+        }
+        let identity = Identity::from_public_bytes(&public)?;
 
         let rand_hash: [u8; RAND_HASH_LEN] = p[off..off + RAND_HASH_LEN]
             .try_into()
@@ -284,26 +302,22 @@ impl Announce {
 
         let app_data = p[off..].to_vec();
 
-        // The destination hash comes from the header, and it is part of the signed
-        // message, so a peer cannot replay one destination's announce under another.
-        let destination = packet.destination;
-
-        let message = Self::signed_message(
-            destination,
-            &public,
-            name_hash,
-            &rand_hash,
-            ratchet.as_ref(),
-            &app_data,
-        );
-        if !identity.verify(&message, &signature) {
-            return Err(Error::BadSignature);
-        }
-
-        // The destination hash must actually be the one this identity and name imply.
-        // Without this a valid signature over an unrelated destination hash would pass.
-        if destination_hash(name_hash, identity.hash()) != destination {
-            return Err(Error::DestinationMismatch);
+        // The destination hash is also signed, so a peer cannot replay one destination's
+        // announce under another.
+        if verify {
+            let message = Self::signed_message(
+                destination,
+                &public,
+                name_hash,
+                &rand_hash,
+                ratchet.as_ref(),
+                &app_data,
+            );
+            #[cfg(test)]
+            crate::probe::hit(crate::probe::Probe::AnnounceVerify);
+            if !identity.verify(&message, &signature) {
+                return Err(Error::BadSignature);
+            }
         }
 
         Ok(Self {

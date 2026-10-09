@@ -199,7 +199,9 @@ pub(super) fn forward(
         return;
     }
     // A copy already carried is a loop or a second path, never new work.
-    if !shared.packet_is_new(&pkt) {
+    // One hash serves the packet filter and the reverse entry.
+    let hash = pkt.hash();
+    if !shared.packet_is_new(pkt.context, hash) {
         return;
     }
     let dest = pkt.destination;
@@ -234,7 +236,7 @@ pub(super) fn forward(
         } else if pkt.packet_type != PacketType::LinkRequest {
             // RNS records a reverse entry for every other carried packet, so its proof can
             // come back the same way (`Transport.py` 2104-2110).
-            shared.remember_reverse(pkt.hash(), from, out);
+            shared.remember_reverse(hash, from, out);
         }
         // A route carrying transit is in use, and RNS refreshes it (`Transport.py` 2113).
         shared.touch_path(dest);
