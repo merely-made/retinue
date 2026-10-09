@@ -23,6 +23,9 @@ const ACCEPT_RETRY: Duration = Duration::from_millis(100);
 
 /// What every connection a listener accepts inherits, as RNS copies a server interface's
 /// settings onto each spawned client (`TCPInterface.py` 587-650).
+///
+/// Not yet modelled: the `IN` flag, egress control and path-request rates (`ec_pr_freq`,
+/// `ic_pr_burst_*`), and `recursive_prs`.
 #[derive(Clone, Debug, Default)]
 pub struct ListenPolicy {
     /// Mode of each spawned interface.
@@ -33,7 +36,9 @@ pub struct ListenPolicy {
     pub i2p_tunneled: bool,
     /// Announce and transmit policy of each spawned interface.
     pub iface: IfacePolicy,
-    /// Told each spawned interface's id, as RNS lists `spawned_interfaces`.
+    /// Told each spawned interface's id, as RNS lists `spawned_interfaces`. Advisory: an id
+    /// that finds the channel full or closed is dropped, so a slow consumer never stalls
+    /// accepting.
     pub spawned: Option<mpsc::Sender<InterfaceId>>,
 }
 
@@ -109,7 +114,7 @@ impl Endpoint {
                 }
                 let (id, attached) = spawn(&shared, stream, &policy);
                 if let (true, Some(spawned)) = (attached, &policy.spawned) {
-                    let _ = spawned.send(id).await;
+                    let _ = spawned.try_send(id);
                 }
             }
         });

@@ -100,6 +100,10 @@ where
 
 /// Carry one TCP connection: online while it lasts, then offline with the backlog discarded,
 /// since RNS sends nothing on an interface that is down (`Transport.py` 1449).
+///
+/// Only an offline-to-online transition discards on entry: an interface registered online
+/// already holds what callers queued since attaching (an announce sent right after
+/// `attach_tcp_client`), and that must go out.
 pub(super) async fn carry_tcp(
     shared: &Shared,
     id: InterfaceId,
@@ -107,8 +111,9 @@ pub(super) async fn carry_tcp(
     out: &mut OutboundPackets,
     stream: TcpStream,
 ) -> PumpEnd {
-    out.discard();
-    online.store(true, Ordering::Release);
+    if !online.swap(true, Ordering::AcqRel) {
+        out.discard();
+    }
     let (reader, writer) = stream.into_split();
     let end = run(shared, id, out, reader, writer).await;
     online.store(false, Ordering::Release);

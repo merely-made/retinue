@@ -32,6 +32,9 @@ pub struct TcpClient {
     /// Use RNS's slower keepalive profile for a tunnel through I2P.
     pub i2p_tunneled: bool,
     /// Prefer an IPv6 address when the host has both families (`BackboneInterface.py` 965-971).
+    /// Adaptation: `TCPClientInterface` takes the resolver's first address of either family
+    /// (`TCPInterface.py` 236-238), so for `localhost` RNS may dial `::1` where this dials
+    /// `127.0.0.1`.
     pub prefer_ipv6: bool,
     /// Bound on resolving and connecting, per attempt. RNS ignores its own setting and
     /// always uses 5 s (`TCPInterface.py` 241).
@@ -114,6 +117,10 @@ impl Endpoint {
 
     /// Register the interface once and keep it connected: carry each connection, then wait
     /// and redial. Only giving up or a detach forgets it.
+    ///
+    /// Every pump end redials, a failed write included. RNS's initiator instead tears the
+    /// interface down for good on a write error (`TCPInterface.py` 334-337, 437-448), leaving
+    /// it dead until restart; that defect is not ported.
     fn supervise(
         &self,
         client: TcpClient,

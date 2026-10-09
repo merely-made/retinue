@@ -92,7 +92,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .await?;
                 let relayed = DestinationName::new("retinue", ["relayed"]);
                 println!("ANNOUNCER_DEST {}", relayed.destination_hash(id.public()));
-                tokio::time::sleep(Duration::from_millis(300)).await;
+                // At once: a fresh interface sends what is queued before its carrier starts.
                 announcer.announce(&relayed, b"relayed");
                 announcers.push(announcer);
             }

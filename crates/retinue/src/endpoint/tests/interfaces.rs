@@ -288,6 +288,37 @@ async fn a_dialed_interface_keeps_its_id_and_routes_across_reconnects() {
     assert_eq!(ep.route_to(dest).map(|(iface, _)| iface), Some(id));
 }
 
+/// What callers queue right after attaching goes out: only a carrier coming back online
+/// after an outage discards a backlog.
+#[tokio::test]
+async fn an_announce_queued_right_after_attaching_is_sent() {
+    let hub = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x69; 64]));
+    let addr = hub
+        .listen_tcp("127.0.0.1:0".parse().unwrap())
+        .await
+        .unwrap();
+    let name = DestinationName::new("retinue", ["attach-then-announce"]);
+    let dialer = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x6a; 64]));
+    dialer.register(name.clone(), b"");
+    dialer.attach_tcp_client(addr).await.unwrap();
+    dialer.announce(&name, b"dialed");
+    let streamed = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x6b; 64]));
+    streamed.register(name.clone(), b"");
+    streamed.attach_stream(TcpStream::connect(addr).await.unwrap());
+    streamed.announce(&name, b"streamed");
+
+    let mut heard = Vec::new();
+    for _ in 0..2 {
+        let fact = tokio::time::timeout(Duration::from_secs(3), hub.next_announcement())
+            .await
+            .expect("the hub hears both announces")
+            .unwrap();
+        heard.push(fact.app_data);
+    }
+    heard.sort();
+    assert_eq!(heard, [b"dialed".to_vec(), b"streamed".to_vec()]);
+}
+
 /// An unreachable hub is attached offline, then forgotten after the configured tries.
 #[tokio::test]
 async fn an_unreachable_hub_is_retried_then_given_up() {
@@ -437,7 +468,10 @@ fn a_listener_survives_descriptor_exhaustion() {
     const CHILD: &str = "RETINUE_TEST_EMFILE_CHILD";
     if std::env::var_os(CHILD).is_none() {
         let name = "endpoint::tests::interfaces::a_listener_survives_descriptor_exhaustion";
-        let output = std::process::Command::new(std::env::current_exe().unwrap())
+        // A low soft limit keeps exhaustion cheap where the default is large (Docker: 2^20).
+        let output = std::process::Command::new("sh")
+            .args(["-c", "ulimit -Sn 256 2>/dev/null; exec \"$0\" \"$@\""])
+            .arg(std::env::current_exe().unwrap())
             .args(["--exact", name, "--test-threads=1", "--nocapture"])
             .env(CHILD, "1")
             .output()
@@ -464,7 +498,7 @@ fn a_listener_survives_descriptor_exhaustion() {
         let mut hoard = Vec::new();
         while let Ok(file) = std::fs::File::open("/dev/null") {
             hoard.push(file);
-            assert!(hoard.len() < 1 << 20, "no descriptor limit to exhaust");
+            assert!(hoard.len() < 1 << 16, "no descriptor limit to exhaust");
         }
         hoard.pop();
         let _client = TcpStream::connect(addr).await.unwrap();

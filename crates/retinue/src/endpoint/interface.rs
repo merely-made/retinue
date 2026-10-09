@@ -160,13 +160,18 @@ pub(super) struct Iface {
 pub(super) enum QueueAdmission {
     Queued,
     Full,
-    FrameLimit { actual: usize, limit: usize },
+    /// The carrier is down; RNS drops the packet the same way (`Transport.py` 1449).
+    Offline,
+    FrameLimit {
+        actual: usize,
+        limit: usize,
+    },
 }
 
 impl Iface {
     pub(super) fn push(&self, packet: Packet, class: TrafficClass) -> QueueAdmission {
         if !self.online.load(Ordering::Acquire) {
-            return QueueAdmission::Full;
+            return QueueAdmission::Offline;
         }
         let actual = packet.encoded_len() + self.wire_overhead;
         let limit = self.frame_limit.load(Ordering::Acquire);

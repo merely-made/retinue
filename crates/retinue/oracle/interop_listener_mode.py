@@ -4,7 +4,8 @@ Retinue routes with two listeners, one access-point and one full (TCPInterface.p
 Stock client A connects to the access-point listener and stock client F to the full one. A
 second retinue endpoint then announces through the full listener. RNS relays no announce
 onto an access-point interface (Transport.py 1475-1477), so F must learn the path and A
-must not.
+must not. The A check needs announce mode filtering on egress (unit U3), so this is an
+integration gate for the merged batch.
 
 Run from the oracle/ directory:  ./.venv/bin/python -u interop_listener_mode.py
 """
