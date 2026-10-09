@@ -72,9 +72,12 @@ impl DeliveryAnnounce {
 
     /// Decode as stock's `display_name_from_app_data` and `stamp_cost_from_app_data` do
     /// (`LXMF.py` 152-186): an array marker selects the structured form, anything else is
-    /// a legacy UTF-8 name. A name that is not UTF-8 reads as absent; NULs and surrounding
-    /// whitespace are stripped from one that is. A name that is neither binary nor nil is
-    /// refused, which keeps other announce shapes from passing for this one.
+    /// a legacy UTF-8 name with no cost. A name that is not UTF-8 binary reads as absent;
+    /// NULs and surrounding whitespace are stripped from one that is. A cost that is not an
+    /// integer reads as absent, where stock keeps it and fails later when it stamps.
+    ///
+    /// Any app data reads as some delivery announce, so decode only what an `lxmf.delivery`
+    /// destination announced, as stock's handler filters by aspect (`Handlers.py` 8-12).
     pub fn decode_bounded(encoded: &[u8], max_bytes: usize) -> Result<Self, AnnounceError> {
         if encoded.len() > max_bytes {
             return Err(AnnounceError::TooLarge);
@@ -82,9 +85,10 @@ impl DeliveryAnnounce {
         match encoded.first() {
             None => Ok(Self::default()),
             Some(0x90..=0x9f | 0xdc) => Self::decode_array(encoded),
-            Some(_) => core::str::from_utf8(encoded)
-                .map(Self::named)
-                .map_err(|_| AnnounceError::InvalidDisplayName),
+            Some(_) => Ok(Self {
+                display_name: core::str::from_utf8(encoded).ok().map(|name| name.into()),
+                stamp_cost: None,
+            }),
         }
     }
 
@@ -96,19 +100,17 @@ impl DeliveryAnnounce {
             return Err(AnnounceError::MalformedMessagePack);
         }
         let Value::Array(parts) = value else {
-            return Err(AnnounceError::InvalidShape);
+            return Err(AnnounceError::MalformedMessagePack);
         };
         let display_name = match parts.first() {
-            None | Some(Value::Nil) => None,
             Some(Value::Binary(name)) => core::str::from_utf8(name)
                 .ok()
                 .map(|name| name.replace('\0', "").trim().as_bytes().to_vec()),
-            Some(_) => return Err(AnnounceError::InvalidDisplayName),
+            _ => None,
         };
         let stamp_cost = match parts.get(1) {
-            None | Some(Value::Nil) => None,
             Some(Value::Integer(cost)) => cost.as_u64().and_then(normalize_cost),
-            Some(_) => return Err(AnnounceError::InvalidStampCost),
+            _ => None,
         };
         Ok(Self {
             display_name,
@@ -123,12 +125,6 @@ pub enum AnnounceError {
     TooLarge,
     #[error("LXMF delivery announce is not one complete MessagePack value")]
     MalformedMessagePack,
-    #[error("LXMF delivery announce must be an array")]
-    InvalidShape,
-    #[error("LXMF delivery display name must be MessagePack binary or nil, or legacy UTF-8")]
-    InvalidDisplayName,
-    #[error("LXMF delivery stamp cost must be nil or an integer")]
-    InvalidStampCost,
     #[error("LXMF delivery announce could not be encoded")]
     Encode,
 }
@@ -287,25 +283,32 @@ mod tests {
     #[test]
     fn malformed_or_oversized_announces_are_rejected() {
         assert_eq!(
-            DeliveryAnnounce::decode(&[0x92, 0x07, 0xc0]),
-            Err(AnnounceError::InvalidDisplayName)
-        );
-        assert_eq!(
-            DeliveryAnnounce::decode(&[0x92, 0xc0, 0xa1, b'8']),
-            Err(AnnounceError::InvalidStampCost)
-        );
-        assert_eq!(
             DeliveryAnnounce::decode(&[0x92, 0xc0]),
             Err(AnnounceError::MalformedMessagePack)
         );
         assert_eq!(
-            DeliveryAnnounce::decode(&[0xff, 0xfe]),
-            Err(AnnounceError::InvalidDisplayName)
+            DeliveryAnnounce::decode(&[0x91, 0xc0, 0xc0]),
+            Err(AnnounceError::MalformedMessagePack)
         );
         assert_eq!(
             DeliveryAnnounce::decode_bounded(&[0x92, 0xc4, 0x00, 0xc0], 3),
             Err(AnnounceError::TooLarge)
         );
+    }
+
+    /// Stock reads a name it cannot decode as absent and still takes the cost; a peer whose
+    /// announce has an odd name stays reachable, and stamped.
+    #[test]
+    fn odd_names_and_costs_read_as_absent() {
+        let decode = |bytes: &[u8]| DeliveryAnnounce::decode(bytes).unwrap();
+        let int_name = decode(&[0x92, 0x07, 0x08]);
+        assert_eq!(int_name.display_name, None);
+        assert_eq!(int_name.stamp_cost, Some(8));
+        let str_name = decode(&[0x92, 0xa1, b'N', 0x08]);
+        assert_eq!(str_name.display_name, None);
+        assert_eq!(str_name.stamp_cost, Some(8));
+        assert_eq!(decode(&[0x92, 0xc0, 0xa1, b'8']).stamp_cost, None);
+        assert_eq!(decode(&[0xff, 0xfe]), DeliveryAnnounce::default());
     }
 
     /// What stock's router announces for a destination registered without a name:

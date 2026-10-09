@@ -27,8 +27,9 @@ pub struct PropagationCosts {
 ///
 /// Decoding is as tolerant as stock's `pn_announce_data_is_valid` (`LXMF.py` 225-250): extra
 /// elements and extra costs are ignored, the legacy flag may be any type, and numbers may be
-/// integers or floats (lxmd configures its limits as floats). Unknown metadata keys remain
-/// opaque MessagePack.
+/// anything `int()` takes, floats included (lxmd configures its limits as floats). A negative
+/// timebase reads as 0 and costs saturate to 0..=255. Unknown metadata keys remain opaque
+/// MessagePack.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PropagationAnnounce {
     pub legacy: bool,
@@ -88,21 +89,20 @@ impl PropagationAnnounce {
         let [propagation, flexibility, peering, ..] = costs.as_slice() else {
             return Err(PropagationError::InvalidAnnounce);
         };
+        // Stock compares with `== True`, which a numeric 0 or 1 passes and text does not.
         let active = match active {
             Value::Boolean(active) => *active,
-            other => match number(other)? {
+            Value::Integer(_) | Value::F32(_) | Value::F64(_) => match number(active)? {
                 0.0 => false,
                 1.0 => true,
                 _ => return Err(PropagationError::InvalidAnnounce),
             },
+            _ => return Err(PropagationError::InvalidAnnounce),
         };
-        let unix_time = number(unix_time)?;
-        if unix_time < 0.0 {
-            return Err(PropagationError::InvalidAnnounce);
-        }
         Ok(Self {
             legacy: matches!(legacy, Value::Boolean(true)),
-            unix_time: unix_time as u64,
+            // Saturating: a negative timebase reads as 0.
+            unix_time: number(unix_time)? as u64,
             active,
             transfer_limit_kb: number(transfer)?,
             sync_limit_kb: number(sync)?,
@@ -134,26 +134,29 @@ impl PropagationAnnounce {
     }
 }
 
-/// A finite integer or float, as Python's `int()` takes it.
+/// A finite number as Python's `int()` takes it: an integer, float or bool, or text or
+/// bytes spelling a decimal integer.
 fn number(value: &Value) -> Result<f64, PropagationError> {
+    let text = |bytes: &[u8]| {
+        let text = core::str::from_utf8(bytes).ok()?;
+        text.trim().parse::<i64>().ok().map(|int| int as f64)
+    };
     match value {
         Value::Integer(int) => int.as_f64(),
         Value::F32(float) => Some(f64::from(*float)),
         Value::F64(float) => Some(*float),
+        Value::Boolean(flag) => Some(f64::from(u8::from(*flag))),
+        Value::String(string) => text(string.as_bytes()),
+        Value::Binary(bytes) => text(bytes),
         _ => None,
     }
     .filter(|number| number.is_finite())
     .ok_or(PropagationError::InvalidAnnounce)
 }
 
-/// A stamp cost, truncated as `int()` does.
+/// A stamp cost, truncated as `int()` does and held to 0..=255 where stock keeps any integer.
 fn cost(value: &Value) -> Result<u8, PropagationError> {
-    let cost = number(value)?.trunc();
-    if (0.0..=255.0).contains(&cost) {
-        Ok(cost as u8)
-    } else {
-        Err(PropagationError::InvalidAnnounce)
-    }
+    Ok(number(value)?.trunc() as u8)
 }
 
 /// An integer when the value is whole, so integral limits stay byte-identical to stock's.

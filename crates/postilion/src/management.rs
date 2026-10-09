@@ -7,7 +7,9 @@ use std::collections::{BTreeMap, VecDeque};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use outrider::{DeliveryAnnounce, PropagationAnnounce};
+use outrider::{
+    DeliveryAnnounce, PropagationAnnounce, delivery_destination, propagation_destination,
+};
 use retinue::announce_admission::AnnounceIngressCounters;
 use retinue::endpoint::{
     AnnounceFact, Endpoint, InterfaceId, LinkFact, QueueCounters, RouteFact, RoutingCounters,
@@ -176,7 +178,7 @@ impl ManagementState {
     pub(crate) fn observe(&mut self, peer: Peer, observed_at: Instant) -> bool {
         let fresh = !self.current.contains_key(&peer.destination);
         let stored = StoredObservation {
-            kind: classify(&peer.announce.app_data),
+            kind: classify(&peer.announce),
             peer,
             observed_at,
         };
@@ -217,14 +219,21 @@ impl ManagementState {
     }
 }
 
-fn classify(app_data: &[u8]) -> AnnounceKind {
-    if let Ok(delivery) = DeliveryAnnounce::decode(app_data) {
-        AnnounceKind::Delivery(delivery)
-    } else if let Ok(propagation) = PropagationAnnounce::decode(app_data) {
-        AnnounceKind::Propagation(propagation)
+/// Classify by the announced aspect first, as stock's handlers filter (`Handlers.py` 8-12):
+/// almost any app data reads as some delivery announce, a plain-text node name included.
+fn classify(fact: &AnnounceFact) -> AnnounceKind {
+    let decoded = if fact.destination == delivery_destination(&fact.identity) {
+        DeliveryAnnounce::decode(&fact.app_data)
+            .map(AnnounceKind::Delivery)
+            .ok()
+    } else if fact.destination == propagation_destination(&fact.identity) {
+        PropagationAnnounce::decode(&fact.app_data)
+            .map(AnnounceKind::Propagation)
+            .ok()
     } else {
-        AnnounceKind::Unknown
-    }
+        None
+    };
+    decoded.unwrap_or(AnnounceKind::Unknown)
 }
 
 #[cfg(test)]
@@ -239,22 +248,29 @@ mod tests {
     use retinue::link::{self, LinkMode, LinkTrailer};
     use retinue::packet::HeaderType;
 
-    fn peer(destination_byte: u8, sequence: u64, app_data: Vec<u8>) -> Peer {
-        let identity = PrivateIdentity::from_secret_bytes(&[destination_byte; 64]);
-        let destination = AddressHash::from_bytes([destination_byte; 16]);
+    fn fact(name: &DestinationName, identity_byte: u8, app_data: Vec<u8>) -> AnnounceFact {
+        let identity = *PrivateIdentity::from_secret_bytes(&[identity_byte; 64]).public();
+        AnnounceFact {
+            destination: name.destination_hash(&identity),
+            identity,
+            app_data,
+            interface: 7,
+            hops: 1,
+            transport: None,
+            sequence: 0,
+        }
+    }
+
+    fn peer(identity_byte: u8, sequence: u64, app_data: Vec<u8>) -> Peer {
+        let announce = AnnounceFact {
+            sequence,
+            ..fact(&delivery_name(), identity_byte, app_data)
+        };
         Peer {
-            destination,
+            destination: announce.destination,
             stamp_cost: None,
             name: None,
-            announce: AnnounceFact {
-                destination,
-                identity: *identity.public(),
-                app_data,
-                interface: 7,
-                hops: 1,
-                transport: None,
-                sequence,
-            },
+            announce,
         }
     }
 
@@ -267,7 +283,12 @@ mod tests {
 
         assert!(state.observe(peer(1, 1, first), start));
         assert!(!state.observe(peer(1, 2, refreshed), start + Duration::from_secs(1)));
-        assert!(state.observe(peer(2, 3, vec![0xc1]), start + Duration::from_secs(2)));
+        let other = DestinationName::new("signalman", ["unknown"]);
+        let unknown = Peer::from_announce(AnnounceFact {
+            sequence: 3,
+            ..fact(&other, 2, vec![0xc1])
+        });
+        assert!(state.observe(unknown, start + Duration::from_secs(2)));
 
         let (generation, current, history) = state.observations_at(start + Duration::from_secs(4));
         assert_eq!(generation, 3);
@@ -280,7 +301,7 @@ mod tests {
 
         let refreshed = current
             .iter()
-            .find(|observation| observation.fact.destination == AddressHash::from_bytes([1; 16]))
+            .find(|observation| observation.fact.sequence == 2)
             .unwrap();
         assert!(matches!(
             &refreshed.kind,
@@ -304,11 +325,40 @@ mod tests {
             },
             metadata: Vec::new(),
         };
+        let encoded = propagation.encode().unwrap();
         assert_eq!(
-            classify(&propagation.encode().unwrap()),
+            classify(&fact(&outrider::propagation_name(), 1, encoded.clone())),
             AnnounceKind::Propagation(propagation)
         );
-        assert_eq!(classify(&[0xc1]), AnnounceKind::Unknown);
+        assert_eq!(
+            classify(&fact(&outrider::propagation_name(), 1, vec![0xc1])),
+            AnnounceKind::Unknown
+        );
+        assert!(
+            matches!(
+                classify(&fact(&delivery_name(), 1, encoded)),
+                AnnounceKind::Delivery(_)
+            ),
+            "a delivery destination's app data reads only as a delivery announce"
+        );
+    }
+
+    /// NomadNet and other apps announce a plain UTF-8 name. Stock's delivery handler never
+    /// sees those, and neither does our delivery decoder.
+    #[test]
+    fn plain_text_from_another_aspect_is_not_a_delivery_peer() {
+        let node = DestinationName::new("nomadnetwork", ["node"]);
+        let heard = fact(&node, 1, b"My Node".to_vec());
+        assert_eq!(classify(&heard), AnnounceKind::Unknown);
+        let peer = Peer::from_announce(heard);
+        assert_eq!(peer.name, None);
+
+        let delivery = Peer::from_announce(fact(&delivery_name(), 1, b"My Node".to_vec()));
+        assert_eq!(delivery.name.as_deref(), Some("My Node"));
+        assert_eq!(
+            classify(&delivery.announce),
+            AnnounceKind::Delivery(DeliveryAnnounce::named("My Node"))
+        );
     }
 
     #[test]

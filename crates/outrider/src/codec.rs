@@ -132,6 +132,9 @@ pub fn decode(bytes: &[u8]) -> Result<DecodedLxmf, CodecError> {
 
 /// Decode with the `no_std` codec's parser, reading only the field map into a value tree.
 /// The id covers the unstamped payload; see [`crate::portable`] for the rule on a stamped one.
+///
+/// That parser refuses values nested more than 16 deep, field maps included, where rmpv
+/// alone would go deeper; stock senders' fields nest a few levels.
 pub fn decode_bounded(bytes: &[u8], max_message_bytes: usize) -> Result<DecodedLxmf, CodecError> {
     if bytes.len() > max_message_bytes {
         return Err(CodecError::TooLarge);

@@ -56,8 +56,13 @@ async fn announces_and_path_responses_carry_a_current_timebase() {
     let heard = next(&client).await;
     assert!(!heard.active && heard.unix_time >= started);
 
+    // Cross a second boundary, so only a response built now can carry a later clock.
+    tokio::time::sleep(Duration::from_millis(1100)).await;
     client.request_path(destination);
     let answered = next(&client).await;
     assert!(!answered.active, "path responses carry the latest announce");
-    assert!(answered.unix_time >= started);
+    assert!(
+        answered.unix_time > heard.unix_time,
+        "a path response reads the clock when it is built"
+    );
 }

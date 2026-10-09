@@ -86,12 +86,44 @@ fn announces_stock_would_refuse_are_refused() {
     assert!(with(5, Value::Array(vec![13.into(), 3.into()])).is_err());
     assert!(with(6, Value::Array(Vec::new())).is_err());
     assert!(with(2, Value::from(1)).unwrap().active);
+    assert!(with(2, Value::from("1")).is_err());
     let short = &captured_announce();
     let Value::Array(mut parts) = decode_one(short).unwrap() else {
         unreachable!()
     };
     parts.pop();
     assert!(PropagationAnnounce::decode(&encode_value(&Value::Array(parts)).unwrap()).is_err());
+}
+
+/// Where stock's `int()` reads a value, so do we; where it keeps a value we cannot hold, we
+/// saturate rather than refuse the node.
+#[test]
+fn announces_stock_reads_with_int_are_read() {
+    let with = |index: usize, value: Value| {
+        let Value::Array(mut parts) = decode_one(&captured_announce()).unwrap() else {
+            unreachable!()
+        };
+        parts[index] = value;
+        PropagationAnnounce::decode(&encode_value(&Value::Array(parts)).unwrap()).unwrap()
+    };
+    assert_eq!(with(1, Value::from(-5)).unix_time, 0);
+    assert_eq!(
+        with(1, Value::from(" 1760000000 ")).unix_time,
+        1_760_000_000
+    );
+    assert_eq!(
+        with(3, Value::Binary(b"256".to_vec())).transfer_limit_kb,
+        256.0
+    );
+    let costs = with(
+        5,
+        Value::Array(vec![Value::from(300), Value::from(-2), Value::from("8")]),
+    )
+    .costs;
+    assert_eq!(
+        (costs.propagation, costs.flexibility, costs.peering),
+        (255, 0, 8)
+    );
 }
 
 #[test]
