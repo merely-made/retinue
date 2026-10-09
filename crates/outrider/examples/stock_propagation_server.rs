@@ -70,6 +70,11 @@ fn persist_store(path: Option<&Path>, store: &PropagationStore) -> std::io::Resu
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let large = std::env::var("OUTRIDER_LARGE").is_ok_and(|value| value == "1");
     let store_path: Option<PathBuf> = std::env::var_os("OUTRIDER_STORE_PATH").map(PathBuf::from);
+    // Gates that mint several stock stamps lower the cost to keep minting short.
+    let cost = std::env::var("OUTRIDER_PROPAGATION_COST")
+        .ok()
+        .and_then(|cost| cost.parse().ok())
+        .unwrap_or(13);
     let announce = PropagationAnnounce {
         legacy: false,
         unix_time: now() as u64,
@@ -77,7 +82,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         transfer_limit_kib: 256,
         sync_limit_kib: 10_240,
         costs: PropagationCosts {
-            propagation: 13,
+            propagation: cost,
             flexibility: 3,
             peering: 8,
         },
