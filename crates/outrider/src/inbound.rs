@@ -9,7 +9,7 @@ use retinue::identity::Identity;
 
 use crate::announce::delivery_destination;
 use crate::codec::DecodedLxmf;
-use crate::stamp::{MESSAGE_WORKBLOCK_ROUNDS, STAMP_LEN, value_streamed};
+use crate::ticket::{self, StampFault, StampOutcome, TICKET_LEN};
 
 /// How a received message's signature stands (`LXMessage.py` 814-827).
 ///
@@ -22,25 +22,6 @@ pub enum Verification {
     /// No announce has given us the sender's keys yet.
     SourceUnknown,
     SignatureInvalid,
-}
-
-/// What a received message's stamp was worth, when the destination asks for one.
-///
-/// Stock records a ticket as the value `COST_TICKET` (`LXMessage.py` 53, 278-299); a ticket
-/// is its own variant here so no host mistakes it for proof of work.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum StampOutcome {
-    /// Proof of work worth this many leading zero bits.
-    Value(u16),
-    /// A stamp derived from a ticket this destination issued to the sender.
-    Ticket,
-}
-
-/// Why a stamp was refused.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum StampRefusal {
-    Required(u8),
-    Invalid,
 }
 
 /// Check `message` against `source`, the identity resolved for its source, if any.
@@ -68,28 +49,19 @@ pub fn reverify(endpoint: &Endpoint, message: &DecodedLxmf) -> (Verification, Op
 }
 
 /// Score the stamp a destination with `cost` requires, as stock does under
-/// `enforce_stamps` (`LXMRouter.py` 1924-1945). No cost, no check, no outcome.
-///
-/// Tickets (`LXMessage.py` 278-288) belong here, ahead of the proof of work, and answer
-/// [`StampOutcome::Ticket`].
+/// `enforce_stamps` (`LXMRouter.py` 1924-1945): first against `tickets`, those this
+/// destination issued to the sender, then as proof of work (`LXMessage.py` 278-299). No
+/// cost, no check, no outcome. Every receiving lane checks stamps here.
 pub(crate) fn check_stamp(
     message: &DecodedLxmf,
     cost: Option<u8>,
-) -> Result<Option<StampOutcome>, StampRefusal> {
+    tickets: &[[u8; TICKET_LEN]],
+) -> Result<Option<StampOutcome>, StampFault> {
     let Some(cost) = cost else {
         return Ok(None);
     };
-    let stamp = message
-        .payload
-        .stamp
-        .as_deref()
-        .and_then(|stamp| <&[u8; STAMP_LEN]>::try_from(stamp).ok())
-        .ok_or(StampRefusal::Required(cost))?;
-    let value = value_streamed(&message.message_id, MESSAGE_WORKBLOCK_ROUNDS, stamp);
-    if value < u16::from(cost) {
-        return Err(StampRefusal::Invalid);
-    }
-    Ok(Some(StampOutcome::Value(value)))
+    let stamp = message.payload.stamp.as_deref();
+    ticket::check_stamp(&message.message_id, stamp, cost, tickets).map(Some)
 }
 
 /// Seconds since the Unix epoch, the clock stock stamps its delivery cache with.
@@ -105,6 +77,7 @@ mod tests {
 
     use super::*;
     use crate::codec::{LxmfPayload, decode, prepare};
+    use crate::stamp::{MESSAGE_WORKBLOCK_ROUNDS, STAMP_LEN};
 
     fn signed(sender: &PrivateIdentity, payload: &LxmfPayload) -> DecodedLxmf {
         let source = delivery_destination(sender.public());
@@ -140,10 +113,10 @@ mod tests {
     fn a_checked_stamp_reports_its_value() {
         let sender = PrivateIdentity::from_secret_bytes(&[0x33; 64]);
         let mut payload = LxmfPayload::text(2.0, "t", "c");
-        assert_eq!(check_stamp(&signed(&sender, &payload), None), Ok(None));
+        assert_eq!(check_stamp(&signed(&sender, &payload), None, &[]), Ok(None));
         assert_eq!(
-            check_stamp(&signed(&sender, &payload), Some(4)),
-            Err(StampRefusal::Required(4))
+            check_stamp(&signed(&sender, &payload), Some(4), &[]),
+            Err(StampFault::Missing)
         );
 
         let id = signed(&sender, &payload).message_id;
@@ -153,15 +126,15 @@ mod tests {
         payload.stamp = Some(stamp.to_vec());
         let stamped = signed(&sender, &payload);
         assert_eq!(
-            check_stamp(&stamped, Some(4)),
-            Ok(Some(StampOutcome::Value(value)))
+            check_stamp(&stamped, Some(4), &[]),
+            Ok(Some(StampOutcome::Work(value)))
         );
         assert!(value >= 4);
         if value < 255 {
             let above = u8::try_from(value + 1).unwrap();
             assert_eq!(
-                check_stamp(&stamped, Some(above)),
-                Err(StampRefusal::Invalid)
+                check_stamp(&stamped, Some(above), &[]),
+                Err(StampFault::Invalid)
             );
         }
     }

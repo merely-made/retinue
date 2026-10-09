@@ -35,7 +35,7 @@ pub(super) fn at_map(bytes: &[u8], at: usize) -> bool {
     }
 }
 
-pub(super) fn read_array_len(bytes: &[u8], at: &mut usize) -> Result<usize, CodecError> {
+pub(crate) fn read_array_len(bytes: &[u8], at: &mut usize) -> Result<usize, CodecError> {
     let marker = byte(bytes, *at)?;
     *at += 1;
     match marker {
@@ -99,7 +99,7 @@ pub(super) fn read_text<'a>(
 ///
 /// A full skipper rather than a map-only one: a map's values may be anything, and a skipper
 /// that missed a shape would silently mis-slice the rest of the payload.
-pub(super) fn skip(bytes: &[u8], at: &mut usize) -> Result<(), CodecError> {
+pub(crate) fn skip(bytes: &[u8], at: &mut usize) -> Result<(), CodecError> {
     skip_nested(bytes, at, 0)
 }
 

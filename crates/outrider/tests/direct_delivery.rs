@@ -115,7 +115,7 @@ async fn round_trip(
     assert_eq!(received.message.payload.content, content);
     assert_eq!(received.verification, Verification::Verified);
     assert_eq!(received.source_identity, Some(*sender_identity.public()));
-    assert!(matches!(received.stamp, Some(StampOutcome::Value(value)) if value >= 8));
+    assert!(matches!(received.stamp, Some(StampOutcome::Work(value)) if value >= 8));
 }
 
 #[tokio::test]

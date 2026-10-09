@@ -13,8 +13,9 @@ use crate::codec::{
     prepare,
 };
 use crate::delivered::DeliveredCache;
-use crate::inbound::{StampOutcome, StampRefusal, Verification, check_stamp, unix_now, verify};
+use crate::inbound::{Verification, check_stamp, unix_now, verify};
 use crate::stamp::{MESSAGE_WORKBLOCK_ROUNDS, STAMP_LEN, find_parallel, valid_streamed};
+use crate::ticket::{StampFault, StampOutcome, TICKET_LEN, is_ticket_stamp};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DirectReceipt {
@@ -92,7 +93,10 @@ pub async fn send_with_resource_config(
     resource_config: ResourceTransferConfig,
 ) -> Result<DirectReceipt, DirectError> {
     let (announce, prepared) = prepare_for(endpoint, sender, peer, payload)?;
-    if let Some(target) = announce.stamp_cost {
+    // A ticket stamp only its receiver can check.
+    if let Some(target) = announce.stamp_cost
+        && !is_ticket_stamp(payload.stamp.as_deref())
+    {
         let Some(stamp) = payload
             .stamp
             .as_deref()
@@ -145,7 +149,9 @@ pub async fn send_stamped_with_resource_config(
     resource_config: ResourceTransferConfig,
 ) -> Result<DirectReceipt, DirectError> {
     let (announce, prepared) = prepare_for(endpoint, sender, peer, payload)?;
-    let prepared = match announce.stamp_cost {
+    // A payload already carrying a ticket stamp needs no proof of work.
+    let ticketed = is_ticket_stamp(payload.stamp.as_deref());
+    let prepared = match announce.stamp_cost.filter(|_| !ticketed) {
         Some(target) => {
             let (stamp, _) = find_parallel(
                 &prepared.message_id,
@@ -275,10 +281,35 @@ pub async fn receive_with_stamp_cost(
 /// [`Duplicate`](DirectError::Duplicate).
 pub async fn receive_with_stamp_cost_and_resource_config(
     endpoint: &Endpoint,
+    accepted: AcceptedResource,
+    delivered: &DeliveredCache,
+    max_message_bytes: usize,
+    stamp_cost: Option<u8>,
+    resource_config: ResourceTransferConfig,
+) -> Result<ReceivedDirect, DirectError> {
+    let no_tickets = |_: &AddressHash| Vec::new();
+    receive_with_tickets(
+        endpoint,
+        accepted,
+        delivered,
+        max_message_bytes,
+        stamp_cost,
+        no_tickets,
+        resource_config,
+    )
+    .await
+}
+
+/// As [`receive_with_stamp_cost_and_resource_config`], also accepting a stamp made with one
+/// of the tickets `inbound_tickets` returns for the source, such as
+/// [`TicketBook::inbound`](crate::TicketBook::inbound).
+pub async fn receive_with_tickets(
+    endpoint: &Endpoint,
     mut accepted: AcceptedResource,
     delivered: &DeliveredCache,
     max_message_bytes: usize,
     stamp_cost: Option<u8>,
+    inbound_tickets: impl Fn(&AddressHash) -> Vec<[u8; TICKET_LEN]>,
     resource_config: ResourceTransferConfig,
 ) -> Result<ReceivedDirect, DirectError> {
     let local_destination = delivery_destination(endpoint.identity());
@@ -305,10 +336,13 @@ pub async fn receive_with_stamp_cost_and_resource_config(
     if verification == Verification::SignatureInvalid {
         return Err(DirectError::BadSignature);
     }
-    let stamp = check_stamp(&message, stamp_cost).map_err(|refusal| match refusal {
-        StampRefusal::Required(cost) => DirectError::StampRequired(cost),
-        StampRefusal::Invalid => DirectError::InvalidStamp,
-    })?;
+    let stamp =
+        check_stamp(&message, stamp_cost, &inbound_tickets(&source)).map_err(
+            |fault| match fault {
+                StampFault::Missing => DirectError::StampRequired(stamp_cost.unwrap_or_default()),
+                StampFault::Invalid => DirectError::InvalidStamp,
+            },
+        )?;
     if verification == Verification::Verified && !delivered.admit(message.message_id, unix_now()) {
         return Err(DirectError::Duplicate(message.message_id));
     }

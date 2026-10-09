@@ -105,7 +105,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
         println!("TITLE {}", hex::encode(&received.message.payload.title));
         println!("CONTENT {}", hex::encode(&received.message.payload.content));
-        if let Some(StampOutcome::Value(value)) = received.stamp {
+        if let Some(StampOutcome::Work(value)) = received.stamp {
             println!("STAMP_VALUE {value}");
         }
         println!("SIGNATURE_VERIFIED true");

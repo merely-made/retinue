@@ -36,6 +36,10 @@ pub enum PropagationError {
     EntryTooLarge,
     #[error("propagation entry is truncated")]
     TruncatedEntry,
+    #[error("the message exceeds the paper message limit")]
+    PaperTooLarge,
+    #[error("not an lxm:// URI carrying a message")]
+    InvalidUri,
     #[error("propagation entry stamp does not meet the node cost")]
     InvalidStamp,
     #[error("the configured proof-of-work attempt budget was exhausted")]

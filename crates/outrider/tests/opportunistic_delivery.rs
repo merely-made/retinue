@@ -79,7 +79,7 @@ async fn stamped_opportunistic_delivery_authenticates_without_a_link() {
     assert_eq!(received.message.payload.content, b"opportunistic body");
     assert_eq!(received.verification, Verification::Verified);
     assert_eq!(received.source_identity, Some(*sender_identity.public()));
-    assert!(matches!(received.stamp, Some(StampOutcome::Value(value)) if value >= 8));
+    assert!(matches!(received.stamp, Some(StampOutcome::Work(value)) if value >= 8));
     assert_eq!(received.ratchet_id, receipt.packet.ratchet_id);
     assert!(received.ratchet_id.is_some());
     assert_eq!(received.packed, receipt.packed);
