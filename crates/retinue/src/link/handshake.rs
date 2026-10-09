@@ -130,17 +130,20 @@ impl PendingLink {
             return Err(Error::BadSignature);
         }
 
-        // The proof's trailer is authoritative for the negotiated mode and MTU; fall back
-        // to what we requested if the peer sent none. The path only ever lowers the MTU, so
-        // a proof echoing more than we asked for is held to our request.
+        // The proof's trailer is authoritative for the negotiated mode and MTU. Without one
+        // RNS takes `Reticulum.MTU` (`Link.py` 422). The path only ever lowers the MTU, so
+        // either is held to our request.
         let agreed = if trailer_bytes.len() == TRAILER_LEN {
-            let echoed = LinkTrailer::decode(trailer_bytes.try_into().expect("len"))?;
-            LinkTrailer {
-                mtu: echoed.mtu.min(self.requested.mtu),
-                ..echoed
-            }
+            LinkTrailer::decode(trailer_bytes.try_into().expect("len"))?
         } else {
-            self.requested
+            LinkTrailer {
+                mtu: crate::packet::MTU as u32,
+                ..self.requested
+            }
+        };
+        let agreed = LinkTrailer {
+            mtu: agreed.mtu.min(self.requested.mtu),
+            ..agreed
         };
 
         let shared = self.ephemeral.diffie_hellman(&XPublicKey::from(peer_eph));

@@ -514,13 +514,14 @@ fn an_initiator_refuses_malformed_proofs_and_other_modes() {
     let dest_hash = DestinationName::new("retinue", ["test"]).destination_hash(&peer);
     let trailer = LinkTrailer {
         mode: LinkMode::Aes256Cbc,
-        mtu: 500,
+        mtu: 8192,
     };
     let (pending, request) = PendingLink::open(dest_hash, peer, &[0x33; 64], trailer);
     let (_, proof) = accept(&request, &dest_identity, &[0x99; 64], trailer).unwrap();
     assert!(pending.prove(&proof).is_ok());
 
-    // Without a trailer the proof signs the keys alone and signals the default mode.
+    // Without a trailer the proof signs the keys alone, signals the default mode, and leaves
+    // the link at `Reticulum.MTU` (`Link.py` 422).
     let mut bare = proof.clone();
     bare.payload.truncate(LINK_PROOF_LEN - TRAILER_LEN);
     let mut signed = pending.link_id().as_slice().to_vec();
