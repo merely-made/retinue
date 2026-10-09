@@ -6,7 +6,7 @@ Scenarios, each judged on stock's state or on the air's byte log:
 - `main` (flow control, airtime locks and an ID beacon on both; the air answers each DATA
   with READY after 200 ms): has_path, an ACTIVE link, a request answered and a multi-part
   Resource COMPLETE on stock, with Retinue up although the air echoes its airtime locks
-  lossily; Retinue's ALOCK and ID frames equal stock's; the ID goes out an interval after
+  as a different value (RNS records them and never validates them); Retinue's ALOCK and ID frames equal stock's; the ID goes out an interval after
   traffic and never twice without traffic between; Retinue never has two DATA frames
   unacknowledged; on shutdown its device sees RADIO_STATE 00 then LEAVE FF.
 - `ifac` (`ifac_size = 64`): Resources complete both ways, and a request and its response
@@ -66,7 +66,7 @@ def main_scenario() -> dict[str, bool]:
     results["Retinue's ALOCK bytes equal stock's"] = (
         len(locks[STOCK]) >= 2 and locks[RETINUE][:2] == locks[STOCK][:2])
     echoes = [f for _, f in air.device_frames(RETINUE, ST_ALOCK)]
-    results["Retinue online with a lossy ALOCK echo"] = (
+    results["Retinue online with a differing ALOCK echo"] = (
         bool(echoes) and bool(locks[RETINUE]) and echoes[0] != locks[RETINUE][0]
         and results.get("stock link ACTIVE", False))
 

@@ -76,10 +76,11 @@ fn airtime_locks_are_sent_before_the_radio_comes_up() {
     );
 }
 
-/// A device may store the limit lossily: 2.09% echoed as 2.08%, 100% as 0 (no limit).
+/// RNS records airtime-lock echoes but never validates them (`RNodeInterface.py` 667-692,
+/// 896-925), so any echo is recorded and the radio still comes up.
 #[test]
 fn airtime_lock_echoes_are_recorded_not_compared() {
-    for (asked, echoed) in [(209_u16, 208_u16), (10_000, 0)] {
+    for (asked, echoed) in [(500_u16, 250_u16), (2_500, 7)] {
         let config = RNodeConfig {
             st_alock: Some(asked),
             lt_alock: Some(asked),

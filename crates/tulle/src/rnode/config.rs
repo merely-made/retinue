@@ -175,7 +175,7 @@ impl Reported {
     ///
     /// Stricter than RNS (`RNodeInterface.py` 667-695): a missing frequency echo and a wrong
     /// coding rate both fail here. Airtime limits are recorded but, as in RNS (896-925), never
-    /// compared: a device may store the limit lossily and echo a different value.
+    /// compared.
     pub fn mismatch(&self, config: &RNodeConfig) -> Option<Mismatch> {
         let p = &config.params;
         let checks = [
