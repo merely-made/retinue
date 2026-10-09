@@ -38,7 +38,7 @@ pub const CUSTOM_META: u8 = 0xFD;
 pub const NON_SPECIFIC: u8 = 0xFE;
 pub const DEBUG: u8 = 0xFF;
 
-/// Audio modes for the [`AUDIO`](crate::fields::AUDIO) field.
+/// Audio modes for the [`AUDIO`] field.
 pub mod audio {
     pub const CODEC2_450PWB: u8 = 0x01;
     pub const CODEC2_450: u8 = 0x02;
@@ -63,7 +63,7 @@ pub mod audio {
     pub const CUSTOM: u8 = 0xFF;
 }
 
-/// How a receiver should render the content, for the [`RENDERER`](crate::fields::RENDERER) field.
+/// How a receiver should render the content, for the [`RENDERER`] field.
 pub mod renderer {
     pub const PLAIN: u8 = 0x00;
     pub const MICRON: u8 = 0x01;
@@ -71,7 +71,7 @@ pub mod renderer {
     pub const BBCODE: u8 = 0x03;
 }
 
-/// Keys of the [`REACTION`](crate::fields::REACTION) map.
+/// Keys of the [`REACTION`] map.
 pub mod reaction {
     /// Bytes: the full hash of the message reacted to.
     pub const TO: u8 = 0x00;
@@ -79,13 +79,13 @@ pub mod reaction {
     pub const CONTENT: u8 = 0x01;
 }
 
-/// Keys of the [`COMMENT`](crate::fields::COMMENT) map.
+/// Keys of the [`COMMENT`] map.
 pub mod comment {
     /// Bytes: the full hash of the message commented on.
     pub const FOR: u8 = 0x00;
 }
 
-/// Keys of the [`CONTINUATION`](crate::fields::CONTINUATION) map.
+/// Keys of the [`CONTINUATION`] map.
 pub mod continuation {
     /// Bytes: the full hash of the message continued.
     pub const OF: u8 = 0x00;
