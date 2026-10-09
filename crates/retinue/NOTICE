@@ -267,6 +267,30 @@ From the interface batch (2026-10-09), same source:
   `Interfaces/RNodeInterface.py` 156-158, 336-347, 698-744, 1145-1149,
   1211-1212.
   Targets: `src/iface/beacon.rs`, `src/iface/tulle.rs`.
+- The UDP carrier: one raw packet per datagram, receive bounded at HW_MTU 1064
+  plus the access code, 16-byte IFAC by default, the subnet broadcast for a
+  device, and a 10 Mbps bitrate guess. It sends from one ephemeral broadcast
+  socket (stock opens one per send), drops its own frames heard back within
+  2 s, may share a port with SO_REUSEADDR, and a forward-only carrier is
+  online (stock leaves it offline). RNS `Interfaces/UDPInterface.py` 40-151;
+  `Interfaces/util/netinfo.py` 64-71; `Transport.py` 1790-1791.
+  Targets: `src/iface/udp.rs`, `src/iface/netinfo.rs`.
+- AutoInterface addressing: the discovery group, the peering token over the
+  RFC 5952 link-local text with the KAME scope cleared (also when the interface
+  id holds the longest zero run, which stock's pattern misses), and the
+  multi-interface duplicate ring. RNS `Interfaces/AutoInterface.py` 47-59,
+  80-85, 164-213, 369-371, 490-513; `Interfaces/util/netinfo.py` 157-171.
+  Target: `src/auto.rs`.
+- The AutoInterface carrier: interface selection with the Darwin and Android
+  skip lists and a strict UP/MULTICAST filter, discovery, reverse peering and
+  data sockets, peer timeouts, carrier echo tracking and one interface per
+  peer. Unlike stock: peers are keyed by address and interface index and capped
+  at 64 per interface; tokens go from the bound data socket; a new peer gets an
+  immediate unicast token; a link-local change rebinds all three sockets, and
+  the adopted address is kept while present; no adoptable interface is an
+  error. RNS `Interfaces/AutoInterface.py` 44-73, 103-356, 358-482, 485-520,
+  526-614, 633-700; `Reticulum.py` 1114-1116.
+  Target: `src/iface/auto/`.
 
 ## Prns
 

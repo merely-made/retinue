@@ -4,12 +4,19 @@
 adaptation goes in `crates/retinue/NOTICE`. The relicence to adapt RNS is on
 record (2026-10-05).
 
-**Status, 2026-10-09:** batch 1 integrated on `if/integration` (units U1-U4
-and U6 after seam S0), its adaptations listed in `crates/retinue/NOTICE`.
+**Status, 2026-10-09:** batch 1 landed on `main` (units U1-U4 and U6 after
+seam S0, then U5), its adaptations listed in `crates/retinue/NOTICE`.
 - **Landed:** A1, A2, A3, A5, A9, A10, A11; A4 for announces (the path-request
   rules wait for recursive discovery); B1, B2, B3, B7, B8, B12; B5 in part
-  (`Ifac::from_config_bits` only); C1, C3; C7's `prefer_ipv6` for dialing.
-- **Deferred:** U5, the datagram unit (A7, A8, B9). Batch 2 as planned: A6,
+  (`Ifac::from_config_bits` only); C1, C3; C7's `prefer_ipv6` for dialing;
+  A7 (UDP), A8 (Auto) and B9 from U5. Auto peers are capped at 64 per
+  interface (stock has no cap).
+- **Not yet verified live:** Auto against stock. The `datagram` lane checks
+  UDP on stock's state and Auto's addresses and tokens against stock vectors;
+  the `datagram-lan` (en1) lane needs the oracle Python and the examples
+  admitted by the macOS application firewall, and `datagram-root` needs feth
+  pairs created as root.
+- **Deferred:** batch 2 as planned: A6,
   B4, the rest of B5, B6, B10, B11, B13, C2, C4-C6, C8 and the rest of C7.
 - **Open within batch 1:** the Node core relays with the ingress interface as
   next hop (its bounded route table can evict a route before release), and
