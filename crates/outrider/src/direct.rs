@@ -1,8 +1,8 @@
 //! Direct LXMF delivery over Retinue links and Resources.
 
 use retinue::endpoint::{
-    AcceptedResource, Endpoint, InterfaceId, PayloadMode, PeerAnnounce, ReceivedPayload,
-    ResourceTransferConfig,
+    AcceptedResource, Endpoint, InterfaceId, PayloadMode, PeerAnnounce, ProofStrategy,
+    ReceivedPayload, ResourceTransferConfig,
 };
 use retinue::hash::AddressHash;
 use retinue::identity::{Identity, PrivateIdentity};
@@ -11,6 +11,8 @@ use crate::announce::{AnnounceError, DeliveryAnnounce, delivery_destination, del
 use crate::codec::{
     CodecError, DEFAULT_MAX_MESSAGE_BYTES, DecodedLxmf, LxmfPayload, decode_bounded, prepare,
 };
+use crate::delivered::DeliveredCache;
+use crate::inbound::{StampOutcome, StampRefusal, Verification, check_stamp, unix_now, verify};
 use crate::stamp::{MESSAGE_WORKBLOCK_ROUNDS, STAMP_LEN, find_streamed, valid_streamed};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -24,7 +26,13 @@ pub struct DirectReceipt {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ReceivedDirect {
     pub message: DecodedLxmf,
-    pub source_identity: Identity,
+    /// [`Verification::Verified`] or [`Verification::SourceUnknown`]; an invalid signature is
+    /// refused.
+    pub verification: Verification,
+    /// The sender's identity, when it verified.
+    pub source_identity: Option<Identity>,
+    /// The stamp's worth, when this destination asks for one.
+    pub stamp: Option<StampOutcome>,
     pub mode: PayloadMode,
     pub interface: InterfaceId,
     /// The complete signed LXMF object received from Retinue.
@@ -32,7 +40,8 @@ pub struct ReceivedDirect {
 }
 
 /// Register this endpoint's `lxmf.delivery` destination for both direct data
-/// packets and Resource-backed messages.
+/// packets and Resource-backed messages, proving the single packets
+/// [`opportunistic::receive`](crate::opportunistic::receive) verifies.
 pub fn register(
     endpoint: &Endpoint,
     announce: &DeliveryAnnounce,
@@ -40,7 +49,8 @@ pub fn register(
     let app_data = announce.encode()?;
     let name = delivery_name();
     let destination = name.destination_hash(endpoint.identity());
-    endpoint.register_resource(name, &app_data);
+    endpoint.register_resource(name.clone(), &app_data);
+    endpoint.set_proof_strategy(&name, ProofStrategy::App)?;
     Ok(destination)
 }
 
@@ -185,11 +195,13 @@ async fn finish_send(
 pub async fn receive(
     endpoint: &Endpoint,
     accepted: AcceptedResource,
+    delivered: &DeliveredCache,
     max_message_bytes: usize,
 ) -> Result<ReceivedDirect, DirectError> {
     receive_with_stamp_cost_and_resource_config(
         endpoint,
         accepted,
+        delivered,
         max_message_bytes,
         None,
         ResourceTransferConfig::default(),
@@ -202,12 +214,14 @@ pub async fn receive(
 pub async fn receive_with_resource_config(
     endpoint: &Endpoint,
     accepted: AcceptedResource,
+    delivered: &DeliveredCache,
     max_message_bytes: usize,
     resource_config: ResourceTransferConfig,
 ) -> Result<ReceivedDirect, DirectError> {
     receive_with_stamp_cost_and_resource_config(
         endpoint,
         accepted,
+        delivered,
         max_message_bytes,
         None,
         resource_config,
@@ -220,12 +234,14 @@ pub async fn receive_with_resource_config(
 pub async fn receive_with_stamp_cost(
     endpoint: &Endpoint,
     accepted: AcceptedResource,
+    delivered: &DeliveredCache,
     max_message_bytes: usize,
     stamp_cost: Option<u8>,
 ) -> Result<ReceivedDirect, DirectError> {
     receive_with_stamp_cost_and_resource_config(
         endpoint,
         accepted,
+        delivered,
         max_message_bytes,
         stamp_cost,
         ResourceTransferConfig::default(),
@@ -235,9 +251,16 @@ pub async fn receive_with_stamp_cost(
 
 /// Decode and authenticate direct delivery, enforcing its announced stamp
 /// cost and applying explicit policy if the message arrives as a Resource.
+///
+/// The payload is proved on arrival, before parsing, as stock does (`LXMRouter.py`
+/// 1995-1996); a Resource proves itself on completion. So a message from an unknown source
+/// is handed over as [`Verification::SourceUnknown`] for the host to hold, since its sender
+/// will not send it again. A verified message already in `delivered` is refused as
+/// [`Duplicate`](DirectError::Duplicate).
 pub async fn receive_with_stamp_cost_and_resource_config(
     endpoint: &Endpoint,
     mut accepted: AcceptedResource,
+    delivered: &DeliveredCache,
     max_message_bytes: usize,
     stamp_cost: Option<u8>,
     resource_config: ResourceTransferConfig,
@@ -249,7 +272,10 @@ pub async fn receive_with_stamp_cost_and_resource_config(
     let interface = accepted.interface;
     accepted.session.set_config(resource_config);
     let (mode, packed) = match accepted.session.receive().await? {
-        ReceivedPayload::Data(bytes) => (PayloadMode::Data, bytes),
+        ReceivedPayload::Data(bytes) => {
+            accepted.session.prove_data()?;
+            (PayloadMode::Data, bytes)
+        }
         ReceivedPayload::Resource(bytes) => (PayloadMode::Resource, bytes),
     };
     let message = decode_bounded(&packed, max_message_bytes.min(DEFAULT_MAX_MESSAGE_BYTES))?;
@@ -258,41 +284,23 @@ pub async fn receive_with_stamp_cost_and_resource_config(
     }
     let source = AddressHash::from_bytes(message.source);
     let identified = accepted.session.identified_peer();
-    let source_identity = crate::announce::resolve_source_with_link(endpoint, source, identified)
-        .ok_or(DirectError::UnknownSource {
-        address: source,
-        identified: identified.is_some(),
-    })?;
-    // Belt and braces once a link-proven identity can reach here: `resolve_source_with_link`
-    // already refuses one that does not derive to `source`, and this says the same thing about
-    // the address-book path, where it used to be implicit in the lookup key.
-    if source != delivery_destination(&source_identity) {
-        return Err(DirectError::WrongSource);
-    }
-    if !message.verify_with(|bytes, signature| source_identity.verify(bytes, signature)) {
+    let source_identity = crate::announce::resolve_source_with_link(endpoint, source, identified);
+    let verification = verify(&message, source_identity.as_ref());
+    if verification == Verification::SignatureInvalid {
         return Err(DirectError::BadSignature);
     }
-    if let Some(target) = stamp_cost {
-        let Some(stamp) = message
-            .payload
-            .stamp
-            .as_deref()
-            .and_then(|stamp| <&[u8; STAMP_LEN]>::try_from(stamp).ok())
-        else {
-            return Err(DirectError::StampRequired(target));
-        };
-        if !valid_streamed(
-            &message.message_id,
-            MESSAGE_WORKBLOCK_ROUNDS,
-            stamp,
-            u16::from(target),
-        ) {
-            return Err(DirectError::InvalidStamp);
-        }
+    let stamp = check_stamp(&message, stamp_cost).map_err(|refusal| match refusal {
+        StampRefusal::Required(cost) => DirectError::StampRequired(cost),
+        StampRefusal::Invalid => DirectError::InvalidStamp,
+    })?;
+    if verification == Verification::Verified && !delivered.admit(message.message_id, unix_now()) {
+        return Err(DirectError::Duplicate(message.message_id));
     }
     Ok(ReceivedDirect {
         message,
+        verification,
         source_identity,
+        stamp,
         mode,
         interface,
         packed,
@@ -311,22 +319,10 @@ pub enum DirectError {
     LocalIdentityMismatch,
     #[error("the session or announce is not for the expected lxmf.delivery destination")]
     WrongDestination,
-    /// Carries whether the peer identified itself on the link, because that is what
-    /// separates the two causes: a sender that never announced and never said who it was,
-    /// against one that identified as somebody other than the source its message claims.
-    #[error(
-        "the message source {address} has no validated delivery announce \
-         (peer identified on the link: {identified})"
-    )]
-    UnknownSource {
-        // Not named `source`: thiserror reads that name as the error's own cause.
-        address: AddressHash,
-        identified: bool,
-    },
-    #[error("the resolved identity does not derive to the source the message names")]
-    WrongSource,
     #[error("the LXMF signature does not verify against the announced source identity")]
     BadSignature,
+    #[error("the message was already delivered here")]
+    Duplicate([u8; 32]),
     #[error("the peer requires a direct-delivery stamp with cost {0}")]
     StampRequired(u8),
     #[error("the direct-delivery stamp is invalid")]

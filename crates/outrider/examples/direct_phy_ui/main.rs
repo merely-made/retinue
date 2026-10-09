@@ -246,6 +246,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let received = receive_direct_with_stamp_cost_and_resource_config(
             &pair.right,
             accepted,
+            &outrider::DeliveredCache::default(),
             DEFAULT_MAX_MESSAGE_BYTES,
             Some(STAMP_COST),
             resource_config,
@@ -277,7 +278,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if received.mode != PayloadMode::Data
         || sent.mode != PayloadMode::Data
         || received.message.message_id != sent.message_id
-        || received.source_identity != *left_identity.public()
+        || received.source_identity != Some(*left_identity.public())
         || received.message.payload.title != expected_title
         || received.message.payload.content != expected_content
     {

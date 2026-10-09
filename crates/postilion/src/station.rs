@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use outrider::{
-    DEFAULT_MAX_MESSAGE_BYTES, DeliveryAnnounce, LxmfPayload, announce_delivery,
+    DEFAULT_MAX_MESSAGE_BYTES, DeliveryAnnounce, LxmfPayload, Verification, announce_delivery,
     receive_direct_with_stamp_cost_and_resource_config, register_delivery,
     send_direct_stamped_with_resource_config,
 };
@@ -17,6 +17,7 @@ use tulle::airtime::AirtimeBudget;
 use tulle::direct_phy_serial::{DirectPhySerialConfig, DirectPhySerialLink};
 use tulle::serial::{RNodeSerialLink, SerialPumpConfig};
 
+use crate::held::Held;
 use crate::management::{self, ManagementState};
 use crate::{Error, Event, Peer, Radio, Sent, StationConfig, StationRadioConfig, profile};
 
@@ -114,6 +115,7 @@ impl Station {
         let management = Arc::new(Mutex::new(ManagementState::new(
             config.announce_history_bound,
         )));
+        let held = Arc::new(Held::default());
         let mut tasks = Vec::new();
 
         tasks.push(tokio::spawn({
@@ -132,14 +134,22 @@ impl Station {
             let endpoint = Arc::clone(&endpoint);
             let management = Arc::clone(&management);
             let events_tx = events_tx.clone();
+            let held = Arc::clone(&held);
             async move {
                 while let Ok(heard) = endpoint.next_announcement().await {
                     let peer = Peer::from_announce(heard);
+                    let released = held.release(&endpoint, peer.destination, now_secs());
                     let fresh = management
                         .lock()
                         .unwrap()
                         .observe(peer.clone(), Instant::now());
                     if fresh && events_tx.send(Event::PeerAppeared(peer)).is_err() {
+                        return;
+                    }
+                    if released
+                        .into_iter()
+                        .any(|event| events_tx.send(event).is_err())
+                    {
                         return;
                     }
                 }
@@ -148,6 +158,7 @@ impl Station {
 
         tasks.push(tokio::spawn({
             let endpoint = Arc::clone(&endpoint);
+            let held = Arc::clone(&held);
             async move {
                 loop {
                     let Ok(accepted) = endpoint.accept_resource().await else {
@@ -156,16 +167,22 @@ impl Station {
                     let event = match receive_direct_with_stamp_cost_and_resource_config(
                         &endpoint,
                         accepted,
+                        &held.delivered,
                         DEFAULT_MAX_MESSAGE_BYTES,
                         None,
                         resource_config,
                     )
                     .await
                     {
-                        Ok(received) => Event::authenticated_message(received),
-                        Err(error) => Event::Dropped(error.to_string()),
+                        Ok(received) if received.verification == Verification::SourceUnknown => {
+                            held.hold(received)
+                        }
+                        Ok(received) => Some(Event::authenticated_message(received)),
+                        Err(error) => Some(Event::Dropped(error.to_string())),
                     };
-                    if events_tx.send(event).is_err() {
+                    if let Some(event) = event
+                        && events_tx.send(event).is_err()
+                    {
                         return;
                     }
                 }

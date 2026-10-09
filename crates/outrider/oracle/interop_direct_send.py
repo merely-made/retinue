@@ -1,4 +1,7 @@
-"""Pinned stock LXMF sends one direct message to Outrider over Retinue.
+"""Pinned stock LXMF sends one direct message to Outrider over Retinue, then resends it.
+
+Passes only when stock itself records both sends as DELIVERED, which needs Outrider's
+proofs, and Outrider reports the resend as a duplicate rather than a second message.
 
 This is an external-oracle driver, not an implementation input. It uses only
 the public LXMF and RNS APIs, while the Rust example captures and verifies the
@@ -33,6 +36,7 @@ CONTENT = (
 )
 TIMESTAMP = 1_753_603_201.5
 SENDER_SEED = bytes([0x77] * 64)
+DELIVERY_DEADLINE = 30
 
 
 def main() -> int:
@@ -46,6 +50,7 @@ def main() -> int:
     process = subprocess.Popen(
         command,
         cwd=REPO,
+        env={**os.environ, "OUTRIDER_EXPECT_DUPLICATES": "1"},
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
@@ -112,6 +117,8 @@ def main() -> int:
         source.announce()
 
         sent = threading.Event()
+        receiver_identity = []
+        messages: list[LXMF.LXMessage] = []
 
         class DeliveryAnnounce:
             aspect_filter = "lxmf.delivery"
@@ -121,40 +128,65 @@ def main() -> int:
             ) -> None:
                 if destination_hash != destination or sent.is_set():
                     return
+                receiver_identity.append(announced_identity)
                 sent.set()
-                outbound = RNS.Destination(
-                    announced_identity,
-                    RNS.Destination.OUT,
-                    RNS.Destination.SINGLE,
-                    "lxmf",
-                    "delivery",
-                )
-                message = LXMF.LXMessage(outbound, source, CONTENT, title=TITLE)
-                message.timestamp = TIMESTAMP
-                router.handle_outbound(message)
-                print(f"  stock: queued {message.hash.hex()}")
 
         RNS.Transport.register_announce_handler(DeliveryAnnounce())
 
-        result_deadline = time.time() + 60
-        while time.time() < result_deadline:
-            if process.poll() is not None:
-                break
-            if any(line.startswith("SIGNATURE_VERIFIED ") for line in lines):
-                break
-            time.sleep(0.1)
+        def send() -> None:
+            outbound = RNS.Destination(
+                receiver_identity[0],
+                RNS.Destination.OUT,
+                RNS.Destination.SINGLE,
+                "lxmf",
+                "delivery",
+            )
+            message = LXMF.LXMessage(outbound, source, CONTENT, title=TITLE)
+            message.timestamp = TIMESTAMP
+            router.handle_outbound(message)
+            messages.append(message)
+            print(f"  stock: queued {message.hash.hex()}")
+
+        def delivered(message: LXMF.LXMessage) -> bool:
+            deadline = time.time() + DELIVERY_DEADLINE
+            while time.time() < deadline:
+                if message.state == LXMF.LXMessage.DELIVERED:
+                    return True
+                time.sleep(0.1)
+            print(f"  stock: state {message.state} after {DELIVERY_DEADLINE}s")
+            return False
+
+        first_delivered = second_delivered = False
+        if sent.wait(timeout=60):
+            send()
+            first_delivered = delivered(messages[0])
+            # The same message again, as a stock retry would carry it.
+            send()
+            second_delivered = delivered(messages[1])
 
         try:
-            process.wait(timeout=5)
+            process.wait(timeout=10)
         except subprocess.TimeoutExpired:
             process.kill()
 
+        message_hash = bytes(messages[0].hash) if messages else None
+        captured = [bytes.fromhex(line[11:]) for line in lines if line.startswith("MESSAGE_ID ")]
+        duplicates = [bytes.fromhex(line[10:]) for line in lines if line.startswith("DUPLICATE ")]
+        once = (
+            len(messages) == 2
+            and messages[1].hash == messages[0].hash
+            and captured == [message_hash]
+            and duplicates == [message_hash]
+        )
         title_ok = f"TITLE {TITLE.hex()}" in lines
         content_ok = f"CONTENT {CONTENT.hex()}" in lines
         signature_ok = "SIGNATURE_VERIFIED true" in lines
         packed = next((line[7:] for line in lines if line.startswith("PACKED ")), None)
         expected_transport = "resource" if LARGE else "data"
         transport_ok = f"TRANSPORT {expected_transport}" in lines
+        stamp_ok = any(
+            line.startswith("STAMP_VALUE ") and int(line[12:]) >= 8 for line in lines
+        )
         ok = (
             sent.is_set()
             and title_ok
@@ -162,12 +194,20 @@ def main() -> int:
             and signature_ok
             and packed is not None
             and transport_ok
+            and stamp_ok
+            and first_delivered
+            and second_delivered
+            and once
         )
         print(f"stock queued direct message: {'PASS' if sent.is_set() else 'FAIL'}")
         print(f"Outrider decoded title/body: {'PASS' if title_ok and content_ok else 'FAIL'}")
         print(f"Outrider verified signature: {'PASS' if signature_ok else 'FAIL'}")
         print(f"captured complete wire object: {'PASS' if packed is not None else 'FAIL'}")
         print(f"stock chose {expected_transport}: {'PASS' if transport_ok else 'FAIL'}")
+        print(f"Outrider reported the stamp value: {'PASS' if stamp_ok else 'FAIL'}")
+        print(f"stock message DELIVERED: {'PASS' if first_delivered else 'FAIL'}")
+        print(f"stock resend DELIVERED: {'PASS' if second_delivered else 'FAIL'}")
+        print(f"one MESSAGE_ID, resend a DUPLICATE: {'PASS' if once else 'FAIL'}")
         print(f"STOCK_TO_OUTRIDER_DIRECT: {'PASS' if ok else 'FAIL'}")
         exit_code = 0 if ok else 1
         return exit_code

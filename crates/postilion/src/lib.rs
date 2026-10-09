@@ -34,6 +34,7 @@ pub mod management;
 mod config;
 mod error;
 mod event;
+mod held;
 mod station;
 
 pub use config::{DEFAULT_RESOURCE_TIMEOUT, Radio, StationConfig, StationRadioConfig, profile};

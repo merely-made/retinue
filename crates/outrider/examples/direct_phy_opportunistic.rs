@@ -75,6 +75,7 @@ async fn transfer(spec: Transfer<'_>) -> Result<(), Box<dyn std::error::Error>> 
     let received = receive_opportunistic_with_stamp_cost(
         spec.receiver,
         single,
+        &outrider::DeliveredCache::default(),
         DEFAULT_MAX_MESSAGE_BYTES,
         Some(STAMP_COST),
     )?;
@@ -82,8 +83,8 @@ async fn transfer(spec: Transfer<'_>) -> Result<(), Box<dyn std::error::Error>> 
     if received.message.message_id != receipt.message_id
         || received.message.payload.title != spec.title
         || received.message.payload.content != spec.content
-        || received.source_identity != *spec.sender_identity.public()
-        || Some(received.ratchet_id) != receipt.ratchet_id
+        || received.source_identity != Some(*spec.sender_identity.public())
+        || received.ratchet_id != receipt.ratchet_id
     {
         return Err(format!("{} did not arrive byte-exact and authenticated", spec.label).into());
     }

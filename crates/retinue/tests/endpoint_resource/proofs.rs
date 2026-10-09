@@ -232,3 +232,64 @@ async fn a_publish_whose_proof_never_arrives_gives_up_after_its_cache_requests()
     // Three sent at completion, then one answer to each of three cache requests.
     assert_eq!(proofs.load(Ordering::Acquire), 3 + 3);
 }
+
+/// LXMF proves direct link data before parsing it (`LXMRouter.py` 1995-1996): the session
+/// proves the data packet its last receive returned, signed over that packet's hash.
+#[tokio::test]
+async fn a_session_proves_the_data_packet_it_received() {
+    use std::sync::Mutex;
+
+    let server_id = PrivateIdentity::from_secret_bytes(&[0x2a; 64]);
+    let server = Arc::new(Endpoint::new(server_id.clone()));
+    let client = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x1a; 64]));
+    let name = DestinationName::new("retinue", ["data-proof"]);
+    let destination = name.destination_hash(server_id.public());
+    server.register_resource(name, b"");
+
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let proved = Arc::new(Mutex::new(Vec::new()));
+    let (sent_log, proof_log) = (Arc::clone(&sent), Arc::clone(&proved));
+    connect_filtered(
+        &client,
+        &server,
+        move |packet| {
+            if packet.packet_type == PacketType::Data && packet.context == 0 {
+                sent_log.lock().unwrap().push(packet.full_hash());
+            }
+            true
+        },
+        move |packet| {
+            if packet.packet_type == PacketType::Proof && packet.context == 0 {
+                proof_log
+                    .lock()
+                    .unwrap()
+                    .push(packet.payload[..32].to_vec());
+            }
+            true
+        },
+    );
+
+    let receiver = tokio::spawn({
+        let server = Arc::clone(&server);
+        async move {
+            let mut accepted = server.accept_resource().await.unwrap();
+            assert!(accepted.session.prove_data().is_err());
+            let received = accepted.session.receive().await.unwrap();
+            accepted.session.prove_data().unwrap();
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            received
+        }
+    });
+    client
+        .send_payload(destination, *server_id.public(), b"prove me")
+        .await
+        .unwrap();
+    let received = tokio::time::timeout(Duration::from_secs(5), receiver)
+        .await
+        .expect("receiver completes")
+        .unwrap();
+    assert_eq!(received, ReceivedPayload::Data(b"prove me".to_vec()));
+    let proved = proved.lock().unwrap();
+    assert_eq!(proved.len(), 1);
+    assert!(sent.lock().unwrap().iter().any(|hash| proved[0] == hash));
+}
