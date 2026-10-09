@@ -40,6 +40,7 @@ GATES = (
     "interop_reliable_vanish.py",
     "interop_single_proof.py",
     "interop_ratchet_rotation.py",
+    "interop_node_resource_metadata.py",
 )
 
 

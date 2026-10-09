@@ -41,7 +41,7 @@ impl Sessions {
                         format!("resource action used interface {interface}, expected 0").into(),
                     );
                 }
-                Action::Resource { link_id, data } if link_id == self.link => {
+                Action::Resource { link_id, data, .. } if link_id == self.link => {
                     resources.push((from, data));
                 }
                 other => return Err(format!("unexpected resource action: {other:?}").into()),

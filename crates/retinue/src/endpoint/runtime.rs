@@ -28,6 +28,7 @@ use super::dedup::{HashList, LinkPacketMemory, PACKET_HASHES, PATH_REQUEST_TAGS}
 use super::facts::PeerAnnounce;
 use super::inbound::{Accepted, AcceptedResource, InboundLinks};
 use super::interface::InterfaceId;
+use super::known_destinations::KNOWN_DESTINATIONS_INTERVAL;
 use super::router::route;
 use super::routing::{RoutingPolicy, RoutingStats};
 use super::shared::{Lifecycle, Quiesce, Shared};
@@ -105,6 +106,7 @@ impl Endpoint {
             closed_notify: tokio::sync::Notify::new(),
             identity,
             address_book: Mutex::new(AddressBook::new()),
+            book_persistence: Mutex::new(None),
             links: Arc::new(Mutex::new(HashMap::new())),
             registered: Mutex::new(Vec::new()),
             ratchet_persistence: Mutex::new(None),
@@ -185,6 +187,17 @@ impl Endpoint {
                 watch_links(&watchdog);
             }
         });
+        let cleaner = Arc::clone(&shared);
+        track(&shared, async move {
+            let mut tick = tokio::time::interval(KNOWN_DESTINATIONS_INTERVAL);
+            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            tick.tick().await;
+            loop {
+                tick.tick().await;
+                // A failed write is retried at the next interval, as RNS's next clean does.
+                let _ = cleaner.clean_and_persist_book();
+            }
+        });
 
         Ok(Self {
             shared,
@@ -201,8 +214,10 @@ impl Endpoint {
         self.shared.identity.public()
     }
 
-    /// The address book, for resolving learned peers.
+    /// The address book, for resolving learned peers. A resolve counts as a use, as RNS's
+    /// `Identity.recall` does, so the peer is kept through cleaning.
     pub fn resolve(&self, dest: AddressHash) -> Option<Identity> {
+        self.shared.mark_destination_used(dest);
         self.shared
             .address_book
             .lock()

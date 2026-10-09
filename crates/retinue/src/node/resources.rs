@@ -24,7 +24,48 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         iv: &[u8; crate::token::IV_LEN],
         now: u64,
     ) -> Option<Actions<ACTIONS>> {
-        if data.len() > self.payload_limits.max_outbound_resource {
+        self.start_sender(link_id, interface, data, None, random_hash, iv, now)
+    }
+
+    /// [`publish`](Self::publish) with `metadata`, one already-packed msgpack value that
+    /// reaches the receiver beside the data (RNS `Resource.py` 261-272). The metadata counts
+    /// toward the outbound size limit.
+    #[allow(clippy::too_many_arguments)]
+    pub fn publish_with_metadata(
+        &mut self,
+        link_id: AddressHash,
+        interface: InterfaceId,
+        data: &[u8],
+        metadata: &[u8],
+        random_hash: [u8; crate::resource::RANDOM_HASH_LEN],
+        iv: &[u8; crate::token::IV_LEN],
+        now: u64,
+    ) -> Option<Actions<ACTIONS>> {
+        self.start_sender(
+            link_id,
+            interface,
+            data,
+            Some(metadata),
+            random_hash,
+            iv,
+            now,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn start_sender(
+        &mut self,
+        link_id: AddressHash,
+        interface: InterfaceId,
+        data: &[u8],
+        metadata: Option<&[u8]>,
+        random_hash: [u8; crate::resource::RANDOM_HASH_LEN],
+        iv: &[u8; crate::token::IV_LEN],
+        now: u64,
+    ) -> Option<Actions<ACTIONS>> {
+        // Metadata travels framed by a three-byte length in front of the data.
+        let framed = data.len() + metadata.map_or(0, |m| 3 + m.len());
+        if framed > self.payload_limits.max_outbound_resource {
             self.refused_payloads = self.refused_payloads.saturating_add(1);
             return None;
         }
@@ -33,7 +74,13 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         }
         let (link, _, _) = self.links.iter().find(|(l, _, _)| l.id() == link_id)?;
 
-        let sender = ResourceSender::publish(link.clone(), data, random_hash, iv);
+        let sender = match metadata {
+            None => ResourceSender::publish(link.clone(), data, random_hash, iv),
+            Some(metadata) => {
+                ResourceSender::publish_with_metadata(link.clone(), data, metadata, random_hash, iv)
+                    .ok()?
+            }
+        };
         let advertisement = sender.advertisement(iv);
         let _ = self.senders.push((link_id, sender, now));
 
@@ -170,13 +217,12 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                 self.resource_proofs.retain(|(id, _, _, _)| *id != link_id);
                 let _ = self.resource_proofs.push((link_id, proof, now, 0));
             }
-            // Metadata the sender attached is not carried: a Node delivers the data, and
-            // counts the drop.
             if let Some((data, metadata)) = self.receivers[pos].1.take_payload() {
-                if metadata.is_some() {
-                    self.dropped_metadata = self.dropped_metadata.saturating_add(1);
-                }
-                actions.push(Action::Resource { link_id, data });
+                actions.push(Action::Resource {
+                    link_id,
+                    data,
+                    metadata,
+                });
             }
             self.receivers.swap_remove(pos);
         } else if self.receivers[pos].1.failure().is_some() {

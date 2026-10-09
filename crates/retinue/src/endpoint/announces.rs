@@ -367,7 +367,7 @@ pub(super) fn process_verified_announce(
     // A full book evicts the least recently heard peer with no live path or link. A refusal
     // only keeps the identity out of the book (no `PeerAnnounce`): the path is still learned
     // and the announce still relayed, as RNS relays from its path table.
-    let now = shared.announce_admission_now_ms();
+    let now = super::known_destinations::book_clock_ms();
     let in_use = {
         let book = shared.address_book.lock().unwrap();
         book.is_full() && !book.knows(announce.destination)

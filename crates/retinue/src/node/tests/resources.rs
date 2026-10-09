@@ -305,49 +305,72 @@ fn a_re_advertisement_of_a_proved_resource_is_answered_from_the_kept_proof() {
     assert!(!b.transfer_active(id), "and no transfer started");
 }
 
-/// A resource sent with metadata is delivered as its data alone, and the dropped
-/// metadata is counted rather than lost silently.
+/// Metadata a Node attaches reaches the receiving Node beside the data, and a resource sent
+/// without any arrives with none (RNS `Resource.py` 261-272, 707-749).
 #[test]
-fn dropped_metadata_is_counted() {
-    let (a, mut b, id) = linked();
-    let link = a
-        .links
-        .iter()
-        .find(|(link, _, _)| link.id() == id)
-        .unwrap()
-        .0
-        .clone();
+fn metadata_round_trips_between_nodes() {
+    let (mut a, mut b, id) = linked();
     let data = b"the data".to_vec();
-    let mut sender = ResourceSender::publish_with_metadata(
-        link,
-        &data,
-        &[0xA1, b'x'],
-        [0x5B; 4],
-        &[9; crate::token::IV_LEN],
-    )
-    .unwrap();
-    let mut counter = 0;
-    let seed = [0x43; 64];
-    let mut to_b = vec![sender.advertisement(&derived_iv(&seed, id, &mut counter))];
-    let mut delivered = None;
+    let metadata = vec![0xA1, b'x'];
+    let started = a
+        .publish_with_metadata(id, IFACE, &data, &metadata, [0x5B; 4], &[9; 16], 0)
+        .expect("a holds the link");
+    let mut to_b: Vec<Packet> = started
+        .into_iter()
+        .filter_map(|action| match action {
+            Action::Send { packet, .. } => Some(packet),
+            _ => None,
+        })
+        .collect();
+    let mut delivered = Vec::new();
     for _ in 0..16 {
         let mut to_a = Vec::new();
         for packet in to_b.drain(..) {
             for action in b.ingest(IFACE, &packet, 0) {
                 match action {
                     Action::Send { packet, .. } => to_a.push(packet),
-                    Action::Resource { data, .. } => delivered = Some(data),
+                    Action::Resource {
+                        link_id,
+                        data,
+                        metadata,
+                    } => delivered.push((link_id, data, metadata)),
                     _ => {}
                 }
             }
         }
         for packet in to_a {
-            to_b.extend(sender.on_packet(&packet, || derived_iv(&seed, id, &mut counter)));
+            for action in a.ingest(IFACE, &packet, 0) {
+                if let Action::Send { packet, .. } = action {
+                    to_b.push(packet);
+                }
+            }
         }
     }
-    assert_eq!(delivered, Some(data));
-    assert!(sender.is_done());
-    assert_eq!(b.dropped_metadata(), 1);
+    assert_eq!(delivered, [(id, data, Some(metadata))]);
+    assert!(!a.transfer_active(id), "the sender completed on the proof");
+
+    let plain = a
+        .publish(id, IFACE, b"bare", [0x5C; 4], &[10; 16], 0)
+        .expect("the link is free again");
+    let (_, got_b) = pump(&mut a, &mut b, plain);
+    assert_eq!(got_b, [b"bare".to_vec()]);
+}
+
+/// Metadata counts toward the outbound limit, so it cannot carry a resource past it.
+#[test]
+fn metadata_counts_toward_the_outbound_limit() {
+    let (mut a, _b, id) = linked();
+    a.payload_limits.max_outbound_resource = 64;
+    let data = vec![0; 61];
+    assert!(
+        a.publish_with_metadata(id, IFACE, &data, &[0xC0], [1; 4], &[1; 16], 0)
+            .is_none()
+    );
+    assert_eq!(a.refused_payloads(), 1);
+    assert!(
+        a.publish_with_metadata(id, IFACE, &data[1..], &[0xC0], [1; 4], &[1; 16], 0)
+            .is_some()
+    );
 }
 
 /// A Node proves a resource with the PROOF-type packet RNS accepts, and a Node sender

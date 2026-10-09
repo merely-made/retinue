@@ -142,8 +142,5 @@ pub struct Node<
     /// Resource offers refused: past the part ceiling, multi-segment, past the decompression
     /// limit, or with every receiver slot held.
     refused_offers: u16,
-    /// Received resources whose attached metadata was dropped, because
-    /// [`Action::Resource`] carries only the data.
-    dropped_metadata: u16,
     transport_counters: TransportCounters,
 }

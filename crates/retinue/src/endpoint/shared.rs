@@ -25,6 +25,7 @@ use super::dedup::{HashList, LinkPacketMemory, VERIFIED_ANNOUNCES};
 use super::facts::{LinkDirection, LinkFactKind, LinkRemoteFact, PeerAnnounce};
 use super::inbound::{Accepted, AcceptedResource, InboundLinks};
 use super::interface::{Iface, InterfaceId, QueueAdmission};
+use super::known_destinations::BookPersistence;
 use super::paths::PathEntry;
 use super::queue::TrafficClass;
 use super::registration::{RatchetPersistence, Registered};
@@ -96,6 +97,8 @@ pub(super) struct Shared {
     pub(super) closed_notify: tokio::sync::Notify,
     pub(super) identity: PrivateIdentity,
     pub(super) address_book: Mutex<AddressBook>,
+    /// The host's address-book persistence hook.
+    pub(super) book_persistence: Mutex<Option<BookPersistence>>,
     pub(super) links: Links,
     pub(super) registered: Mutex<Vec<Registered>>,
     /// The host's ratchet persistence hook. Its lock also serializes ratchet rotation, so

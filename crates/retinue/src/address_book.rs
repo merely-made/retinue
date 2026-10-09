@@ -7,7 +7,9 @@
 //!
 //! This is pure state over [`Announce`], which is itself already validated on decode, so an
 //! entry only ever comes from an announce whose signature checked out. Cadence and I/O live
-//! in the tokio shell above; this holds no timers and does no network.
+//! in the tokio shell above; this holds no timers and does no network. Usage-based cleaning
+//! is in [`Retention`], and the signed snapshot a host persists in
+//! [`AddressBook::encode_snapshot`].
 
 // Needed by the test build or the tokio shell; the bare no_std lib does not reach it.
 #[allow(unused_imports)]
@@ -21,6 +23,12 @@ use crate::announce::{Announce, RATCHET_LEN};
 use crate::hash::{AddressHash, NameHash};
 use crate::identity::Identity;
 
+mod retention;
+mod snapshot;
+
+pub use retention::{CleanReceipt, Retention};
+pub use snapshot::{RestoreReceipt, SnapshotError};
+
 /// What the book knows about one destination.
 #[derive(Clone, Debug)]
 pub struct Peer {
@@ -30,10 +38,12 @@ pub struct Peer {
     pub name_hash: NameHash,
     /// The most recently announced app data.
     pub app_data: Vec<u8>,
-    /// The destination's current ratchet public key, if it advertises ratchets. Kept so a
-    /// single-packet encryption to this destination can use the ratchet rather than the
-    /// long-term key.
+    /// The destination's most recently announced ratchet public key. Kept so a single-packet
+    /// encryption to this destination can use the ratchet rather than the long-term key. An
+    /// announce without a ratchet leaves it in place until it expires (RNS `Identity.py` 597).
     pub ratchet: Option<[u8; RATCHET_LEN]>,
+    /// The caller's tick when `ratchet` was first heard; [`Retention`] expires it from here.
+    pub ratchet_received: u64,
     /// How many announces for this destination have been ingested. A cheap freshness and
     /// liveness signal without a clock, which this layer deliberately does not have.
     pub announces_seen: u64,
@@ -41,6 +51,12 @@ pub struct Peer {
     /// [`AddressBook::ingest_at`]. Zero for an entry that only [`AddressBook::ingest`] has
     /// touched. It orders eviction; the book never reads a clock itself.
     pub last_heard: u64,
+    /// The caller's tick when this destination was last used to reach it, or zero if never
+    /// (RNS `Identity._used_destination_data`). See [`AddressBook::mark_used`].
+    pub last_used: u64,
+    /// Kept by [`Retention`] cleaning however long it goes unused
+    /// (RNS `Identity._retain_destination_data`).
+    pub retained: bool,
 }
 
 /// The most destinations a book holds unless told otherwise.
@@ -166,7 +182,11 @@ impl AddressBook {
         if let Some(p) = self.peers.get_mut(&announce.destination) {
             p.name_hash = announce.name_hash;
             p.app_data = announce.app_data.clone();
-            p.ratchet = announce.ratchet;
+            // A repeated ratchet keeps its first-heard tick (RNS `Identity.py` 410-420).
+            if announce.ratchet.is_some() && announce.ratchet != p.ratchet {
+                p.ratchet = announce.ratchet;
+                p.ratchet_received = now.unwrap_or(0);
+            }
             p.announces_seen += 1;
             if let Some(now) = now {
                 p.last_heard = p.last_heard.max(now);
@@ -198,8 +218,11 @@ impl AddressBook {
                 name_hash: announce.name_hash,
                 app_data: announce.app_data.clone(),
                 ratchet: announce.ratchet,
+                ratchet_received: announce.ratchet.and(now).unwrap_or(0),
                 announces_seen: 1,
                 last_heard: now.unwrap_or(0),
+                last_used: 0,
+                retained: false,
             },
         );
         Ingested::Learned
@@ -233,6 +256,31 @@ impl AddressBook {
     /// enforces.
     pub fn forget(&mut self, destination: AddressHash) -> Option<Peer> {
         self.peers.remove(&destination)
+    }
+
+    /// Note that `destination` was used at `now`, as RNS does on every recall. A retained
+    /// peer stays retained. Returns whether the destination is known.
+    pub fn mark_used(&mut self, destination: AddressHash, now: u64) -> bool {
+        let Some(peer) = self.peers.get_mut(&destination) else {
+            return false;
+        };
+        if !peer.retained {
+            peer.last_used = peer.last_used.max(now);
+        }
+        true
+    }
+
+    /// Keep `destination` through cleaning however long it goes unused, or release it, which
+    /// counts as a use at `now` (RNS `Identity.py` 252-268). Returns whether it is known.
+    pub fn set_retained(&mut self, destination: AddressHash, retained: bool, now: u64) -> bool {
+        let Some(peer) = self.peers.get_mut(&destination) else {
+            return false;
+        };
+        if peer.retained && !retained {
+            peer.last_used = now;
+        }
+        peer.retained = retained;
+        true
     }
 }
 
@@ -276,6 +324,19 @@ mod tests {
         let mut a = announce("announce_appdata.bin");
         a.destination = AddressHash::from_bytes([byte; 16]);
         a
+    }
+
+    /// Ingest at `now` an announce for the destination `[byte; 16]`, with `ratchet`.
+    pub(super) fn announce_at(
+        book: &mut AddressBook,
+        byte: u8,
+        ratchet: Option<[u8; RATCHET_LEN]>,
+        now: u64,
+    ) -> AddressHash {
+        let mut a = announce_for(byte);
+        a.ratchet = ratchet;
+        assert_ne!(book.ingest_at(&a, now, |_| true), Ingested::Refused);
+        a.destination
     }
 
     /// A full book makes room by forgetting the least recently heard peer the caller does not
