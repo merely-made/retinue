@@ -1,18 +1,11 @@
 //! The node channel: the board as a Retinue node that answers for itself.
 //!
-//! The trunk personality. Where the modem channel holds no protocol state and does what the
-//! host says, this one holds the board's identity, its address book, and its links, and
-//! decides for itself. A host attached to it is an observer, not a driver.
+//! The trunk personality: it holds the board's identity, address book, and links, and decides
+//! for itself; an attached host observes rather than drives.
 //!
-//! # What this channel is
-//!
-//! A driver for [`retinue::node::Node`], which is executor-neutral by construction: it never
-//! acts, it decides, returning [`Action`]s for a shell to perform. This is that shell. The
-//! division is what lets the same protocol code run against desktop fixtures and on a board
-//! with 256 KB, and it is why gate N3's done condition can ask the two to agree.
-//!
-//! Everything the node cannot do for itself arrives from the executive: the radio to send
-//! by, the entropy an announce needs, and the clock.
+//! [`retinue::node::Node`] never acts, it returns [`Action`]s; this is the shell that performs
+//! them, which is what lets gate N3 ask desktop fixtures and the board to agree. The radio,
+//! announce entropy, and the clock arrive from the executive.
 
 extern crate alloc;
 
@@ -22,7 +15,7 @@ use embassy_time::{Duration, Instant};
 use lora_phy::DelayNs;
 use lora_phy::mod_traits::RadioKind;
 use radio_face::{EventKind, Text, UiEvent};
-use retinue::announce::{ANNOUNCE_NONCE_LEN, AnnounceBlob, RAND_HASH_LEN, TimebaseGenerator};
+use retinue::announce::{ANNOUNCE_NONCE_LEN, AnnounceBlob, TimebaseGenerator};
 use retinue::hash::AddressHash;
 use retinue::node::{Action, Actions, InterfaceId, Node};
 use retinue::packet::Packet;
@@ -30,38 +23,28 @@ use retinue::packet::Packet;
 use crate::channel::{Channel, ChannelInfo, Event};
 use crate::executive::Executive;
 use crate::link::{Flow, HostLink};
-use crate::replay;
+
+mod host;
 
 /// The radio, as the node numbers its interfaces. One radio, so one number. A firmware
 /// configuring the node per interface, such as its first-hop airtime, names this one.
 pub const RADIO: InterfaceId = 0;
 
-/// How often the node's own timers are advanced.
-///
-/// Not the announce cadence — that is the node's, and defaults to ten minutes. This is the
-/// granularity at which it gets to notice one is due. Five seconds is loose enough to cost a
-/// battery board almost nothing and tight enough for the link timeouts and resource
-/// retransmits `poll` will own as the gates land; it wants revisiting when it does.
+/// How often the node's own timers are advanced: the granularity at which it notices an
+/// announce or link timeout is due, not the announce cadence itself.
 const BEAT: Duration = Duration::from_secs(5);
 
-/// The longest host line this channel accumulates.
-///
-/// A replay line is `replay <now> <hex>`, and the hex is a whole radio frame, so this is
-/// two characters per byte plus room for the verb and the clock. Anything longer is refused
-/// rather than truncated: a half-read packet that decoded anyway would be the worst possible
-/// outcome for a facility whose entire job is proving two implementations agree.
+/// The longest host line: `replay <now> <hex>` with a whole radio frame in hex. Longer lines
+/// are refused, never truncated, since a half-read packet that decoded anyway would defeat a
+/// facility whose job is proving two implementations agree.
 const MAX_LINE: usize = 2 * selvage::MAX_RADIO_FRAME_LEN + 40;
 
-/// The longest wait, in beats, between re-attempts of an announce the radio would not
-/// carry. At a five-second beat this is about two and a half minutes.
+/// The longest wait, in beats (about 2.5 minutes), between re-attempts of an announce the
+/// radio would not carry.
 ///
-/// The node stamps its announce when it *decides* to send one, so a frame the shell could
-/// not put on the air would otherwise cost a whole announce interval of invisibility — a
-/// ten-second jam making the board unfindable for ten minutes, which is what the hardware
-/// showed. The retry backs off rather than counting down to zero: a fixed budget is spent
-/// while the channel is still busy and gives up exactly when the air clears, which is the
-/// wrong moment. Backing off instead keeps trying forever, at a cost that decays to a CAD
-/// check every couple of minutes — cheap enough for a board whose radio is truly dead.
+/// The node stamps an announce when it decides to send, so an unsent frame would otherwise
+/// cost a whole announce interval of invisibility. The retry backs off forever rather than
+/// spending a fixed budget, which would give up exactly when the air clears.
 const ANNOUNCE_RETRY_MAX_BEATS: u8 = 32;
 
 /// The face's event line for a link request that expired unanswered (Ruling 46).
@@ -313,196 +296,6 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
     }
 }
 
-/// One whole host line, from `node` or `replay`.
-impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
-    NodeChannel<PEERS, ACTIONS, LINKS>
-{
-    async fn on_line<L, RK, DLY>(
-        &mut self,
-        exec: &mut Executive<'_, RK, DLY>,
-        link: &mut L,
-        line: &[u8],
-    ) -> Flow
-    where
-        L: HostLink,
-        RK: RadioKind,
-        DLY: DelayNs,
-    {
-        if line == b"node" {
-            let status = exec.status();
-            let transport = self.node.transport_counters();
-            let transport_on = self.node.transport_config().relay_packets;
-            let mut out = radio_face::Text::<224>::empty();
-            let _ = write!(
-                &mut out,
-                "node tx={} rx={} peers={} links={} refusedlinks={} refusedpeers={} \
-                 refusedoffers={} routes={} transport={} fwdannounce={} fwdpacket={} \
-                 routeexpired={} routeevicted={} hopdrop={} noroute={} unsent={} unseeded={} \
-                 timebaseexhausted={} timebase={} undecoded={} echoes={} echorefused={}\r\n",
-                status.tx_frames,
-                status.rx_frames,
-                self.node.peers().len(),
-                self.node.link_count(),
-                self.node.refused_links(),
-                self.node.refused_peers(),
-                self.node.refused_offers(),
-                self.node.route_count(),
-                u8::from(transport_on),
-                transport.forwarded_announces,
-                transport.forwarded_packets,
-                transport.expired_routes,
-                transport.evicted_routes,
-                transport.hop_limit_dropped,
-                transport.unroutable_packets,
-                self.unsent,
-                self.unseeded,
-                self.timebase_exhausted,
-                self.timebase.reserved_through(),
-                self.undecoded,
-                self.echoes,
-                self.echo_refused,
-            );
-            return Flow::from(link.write_all(out.as_str().as_bytes()).await);
-        }
-
-        // The panels, as text: exactly the snapshot the screen renders, so a bench can
-        // assert panel content over the wire while the TFT paints the same struct.
-        if line == b"face" {
-            let snapshot = self.face_snapshot(Self::now());
-            let mut out = radio_face::Text::<224>::empty();
-            let _ = write!(
-                &mut out,
-                "face name={} links={} peers=[",
-                snapshot
-                    .node
-                    .as_ref()
-                    .map(|n| n.name.as_str())
-                    .unwrap_or("-"),
-                snapshot.link_count,
-            );
-            for (index, peer) in snapshot.peers.iter().flatten().enumerate() {
-                let _ = write!(
-                    &mut out,
-                    "{}{} age={}s",
-                    if index > 0 { " " } else { "" },
-                    peer.name,
-                    peer.age_secs,
-                );
-            }
-            let _ = write!(
-                &mut out,
-                "] overflow={} event={}\r\n",
-                snapshot.peer_overflow,
-                snapshot
-                    .event
-                    .as_ref()
-                    .map(|e| e.text.as_str())
-                    .unwrap_or("-"),
-            );
-            return Flow::from(link.write_all(out.as_str().as_bytes()).await);
-        }
-
-        // `replay reset` starts a fresh replay node, so a run is not contaminated by the one
-        // before it. The desk half compares against a fresh node per fixture.
-        if line == b"replay reset" {
-            self.replay = None;
-            return Flow::from(link.write_all(b"replay reset\r\n").await);
-        }
-
-        if let Some(rest) = line.strip_prefix(b"replay poll ") {
-            return self.on_replay_poll(link, rest).await;
-        }
-
-        if let Some(rest) = line.strip_prefix(b"replay ") {
-            return self.on_replay(link, rest).await;
-        }
-
-        Flow::Continue
-    }
-
-    /// `replay poll <now> <hex-blob>` — advance the replay node's own timers.
-    ///
-    /// The exact typed blob comes from the host rather than this board's durable generator,
-    /// which keeps replay deterministic and prevents a test harness from consuming a live
-    /// ordinal lease.
-    async fn on_replay_poll<L: HostLink>(&mut self, link: &mut L, rest: &[u8]) -> Flow {
-        let Some((now, hex)) = split_once(rest, b' ') else {
-            return Flow::from(link.write_all(b"replay malformed\r\n").await);
-        };
-        let Some(now) = parse_u64(now) else {
-            return Flow::from(link.write_all(b"replay bad clock\r\n").await);
-        };
-        let mut wire = [0_u8; RAND_HASH_LEN];
-        if replay::from_hex(hex, &mut wire) != Some(RAND_HASH_LEN) {
-            return Flow::from(link.write_all(b"replay bad blob\r\n").await);
-        }
-
-        let node = self
-            .replay
-            .get_or_insert_with(|| alloc::boxed::Box::new(replay::replay_node()));
-        let blob = AnnounceBlob::from_wire(wire);
-        let encoded = replay::encode_actions(&node.poll(now, RADIO, Some(&blob)));
-        self.report_actions(link, &encoded).await
-    }
-
-    /// Write one encoded set of actions back as `actions <hex>`.
-    async fn report_actions<L: HostLink>(&self, link: &mut L, encoded: &[u8]) -> Flow {
-        let mut out = alloc::vec![0_u8; encoded.len() * 2];
-        let written = replay::to_hex(encoded, &mut out);
-        if link.write_all(b"actions ").await.is_err()
-            || link.write_all(&out[..written]).await.is_err()
-        {
-            return Flow::Detach;
-        }
-        Flow::from(link.write_all(b"\r\n").await)
-    }
-
-    /// `replay <now> <hex-packet>` — feed one packet to the replay node and report what it
-    /// decided, in the encoding the desk half asserts.
-    async fn on_replay<L: HostLink>(&mut self, link: &mut L, rest: &[u8]) -> Flow {
-        let Some((now, hex)) = split_once(rest, b' ') else {
-            return Flow::from(link.write_all(b"replay malformed\r\n").await);
-        };
-        let Some(now) = parse_u64(now) else {
-            return Flow::from(link.write_all(b"replay bad clock\r\n").await);
-        };
-
-        let mut frame = [0_u8; selvage::MAX_RADIO_FRAME_LEN];
-        let Some(len) = replay::from_hex(hex, &mut frame) else {
-            return Flow::from(link.write_all(b"replay bad hex\r\n").await);
-        };
-
-        let node = self
-            .replay
-            .get_or_insert_with(|| alloc::boxed::Box::new(replay::replay_node()));
-        // A frame that is not a packet produces no actions, which is an answer rather than
-        // an error: the desk half expects the same empty set for the same bytes.
-        let encoded = match Packet::decode(&frame[..len]) {
-            Ok(packet) => replay::encode_actions(&node.ingest(RADIO, &packet, now)),
-            Err(_) => replay::encode_nothing(),
-        };
-        self.report_actions(link, &encoded).await
-    }
-}
-
-/// Split at the first `sep`, dropping it. `None` if it is not there.
-fn split_once(text: &[u8], sep: u8) -> Option<(&[u8], &[u8])> {
-    let at = text.iter().position(|b| *b == sep)?;
-    Some((&text[..at], &text[at + 1..]))
-}
-
-fn parse_u64(text: &[u8]) -> Option<u64> {
-    if text.is_empty() {
-        return None;
-    }
-    let mut value: u64 = 0;
-    for byte in text {
-        let digit = byte.checked_sub(b'0').filter(|d| *d < 10)?;
-        value = value.checked_mul(10)?.checked_add(u64::from(digit))?;
-    }
-    Some(value)
-}
-
 impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> ChannelInfo
     for NodeChannel<PEERS, ACTIONS, LINKS>
 {
@@ -675,66 +468,4 @@ fn hex_digit(nibble: u8) -> u8 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn far_future_heartbeat_does_not_jump_the_logical_lease() {
-        // A node may be scheduled after any wall-clock or uptime value. Its
-        // announce ordinal stays a one-per-attempt sequence, leaving a 65,536
-        // entry boot lease useful for attempts rather than seconds of uptime.
-        let mut timebase =
-            TimebaseGenerator::firmware_lease(65_536, 131_072).expect("representable test lease");
-        let blob = NodeChannel::<32, 8, 4>::next_announce_blob(
-            &mut timebase,
-            u64::MAX,
-            [0xa5; ANNOUNCE_NONCE_LEN],
-        )
-        .expect("first attempted announce fits the lease");
-
-        assert_eq!(blob.timebase(), 65_537);
-        assert_eq!(timebase.last_emitted(), 65_537);
-    }
-
-    #[test]
-    fn non_due_beat_does_not_consume_an_ordinal() {
-        let mut timebase = TimebaseGenerator::firmware_lease(12, 20).unwrap();
-        let blob = NodeChannel::<32, 8, 4>::announce_blob_if_due(
-            &mut timebase,
-            false,
-            u64::MAX,
-            [0; ANNOUNCE_NONCE_LEN],
-        )
-        .expect("a non-due beat is valid");
-
-        assert_eq!(blob, None);
-        assert_eq!(timebase.last_emitted(), 12);
-    }
-
-    #[test]
-    fn retry_attempt_mints_a_distinct_next_ordinal() {
-        let mut timebase = TimebaseGenerator::firmware_lease(12, 20).unwrap();
-        let first = NodeChannel::<32, 8, 4>::announce_blob_if_due(
-            &mut timebase,
-            true,
-            5_000,
-            [1; ANNOUNCE_NONCE_LEN],
-        )
-        .unwrap()
-        .expect("due announce");
-        // This models `retry_announce`: it makes the node due again after a
-        // rejected transmit, and the retry must not reuse the first stamp.
-        let retry = NodeChannel::<32, 8, 4>::announce_blob_if_due(
-            &mut timebase,
-            true,
-            5_005,
-            [2; ANNOUNCE_NONCE_LEN],
-        )
-        .unwrap()
-        .expect("due retry");
-
-        assert_eq!(first.timebase(), 13);
-        assert_eq!(retry.timebase(), 14);
-        assert_ne!(first, retry);
-    }
-}
+mod tests;
