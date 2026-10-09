@@ -363,3 +363,11 @@ required-features = ["tulle-radio"]
 [[example]]
 name = "udp_interop"
 required-features = ["tokio"]
+
+[[example]]
+name = "auto_sniff"
+required-features = ["auto"]
+
+[[example]]
+name = "auto_peer"
+required-features = ["auto"]

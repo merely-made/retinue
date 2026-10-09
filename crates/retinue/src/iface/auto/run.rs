@@ -7,11 +7,12 @@ use std::io;
 use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use tokio::net::UdpSocket;
 use tokio::sync::watch;
 
+use super::handle::AutoHandle;
 use super::peers::{Data, Table, Token};
 use super::sockets::{Sockets, scoped};
 use super::{
@@ -27,131 +28,33 @@ use crate::iface::udp::{RX_BUF, RX_ERROR_PAUSE, frame_fits};
 /// Stock reads discovery datagrams into 1024 bytes (`AutoInterface.py` 367).
 const TOKEN_BUF: usize = 1024;
 
-struct Peer {
-    id: InterfaceId,
+pub(super) struct Peer {
+    pub id: InterfaceId,
     sink: InterfaceSink,
 }
 
 #[derive(Default)]
-struct Counters {
-    rx: AtomicU64,
-    tx: AtomicU64,
-    mif_duplicates: AtomicU64,
-    oversize: AtomicU64,
+pub(super) struct Counters {
+    pub rx: AtomicU64,
+    pub tx: AtomicU64,
+    pub mif_duplicates: AtomicU64,
+    pub oversize: AtomicU64,
 }
 
-struct State {
+pub(super) struct State {
     epoch: Instant,
-    table: Mutex<Table<Peer>>,
-    names: Vec<(u32, String)>,
-    counters: Counters,
+    pub table: Mutex<Table<Peer>>,
+    pub names: Vec<(u32, String)>,
+    pub counters: Counters,
 }
 
 impl State {
-    fn now(&self) -> u64 {
+    pub fn now(&self) -> u64 {
         u64::try_from(self.epoch.elapsed().as_millis()).unwrap_or(u64::MAX)
     }
 
     fn count(counter: &AtomicU64) {
         counter.fetch_add(1, Ordering::Relaxed);
-    }
-}
-
-/// An adopted interface as [`AutoHandle::status`] reports it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct AdoptedStatus {
-    pub name: String,
-    pub index: u32,
-    pub link_local: Ipv6Addr,
-    /// False while none of our own tokens has come back for 6.5 s: multicast is not
-    /// reaching the link. Stock only logs this (`AutoInterface.py` 462-480).
-    pub carrier_up: bool,
-    /// Whether any own token has come back since adoption.
-    pub echoed: bool,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PeerStatus {
-    pub addr: Ipv6Addr,
-    pub index: u32,
-    pub interface: InterfaceId,
-    pub silent: Duration,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct AutoCounters {
-    pub rx: u64,
-    pub tx: u64,
-    /// Datagrams dropped as the same bytes from another peer within 0.75 s.
-    pub mif_duplicates: u64,
-    pub oversize: u64,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct AutoStatus {
-    pub adopted: Vec<AdoptedStatus>,
-    pub peers: Vec<PeerStatus>,
-    pub counters: AutoCounters,
-}
-
-/// A running AutoInterface. Dropping it, or [`Self::close`], stops discovery and detaches
-/// every peer interface.
-pub struct AutoHandle {
-    state: Arc<State>,
-    stop: watch::Sender<bool>,
-}
-
-impl AutoHandle {
-    pub fn status(&self) -> AutoStatus {
-        let (state, now) = (&self.state, self.state.now());
-        let table = state.table.lock().unwrap();
-        let name = |index| {
-            state
-                .names
-                .iter()
-                .find(|(i, _)| *i == index)
-                .map(|(_, n)| n)
-        };
-        let c = &state.counters;
-        AutoStatus {
-            adopted: table
-                .carriers()
-                .iter()
-                .map(|c| AdoptedStatus {
-                    name: name(c.index).cloned().unwrap_or_default(),
-                    index: c.index,
-                    link_local: c.link_local,
-                    carrier_up: c.up,
-                    echoed: c.echoed,
-                })
-                .collect(),
-            peers: table
-                .peers()
-                .iter()
-                .map(|p| PeerStatus {
-                    addr: p.addr,
-                    index: p.index,
-                    interface: p.value.id,
-                    silent: Duration::from_millis(now.saturating_sub(p.last_heard)),
-                })
-                .collect(),
-            counters: AutoCounters {
-                rx: c.rx.load(Ordering::Relaxed),
-                tx: c.tx.load(Ordering::Relaxed),
-                mif_duplicates: c.mif_duplicates.load(Ordering::Relaxed),
-                oversize: c.oversize.load(Ordering::Relaxed),
-            },
-        }
-    }
-
-    pub fn close(&self) {
-        let _ = self.stop.send(true);
-    }
-}
-
-impl Drop for AutoHandle {
-    fn drop(&mut self) {
-        self.close();
     }
 }
 
@@ -224,7 +127,7 @@ pub(super) fn attach_adopted(
         };
         tokio::spawn(carrier.run(stopped.clone()));
     }
-    Ok(AutoHandle { state, stop })
+    Ok(AutoHandle::new(state, stop))
 }
 
 struct Carrier {

@@ -19,8 +19,9 @@ use crate::ifac::Ifac;
 use crate::node::InterfaceMode;
 
 pub use crate::auto::{AddrType, DATA_PORT, DEFAULT_GROUP, DISCOVERY_PORT, Scope};
-pub use run::{AdoptedStatus, AutoCounters, AutoHandle, AutoStatus, PeerStatus};
+pub use handle::{AdoptedStatus, AutoCounters, AutoHandle, AutoStatus, PeerStatus};
 
+mod handle;
 mod peers;
 mod run;
 pub mod sockets;
