@@ -90,7 +90,8 @@ pub struct PropagationFetchReceipt {
     pub acknowledgement: Acknowledgement,
 }
 
-/// Fetch messages for this endpoint's registered `lxmf.delivery` destination.
+/// Fetch messages for this endpoint's registered `lxmf.delivery` destination, refused
+/// before anything is requested when it is not registered.
 ///
 /// The node lists what it holds; offered ids that `held` reports are returned as haves, and
 /// up to `max_messages` others are requested. Each received entry is opened on its own, and
@@ -108,6 +109,10 @@ pub async fn fetch(
     PropagationAnnounce::decode(&node.app_data)?;
     if !request_time.is_finite() {
         return Err(PropagationError::InvalidTransferTime);
+    }
+    // Without it every entry would fail to open and still be acknowledged, so lost.
+    if !endpoint.is_registered(&delivery_name()) {
+        return Err(PropagationError::DeliveryNotRegistered);
     }
 
     let mut session = endpoint

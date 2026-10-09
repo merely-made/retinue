@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use outrider::{
-    Acknowledgement, DeliveryAnnounce, FetchPolicy, LxmfPayload, NodePolicy,
+    Acknowledgement, DeliveryAnnounce, FETCH_LIMIT, FetchPolicy, LxmfPayload, NodePolicy,
     PROPAGATION_METADATA_NAME, PropagationAnnounce, PropagationBatch, PropagationCosts,
     PropagationError, PropagationNode, PropagationStamps, PropagationStore, PropagationStoreLimits,
     Verification, delivery_name, fetch_propagation, prepare_propagation, prepare_propagation_with,
@@ -417,4 +417,63 @@ async fn fetch_splits_haves_opens_each_entry_and_acknowledges_everything_receive
         .unwrap();
     assert!(matches!(refused, Err(PropagationError::NoAccess)));
     server.await.unwrap();
+}
+
+#[tokio::test]
+async fn wants_are_capped_past_held_ids_and_an_unregistered_fetch_asks_for_nothing() {
+    let pair = ratcheted_pair().await;
+    let held = [0x48; 32];
+    let offered = [held, [0x01; 32], [0x02; 32], [0x03; 32]];
+    let server = tokio::spawn({
+        let node = Arc::clone(&pair.node);
+        async move {
+            let mut accepted = node.accept_resource().await.unwrap();
+            let session = &mut accepted.session;
+            let list = session.receive_raw_request().await.unwrap();
+            session
+                .respond_value_auto(list.request_id, &packed(ids(&offered)))
+                .await
+                .unwrap();
+            // The held id takes no slot: the first two others are wanted.
+            let get = session.receive_raw_request().await.unwrap();
+            assert_eq!(
+                request_data(&get.packed),
+                vec![ids(&offered[1..3]), ids(&[held]), Value::from(FETCH_LIMIT)]
+            );
+            session
+                .respond_value_auto(get.request_id, &packed(Value::Array(Vec::new())))
+                .await
+                .unwrap();
+        }
+    });
+    let policy = FetchPolicy {
+        max_messages: 2,
+        resource: QUICK,
+        ..FetchPolicy::default()
+    };
+    let receipt = tokio::time::timeout(
+        Duration::from_secs(10),
+        fetch_propagation(
+            &pair.recipient,
+            &pair.node_seen,
+            1_753_603_206.0,
+            |id| *id == held,
+            &policy,
+        ),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    server.await.unwrap();
+    assert_eq!(receipt.wants, offered[1..3].to_vec());
+    assert_eq!(receipt.haves, vec![held]);
+    assert!(matches!(receipt.acknowledgement, Acknowledgement::NotSent));
+
+    // Nothing could be opened, and all of it would be acknowledged: refused up front.
+    let unregistered = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x64; 64]));
+    let refused = fetch_propagation(&unregistered, &pair.node_seen, 1.0, |_| false, &policy).await;
+    assert!(matches!(
+        refused,
+        Err(PropagationError::DeliveryNotRegistered)
+    ));
 }

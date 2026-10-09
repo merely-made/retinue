@@ -220,6 +220,11 @@ impl Endpoint {
         *self.shared.ratchet_persistence.lock().unwrap() = Some(alloc::boxed::Box::new(persist));
     }
 
+    /// Whether `name` is registered on this endpoint.
+    pub fn is_registered(&self, name: &DestinationName) -> bool {
+        self.with_registration(name, |_| Ok(())).is_ok()
+    }
+
     /// The id of the ratchet a registered destination currently advertises, if it has
     /// ratchets.
     pub fn current_ratchet_id(&self, name: &DestinationName) -> Option<NameHash> {

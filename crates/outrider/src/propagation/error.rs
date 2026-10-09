@@ -60,6 +60,8 @@ pub enum PropagationError {
     UnexpectedTransientId,
     #[error("the recipient {0} has no validated delivery announce")]
     UnknownRecipient(AddressHash),
+    #[error("this endpoint has not registered lxmf.delivery, so it cannot open fetched messages")]
+    DeliveryNotRegistered,
     #[error("the propagated message could not be decrypted: {0}")]
     Decrypt(#[source] std::io::Error),
     #[error("the message's delivery stamp does not meet the required cost")]
