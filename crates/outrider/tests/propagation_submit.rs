@@ -2,9 +2,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use outrider::{
-    LxmfPayload, PROPAGATION_METADATA_NAME, PropagationAnnounce, PropagationBatch,
-    PropagationCosts, PropagationStamps, delivery_destination, prepare_propagation_with,
-    receive_submission, register_propagation, submit_propagation_with_resource_config,
+    LxmfPayload, NodePolicy, PROPAGATION_METADATA_NAME, PropagationAnnounce, PropagationBatch,
+    PropagationCosts, PropagationNode, PropagationStamps, PropagationStore, PropagationStoreLimits,
+    delivery_destination, prepare_propagation_with, receive_submission, register_propagation,
+    submit_propagation_with_resource_config,
 };
 use retinue::endpoint::{Endpoint, PayloadMode, ResourceTransferConfig};
 use retinue::identity::PrivateIdentity;
@@ -70,11 +71,19 @@ async fn stamped_submission_crosses_the_propagation_boundary() {
         entries: vec![prepared.entry.clone()],
     };
 
+    let propagation_node = Arc::new(PropagationNode::new(
+        PropagationStore::new(PropagationStoreLimits {
+            max_message_bytes: 4_096,
+            ..PropagationStoreLimits::default()
+        }),
+        NodePolicy::from_announce(&announce),
+    ));
     let receive_task = tokio::spawn({
         let node = Arc::clone(&node);
+        let propagation_node = Arc::clone(&propagation_node);
         async move {
             let accepted = node.accept_resource().await.unwrap();
-            receive_submission(&node, accepted, 8, 4_096, 1)
+            receive_submission(&node, accepted, &propagation_node, || 1_753_603_205.0)
                 .await
                 .unwrap()
         }
@@ -102,6 +111,8 @@ async fn stamped_submission_crosses_the_propagation_boundary() {
 
     assert_eq!(receipt.mode, PayloadMode::Data);
     assert_eq!(received.mode, PayloadMode::Data);
+    assert_eq!((received.rejected, received.stored.inserted), (0, 1));
+    assert_eq!(propagation_node.store().len(), 1);
     assert_eq!(receipt.transient_ids, vec![prepared.transient_id]);
     assert_eq!(
         received.batch.entries[0].transient_id(),

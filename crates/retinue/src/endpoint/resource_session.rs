@@ -72,6 +72,9 @@ pub struct ResourceSession {
     pub(super) max_request_size: Option<usize>,
     /// The last data packet [`receive`](Self::receive) returned, for [`prove_data`](Self::prove_data).
     last_data: Option<Packet>,
+    /// A Resource [`next_inbound`](Self::next_inbound) was receiving when a request or
+    /// packet came first, with its clock and the segment proofs kept.
+    pub(super) inbound: Option<(SegmentedReceiver, Pace, usize)>,
 }
 
 /// A resource accept policy shared by every receive on a session; see
@@ -164,6 +167,10 @@ impl ResourceSession {
     /// session, taken. `None` if it carried none.
     pub fn take_metadata(&mut self) -> Option<Vec<u8>> {
         self.metadata.take()
+    }
+
+    pub(super) fn set_metadata(&mut self, metadata: Option<Vec<u8>>) {
+        self.metadata = metadata;
     }
 
     /// Receivers for inbound Resources under this session's policy: its window, timing and
@@ -578,5 +585,6 @@ pub(super) fn register_resource_session(
         max_resource_size: DEFAULT_MAX_RESOURCE_SIZE,
         max_request_size: None,
         last_data: None,
+        inbound: None,
     })
 }

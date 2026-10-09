@@ -4,11 +4,11 @@ use std::time::Duration;
 
 use outrider::propagation::Verification;
 use outrider::{
-    Acknowledgement, DeliveryAnnounce, FetchPolicy, LxmfPayload, PROPAGATION_METADATA_NAME,
-    PropagationAnnounce, PropagationBatch, PropagationCosts, PropagationError, PropagationStamps,
-    PropagationStore, PropagationStoreLimits, delivery_name, fetch_propagation,
-    prepare_propagation, prepare_propagation_with, register_delivery, register_opportunistic,
-    register_propagation, serve_fetch,
+    Acknowledgement, DeliveryAnnounce, FetchPolicy, LxmfPayload, NodePolicy,
+    PROPAGATION_METADATA_NAME, PropagationAnnounce, PropagationBatch, PropagationCosts,
+    PropagationError, PropagationNode, PropagationStamps, PropagationStore, PropagationStoreLimits,
+    delivery_name, fetch_propagation, prepare_propagation, prepare_propagation_with,
+    register_delivery, register_opportunistic, register_propagation, serve_fetch,
 };
 use retinue::endpoint::{Endpoint, PeerAnnounce, ResourceTransferConfig};
 use retinue::hash::{AddressHash, full_hash};
@@ -130,12 +130,13 @@ async fn large_ratcheted_fetch_response_uses_a_resource_and_authenticates() {
     };
     assert_eq!(store.ingest(&batch, 1_753_603_205.0).inserted, 1);
 
+    let store = PropagationNode::new(store, NodePolicy::from_announce(&node_announce()));
     let server = tokio::spawn({
         let node = Arc::clone(&pair.node);
         async move {
             let mut accepted = node.accept_resource().await.unwrap();
             accepted.session.set_config(QUICK);
-            serve_fetch(&node, &mut accepted, &mut store, 1_753_603_206.0)
+            serve_fetch(&node, accepted, &store, || 1_753_603_206.0)
                 .await
                 .unwrap()
         }

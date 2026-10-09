@@ -34,7 +34,7 @@ def main():
         gates = [(name, ORACLE / name, []) for name in GATES]
     elif args.lane == "outrider":
         gates = [(path.name, path, []) for path in sorted((REPO / "crates/outrider/oracle").glob("interop_*.py"))]
-        assert len(gates) == 13
+        assert len(gates) == 16
     elif args.lane == "resource":
         gates = [(f"round-{i}-{name}", ORACLE / name, []) for i in range(1, 4)
                  for name in ("interop_resource_recv.py", "interop_resource_send.py",

@@ -136,7 +136,7 @@ impl PropagationAnnounce {
 
 /// A finite number as Python's `int()` takes it: an integer, float or bool, or text or
 /// bytes spelling a decimal integer.
-fn number(value: &Value) -> Result<f64, PropagationError> {
+pub(super) fn number(value: &Value) -> Result<f64, PropagationError> {
     let text = |bytes: &[u8]| {
         let text = core::str::from_utf8(bytes).ok()?;
         text.trim().parse::<i64>().ok().map(|int| int as f64)

@@ -5,8 +5,8 @@ use retinue::token::{IV_LEN, encrypt_to_identity};
 use rmpv::Value;
 
 use super::msgpack::{
-    decode_entry_response, decode_fetch_selection, decode_id_response, decode_offer_request,
-    decode_one, encode_value,
+    GetRequest, decode_entry_response, decode_fetch_request, decode_get_request,
+    decode_id_response, decode_one, encode_value,
 };
 use super::*;
 use crate::announce::delivery_destination;
@@ -330,10 +330,7 @@ fn store_is_bounded_expires_and_acknowledges_by_owner() {
     assert_eq!(receipt.inserted, 2);
     assert_eq!(receipt.evicted, 1);
     assert_eq!(
-        store.offer(
-            *delivery_destination(recipient.public()).as_bytes(),
-            usize::MAX
-        ),
+        store.offer(*delivery_destination(recipient.public()).as_bytes()),
         vec![second.transient_id]
     );
     assert_eq!(
@@ -434,17 +431,11 @@ fn store_snapshot_round_trip_rederives_ids_bytes_and_owner_scope() {
     assert_eq!(restored.bytes(), original_bytes);
     assert_eq!(restored.encode_snapshot().unwrap(), snapshot);
     assert_eq!(
-        restored.offer(
-            *delivery_destination(first_recipient.public()).as_bytes(),
-            usize::MAX,
-        ),
+        restored.offer(*delivery_destination(first_recipient.public()).as_bytes()),
         vec![first.transient_id]
     );
     assert_eq!(
-        restored.offer(
-            *delivery_destination(second_recipient.public()).as_bytes(),
-            usize::MAX,
-        ),
+        restored.offer(*delivery_destination(second_recipient.public()).as_bytes()),
         vec![second.transient_id]
     );
     assert_eq!(
@@ -516,10 +507,7 @@ fn restore_reapplies_expiry_and_current_capacity_limits() {
     );
     assert_eq!(restored.len(), 1);
     assert_eq!(
-        restored.offer(
-            *delivery_destination(recipient.public()).as_bytes(),
-            usize::MAX,
-        ),
+        restored.offer(*delivery_destination(recipient.public()).as_bytes()),
         vec![prepared[2].transient_id]
     );
 
@@ -556,10 +544,10 @@ fn corrupt_or_unknown_store_snapshots_are_rejected_atomically() {
     let Value::Array(parts) = &mut wrong_version else {
         unreachable!()
     };
-    parts[1] = Value::from(2);
+    parts[1] = Value::from(3);
     assert!(matches!(
         PropagationStore::restore(limits.clone(), &encode_value(&wrong_version).unwrap(), 1.0),
-        Err(PropagationError::UnsupportedStoreSnapshotVersion(2))
+        Err(PropagationError::UnsupportedStoreSnapshotVersion(3))
     ));
 
     let mut trailing = empty;
@@ -584,14 +572,21 @@ fn corrupt_or_unknown_store_snapshots_are_rejected_atomically() {
 fn captured_fetch_requests_decode_to_offer_and_selection() {
     let offer =
         hex::decode("93cb41da9a05b2533e92c4109dc1a72883468f57fed571e796e9ce9892c0c0").unwrap();
-    decode_offer_request(&offer).unwrap();
+    assert_eq!(
+        decode_get_request(&decode_fetch_request(&offer).unwrap()).unwrap(),
+        GetRequest::Offer
+    );
 
     let followup = hex::decode(
         "93cb41da9a060120c7b3c4109dc1a72883468f57fed571e796e9ce989391c420444444444444444444444444444444444444444444444444444444444444444490cd03e8",
     )
     .unwrap();
-    let (wanted, handled, limit) = decode_fetch_selection(&followup).unwrap();
-    assert_eq!(wanted, vec![[0x44; 32]]);
-    assert!(handled.is_empty());
-    assert_eq!(limit, FETCH_LIMIT);
+    assert_eq!(
+        decode_get_request(&decode_fetch_request(&followup).unwrap()).unwrap(),
+        GetRequest::Fetch {
+            wanted: vec![[0x44; 32]],
+            handled: Vec::new(),
+            limit_kb: Some(FETCH_LIMIT as f64),
+        }
+    );
 }
