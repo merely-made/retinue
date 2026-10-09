@@ -22,4 +22,4 @@ selvage = { version = "0.1.0", path = "../selvage" }
 seneschal = { version = "0.2.0", path = "../seneschal", features = ["retinue"] }
 thiserror = "2"
 tokio = { version = "1.53.1", features = ["io-util", "macros", "rt", "sync", "time"] }
-tulle = { version = "0.1.0", path = "../tulle", features = ["serial-async"] }
+tulle = { version = "0.2.0", path = "../tulle", features = ["serial-async"] }

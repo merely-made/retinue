@@ -1,16 +1,17 @@
-//! Relayed announces: the shared rebroadcast table and per-interface announce caps, driven by
-//! one task on the endpoint's announce clock.
+//! Relayed announces: the shared rebroadcast table, the interface-mode rules and per-interface
+//! announce caps, driven by one task on the endpoint's announce clock.
 
 use alloc::vec::Vec;
 
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::hash::AddressHash;
+use crate::iface_mode::{InterfaceMode, ModeFlags, announce_permitted};
 use crate::packet::Packet;
-use crate::rebroadcast::{AnnounceCap, Offer, Rebroadcast, Rebroadcasts};
+use crate::rebroadcast::{AnnounceCap, CapRate, Offer, Rebroadcast, Rebroadcasts};
 
 use super::entropy::fill_random;
 use super::interface::{InterfaceId, QueueAdmission};
@@ -112,44 +113,94 @@ impl Shared {
         }
     }
 
-    /// Send everything due at `now` on every permitted interface, the ingress one included,
-    /// through the caps of interfaces with a known airtime. Returns when to come back.
+    /// Send everything due at `now` on every interface that egress policy, `outgoing` and the
+    /// mode rules permit, the ingress one included, through the caps of interfaces with a
+    /// known airtime. The next hop is the destination's live path interface at release, so an
+    /// announce whose path has lapsed is not relayed (`Transport.py` 1461-1469). RNS caps only
+    /// the modes its rule chain leaves to its last branch (1518-1585), so relays to roaming,
+    /// boundary and internal interfaces go uncapped there; every mode is capped here. Returns
+    /// when to come back.
     fn release_rebroadcasts(&self, now: u64) -> Option<u64> {
         let egress = self.routing.lock().unwrap().allowed_egress.clone();
-        let ifaces: Vec<InterfaceId> = self
+        let policies = self.iface_policies.lock().unwrap().clone();
+        let policy = |id| policies.get(&id).copied().unwrap_or_default();
+        let modes: Vec<(InterfaceId, InterfaceMode)> = self
             .interfaces
             .lock()
             .unwrap()
             .iter()
-            .map(|i| i.id)
-            .filter(|id| egress.allows(*id))
+            .map(|i| (i.id, i.mode))
             .collect();
-        let airtime = self.first_hop_airtime_ms.lock().unwrap().clone();
+        let ifaces: Vec<(InterfaceId, InterfaceMode)> = modes
+            .iter()
+            .copied()
+            .filter(|(id, _)| egress.allows(*id) && policy(*id).outgoing)
+            .collect();
+        let carrier = self.first_hop_airtime_ms.lock().unwrap().clone();
+        let rate = |id: InterfaceId| {
+            let policy = policy(id);
+            let percent = u64::from(policy.cap_percent);
+            match policy.bitrate_bps.filter(|&bps| bps > 0) {
+                Some(bps) => Some(CapRate::from_bitrate(bps, percent)),
+                None => carrier
+                    .get(&id)
+                    .filter(|&&ms| ms > 0)
+                    .map(|&ms| CapRate::from_airtime(ms, percent)),
+            }
+        };
+        let due: Vec<Rebroadcast> = {
+            let mut state = self.rebroadcasts.lock().unwrap();
+            core::iter::from_fn(|| state.table.pop_due(now)).collect()
+        };
+        let next_hops: Vec<Option<InterfaceId>> = {
+            let (paths, at, ttl) = (
+                self.path_table.lock().unwrap(),
+                Instant::now(),
+                self.route_ttl(),
+            );
+            due.iter()
+                .map(|r| {
+                    paths
+                        .get(&r.destination)
+                        .filter(|e| e.live_at(at, ttl))
+                        .map(|e| e.iface)
+                })
+                .collect()
+        };
         let (mut capped, mut dropped) = (0, 0);
         let mut sends: Vec<Vec<(InterfaceId, Packet)>> = Vec::new();
         let next = {
             let mut state = self.rebroadcasts.lock().unwrap();
             let Rebroadcasting { table, caps } = &mut *state;
-            caps.retain(|id, cap| {
-                ifaces.contains(id) && airtime.contains_key(id) && !cap.idle(now)
+            caps.retain(|&id, cap| {
+                ifaces.iter().any(|(i, _)| *i == id) && rate(id).is_some() && !cap.idle(now)
             });
-            for (id, cap) in caps.iter_mut() {
-                while let Some(packet) = cap.pop_due(now, airtime[id]) {
-                    sends.push(alloc::vec![(*id, packet)]);
+            for (&id, cap) in caps.iter_mut() {
+                while let Some(packet) = rate(id).and_then(|rate| cap.pop_due(now, rate)) {
+                    sends.push(alloc::vec![(id, packet)]);
                 }
             }
-            while let Some(rebroadcast) = table.pop_due(now) {
+            for (rebroadcast, next_hop) in due.into_iter().zip(next_hops) {
+                let from = next_hop.and_then(|hop| modes.iter().find(|(id, _)| *id == hop));
+                let to_internal = next_hop.is_some_and(|hop| policy(hop).announces_to_internal);
                 let mut out = Vec::new();
-                for id in &ifaces {
-                    let Some(&mtu_airtime) = airtime.get(id) else {
-                        out.push((*id, rebroadcast.packet.clone()));
+                for &(id, mode) in &ifaces {
+                    let flags = ModeFlags {
+                        from_internal: policy(id).announces_from_internal,
+                        to_internal,
+                    };
+                    if !announce_permitted(mode, from.map(|m| m.1), false, flags) {
+                        continue;
+                    }
+                    let Some(rate) = rate(id) else {
+                        out.push((id, rebroadcast.packet.clone()));
                         continue;
                     };
                     let cap = caps
-                        .entry(*id)
+                        .entry(id)
                         .or_insert_with(|| AnnounceCap::new(QUEUED_ANNOUNCES));
-                    match cap.offer(rebroadcast.clone(), now, mtu_airtime) {
-                        Offer::Send(packet) => out.push((*id, packet)),
+                    match cap.offer(rebroadcast.clone(), now, rate) {
+                        Offer::Send(packet) => out.push((id, packet)),
                         Offer::Queued => capped += 1,
                         Offer::Dropped => dropped += 1,
                     }
@@ -166,16 +217,13 @@ impl Shared {
         stats
             .dropped_announces
             .fetch_add(dropped, Ordering::Relaxed);
-        let interfaces = self.interfaces.lock().unwrap();
         for transmission in sends {
             let mut queued = false;
             for (id, packet) in transmission {
-                if let Some(i) = interfaces.iter().find(|i| i.id == id) {
-                    queued |= matches!(
-                        i.push(packet, TrafficClass::Transit),
-                        QueueAdmission::Queued
-                    );
-                }
+                queued |= matches!(
+                    self.push_to(id, packet, TrafficClass::Transit),
+                    QueueAdmission::Queued
+                );
             }
             if queued {
                 stats.forwarded_announces.fetch_add(1, Ordering::Relaxed);

@@ -88,7 +88,7 @@ pandect = { git = "https://github.com/merely-made/mere.git", rev = "3ee4c0ae56be
 serde_json = "1"
 tempfile = "3"
 tokio = { version = "1", features = ["rt", "time"] }
-tulle = { version = "0.1.0", path = "../../crates/tulle", features = ["serial-async"] }
+tulle = { version = "0.2.0", path = "../../crates/tulle", features = ["serial-async"] }
 
 [dev-dependencies]
 # The accessibility receipt asserts against the projection the AccessKit

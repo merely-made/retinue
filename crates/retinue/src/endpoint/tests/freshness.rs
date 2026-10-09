@@ -411,3 +411,49 @@ async fn freshness_capacity_eviction_is_visible() {
     assert_eq!(ep.routing_counters().freshness_rows_evicted, 1);
     assert_eq!(ep.routing_counters().freshness_blobs_evicted, 1);
 }
+
+/// The same emission heard again with no more hops on a higher-gravity interface moves the
+/// route there and does nothing else (`Transport.py` 2229-2251).
+#[tokio::test]
+async fn a_higher_gravity_copy_of_the_same_emission_moves_only_the_route() {
+    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x45; 64]));
+    ep.enable_routing();
+    let low = ep.attach_interface().id();
+    let high = ep.attach_interface().id();
+    let lower = ep.attach_interface().id();
+    assert!(ep.set_interface_gravity(high, 5));
+    assert!(ep.set_interface_gravity(lower, -1));
+    let peer = PrivateIdentity::from_secret_bytes(&[0x46; 64]);
+    let (packet, first) = freshness_announce(&peer, "gravity", 0, 1, 10, 2);
+    let destination = first.destination;
+    route(&ep.shared, low, packet.clone());
+    assert_eq!(ep.route_to(destination), Some((low, 2)));
+    let sequence = ep.shared.announce_sequence.load(Ordering::Relaxed);
+
+    let mut farther = packet.clone();
+    farther.hops = 3;
+    route(&ep.shared, high, farther);
+    route(&ep.shared, lower, packet.clone());
+    let (older, _) = freshness_announce(&peer, "gravity", 0, 2, 9, 1);
+    route(&ep.shared, high, older);
+    assert_eq!(ep.route_to(destination), Some((low, 2)));
+
+    route(&ep.shared, high, packet.clone());
+    assert_eq!(ep.route_to(destination), Some((high, 2)));
+    route(&ep.shared, low, packet);
+    assert_eq!(ep.route_to(destination), Some((high, 2)));
+    assert_eq!(
+        ep.shared.announce_sequence.load(Ordering::Relaxed),
+        sequence,
+        "a re-pointed route is not a new announcement"
+    );
+    let counters = ep.routing_counters();
+    assert_eq!(
+        (
+            counters.freshness_replays_rejected,
+            counters.freshness_stale_rejected,
+            counters.gravity_repoints
+        ),
+        (3, 1, 1)
+    );
+}

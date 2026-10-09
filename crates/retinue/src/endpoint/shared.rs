@@ -14,15 +14,17 @@ use crate::announce::{TimebaseGenerator, VerifiedAnnounces};
 use crate::announce_admission::AnnounceAdmission;
 use crate::hash::AddressHash;
 use crate::identity::PrivateIdentity;
+use crate::iface_mode::{ModeFlags, announce_permitted};
 use crate::link::{self, Link};
 use crate::link_liveness::Liveness;
-use crate::packet::Packet;
+use crate::packet::{Packet, PacketType};
 use crate::resource::Advertisement;
 use crate::resource_transfer::PROOF_CACHE_ANSWERS;
 
-use super::announces::{AnnounceFreshnessState, HeldAnnounce};
+use super::announces::{AnnounceFreshnessState, HeldAnnounces};
 use super::dedup::{HashList, LinkPacketMemory, VERIFIED_ANNOUNCES};
 use super::facts::{LinkDirection, LinkFactKind, LinkRemoteFact, PeerAnnounce};
+use super::iface_policy::IfacePolicy;
 use super::inbound::{Accepted, AcceptedResource, InboundLinks};
 use super::interface::{Iface, InterfaceId, QueueAdmission};
 use super::known_destinations::BookPersistence;
@@ -154,6 +156,8 @@ pub(super) struct Shared {
     pub(super) link_setup_retry_ms: AtomicU64,
     /// Per-interface first-hop airtime allowances, in milliseconds, for link setup deadlines.
     pub(super) first_hop_airtime_ms: Mutex<HashMap<InterfaceId, u64>>,
+    /// Per-interface announce and transmit policy, removed with its interface.
+    pub(super) iface_policies: Mutex<HashMap<InterfaceId, IfacePolicy>>,
     /// MTU requested and offered by subsequently established links.
     pub(super) link_mtu: AtomicU32,
     /// Proofs for recently accepted link requests, keyed by link id, replayed when only the
@@ -186,7 +190,7 @@ pub(super) struct Shared {
     pub(super) announce_admission: Mutex<AnnounceAdmission>,
     pub(super) announce_admission_started: tokio::time::Instant,
     /// Verified unknown-route announces held until their ingress burst has subsided.
-    pub(super) held_announces: Mutex<VecDeque<HeldAnnounce>>,
+    pub(super) held_announces: Mutex<HeldAnnounces>,
     /// At most one release task runs for each interface, however many announces it is holding.
     pub(super) held_release_tasks: Mutex<HashSet<InterfaceId>>,
     /// Wakes release tasks when a carrier is detached or the policy changes.
@@ -360,11 +364,65 @@ impl Shared {
         self.resource_notify.notify_waiters();
     }
 
-    /// Send our own upkeep (announces, path requests) out every interface, as control.
+    /// Send our own upkeep (announces, path requests) out every interface that transmits, as
+    /// control. Our announces skip access points (`Transport.py` 1475-1477).
     pub(super) fn broadcast(&self, pkt: Packet) {
+        let policies = self.iface_policies.lock().unwrap().clone();
+        let announce = pkt.packet_type == PacketType::Announce;
         for i in self.interfaces.lock().unwrap().iter() {
-            let _ = i.push(pkt.clone(), TrafficClass::Control);
+            let policy = policies.get(&i.id).copied().unwrap_or_default();
+            if policy.outgoing
+                && (!announce || announce_permitted(i.mode, None, true, ModeFlags::default()))
+            {
+                let _ = i.push(pkt.clone(), TrafficClass::Control);
+            }
         }
+    }
+
+    /// Queue a packet on one interface, unless it is gone or forbidden to transmit
+    /// (`outgoing = False`, `Transport.py` 1449). Every send, local or carried, comes here.
+    pub(super) fn push_to(
+        &self,
+        iface: InterfaceId,
+        pkt: Packet,
+        class: TrafficClass,
+    ) -> QueueAdmission {
+        if !self.iface_policy(iface).outgoing {
+            return QueueAdmission::Refused;
+        }
+        self.interfaces
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|i| i.id == iface)
+            .map_or(QueueAdmission::Refused, |i| i.push(pkt, class))
+    }
+
+    /// The airtime of one 500-byte MTU on `iface`, in milliseconds: from its configured
+    /// bitrate if it has one, else the carrier's own allowance, else zero (unbounded).
+    pub(super) fn first_hop_airtime(&self, iface: InterfaceId) -> u64 {
+        match self.iface_policy(iface).bitrate_bps {
+            Some(bps) => crate::node::first_hop_airtime(bps),
+            None => self
+                .first_hop_airtime_ms
+                .lock()
+                .unwrap()
+                .get(&iface)
+                .copied()
+                .unwrap_or(0),
+        }
+    }
+
+    /// [`Self::first_hop_airtime`] of every interface with a nonzero one.
+    pub(super) fn first_hop_airtimes(&self) -> HashMap<InterfaceId, u64> {
+        let mut airtimes = self.first_hop_airtime_ms.lock().unwrap().clone();
+        for (id, policy) in self.iface_policies.lock().unwrap().iter() {
+            if let Some(bps) = policy.bitrate_bps {
+                airtimes.insert(*id, crate::node::first_hop_airtime(bps));
+            }
+        }
+        airtimes.retain(|_, airtime| *airtime > 0);
+        airtimes
     }
 
     /// Send a packet out one interface, addressed through that interface's transport node if
@@ -390,16 +448,10 @@ impl Shared {
             self.link_packets.lock().unwrap().note_sent(&pkt);
         }
         let addressed = self.address_for(iface, pkt);
-        if let Some(i) = self
-            .interfaces
-            .lock()
-            .unwrap()
-            .iter()
-            .find(|i| i.id == iface)
-        {
-            return matches!(i.push(addressed, class), QueueAdmission::Queued);
-        }
-        false
+        matches!(
+            self.push_to(iface, addressed, class),
+            QueueAdmission::Queued
+        )
     }
 
     /// Address a packet through its destination's transport node, if its route has one

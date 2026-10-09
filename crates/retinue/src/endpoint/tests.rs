@@ -27,7 +27,7 @@ use tokio::sync::oneshot;
 
 use crate::address_book::AddressBook;
 use crate::announce::{self, Announce, AnnounceBlob};
-use crate::announce_admission::{AnnounceAdmission, AnnounceIngressPolicy, DestinationVerdict};
+use crate::announce_admission::AnnounceIngressPolicy;
 use crate::channel::StreamDecodeError;
 use crate::destination::DestinationName;
 use crate::hash::{AddressHash, NameHash};

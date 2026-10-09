@@ -18,11 +18,13 @@ default = ["alloc", "tokio", "compression"]
 alloc = []
 # The TCP interface needs a runtime. The wire codec and HDLC framing do not, and stay
 # available with default-features = false plus `alloc`.
-tokio = ["alloc", "dep:tokio", "dep:getrandom"]
+tokio = ["alloc", "dep:tokio", "dep:getrandom", "dep:socket2"]
 # bz2 for resources. RNS compresses resource payloads by default, so full interop needs
 # it; the pure-Rust libbz2-rs-sys backend keeps this a C-free dependency.
 compression = ["alloc", "dep:bzip2"]
 tulle-radio = ["alloc", "tokio", "dep:tulle"]
+# Host serial carriers (RNS SerialInterface and KISSInterface) over a tty.
+serial = ["tokio", "dep:serial2-tokio"]
 
 [dependencies]
 aes = "0.9.1"
@@ -41,11 +43,14 @@ getrandom = { version = "0.2", optional = true }
 heapless = "0.9"
 hkdf = "0.13"
 hmac = "0.13"
+serial2-tokio = { version = "0.1.24", optional = true }
 # Default features would pull `digest/alloc` back into a core-only consumer graph. Nothing
 # here needs them: every digest is a fixed-size array.
 sha2 = { version = "0.11", default-features = false }
+# Socket options std and tokio do not expose: keepalive timing and TCP_USER_TIMEOUT.
+socket2 = { version = "0.6", features = ["all"], optional = true }
 tokio = { version = "1", features = ["net", "io-util", "sync", "rt", "time", "macros"], optional = true }
-tulle = { version = "0.1.0", path = "../tulle", features = ["serial-async"], optional = true }
+tulle = { version = "0.2.0", path = "../tulle", features = ["serial-async"], optional = true }
 x25519-dalek = { version = "3", features = ["static_secrets"] }
 
 [dev-dependencies]
@@ -56,7 +61,6 @@ tokio = { version = "1", features = ["net", "io-util", "rt-multi-thread", "macro
 serde = "1.0.228"
 serde_json = "1.0.150"
 getrandom = "0.2"
-serial2-tokio = "0.1"
 radio-hand = { path = "../radio-hand" }
 selvage = { path = "../selvage" }
 tucket = { path = "../tucket" }
@@ -102,6 +106,10 @@ name = "path_request_oracle"
 required-features = ["tokio"]
 
 [[example]]
+name = "ingress_probe"
+required-features = ["tokio"]
+
+[[example]]
 name = "node_resource_oracle"
 required-features = ["tokio"]
 
@@ -115,6 +123,10 @@ required-features = ["tokio"]
 
 [[example]]
 name = "interop_ifac"
+required-features = ["tokio"]
+
+[[example]]
+name = "ifac_resource"
 required-features = ["tokio"]
 
 [[example]]
@@ -182,6 +194,18 @@ name = "transport_node"
 required-features = ["tokio"]
 
 [[example]]
+name = "mode_transport"
+required-features = ["tokio"]
+
+[[example]]
+name = "tcp_reconnect"
+required-features = ["tokio"]
+
+[[example]]
+name = "listener_mode"
+required-features = ["tokio"]
+
+[[example]]
 name = "tulle_headed"
 required-features = ["tulle-radio"]
 
@@ -207,6 +231,14 @@ required-features = ["tulle-radio"]
 
 [[example]]
 name = "resident_probe"
+required-features = ["tulle-radio", "serial"]
+
+[[example]]
+name = "serial_peer"
+required-features = ["serial"]
+
+[[example]]
+name = "rnode_peer"
 required-features = ["tulle-radio"]
 
 # Everything but the command envelope corpus needs the heap-backed core.

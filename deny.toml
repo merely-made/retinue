@@ -5,9 +5,10 @@
 # licenses. See the licensing ruling in
 # design_docs/2026-07-20_mesh_household_tulle_tucket_sennet.md.
 #
-# retinue and outrider are the exceptions: they are under the Reticulum License from
-# 2026-10-05 (design_docs/2026-10-05_reticulum_license_adoption.md). That license has no SPDX
-# identifier, so the two crates declare `license-file` and are clarified below as
+# retinue and outrider (from 2026-10-05) and tulle and radio-hand (from 2026-10-09) are the
+# exceptions: they are under the Reticulum License
+# (design_docs/2026-10-05_reticulum_license_adoption.md). That license has no SPDX
+# identifier, so these crates declare `license-file` and are clarified below as
 # `LicenseRef-Reticulum`. The clarification is pinned to the license file's hash, so an edit
 # to either LICENSE fails this check until it is reviewed here.
 #
@@ -34,7 +35,7 @@ version = 2
 #     or application that links retinue. Never add it.
 #   * MPL-2.0 is allowed: it is what the workspace is licensed under, and its file-level scope
 #     does not relicense a combined work.
-#   * LicenseRef-Reticulum is allowed for retinue and outrider only, through the clarify
+#   * LicenseRef-Reticulum is allowed for retinue, outrider, tulle and radio-hand only, through the clarify
 #     entries below. A third-party crate that declares it still needs its own review.
 #
 # bzip2-1.0.6 is the permissive bzlib license.
@@ -64,3 +65,13 @@ license-files = [{ path = "LICENSE", hash = 0xa9865ee2 }]
 crate = "outrider"
 expression = "LicenseRef-Reticulum"
 license-files = [{ path = "LICENSE", hash = 0xed9a75e2 }]
+
+[[licenses.clarify]]
+crate = "tulle"
+expression = "LicenseRef-Reticulum"
+license-files = [{ path = "LICENSE", hash = 0xa9865ee2 }]
+
+[[licenses.clarify]]
+crate = "radio-hand"
+expression = "LicenseRef-Reticulum"
+license-files = [{ path = "LICENSE", hash = 0xa9865ee2 }]

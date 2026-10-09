@@ -330,3 +330,52 @@ fn transport_flood_keeps_retained_state_bounded() {
     assert_eq!(counters.evicted_routes, 28);
     assert_eq!(relay.route_count(), 4);
 }
+
+/// The modes RNS gives no route lifetime of their own expire routes as full mode does
+/// (`Transport.py` 964-969).
+#[test]
+fn other_modes_keep_the_full_route_lifetime() {
+    for mode in [
+        InterfaceMode::PointToPoint,
+        InterfaceMode::Boundary,
+        InterfaceMode::Gateway,
+        InterfaceMode::Internal,
+    ] {
+        assert_eq!(mode.route_ttl(DEFAULT_ROUTE_TTL), DEFAULT_ROUTE_TTL);
+    }
+}
+
+/// A relay leaves where it was heard, so an access-point or roaming interface keeps it, and
+/// a boundary one passes it on (`Transport.py` 1458-1516).
+#[test]
+fn interface_modes_gate_relayed_announces() {
+    for (mode, relays) in [
+        (InterfaceMode::AccessPoint, false),
+        (InterfaceMode::Roaming, false),
+        (InterfaceMode::Boundary, true),
+        (InterfaceMode::Full, true),
+    ] {
+        let mut relay = Node::<8, 8, 4, 4>::new(
+            PrivateIdentity::from_secret_bytes(&[0x52; 64]),
+            DestinationName::new("retinue", ["relay"]).name_hash(),
+        )
+        .with_transport_config(TransportConfig::transit());
+        relay.set_interface_mode(IFACE, mode).unwrap();
+        let (_, destination) = pair();
+        relay.ingest(
+            IFACE,
+            &destination.announce(&blob([0x7E; RAND_HASH_LEN]), None),
+            0,
+        );
+        let due = relay.next_rebroadcast().expect("scheduled");
+        assert_eq!(
+            sent(&relay.poll(due, IFACE, None)).is_some(),
+            relays,
+            "{mode:?}"
+        );
+        assert!(
+            relay.next_hop(destination.destination(), due).is_some(),
+            "still learned"
+        );
+    }
+}

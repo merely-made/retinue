@@ -179,6 +179,95 @@ From the LXMF parity batch (2026-10-09), same source:
   RNS `Destination.py` 290-296, 678-686.
   Targets: `src/endpoint/registration.rs`, `src/endpoint/paths.rs`.
 
+From the interface batch (2026-10-09), same source:
+
+- HDLC frames are capped at MTU + 64 (the largest access code); an oversize
+  frame is dropped, not truncated. Per-carrier IFAC defaults (16 bytes on
+  stream carriers, 8 on serial ones), and `ifac_size` in bits with "" and
+  "None" as unset; past 512 bits is refused. RNS `Interfaces/util/HDLC.py`
+  62-106; `Transport.py` 1790-1791; `Interfaces/Interface.py` 96;
+  `Interfaces/TCPInterface.py` 77, 338-341, 466; `Interfaces/SerialInterface.py`
+  53, 85; `Reticulum.py` 884-902, 1041-1042.
+  Targets: `src/iface/hdlc.rs`, `src/ifac.rs`, `src/iface/tcp.rs`.
+- Per-interface announce ingress control: an interface override (off on
+  serial and RNode carriers), known destinations counted but never held, held
+  announces queued per interface and released fewest hops first, and announces
+  for a destination with a path request in the last 45 s never held. The burst
+  detector stays retinue's virtual-arrival model, and held announces have an
+  endpoint-wide ceiling RNS lacks. RNS `Interfaces/Interface.py` 70-84, 189-212,
+  270-305; `Reticulum.py` 904-927, 1066-1078; `Transport.py` 135, 980-986,
+  1098-1101, 1807-1825.
+  Targets: `src/announce_admission.rs`, `src/endpoint/announces.rs`,
+  `src/endpoint/paths.rs`.
+- The destination announce rate: a violation counter with grace and penalty
+  (default 3600 s, 5, 0), per-interface overrides, counted for every accepted
+  announce that is not a path response and enforced only on relay. The state
+  table stays bounded. RNS `Transport.py` 2298-2338; `Interfaces/Interface.py`
+  89-92; `Reticulum.py` 651-666, 968-971.
+  Targets: `src/announce_admission.rs`, `src/endpoint/announces.rs`,
+  `src/endpoint/iface_policy.rs`.
+- Interface gravity: the same emission with no more hops, heard on a
+  higher-gravity interface, moves the route. Unlike RNS, it queues no
+  rebroadcast. RNS `Transport.py` 2225-2251; `Interfaces/Interface.py` 75, 109;
+  `Reticulum.py` 881-882, 1035.
+  Targets: `src/endpoint/paths.rs`, `src/endpoint/announces.rs`.
+- The seven interface modes, their announce rules and path-discovery modes;
+  own announces skip access points, and an Endpoint relay takes its next hop
+  from the live path at release. Relays to roaming, boundary and internal
+  interfaces stay capped, where RNS leaves them uncapped; the Node core treats
+  the ingress interface as the next hop. RNS `Interfaces/Interface.py` 45-56;
+  `Transport.py` 964-969, 1458-1521, 3426-3433, 3574-3575.
+  Targets: `src/iface_mode.rs`, `src/node/`, `src/endpoint/rebroadcast.rs`,
+  `src/endpoint/shared.rs`.
+- Per-interface announce cap share and configured bitrate, which also set link
+  setup and carried-link proof deadlines. An interface with no known airtime
+  stays uncapped (RNS caps TCP at an assumed 10 Mbps). RNS `Reticulum.py` 114,
+  286-289, 1036; `Interfaces/Interface.py` 117, 391-432; `Transport.py`
+  1517-1585, 2059-2062, 3194-3202.
+  Targets: `src/rebroadcast.rs`, `src/endpoint/rebroadcast.rs`,
+  `src/endpoint/shared.rs`, `src/endpoint/transit.rs`,
+  `src/endpoint/link_setup.rs`.
+- `outgoing = False` blocks every transmission on the interface, stricter than
+  RNS's broadcast-only check. RNS `Reticulum.py` 369-370; `Transport.py` 1449.
+  Targets: `src/endpoint/shared.rs`, `src/endpoint/single.rs`.
+- Dialed TCP interfaces keep their id and routes across reconnects, drop
+  packets while offline, and honour the connect timeout and reconnect limit
+  (both ignored upstream); a write error redials where RNS tears down for good,
+  and IPv4 is preferred unless `prefer_ipv6`. A 12 s write stall ends a
+  connection. RNS `Interfaces/TCPInterface.py` 97-180, 231-303, 314-337,
+  344-448; `Interfaces/BackboneInterface.py` 63-69, 476-499, 959-971.
+  Targets: `src/endpoint/dial.rs`, `src/endpoint/pump.rs`,
+  `src/endpoint/interface.rs`, `src/endpoint/attach.rs`.
+- TCP keepalive (5 s idle, 2 s interval, 12 probes; I2P 10/9/5) and user
+  timeout (24 s, I2P 45 s, Linux and Android); macOS also gets the interval and
+  count. RNS `Interfaces/TCPInterface.py` 83-95, 181-207.
+  Target: `src/endpoint/sockopt.rs`.
+- Listeners keep accepting after accept errors, and spawned interfaces take the
+  listener's mode and interface policy; the IN flag, egress and path-request
+  rates and `recursive_prs` are not modelled. RNS
+  `Interfaces/TCPInterface.py` 557-650, 675-688;
+  `Interfaces/BackboneInterface.py` 658-679, 792-805.
+  Target: `src/endpoint/listen.rs`.
+- The serial HDLC carrier: 9600 8N1 defaults, a settle delay, a 100 ms
+  partial-frame reset, a 5 s reopen under the same interface id, the line
+  speed as bitrate, and best-effort DTR/RTS. A macOS pty opens without line
+  settings. RNS `Interfaces/SerialInterface.py` 63-230.
+  Targets: `src/iface/serial.rs`, `src/iface/serial_port.rs`.
+- A sans-io KISS TNC host: startup parameters, the port nibble masked, DATA
+  only, and READY flow control. Oversize or badly escaped frames are dropped,
+  a 5 s unlock lifts an unanswered lock, and packets wait in the endpoint
+  queues rather than the TNC. RNS `Interfaces/KISSInterface.py` 38-58, 84-134,
+  178-253, 262-394.
+  Targets: `src/iface/kiss.rs`, `src/iface/serial.rs`.
+- The station ID beacon for KISS (padded to 15 bytes) and RNode (unpadded, at
+  most 32), armed by traffic actually sent; it does not re-arm on its own frame
+  (the KISS re-arm is not ported) and is retried when the radio was offline.
+  The RNode bridge also takes RNS's LoRa bitrate formula and turns ingress
+  control off. RNS `Interfaces/KISSInterface.py` 262-366;
+  `Interfaces/RNodeInterface.py` 156-158, 336-347, 698-744, 1145-1149,
+  1211-1212.
+  Targets: `src/iface/beacon.rs`, `src/iface/tulle.rs`.
+
 ## Prns
 
 Reference withdrawn September 26 over unresolved provenance concerns. Existing

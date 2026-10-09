@@ -122,6 +122,7 @@ pub(super) struct PendingReceipt {
 pub(super) struct SingleQueueResult {
     pub(super) queued: usize,
     frame_capable: bool,
+    offline: bool,
     frame_limit_rejection: Option<(usize, usize)>,
 }
 
@@ -133,6 +134,8 @@ impl SingleQueueResult {
                 self.frame_capable = true;
             }
             QueueAdmission::Full => self.frame_capable = true,
+            QueueAdmission::Refused => {}
+            QueueAdmission::Offline => self.offline = true,
             QueueAdmission::FrameLimit { actual, limit } => {
                 if self
                     .frame_limit_rejection
@@ -148,14 +151,7 @@ impl SingleQueueResult {
 impl Shared {
     fn queue_single_on(&self, iface: InterfaceId, pkt: Packet) -> QueueAdmission {
         let addressed = self.address_for(iface, pkt);
-        self.interfaces
-            .lock()
-            .unwrap()
-            .iter()
-            .find(|candidate| candidate.id == iface)
-            .map_or(QueueAdmission::Full, |candidate| {
-                candidate.push(addressed, TrafficClass::Interactive)
-            })
+        self.push_to(iface, addressed, TrafficClass::Interactive)
     }
 
     /// Queue a local single packet on its learned route, or broadcast when the cached route
@@ -277,6 +273,9 @@ impl Endpoint {
     /// Success means the packet was encrypted to the latest validated announce and accepted
     /// by at least one local interface queue; the receipt's
     /// [`delivery`](SinglePacketReceipt::delivery) learns whether the destination proved it.
+    /// No queue accepting it fails with `WouldBlock` under queue pressure, or with
+    /// `NotConnected` when no candidate interface can transmit: offline (a dialed hub
+    /// reconnecting), receive-only, or detached.
     pub fn send_single(&self, dest: AddressHash, data: &[u8]) -> io::Result<SinglePacketReceipt> {
         if !self.shared.is_running() {
             return Err(endpoint_closed());
@@ -351,6 +350,14 @@ impl Endpoint {
                         "single packet is {actual} bytes after encryption, interface frame limit is {limit}"
                     ),
                 ));
+            }
+            if !queued.frame_capable {
+                let why = if queued.offline {
+                    "no interface on the route is online"
+                } else {
+                    "no transmitting interface reaches the destination"
+                };
+                return Err(io::Error::new(io::ErrorKind::NotConnected, why));
             }
             return Err(io::Error::new(
                 io::ErrorKind::WouldBlock,

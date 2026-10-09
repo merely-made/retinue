@@ -1,6 +1,10 @@
 //! Announce timebases, key conflicts, observations, echoes, and relay admission.
 
 use super::*;
+use crate::announce_admission::{AnnounceAdmission, DestinationVerdict};
+use crate::endpoint::{AnnounceRate, InterfaceSelector, RoutingPolicy};
+
+use super::super::announces::{HeldAnnounce, HeldAnnounces};
 
 /// An announce naming a known destination under another key is rejected whole: the
 /// known key stays, and no route or announcement follows (RNS `Identity.py` 569-577).
@@ -202,29 +206,92 @@ async fn an_echo_of_our_own_announce_is_dropped() {
     assert_eq!(ep.routing_counters().forwarded_announces, 0);
 }
 
+fn dest(n: u8) -> AddressHash {
+    AddressHash::from_bytes([n; 16])
+}
+
+fn rate(target_ms: u64, grace: u16, penalty_ms: u64) -> AnnounceRate {
+    AnnounceRate {
+        target: Duration::from_millis(target_ms),
+        grace,
+        penalty: Duration::from_millis(penalty_ms),
+    }
+}
+
+/// The default rule relays the first announce and five graces of a destination
+/// re-announcing every 2 s, as a stock transport does.
 #[test]
-fn destination_admission_preserves_the_one_second_default_floor() {
-    let mut admission = AnnounceAdmission::new(AnnounceIngressPolicy::default());
-    let a = AddressHash::from_bytes([0x01; 16]);
-    let b = AddressHash::from_bytes([0x02; 16]);
+fn the_default_rate_relays_the_first_and_five_graces() {
+    let mut a = AnnounceAdmission::new(AnnounceIngressPolicy::default());
+    let default = a.policy().destination_rate().unwrap();
+    assert_eq!(default, AnnounceRate::default());
+    let relayed = (0..8)
+        .filter(|i| a.observe_destination(dest(1), default, i * 2_000) == DestinationVerdict::Relay)
+        .count();
+    assert_eq!(relayed, 6);
+}
+
+/// Blocked until `last + target + penalty`; afterwards a slow arrival forgives one
+/// violation, and the next fast one blocks again from the new `last`.
+#[test]
+fn a_block_runs_from_the_last_relay_and_violations_decay() {
+    let mut a = AnnounceAdmission::new(AnnounceIngressPolicy::default());
+    let r = rate(10_000, 1, 5_000);
+    for (now, verdict) in [
+        (0, DestinationVerdict::Relay),
+        (1_000, DestinationVerdict::Relay),
+        (2_000, DestinationVerdict::BlockRelay),
+        (16_000, DestinationVerdict::BlockRelay),
+        (16_001, DestinationVerdict::Relay),
+        (17_000, DestinationVerdict::BlockRelay),
+        (31_001, DestinationVerdict::BlockRelay),
+    ] {
+        assert_eq!(a.observe_destination(dest(1), r, now), verdict, "{now}");
+    }
     assert_eq!(
-        admission.observe_destination(a, 0),
+        a.observe_destination(dest(2), r, 2_000),
         DestinationVerdict::Relay
     );
-    assert_eq!(
-        admission.observe_destination(b, 0),
-        DestinationVerdict::Relay
+    assert!(
+        AnnounceIngressPolicy {
+            destination_target: Duration::ZERO,
+            ..Default::default()
+        }
+        .destination_rate()
+        .is_none()
     );
-    assert_eq!(
-        admission.observe_destination(a, 1),
-        DestinationVerdict::BlockRelay,
-        "a fresh re-announce is not rebroadcast"
-    );
-    let c = AddressHash::from_bytes([0x03; 16]);
-    assert_eq!(
-        admission.observe_destination(c, 1),
-        DestinationVerdict::Relay
-    );
+}
+
+/// A transport relays a destination's path-updating announces under its ingress interface's
+/// rate rule, else the endpoint's; a blocked one is still learned (`Transport.py` 2303-2338).
+#[tokio::test]
+async fn the_relay_rate_follows_the_ingress_interface_and_blocked_announces_are_learned() {
+    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x52; 64]));
+    ep.enable_routing();
+    let strict = ep.attach_interface().id();
+    let plain = ep.attach_interface().id();
+    let _out = ep.attach_interface();
+    let strict_rate = AnnounceRate {
+        grace: 0,
+        ..Default::default()
+    };
+    assert!(ep.set_interface_announce_rate(strict, Some(strict_rate)));
+    let peer = PrivateIdentity::from_secret_bytes(&[0x53; 64]);
+    for timebase in [10, 11] {
+        let (packet, _) = freshness_announce(&peer, "strict", 0, timebase as u8, timebase, 1);
+        route(&ep.shared, strict, packet);
+    }
+    let (_, latest) = freshness_announce(&peer, "strict", 0, 11, 11, 1);
+    assert_eq!(ep.route_to(latest.destination), Some((strict, 1)));
+    assert_eq!(ep.routing_counters().relay_rate_limited_announces, 1);
+
+    // The endpoint default allows five graces.
+    let other = PrivateIdentity::from_secret_bytes(&[0x54; 64]);
+    for timebase in 10..16 {
+        let (packet, _) = freshness_announce(&other, "plain", 0, timebase as u8, timebase, 1);
+        route(&ep.shared, plain, packet);
+    }
+    assert_eq!(ep.routing_counters().relay_rate_limited_announces, 1);
 }
 
 /// A copy of a verified announce costs no second signature check: with a live route it is a
@@ -283,4 +350,135 @@ async fn an_announce_is_relayed_only_below_the_hop_ceiling() {
         );
         assert_eq!(ep.routing_counters().hop_limit_dropped, u64::from(!relayed));
     }
+}
+
+/// Each interface holds up to its own capacity, refuses an announce it could not relay on,
+/// and releases the fewest-hops entry first; an interface with ingress control off holds
+/// nothing (`Interface.py` 270-297; `Reticulum.py` 904-905).
+#[tokio::test(start_paused = true)]
+async fn held_announces_are_per_interface_and_released_fewest_hops_first() {
+    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x55; 64]));
+    let noisy = ep.attach_interface().id();
+    let other = ep.attach_interface().id();
+    let serial = ep.attach_interface().id();
+    let policy = AnnounceIngressPolicy {
+        held_capacity: 2,
+        new_interface_hz: 1,
+        established_interface_hz: 1,
+        burst_hold: Duration::from_millis(50),
+        burst_penalty: Duration::from_millis(50),
+        held_release_interval: Duration::from_millis(10),
+        ..Default::default()
+    };
+    ep.set_announce_ingress_policy(policy);
+    let off = AnnounceIngressPolicy {
+        enabled: false,
+        ..policy
+    };
+    assert!(ep.set_interface_ingress_policy(serial, Some(off)));
+    let mut seed = 0x60;
+    let mut announce_on = |iface, hops| {
+        seed += 1;
+        let peer = PrivateIdentity::from_secret_bytes(&[seed; 64]);
+        let (packet, announce) = freshness_announce(&peer, "held", 0, 1, 10, hops);
+        route(&ep.shared, iface, packet);
+        announce.destination
+    };
+    // Two arrivals at one instant fill the 1 Hz budget; the rest are a burst.
+    announce_on(noisy, 1);
+    announce_on(noisy, 1);
+    announce_on(noisy, MAX_HOPS - 2);
+    let three = announce_on(noisy, 3);
+    let one = announce_on(noisy, 1);
+    announce_on(noisy, 2);
+    for _ in 0..3 {
+        announce_on(other, 1);
+    }
+    for _ in 0..5 {
+        announce_on(serial, 1);
+    }
+    let counters = ep.announce_ingress_counters(noisy);
+    assert_eq!((counters.held, counters.held_dropped), (2, 2));
+    assert_eq!(ep.announce_ingress_counters(other).held, 1);
+    assert_eq!(ep.announce_ingress_counters(serial).held, 0);
+
+    while ep.announce_ingress_counters(noisy).released == 0 {
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    assert!(ep.route_to(one).is_some(), "the nearest is released first");
+    assert!(ep.route_to(three).is_none());
+    while ep.route_to(three).is_none() {
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+}
+
+/// A path-updating announce is rate-counted on any ingress, relayed or not, as RNS counts
+/// before it decides to rebroadcast (`Transport.py` 2299-2333).
+#[tokio::test]
+async fn the_relay_rate_counts_announces_from_a_filtered_ingress() {
+    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x56; 64]));
+    let filtered = ep.attach_interface().id();
+    let allowed = ep.attach_interface().id();
+    let _out = ep.attach_interface();
+    ep.set_routing_policy(RoutingPolicy {
+        allowed_ingress: InterfaceSelector::Only(vec![allowed]),
+        ..RoutingPolicy::transit()
+    });
+    ep.set_announce_ingress_policy(AnnounceIngressPolicy {
+        destination_grace: 0,
+        ..Default::default()
+    });
+    let peer = PrivateIdentity::from_secret_bytes(&[0x57; 64]);
+    for (iface, timebase) in [(filtered, 10), (allowed, 11)] {
+        let (packet, _) = freshness_announce(&peer, "mixed", 0, timebase as u8, timebase, 1);
+        route(&ep.shared, iface, packet);
+    }
+    assert_eq!(ep.routing_counters().relay_rate_limited_announces, 1);
+}
+
+/// Each interface holds its own share, the endpoint at most its ceiling in all, and an
+/// interface's share leaves with its admission row.
+#[tokio::test]
+async fn held_announces_have_an_endpoint_ceiling_and_leave_with_their_row() {
+    let entry = |interface, seed| {
+        let (packet, announce) = peer_announce(seed, "ceiling");
+        HeldAnnounce {
+            interface,
+            packet,
+            announce,
+        }
+    };
+    let mut held = HeldAnnounces::default();
+    assert!(held.hold(entry(1, 0x70), 2, 3));
+    assert!(held.hold(entry(1, 0x71), 2, 3));
+    assert!(
+        !held.hold(entry(1, 0x72), 2, 3),
+        "the interface's share is full"
+    );
+    assert!(
+        held.hold(entry(1, 0x70), 2, 3),
+        "a held destination is replaced"
+    );
+    assert!(held.hold(entry(2, 0x73), 2, 3));
+    assert!(!held.hold(entry(3, 0x74), 2, 3), "the endpoint is full");
+    assert!(!held.holds(3));
+    held.purge(1);
+    assert!(held.hold(entry(3, 0x74), 2, 3));
+    assert!(held.take_nearest(2).is_some() && !held.holds(2));
+
+    // A row evicted by a newcomer takes its held announces with it.
+    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x58; 64]));
+    let noisy = ep.attach_interface().id();
+    ep.set_announce_ingress_policy(AnnounceIngressPolicy {
+        interface_capacity: 1,
+        new_interface_hz: 1,
+        ..Default::default()
+    });
+    for seed in 0x75..0x78 {
+        route(&ep.shared, noisy, peer_announce(seed, "evicted").0);
+    }
+    assert!(ep.shared.held_announces.lock().unwrap().holds(noisy));
+    let newcomer = ep.attach_interface().id();
+    route(&ep.shared, newcomer, peer_announce(0x78, "evicted").0);
+    assert!(!ep.shared.held_announces.lock().unwrap().holds(noisy));
 }

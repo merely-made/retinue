@@ -220,12 +220,14 @@ impl Endpoint {
     /// slowest interface when it is broadcast for want of a route.
     fn link_setup_timeout(&self, dest: AddressHash) -> Duration {
         let route = self.route_to(dest);
-        let first_hop = {
-            let airtime = self.shared.first_hop_airtime_ms.lock().unwrap();
-            match route {
-                Some((iface, _)) => airtime.get(&iface).copied().unwrap_or(0),
-                None => airtime.values().copied().max().unwrap_or(0),
-            }
+        let first_hop = match route {
+            Some((iface, _)) => self.shared.first_hop_airtime(iface),
+            None => self
+                .shared
+                .first_hop_airtimes()
+                .into_values()
+                .max()
+                .unwrap_or(0),
         };
         let hops = route.map_or(0, |(_, hops)| hops);
         Duration::from_millis(crate::node::link_request_timeout(hops).saturating_add(first_hop))

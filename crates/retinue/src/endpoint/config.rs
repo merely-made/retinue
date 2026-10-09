@@ -79,10 +79,11 @@ impl Endpoint {
             .store(millis, Ordering::Relaxed);
     }
 
-    /// Set the first-hop airtime allowance added to the setup deadline of links opened over
-    /// `iface`: the time its medium needs to carry one 500-byte MTU
-    /// ([`crate::node::first_hop_airtime`] computes it from a bitrate). Zero, the default,
-    /// suits an unbounded medium such as TCP.
+    /// Set the carrier's first-hop airtime for `iface`: the time its medium needs to carry one
+    /// 500-byte MTU ([`crate::node::first_hop_airtime`] computes it from a bitrate). It extends
+    /// link setup and carried-link proof deadlines and paces the announce cap. Zero, the
+    /// default, suits an unbounded medium such as TCP. A bitrate configured with
+    /// [`Self::set_interface_bitrate`] takes its place.
     pub fn set_first_hop_airtime(&self, iface: InterfaceId, allowance: Duration) {
         let millis = allowance.as_millis().min(u128::from(u64::MAX)) as u64;
         let mut airtime = self.shared.first_hop_airtime_ms.lock().unwrap();

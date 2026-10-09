@@ -96,6 +96,7 @@ pub mod identity;
 #[cfg(feature = "alloc")]
 pub mod ifac;
 pub mod iface;
+pub mod iface_mode;
 #[cfg(feature = "alloc")]
 pub mod instance;
 #[cfg(feature = "alloc")]

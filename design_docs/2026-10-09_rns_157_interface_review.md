@@ -4,6 +4,20 @@
 adaptation goes in `crates/retinue/NOTICE`. The relicence to adapt RNS is on
 record (2026-10-05).
 
+**Status, 2026-10-09:** batch 1 integrated on `if/integration` (units U1-U4
+and U6 after seam S0), its adaptations listed in `crates/retinue/NOTICE`.
+- **Landed:** A1, A2, A3, A5, A9, A10, A11; A4 for announces (the path-request
+  rules wait for recursive discovery); B1, B2, B3, B7, B8, B12; B5 in part
+  (`Ifac::from_config_bits` only); C1, C3; C7's `prefer_ipv6` for dialing.
+- **Deferred:** U5, the datagram unit (A7, A8, B9). Batch 2 as planned: A6,
+  B4, the rest of B5, B6, B10, B11, B13, C2, C4-C6, C8 and the rest of C7.
+- **Open within batch 1:** the Node core relays with the ingress interface as
+  next hop (its bounded route table can evict a route before release), and
+  keeps the 2% cap; spawned TCP interfaces do not inherit IN, egress-control
+  or path-request rates; a gravity re-point queues no rebroadcast.
+- **Gates:** the live lane gains 5, the routing lane 5 and the serial lane 5
+  (macOS ptys), in `testing/receipts/rns-1.5.7-repin/run.py`.
+
 ## Source and provenance
 
 - **Upstream:** RNS 1.5.7, the oracle pin (`rns==1.5.7` in the repin venv). The

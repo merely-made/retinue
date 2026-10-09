@@ -38,6 +38,11 @@ impl Deframer {
         }
     }
 
+    /// Forget a half-read frame and resync at the next FEND.
+    pub fn reset(&mut self) {
+        *self = Self::new(self.max_frame);
+    }
+
     /// Consume raw bytes, appending any completed frames to `out`.
     pub fn push(&mut self, bytes: &[u8], out: &mut Vec<Vec<u8>>) {
         for &byte in bytes {
@@ -135,6 +140,16 @@ mod tests {
         let wire = [FEND, 0x01, FESC, 0x99, 0x02, FEND, 0x33, FEND];
         let mut d = Deframer::new(512);
         assert_eq!(deframe_all(&mut d, &wire), vec![vec![0x33]]);
+    }
+
+    #[test]
+    fn reset_discards_a_partial_frame() {
+        let mut d = Deframer::new(512);
+        let mut out = Vec::new();
+        d.push(&[FEND, 0x01, 0x02], &mut out);
+        d.reset();
+        d.push(&[0x03, FEND, 0x04, FEND], &mut out);
+        assert_eq!(out, vec![vec![0x04]]);
     }
 
     #[test]

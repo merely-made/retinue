@@ -106,10 +106,11 @@ cargo build --manifest-path apps/signalman-desktop/Cargo.toml
 ## License
 
 Mozilla Public License 2.0 ([LICENSE](LICENSE)) for the workspace, except
-`crates/retinue` and `crates/outrider`. Those two are under the
-[Reticulum License](crates/retinue/LICENSE) from 2026-10-05, so that the
+`crates/retinue`, `crates/outrider`, `crates/tulle` and `crates/radio-hand`.
+Those are under the [Reticulum License](crates/retinue/LICENSE) (retinue and
+outrider from 2026-10-05, tulle and radio-hand from 2026-10-09), so that the
 reference implementations can be read and adapted into them. Releases through
-0.2.0 remain MPL-2.0; 0.3.0 is the first under the Reticulum License.
+retinue and outrider 0.2.0 and tulle 0.1.0 remain MPL-2.0.
 Anything that links them carries the Reticulum License's notice and conditions
 for those portions. That includes the apps and the firmware images, which are
 therefore not GPLv3. See the
@@ -137,7 +138,8 @@ from the wire, then you should do that as a control and functional baseline. The
 verifiable interoperability with reference implementations, after all.
 
 On 2026-10-05 retinue and outrider moved to the Reticulum License so that the reference 
-implementations can be adapted into them. Adaptations are listed in each crate's `NOTICE`. 
+implementations can be adapted into them; tulle and radio-hand followed on 2026-10-09 for the 
+RNode host. Adaptations are listed in each crate's `NOTICE`. 
 The rest of the workspace remains MPL-2.0, and RNode firmware source stays unread.
 
 ---

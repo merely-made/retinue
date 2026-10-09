@@ -7,7 +7,14 @@
 //! (`tcp`) needs a runtime and sits behind the `tokio` feature, which is on by default.
 
 #[cfg(feature = "alloc")]
+pub mod beacon;
+#[cfg(feature = "alloc")]
 pub mod hdlc;
+#[cfg(feature = "alloc")]
+pub mod kiss;
+
+#[cfg(feature = "serial")]
+pub mod serial;
 
 #[cfg(feature = "tokio")]
 pub mod tcp;

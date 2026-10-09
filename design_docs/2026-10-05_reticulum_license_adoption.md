@@ -42,6 +42,28 @@ and point 2 (firmware images are GPLv3) of the
    source-with-image practice continues. What is lost is GPLv3's
    installation-information clause.
 
+## Amendment, 2026-10-09: tulle and radio-hand
+
+**Status:** RULED by the owner.
+
+- **`crates/tulle` and `crates/radio-hand` join retinue and outrider under the
+  Reticulum License.** The interface batch
+  ([RNS 1.5.7 interface review](2026-10-09_rns_157_interface_review.md))
+  brought RNS's host-side `RNodeInterface.py` semantics into tulle's RNode
+  host, and the matching device answers into radio-hand. Rule 3 above kept such
+  adaptations out of those crates; the owner chose to relicense them rather
+  than move the code. Each carries the Reticulum License and a NOTICE ledger.
+  tulle 0.1.0 was published under MPL-2.0 and keeps those terms; the change
+  takes effect with tulle 0.2.0. radio-hand was never published.
+- **Dependents.** Every crate and app that links tulle or radio-hand already
+  linked retinue, so no new combination arises.
+- **RNode firmware is still not read (rule 4).** During the batch a reviewer
+  agent fetched RNode firmware source and modelled its airtime-lock echo. Before
+  merge, the echo values in tulle's test, radio-hand's `rnode_air` example and
+  the `interop_rnode_air` gate were replaced with an arbitrary differing value
+  justified by RNS alone (`RNodeInterface.py` 667-692, 896-925: echoes are
+  recorded, never validated). No firmware text or code entered the repository.
+
 ## Why
 
 - **Adaptation requires it.** Upstream's manual (RNS 1.5.5,
