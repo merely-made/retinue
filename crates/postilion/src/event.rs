@@ -19,7 +19,9 @@ pub struct Peer {
 
 impl Peer {
     pub(crate) fn from_announce(announce: PeerAnnounce) -> Self {
-        let decoded = DeliveryAnnounce::decode(&announce.app_data).ok();
+        let decoded = (announce.destination == delivery_destination(&announce.identity))
+            .then(|| DeliveryAnnounce::decode(&announce.app_data).ok())
+            .flatten();
         Self {
             destination: announce.destination,
             stamp_cost: decoded.as_ref().and_then(|delivery| delivery.stamp_cost),
@@ -65,11 +67,18 @@ pub enum Event {
 
 impl Event {
     /// Preserve every authenticated fact Outrider proved at the host boundary.
+    /// A message whose sender did not verify becomes [`Event::Dropped`].
     pub fn authenticated_message(received: outrider::ReceivedDirect) -> Self {
+        let Some(identity) = received.source_identity else {
+            return Self::Dropped(format!(
+                "message from {} is unverified",
+                AddressHash::from_bytes(received.message.source)
+            ));
+        };
         Self::Message {
             message_id: received.message.message_id,
-            from: delivery_destination(&received.source_identity),
-            sender_identity: *received.source_identity.ed25519_bytes(),
+            from: delivery_destination(&identity),
+            sender_identity: *identity.ed25519_bytes(),
             mode: received.mode,
             payload: received.message.payload,
         }

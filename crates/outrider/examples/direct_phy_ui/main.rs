@@ -11,12 +11,12 @@ use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use outrider::{
-    DEFAULT_MAX_MESSAGE_BYTES, DeliveryAnnounce, LxmfPayload, PROPAGATION_METADATA_NAME,
-    PropagationAnnounce, PropagationBatch, PropagationCosts, PropagationStore,
-    PropagationStoreLimits, fetch_propagation_with_resource_config, prepare_propagation,
-    receive_direct_with_stamp_cost_and_resource_config, receive_submission, register_delivery,
-    register_propagation, send_direct_stamped_with_resource_config, serve_fetch,
-    submit_propagation_with_resource_config,
+    DEFAULT_MAX_MESSAGE_BYTES, DeliveryAnnounce, FetchPolicy, LxmfPayload, NodePolicy,
+    PROPAGATION_METADATA_NAME, PropagationAnnounce, PropagationBatch, PropagationCosts,
+    PropagationNode, PropagationStamps, PropagationStore, PropagationStoreLimits,
+    fetch_propagation, prepare_propagation, receive_direct_with_stamp_cost_and_resource_config,
+    receive_submission, register_delivery, register_propagation,
+    send_direct_stamped_with_resource_config, serve_fetch, submit_propagation_with_resource_config,
 };
 use radio_face::{DetailPolicy, EventKind, IfacState};
 use retinue::Ifac;
@@ -246,6 +246,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let received = receive_direct_with_stamp_cost_and_resource_config(
             &pair.right,
             accepted,
+            &outrider::DeliveredCache::default(),
             DEFAULT_MAX_MESSAGE_BYTES,
             Some(STAMP_COST),
             resource_config,
@@ -277,7 +278,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if received.mode != PayloadMode::Data
         || sent.mode != PayloadMode::Data
         || received.message.message_id != sent.message_id
-        || received.source_identity != *left_identity.public()
+        || received.source_identity != Some(*left_identity.public())
         || received.message.payload.title != expected_title
         || received.message.payload.content != expected_content
     {
@@ -361,8 +362,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         legacy: false,
         unix_time: TIMESTAMP as u64,
         active: true,
-        transfer_limit_kib: 256,
-        sync_limit_kib: 10_240,
+        transfer_limit_kb: 256.0,
+        sync_limit_kb: 10_240.0,
         costs: PropagationCosts {
             propagation: STAMP_COST,
             flexibility: 3,
@@ -380,20 +381,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let propagation_content = b"stored then fetched over RF".to_vec();
     let prepared = prepare_propagation(
+        &pair.right,
         &right_identity,
-        left_identity.public(),
+        left_announce.destination,
         &LxmfPayload::text(TIMESTAMP, b"U4 PROPAGATION", propagation_content.clone()),
-        &[0x31; 32],
-        &[0x41; 16],
-        [0x20; 32],
-        u16::from(STAMP_COST),
-        100_000,
+        &PropagationStamps {
+            delivery_cost: Some(STAMP_COST),
+            propagation_cost: u16::from(STAMP_COST),
+            seed: [0x20; 32],
+            max_attempts: 100_000,
+        },
     )?;
     let batch = PropagationBatch {
         transfer_time: TIMESTAMP + 0.5,
         entries: vec![prepared.entry],
     };
     println!("propagation batch: {} packed bytes", batch.encode()?.len());
+    // A close lost on air would otherwise hold the node's link for the stock 180 s.
+    let propagation_state = PropagationNode::new(
+        PropagationStore::new(PropagationStoreLimits {
+            max_entries: 4,
+            max_bytes: 16 * 1024,
+            max_message_bytes: 4_096,
+            max_age: Duration::from_secs(60),
+            max_per_fetch: 1,
+        }),
+        NodePolicy {
+            costs: PropagationCosts {
+                propagation: STAMP_COST,
+                flexibility: 0,
+                peering: STAMP_COST,
+            },
+            max_transfer_bytes: 4_096,
+            allowed: None,
+            link_idle: operation_timeout,
+        },
+    );
     let receive_submission = async {
         let mut accepted =
             tokio::time::timeout(operation_timeout, pair.right.accept_resource()).await??;
@@ -402,8 +425,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             accepted.interface
         );
         accepted.session.set_config(resource_config);
-        let received =
-            receive_submission(&pair.right, accepted, u16::from(STAMP_COST), 4_096, 1).await?;
+        let received = receive_submission(&pair.right, accepted, &propagation_state, || {
+            TIMESTAMP + 1.0
+        })
+        .await?;
         println!(
             "propagation submit: payload received as {:?}",
             received.mode
@@ -451,15 +476,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         return Err("propagation submission changed the transient id".into());
     }
-    let mut store = PropagationStore::new(PropagationStoreLimits {
-        max_entries: 4,
-        max_bytes: 16 * 1024,
-        max_message_bytes: 4_096,
-        max_age: Duration::from_secs(60),
-        max_per_fetch: 1,
-    });
-    let stored = store.ingest(&received_batch.batch, TIMESTAMP + 1.0);
-    if stored.inserted != 1 || store.len() != 1 {
+    if received_batch.stored.inserted != 1 || propagation_state.store().len() != 1 {
         return Err("propagation node did not store exactly one message".into());
     }
     publish(
@@ -481,9 +498,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await?;
     println!(
         "propagation storage: inserted={} entries={} bytes={}",
-        stored.inserted,
-        store.len(),
-        store.bytes()
+        received_batch.stored.inserted,
+        propagation_state.store().len(),
+        propagation_state.store().bytes()
     );
     tokio::time::sleep(Duration::from_secs(2)).await;
 
@@ -508,22 +525,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ),
         )
         .await?;
-        let served = serve_fetch(&pair.right, &mut accepted, &mut store, TIMESTAMP + 2.0).await?;
+        let served = serve_fetch(&pair.right, accepted, &propagation_state, || {
+            TIMESTAMP + 2.0
+        })
+        .await?;
         Ok::<_, Box<dyn std::error::Error>>(served)
     };
     let fetch = async {
         let receipt = tokio::time::timeout(
             operation_timeout,
-            fetch_propagation_with_resource_config(
+            fetch_propagation(
                 &pair.left,
-                &left_identity,
                 &propagation_node,
-                &[],
-                1,
                 TIMESTAMP + 2.0,
-                4_096,
-                DEFAULT_MAX_MESSAGE_BYTES,
-                resource_config,
+                |_| false,
+                &FetchPolicy {
+                    max_messages: 1,
+                    retain_on_node: true,
+                    stamp_cost: Some(STAMP_COST),
+                    max_entry_bytes: 4_096,
+                    max_message_bytes: DEFAULT_MAX_MESSAGE_BYTES,
+                    resource: resource_config,
+                    ..FetchPolicy::default()
+                },
             ),
         )
         .await??;
@@ -537,7 +561,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         || fetched.offered.len() != 1
         || fetched.messages.len() != 1
         || fetched.messages[0].transient_id != prepared.transient_id
-        || fetched.messages[0].source_identity != *right_identity.public()
+        || fetched.messages[0].source_identity != Some(*right_identity.public())
         || fetched.messages[0].message.payload.title != b"U4 PROPAGATION"
         || fetched.messages[0].message.payload.content != propagation_content
     {

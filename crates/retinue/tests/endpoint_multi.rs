@@ -73,10 +73,13 @@ async fn transport_node_forwards_announces() {
         tokio::time::sleep(Duration::from_millis(120)).await;
     }
 
-    // A should learn B's destination via the hub's forwarding.
+    // Each should learn the other's destination via the hub's forwarding.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(4);
-    while a.resolve(b_dest).is_none() && tokio::time::Instant::now() < deadline {
-        let _ = tokio::time::timeout(Duration::from_millis(500), a.next_announcement()).await;
+    while (a.resolve(b_dest).is_none() || b.resolve(a_dest).is_none())
+        && tokio::time::Instant::now() < deadline
+    {
+        let _ = tokio::time::timeout(Duration::from_millis(250), a.next_announcement()).await;
+        let _ = tokio::time::timeout(Duration::from_millis(250), b.next_announcement()).await;
     }
     assert!(
         a.resolve(b_dest).is_some(),

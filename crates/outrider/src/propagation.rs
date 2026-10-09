@@ -4,23 +4,38 @@
 
 mod client;
 mod error;
+mod fetch;
 mod msgpack;
 mod node;
+mod paper;
+mod policy;
+mod snapshot;
 mod store;
+#[cfg(test)]
+mod store_tests;
 #[cfg(test)]
 mod tests;
 mod wire;
 
 pub use client::{
-    FetchedPropagation, PreparedPropagation, PropagationFetchReceipt, PropagationSubmitReceipt,
-    fetch, fetch_with_resource_config, prepare_propagation, submit, submit_with_resource_config,
+    PreparedPropagation, PropagationStamps, PropagationSubmitReceipt, prepare_propagation,
+    prepare_propagation_with, submit, submit_with_resource_config,
 };
 pub use error::PropagationError;
+pub use fetch::{
+    Acknowledgement, FetchPolicy, FetchedPropagation, PropagationFetchReceipt, RejectedPropagation,
+    delivery_stamp_valid, fetch,
+};
 pub use node::{
     ReceivedPropagationBatch, ServedFetch, announce_propagation, propagation_destination,
     propagation_name, receive_submission, register_propagation, serve_fetch,
 };
-pub use store::{PropagationStore, PropagationStoreLimits, StoreReceipt, StoreRestoreReceipt};
+pub use paper::{PAPER_MDU, PreparedPaper, URI_SCHEMA, prepare_paper, prepare_paper_with};
+pub use policy::{LINK_MAX_INACTIVITY, NodePolicy, PropagationNode, STAMP_THROTTLE};
+pub use store::{
+    MAX_PROCESSED_TRANSIENT_IDS, PROCESSED_TRANSIENT_ID_TTL, PropagationStore,
+    PropagationStoreLimits, StoreReceipt, StoreRestoreReceipt,
+};
 pub use wire::{
     PropagationAnnounce, PropagationBatch, PropagationCosts, PropagationEntry, PropagationMessage,
 };
@@ -29,7 +44,7 @@ pub const DEFAULT_MAX_PROPAGATION_ANNOUNCE_BYTES: usize = 4 * 1024;
 pub const DEFAULT_MAX_PROPAGATION_BATCH_BYTES: usize = 16 * 1024 * 1024;
 pub const DEFAULT_MAX_PROPAGATION_ENTRIES: usize = 4_096;
 pub const MIN_ENCRYPTED_MESSAGE_BYTES: usize = 96;
-pub const PROPAGATION_METADATA_NAME: u64 = 1;
+pub const PROPAGATION_METADATA_NAME: u64 = crate::fields::pn_meta::NAME as u64;
 pub const FETCH_LIMIT: u64 = 1_000;
 pub const FETCH_PATH_HASH: [u8; 16] = [
     0x9d, 0xc1, 0xa7, 0x28, 0x83, 0x46, 0x8f, 0x57, 0xfe, 0xd5, 0x71, 0xe7, 0x96, 0xe9, 0xce, 0x98,

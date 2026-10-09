@@ -27,6 +27,7 @@ pub use super::resource_pace::ResourceTransferConfig;
 use super::entropy::{fill_random, next_iv};
 use super::facts::{LinkDirection, LinkRemoteFact};
 use super::interface::InterfaceId;
+use super::queue::TrafficClass;
 use super::shared::{LinkEntry, LinkKind, Shared};
 use super::stream::LINK_QUEUE;
 
@@ -69,6 +70,11 @@ pub struct ResourceSession {
     metadata: Option<Vec<u8>>,
     pub(super) max_resource_size: usize,
     pub(super) max_request_size: Option<usize>,
+    /// The last data packet [`receive`](Self::receive) returned, for [`prove_data`](Self::prove_data).
+    last_data: Option<Packet>,
+    /// A Resource [`next_inbound`](Self::next_inbound) was receiving when a request or
+    /// packet came first, with its clock and the segment proofs kept.
+    pub(super) inbound: Option<(SegmentedReceiver, Pace, usize)>,
 }
 
 /// A resource accept policy shared by every receive on a session; see
@@ -112,7 +118,7 @@ impl ResourceSession {
     }
 
     /// The link's transfer timing: its measured RTT, else the configured retry interval.
-    fn timing(&self) -> Timing {
+    pub(super) fn timing(&self) -> Timing {
         let floor = self
             .config
             .retry_interval
@@ -161,6 +167,10 @@ impl ResourceSession {
     /// session, taken. `None` if it carried none.
     pub fn take_metadata(&mut self) -> Option<Vec<u8>> {
         self.metadata.take()
+    }
+
+    pub(super) fn set_metadata(&mut self, metadata: Option<Vec<u8>>) {
+        self.metadata = metadata;
     }
 
     /// Receivers for inbound Resources under this session's policy: its window, timing and
@@ -385,6 +395,19 @@ impl ResourceSession {
         data
     }
 
+    /// Prove the data packet the last [`receive`](Self::receive) returned, as an RNS
+    /// destination under `PROVE_APP` does (`Link.py` 961-967), once. A Resource is proved on
+    /// completion already. Fails if that receive returned no data packet, or it was proved.
+    pub fn prove_data(&mut self) -> io::Result<()> {
+        let packet = self.last_data.take().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "no data packet to prove")
+        })?;
+        let proof = self.link.prove_packet(&packet);
+        self.shared
+            .send_on_class(self.iface, proof, TrafficClass::Control);
+        Ok(())
+    }
+
     /// Receive either one best-effort data packet or one complete Resource.
     ///
     /// Protocols such as LXMF use both forms on one destination: register it with
@@ -395,6 +418,7 @@ impl ResourceSession {
     ///
     /// [`Endpoint::register_resource`]: super::Endpoint::register_resource
     pub async fn receive(&mut self) -> io::Result<ReceivedPayload> {
+        self.last_data = None;
         let mut receiver = self.receivers(None, true)();
         let mut pace = Pace::new(self.config.timeout);
         let mut kept = 0;
@@ -414,7 +438,10 @@ impl ResourceSession {
                         continue;
                     }
                     match self.link.receive(&packet) {
-                        Some(Inbound::Data(data)) => return Ok(ReceivedPayload::Data(data)),
+                        Some(Inbound::Data(data)) => {
+                            self.last_data = Some(packet);
+                            return Ok(ReceivedPayload::Data(data));
+                        }
                         Some(Inbound::Close) => {
                             return Err(io::Error::new(
                                 io::ErrorKind::BrokenPipe,
@@ -558,5 +585,7 @@ pub(super) fn register_resource_session(
         metadata: None,
         max_resource_size: DEFAULT_MAX_RESOURCE_SIZE,
         max_request_size: None,
+        last_data: None,
+        inbound: None,
     })
 }

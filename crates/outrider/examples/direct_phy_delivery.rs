@@ -71,6 +71,7 @@ async fn transfer(spec: Transfer<'_>) -> Result<(), Box<dyn std::error::Error>> 
         receive_direct_with_stamp_cost_and_resource_config(
             &receiver,
             accepted,
+            &outrider::DeliveredCache::default(),
             DEFAULT_MAX_MESSAGE_BYTES,
             Some(STAMP_COST),
             spec.resource_config,
@@ -105,7 +106,7 @@ async fn transfer(spec: Transfer<'_>) -> Result<(), Box<dyn std::error::Error>> 
     if received.message.message_id != receipt.message_id
         || received.message.payload.title != expected_title
         || received.message.payload.content != expected_content
-        || received.source_identity != *spec.sender_identity.public()
+        || received.source_identity != Some(*spec.sender_identity.public())
     {
         return Err(format!("{} did not arrive byte-exact and authenticated", spec.label).into());
     }

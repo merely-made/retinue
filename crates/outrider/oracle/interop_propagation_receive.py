@@ -1,4 +1,9 @@
-"""Prove a production Outrider submission through pinned stock LXMF."""
+"""Prove a production Outrider submission through pinned stock LXMF.
+
+The stock recipient announces a delivery stamp cost of 8 and enforces stamps,
+so it only delivers a message whose stamp Outrider minted inside the
+encryption. It also checks the message was sealed to its announced ratchet.
+"""
 
 from __future__ import annotations
 
@@ -23,6 +28,7 @@ LXMD = Path(sys.executable).parent / ("lxmd.exe" if os.name == "nt" else "lxmd")
 TITLE = b"PROPAGATION TITLE"
 CONTENT = b"PROPAGATION BODY"
 RECEIVER_SEED = bytes([0x62] * 64)
+STAMP_COST = 8
 
 
 def main() -> int:
@@ -120,8 +126,9 @@ def main() -> int:
         receiver_router = LXMF.LXMRouter(
             identity=receiver_identity, storagepath=str(receiver_store)
         )
-        receiver_router.register_delivery_identity(
-            receiver_identity, display_name="Propagation Receiver", stamp_cost=None
+        receiver_router.enforce_stamps()
+        receiver_delivery = receiver_router.register_delivery_identity(
+            receiver_identity, display_name="Propagation Receiver", stamp_cost=STAMP_COST
         )
         node_seen = threading.Event()
         delivered: dict[str, object] = {}
@@ -143,6 +150,9 @@ def main() -> int:
             delivered["title"] = bytes(message.title)
             delivered["content"] = bytes(message.content)
             delivered["hash"] = bytes(message.hash)
+            delivered["stamp_valid"] = message.stamp_valid
+            delivered["signature_validated"] = message.signature_validated
+            delivered["ratchet_id"] = message.ratchet_id
             print(f"  stock: fetched {message.hash.hex()}")
             received.set()
 
@@ -174,12 +184,16 @@ def main() -> int:
             print("stock learned propagation node: FAIL")
             return 1
 
+        # Outrider needs the recipient's announce for its ratchet and stamp cost.
         submit_deadline = time.time() + 180
         while time.time() < submit_deadline:
             if any(line.startswith("SUBMITTED ") for line in lines):
                 break
             if sender.poll() is not None:
                 break
+            if not any(line.startswith("STOCK_RECIPIENT_ANNOUNCE ") for line in lines):
+                receiver_router.announce(receiver_delivery.hash)
+                time.sleep(1)
             time.sleep(0.2)
         submitted = any(line.startswith("SUBMITTED ") for line in lines)
         requested = receiver_router.request_messages_from_propagation_node(
@@ -199,11 +213,30 @@ def main() -> int:
         title_ok = delivered.get("title") == TITLE
         content_ok = delivered.get("content") == CONTENT
         id_ok = delivered.get("hash") == message_id
+        stamp_ok = delivered.get("stamp_valid") is True
+        signed_ok = delivered.get("signature_validated") is True
+        outrider_ratchet = next(
+            (line[11:] for line in lines if line.startswith("RATCHET_ID ")), None
+        )
+        stock_ratchet = delivered.get("ratchet_id")
+        ratchet_ok = stock_ratchet is not None and stock_ratchet.hex() == outrider_ratchet
         print(f"Outrider submitted message: {'PASS' if submitted else 'FAIL'}")
         print(f"stock fetched message: {'PASS' if received.is_set() else 'FAIL'}")
         print(f"stock decoded title/body: {'PASS' if title_ok and content_ok else 'FAIL'}")
         print(f"stock agreed on message id: {'PASS' if id_ok else 'FAIL'}")
-        ok = submitted and received.is_set() and title_ok and content_ok and id_ok
+        print(f"stock enforced a valid cost-{STAMP_COST} stamp: {'PASS' if stamp_ok else 'FAIL'}")
+        print(f"stock validated the signature: {'PASS' if signed_ok else 'FAIL'}")
+        print(f"stock opened it with its ratchet: {'PASS' if ratchet_ok else 'FAIL'}")
+        ok = (
+            submitted
+            and received.is_set()
+            and title_ok
+            and content_ok
+            and id_ok
+            and stamp_ok
+            and signed_ok
+            and ratchet_ok
+        )
         print(f"OUTRIDER_TO_STOCK_PROPAGATION: {'PASS' if ok else 'FAIL'}")
         exit_code = 0 if ok else 1
         return exit_code

@@ -25,6 +25,8 @@ pub(super) struct Registered {
     /// The name and app data this destination announced with, kept to answer path requests.
     pub(super) name: DestinationName,
     pub(super) app_data: Vec<u8>,
+    /// Builds the app data afresh at each path response instead, when set.
+    pub(super) app_data_source: Option<AppDataSource>,
     /// Receive ratchets, owned here and rotated at announce. Shared so inbound trial
     /// decryption never copies the store.
     pub(super) ratchets: Option<Arc<RatchetStore>>,
@@ -33,6 +35,9 @@ pub(super) struct Registered {
     pub(super) enforce_ratchets: bool,
     pub(super) proof_strategy: ProofStrategy,
 }
+
+/// Builds a destination's app data at a given host time, in Unix seconds.
+pub(super) type AppDataSource = Arc<dyn Fn(u64) -> Vec<u8> + Send + Sync>;
 
 /// The host's durable store for a ratcheted destination's signed snapshot.
 pub(super) type RatchetPersistence =
@@ -215,6 +220,11 @@ impl Endpoint {
         *self.shared.ratchet_persistence.lock().unwrap() = Some(alloc::boxed::Box::new(persist));
     }
 
+    /// Whether `name` is registered on this endpoint.
+    pub fn is_registered(&self, name: &DestinationName) -> bool {
+        self.with_registration(name, |_| Ok(())).is_ok()
+    }
+
     /// The id of the ratchet a registered destination currently advertises, if it has
     /// ratchets.
     pub fn current_ratchet_id(&self, name: &DestinationName) -> Option<NameHash> {
@@ -257,6 +267,7 @@ impl Endpoint {
             kind,
             name: name.clone(),
             app_data: app_data.to_vec(),
+            app_data_source: None,
             ratchets,
             enforce_ratchets: false,
             proof_strategy: ProofStrategy::None,
@@ -303,6 +314,22 @@ impl Endpoint {
         };
         self.announce(name, &app_data);
         Ok(())
+    }
+
+    /// Build a registered destination's app data afresh for every path response, from the
+    /// host clock in Unix seconds, in place of the bytes it was registered with: RNS's
+    /// callable default app data (`Destination.py` 290-296, 678-686). Announces still carry
+    /// what the caller passes to [`announce`](Self::announce).
+    pub fn set_app_data_source(
+        &self,
+        name: &DestinationName,
+        source: impl Fn(u64) -> Vec<u8> + Send + Sync + 'static,
+    ) -> io::Result<()> {
+        let source: AppDataSource = Arc::new(source);
+        self.with_registration(name, |registration| {
+            registration.app_data_source = Some(source);
+            Ok(())
+        })
     }
 
     /// Emit an announce for a destination on every interface.

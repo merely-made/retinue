@@ -12,27 +12,28 @@ pub const DEFAULT_MAX_ANNOUNCE_BYTES: usize = 1024;
 
 /// The application data carried by an `lxmf.delivery` announce.
 ///
-/// Stock LXMF emits no application data when the display name is absent. When present, the
-/// wire value is `[display_name, stamp_cost, supported_features]`, with the name as
-/// MessagePack binary, the cost as an unsigned integer or nil, and the features as an array
-/// of feature numbers. LXMF 0.9.6 emitted only the first two; 1.1.1 appends the third.
+/// The wire value is `[display_name, stamp_cost, supported_features]`, each of the first two
+/// nil when absent, with the name as MessagePack binary (`LXMRouter.py` 1042-1058). Stock
+/// emits it whenever it announces through its router. Older senders emitted only the first
+/// two, and before that a bare UTF-8 name, which still decodes, with no cost.
 ///
-/// The feature list is a *declaration*, and the one feature defined so far is compression
-/// (`SF_COMPRESSION = 0`). Its default is permissive in the dangerous direction: stock reads
-/// an absent or nil feature list as compression **supported**. Outrider implements no
-/// compression, so emitting the two-element form would silently claim a capability we do not
-/// have and invite peers to compress at us. We therefore always emit the three-element form
-/// with an empty feature list, which is the only shape that truthfully declares nothing.
+/// We always declare an empty feature list: stock reads an absent or nil list as compression
+/// (`SF_COMPRESSION`) supported, and outrider implements none. With neither a name nor a cost
+/// there is nothing to say, so the app data is empty.
 ///
-/// Inbound, we accept two or more elements and ignore anything past the cost. Stock itself
-/// parses a four-element announce without complaint, so matching that tolerance costs nothing
-/// and is what keeps the next appended field from breaking us the way this one did. The
-/// peer's own feature list is not retained because outrider never compresses, so it has no
-/// decision to make with it.
+/// The stamp cost lives in 1..=254 as stock's does (`LXMRouter.py` 386-402): a cost of 0 means
+/// none, and anything above 254 is held at 254.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DeliveryAnnounce {
     pub display_name: Option<Vec<u8>>,
     pub stamp_cost: Option<u8>,
+}
+
+/// The highest stamp cost an announce carries.
+pub const MAX_STAMP_COST: u8 = 254;
+
+fn normalize_cost(cost: u64) -> Option<u8> {
+    (cost > 0).then(|| cost.min(u64::from(MAX_STAMP_COST)) as u8)
 }
 
 impl DeliveryAnnounce {
@@ -44,20 +45,19 @@ impl DeliveryAnnounce {
     }
 
     pub fn encode(&self) -> Result<Vec<u8>, AnnounceError> {
-        let Some(display_name) = &self.display_name else {
+        let cost = self.stamp_cost.and_then(|cost| normalize_cost(cost.into()));
+        if self.display_name.is_none() && cost.is_none() {
             return Ok(Vec::new());
-        };
-        let cost = self
-            .stamp_cost
-            .map_or(Value::Nil, |cost| Value::from(u64::from(cost)));
+        }
+        let name = self
+            .display_name
+            .as_ref()
+            .map_or(Value::Nil, |name| Value::Binary(name.clone()));
+        let cost = cost.map_or(Value::Nil, Value::from);
         let mut encoded = Vec::new();
         rmpv::encode::write_value(
             &mut encoded,
-            &Value::Array(vec![
-                Value::Binary(display_name.clone()),
-                cost,
-                Value::Array(Vec::new()),
-            ]),
+            &Value::Array(vec![name, cost, Value::Array(Vec::new())]),
         )
         .map_err(|_| AnnounceError::Encode)?;
         if encoded.len() > DEFAULT_MAX_ANNOUNCE_BYTES {
@@ -70,13 +70,29 @@ impl DeliveryAnnounce {
         Self::decode_bounded(encoded, DEFAULT_MAX_ANNOUNCE_BYTES)
     }
 
+    /// Decode as stock's `display_name_from_app_data` and `stamp_cost_from_app_data` do
+    /// (`LXMF.py` 152-186): an array marker selects the structured form, anything else is
+    /// a legacy UTF-8 name with no cost. A name that is not UTF-8 binary reads as absent;
+    /// NULs and surrounding whitespace are stripped from one that is. A cost that is not an
+    /// integer reads as absent, where stock keeps it and fails later when it stamps.
+    ///
+    /// Any app data reads as some delivery announce, so decode only what an `lxmf.delivery`
+    /// destination announced, as stock's handler filters by aspect (`Handlers.py` 8-12).
     pub fn decode_bounded(encoded: &[u8], max_bytes: usize) -> Result<Self, AnnounceError> {
         if encoded.len() > max_bytes {
             return Err(AnnounceError::TooLarge);
         }
-        if encoded.is_empty() {
-            return Ok(Self::default());
+        match encoded.first() {
+            None => Ok(Self::default()),
+            Some(0x90..=0x9f | 0xdc) => Self::decode_array(encoded),
+            Some(_) => Ok(Self {
+                display_name: core::str::from_utf8(encoded).ok().map(|name| name.into()),
+                stamp_cost: None,
+            }),
         }
+    }
+
+    fn decode_array(encoded: &[u8]) -> Result<Self, AnnounceError> {
         let mut cursor = Cursor::new(encoded);
         let value = rmpv::decode::read_value(&mut cursor)
             .map_err(|_| AnnounceError::MalformedMessagePack)?;
@@ -84,25 +100,20 @@ impl DeliveryAnnounce {
             return Err(AnnounceError::MalformedMessagePack);
         }
         let Value::Array(parts) = value else {
-            return Err(AnnounceError::InvalidShape);
+            return Err(AnnounceError::MalformedMessagePack);
         };
-        if parts.len() < 2 {
-            return Err(AnnounceError::InvalidShape);
-        }
-        let Value::Binary(display_name) = &parts[0] else {
-            return Err(AnnounceError::InvalidDisplayName);
+        let display_name = match parts.first() {
+            Some(Value::Binary(name)) => core::str::from_utf8(name)
+                .ok()
+                .map(|name| name.replace('\0', "").trim().as_bytes().to_vec()),
+            _ => None,
         };
-        let stamp_cost = match &parts[1] {
-            Value::Nil => None,
-            Value::Integer(value) => value
-                .as_u64()
-                .and_then(|value| u8::try_from(value).ok())
-                .ok_or(AnnounceError::InvalidStampCost)
-                .map(Some)?,
-            _ => return Err(AnnounceError::InvalidStampCost),
+        let stamp_cost = match parts.get(1) {
+            Some(Value::Integer(cost)) => cost.as_u64().and_then(normalize_cost),
+            _ => None,
         };
         Ok(Self {
-            display_name: Some(display_name.clone()),
+            display_name,
             stamp_cost,
         })
     }
@@ -114,12 +125,6 @@ pub enum AnnounceError {
     TooLarge,
     #[error("LXMF delivery announce is not one complete MessagePack value")]
     MalformedMessagePack,
-    #[error("LXMF delivery announce must be an array of at least two items")]
-    InvalidShape,
-    #[error("LXMF delivery display name must be MessagePack binary")]
-    InvalidDisplayName,
-    #[error("LXMF delivery stamp cost must be nil or an unsigned byte")]
-    InvalidStampCost,
     #[error("LXMF delivery announce could not be encoded")]
     Encode,
 }
@@ -278,12 +283,107 @@ mod tests {
     #[test]
     fn malformed_or_oversized_announces_are_rejected() {
         assert_eq!(
-            DeliveryAnnounce::decode(&[0x91, 0xc0]),
-            Err(AnnounceError::InvalidShape)
+            DeliveryAnnounce::decode(&[0x92, 0xc0]),
+            Err(AnnounceError::MalformedMessagePack)
+        );
+        assert_eq!(
+            DeliveryAnnounce::decode(&[0x91, 0xc0, 0xc0]),
+            Err(AnnounceError::MalformedMessagePack)
         );
         assert_eq!(
             DeliveryAnnounce::decode_bounded(&[0x92, 0xc4, 0x00, 0xc0], 3),
             Err(AnnounceError::TooLarge)
         );
+    }
+
+    /// Stock reads a name it cannot decode as absent and still takes the cost; a peer whose
+    /// announce has an odd name stays reachable, and stamped.
+    #[test]
+    fn odd_names_and_costs_read_as_absent() {
+        let decode = |bytes: &[u8]| DeliveryAnnounce::decode(bytes).unwrap();
+        let int_name = decode(&[0x92, 0x07, 0x08]);
+        assert_eq!(int_name.display_name, None);
+        assert_eq!(int_name.stamp_cost, Some(8));
+        let str_name = decode(&[0x92, 0xa1, b'N', 0x08]);
+        assert_eq!(str_name.display_name, None);
+        assert_eq!(str_name.stamp_cost, Some(8));
+        assert_eq!(decode(&[0x92, 0xc0, 0xa1, b'8']).stamp_cost, None);
+        assert_eq!(decode(&[0xff, 0xfe]), DeliveryAnnounce::default());
+    }
+
+    /// What stock's router announces for a destination registered without a name:
+    /// `[nil, 8, [0]]`. The cost must survive, or a stamped send goes out unstamped.
+    #[test]
+    fn a_nameless_stock_announce_keeps_its_cost() {
+        let captured = hex::decode("93c0089100").unwrap();
+        let announce = DeliveryAnnounce::decode(&captured).unwrap();
+        assert_eq!(announce.display_name, None);
+        assert_eq!(announce.stamp_cost, Some(8));
+
+        let ours = DeliveryAnnounce {
+            display_name: None,
+            stamp_cost: Some(8),
+        };
+        assert_eq!(hex::encode(ours.encode().unwrap()), "93c00890");
+        assert_eq!(
+            DeliveryAnnounce::decode(&ours.encode().unwrap()).unwrap(),
+            ours
+        );
+    }
+
+    #[test]
+    fn costs_hold_to_stock_range() {
+        let decode = |cost: &[u8]| {
+            let mut bytes = vec![0x92, 0xc0];
+            bytes.extend_from_slice(cost);
+            DeliveryAnnounce::decode(&bytes).unwrap().stamp_cost
+        };
+        assert_eq!(decode(&[0x00]), None);
+        assert_eq!(decode(&[0xff]), None, "negative");
+        assert_eq!(decode(&[0xcc, 0xfe]), Some(254));
+        assert_eq!(decode(&[0xcd, 0x01, 0x00]), Some(254));
+
+        let encode = |cost| {
+            DeliveryAnnounce {
+                display_name: None,
+                stamp_cost: Some(cost),
+            }
+            .encode()
+            .unwrap()
+        };
+        assert_eq!(encode(0), Vec::<u8>::new());
+        assert_eq!(hex::encode(encode(255)), "93c0ccfe90");
+    }
+
+    #[test]
+    fn legacy_and_short_forms_decode_as_stock_reads_them() {
+        assert_eq!(
+            DeliveryAnnounce::decode(b"Old Peer").unwrap(),
+            DeliveryAnnounce::named("Old Peer")
+        );
+        assert_eq!(
+            DeliveryAnnounce::decode(&[0x90]).unwrap(),
+            DeliveryAnnounce::default()
+        );
+        assert_eq!(
+            DeliveryAnnounce::decode(&[0x91, 0xc0]).unwrap(),
+            DeliveryAnnounce::default()
+        );
+    }
+
+    #[test]
+    fn names_are_stripped_and_non_utf8_names_are_absent() {
+        let padded = hex::decode("92c4072020410042200ac0").unwrap();
+        assert_eq!(
+            DeliveryAnnounce::decode(&padded)
+                .unwrap()
+                .display_name
+                .as_deref(),
+            Some(b"AB".as_slice())
+        );
+        let invalid = hex::decode("92c402fffe08").unwrap();
+        let announce = DeliveryAnnounce::decode(&invalid).unwrap();
+        assert_eq!(announce.display_name, None);
+        assert_eq!(announce.stamp_cost, Some(8));
     }
 }

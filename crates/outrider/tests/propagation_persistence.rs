@@ -5,13 +5,16 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use outrider::{
-    DeliveryAnnounce, LxmfPayload, PropagationAnnounce, PropagationBatch, PropagationCosts,
-    PropagationStore, PropagationStoreLimits, StoreRestoreReceipt, fetch_propagation,
-    prepare_propagation, register_delivery, register_propagation, serve_fetch,
+    DeliveryAnnounce, FetchPolicy, LxmfPayload, NodePolicy, PreparedPropagation,
+    PropagationAnnounce, PropagationBatch, PropagationCosts, PropagationNode, PropagationStamps,
+    PropagationStore, PropagationStoreLimits, StoreRestoreReceipt, delivery_destination,
+    fetch_propagation, prepare_propagation_with, register_delivery, register_propagation,
+    serve_fetch,
 };
 use retinue::endpoint::Endpoint;
-use retinue::identity::PrivateIdentity;
+use retinue::identity::{Identity, PrivateIdentity};
 use retinue::lossy::{LossModel, connect};
+use retinue::token::encrypt_to_identity;
 
 struct SnapshotFile(PathBuf);
 
@@ -49,13 +52,52 @@ impl Drop for SnapshotFile {
     }
 }
 
+fn sealed(
+    sender: &PrivateIdentity,
+    recipient: &Identity,
+    payload: &LxmfPayload,
+    key: u8,
+) -> PreparedPropagation {
+    let stamps = PropagationStamps {
+        delivery_cost: None,
+        propagation_cost: 0,
+        seed: [0; 32],
+        max_attempts: 1,
+    };
+    prepare_propagation_with(
+        sender,
+        delivery_destination(recipient),
+        payload,
+        &stamps,
+        |plaintext| {
+            let iv = [key.wrapping_add(0x10); 16];
+            Ok((
+                encrypt_to_identity(recipient, &[key; 32], &iv, plaintext),
+                None,
+            ))
+        },
+    )
+    .unwrap()
+}
+
+/// One message per fetch. Retaining keeps this test on the node's explicit `haves` path.
+fn policy(retain_on_node: bool) -> FetchPolicy {
+    FetchPolicy {
+        max_messages: 1,
+        retain_on_node,
+        max_entry_bytes: 2 * 1024,
+        max_message_bytes: 2 * 1024,
+        ..FetchPolicy::default()
+    }
+}
+
 fn announce() -> PropagationAnnounce {
     PropagationAnnounce {
         legacy: false,
         unix_time: 1_753_603_200,
         active: true,
-        transfer_limit_kib: 256,
-        sync_limit_kib: 10_240,
+        transfer_limit_kb: 256.0,
+        sync_limit_kb: 10_240.0,
         costs: PropagationCosts {
             propagation: 0,
             flexibility: 0,
@@ -117,28 +159,18 @@ async fn a_host_snapshot_survives_restart_and_preserves_owner_scoping_and_acknow
     )
     .unwrap();
 
-    let first = prepare_propagation(
+    let first = sealed(
         &node_identity,
         first_recipient_identity.public(),
         &LxmfPayload::text(1_753_603_204.0, b"FIRST", b"for the first owner"),
-        &[0x31; 32],
-        &[0x41; 16],
-        [0; 32],
-        0,
-        1,
-    )
-    .unwrap();
-    let second = prepare_propagation(
+        0x31,
+    );
+    let second = sealed(
         &node_identity,
         second_recipient_identity.public(),
         &LxmfPayload::text(1_753_603_205.0, b"SECOND", b"for the second owner"),
-        &[0x32; 32],
-        &[0x42; 16],
-        [0; 32],
-        0,
-        1,
-    )
-    .unwrap();
+        0x32,
+    );
     let limits = PropagationStoreLimits {
         max_entries: 4,
         max_bytes: 8 * 1024,
@@ -176,7 +208,7 @@ async fn a_host_snapshot_survives_restart_and_preserves_owner_scoping_and_acknow
     snapshot_file.replace(&store.encode_snapshot().unwrap());
     drop(store);
     let snapshot = std::fs::read(snapshot_file.path()).unwrap();
-    let (mut store, restored) =
+    let (store, restored) =
         PropagationStore::restore(limits.clone(), &snapshot, 1_753_603_208.0).unwrap();
     assert_eq!(
         restored,
@@ -189,22 +221,20 @@ async fn a_host_snapshot_survives_restart_and_preserves_owner_scoping_and_acknow
     let first_server = tokio::spawn({
         let node = Arc::clone(&node);
         async move {
-            let mut accepted = node.accept_resource().await.unwrap();
-            let served = serve_fetch(&node, &mut accepted, &mut store, 1_753_603_209.0)
+            let accepted = node.accept_resource().await.unwrap();
+            let state = PropagationNode::new(store, NodePolicy::from_announce(&announce()));
+            let served = serve_fetch(&node, accepted, &state, || 1_753_603_209.0)
                 .await
                 .unwrap();
-            (store, served)
+            (state.into_store(), served)
         }
     });
     let first_fetch = fetch_propagation(
         &first_recipient,
-        &first_recipient_identity,
         &first_node_announce,
-        &[],
-        1,
         1_753_603_209.0,
-        2 * 1024,
-        2 * 1024,
+        |_| false,
+        &policy(true),
     )
     .await
     .unwrap();
@@ -219,23 +249,20 @@ async fn a_host_snapshot_survives_restart_and_preserves_owner_scoping_and_acknow
     let acknowledgement_server = tokio::spawn({
         let node = Arc::clone(&node);
         async move {
-            let mut store = store;
-            let mut accepted = node.accept_resource().await.unwrap();
-            let served = serve_fetch(&node, &mut accepted, &mut store, 1_753_603_210.0)
+            let accepted = node.accept_resource().await.unwrap();
+            let state = PropagationNode::new(store, NodePolicy::from_announce(&announce()));
+            let served = serve_fetch(&node, accepted, &state, || 1_753_603_210.0)
                 .await
                 .unwrap();
-            (store, served)
+            (state.into_store(), served)
         }
     });
     let acknowledged = fetch_propagation(
         &first_recipient,
-        &first_recipient_identity,
         &first_node_announce,
-        &[first.transient_id],
-        1,
         1_753_603_210.0,
-        2 * 1024,
-        2 * 1024,
+        |id| *id == first.transient_id,
+        &policy(false),
     )
     .await
     .unwrap();
@@ -244,7 +271,7 @@ async fn a_host_snapshot_survives_restart_and_preserves_owner_scoping_and_acknow
     assert!(acknowledged.messages.is_empty());
 
     snapshot_file.replace(&store.encode_snapshot().unwrap());
-    let (mut store, restored) = PropagationStore::restore(
+    let (store, restored) = PropagationStore::restore(
         limits,
         &std::fs::read(snapshot_file.path()).unwrap(),
         1_753_603_211.0,
@@ -256,21 +283,19 @@ async fn a_host_snapshot_survives_restart_and_preserves_owner_scoping_and_acknow
     let second_server = tokio::spawn({
         let node = Arc::clone(&node);
         async move {
-            let mut accepted = node.accept_resource().await.unwrap();
-            serve_fetch(&node, &mut accepted, &mut store, 1_753_603_212.0)
+            let accepted = node.accept_resource().await.unwrap();
+            let state = PropagationNode::new(store, NodePolicy::from_announce(&announce()));
+            serve_fetch(&node, accepted, &state, || 1_753_603_212.0)
                 .await
                 .unwrap()
         }
     });
     let second_fetch = fetch_propagation(
         &second_recipient,
-        &second_recipient_identity,
         &second_node_announce,
-        &[],
-        1,
         1_753_603_212.0,
-        2 * 1024,
-        2 * 1024,
+        |_| false,
+        &policy(true),
     )
     .await
     .unwrap();

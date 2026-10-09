@@ -2,9 +2,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use outrider::{
-    DeliveryAnnounce, PropagationAnnounce, PropagationBatch, PropagationCosts, PropagationStore,
-    PropagationStoreLimits, prepare_propagation, receive_direct_with_stamp_cost,
-    receive_submission, register_delivery, register_propagation, send_direct_stamped, serve_fetch,
+    DeliveryAnnounce, FetchPolicy, NodePolicy, PropagationAnnounce, PropagationBatch,
+    PropagationCosts, PropagationNode, PropagationStamps, PropagationStore, PropagationStoreLimits,
+    prepare_propagation, receive_direct_with_stamp_cost, receive_submission, register_delivery,
+    register_propagation, send_direct_stamped, serve_fetch,
     submit_propagation_with_resource_config,
 };
 use postilion::Event;
@@ -64,9 +65,15 @@ async fn direct_voice_keeps_field_seven_through_postilions_authenticated_event()
         let recipient = Arc::clone(&recipient);
         async move {
             let accepted = recipient.accept_resource().await.unwrap();
-            receive_direct_with_stamp_cost(&recipient, accepted, 64 * 1024, None)
-                .await
-                .unwrap()
+            receive_direct_with_stamp_cost(
+                &recipient,
+                accepted,
+                &outrider::DeliveredCache::default(),
+                64 * 1024,
+                None,
+            )
+            .await
+            .unwrap()
         }
     });
     let sent = send_direct_stamped(&sender, &sender_identity, &announce, &payload, [0; 32], 0)
@@ -148,8 +155,8 @@ async fn file_backed_voice_crosses_a_propagation_node_once_and_retains_receipts(
         legacy: false,
         unix_time: NOW as u64,
         active: true,
-        transfer_limit_kib: 256,
-        sync_limit_kib: 10_240,
+        transfer_limit_kb: 256.0,
+        sync_limit_kb: 10_240.0,
         costs: PropagationCosts {
             propagation: 0,
             flexibility: 0,
@@ -161,6 +168,9 @@ async fn file_backed_voice_crosses_a_propagation_node_once_and_retains_receipts(
     let node_destination = *outrider::propagation_destination(node.identity()).as_bytes();
     let sender_node = wait_for_announce(&sender, node_destination).await;
     let recipient_node = wait_for_announce(&recipient, node_destination).await;
+    let recipient_destination = outrider::delivery_destination(recipient_identity.public());
+    register_delivery(&recipient, &DeliveryAnnounce::named(b"Voice recipient")).unwrap();
+    wait_for_announce(&sender, *recipient_destination.as_bytes()).await;
 
     let fixture = tempfile::tempdir().unwrap();
     let pcm_path = fixture.path().join("voice-drop.pcm16le");
@@ -204,25 +214,47 @@ async fn file_backed_voice_crosses_a_propagation_node_once_and_retains_receipts(
     assert_eq!(attached_clip, clip.encoded());
 
     let prepared = prepare_propagation(
+        &sender,
         &sender_identity,
-        recipient_identity.public(),
+        recipient_destination,
         &payload,
-        &[0x31; 32],
-        &[0x41; 16],
-        [0; 32],
-        0,
-        100_000,
+        &PropagationStamps {
+            delivery_cost: None,
+            propagation_cost: 0,
+            seed: [0; 32],
+            max_attempts: 100_000,
+        },
     )
     .unwrap();
     let batch = PropagationBatch {
         transfer_time: NOW,
         entries: vec![prepared.entry.clone()],
     };
+    let propagation_node = Arc::new(PropagationNode::new(
+        PropagationStore::new(PropagationStoreLimits {
+            max_entries: 4,
+            max_bytes: 64 * 1024,
+            max_message_bytes: 32 * 1024,
+            max_age: Duration::from_secs(60),
+            max_per_fetch: 1,
+        }),
+        NodePolicy {
+            costs: PropagationCosts {
+                propagation: 0,
+                flexibility: 0,
+                peering: 0,
+            },
+            max_transfer_bytes: 64 * 1024,
+            allowed: None,
+            link_idle: Duration::from_secs(30),
+        },
+    ));
     let receive_task = tokio::spawn({
         let node = Arc::clone(&node);
+        let propagation_node = Arc::clone(&propagation_node);
         async move {
             let accepted = node.accept_resource().await.unwrap();
-            receive_submission(&node, accepted, 0, 64 * 1024, 1)
+            receive_submission(&node, accepted, &propagation_node, || NOW)
                 .await
                 .unwrap()
         }
@@ -246,37 +278,29 @@ async fn file_backed_voice_crosses_a_propagation_node_once_and_retains_receipts(
         })
         .unwrap();
 
-    let mut store = PropagationStore::new(PropagationStoreLimits {
-        max_entries: 4,
-        max_bytes: 64 * 1024,
-        max_message_bytes: 32 * 1024,
-        max_age: Duration::from_secs(60),
-        max_per_fetch: 1,
-    });
-    assert_eq!(store.ingest(&received.batch, NOW).inserted, 1);
+    assert_eq!(received.stored.inserted, 1);
     let server = tokio::spawn({
         let node = Arc::clone(&node);
         async move {
             let mut accepted = node.accept_resource().await.unwrap();
             accepted.session.set_config(resource_config());
-            serve_fetch(&node, &mut accepted, &mut store, NOW + 1.0)
+            serve_fetch(&node, accepted, &propagation_node, || NOW + 1.0)
                 .await
                 .unwrap()
         }
     });
-    let fetched = outrider::fetch_propagation_with_resource_config(
-        &recipient,
-        &recipient_identity,
-        &recipient_node,
-        &[],
-        1,
-        NOW + 1.0,
-        64 * 1024,
-        32 * 1024,
-        resource_config(),
-    )
-    .await
-    .unwrap();
+    let policy = FetchPolicy {
+        max_messages: 1,
+        retain_on_node: true,
+        max_entry_bytes: 64 * 1024,
+        max_message_bytes: 32 * 1024,
+        resource: resource_config(),
+        ..FetchPolicy::default()
+    };
+    let fetched =
+        outrider::fetch_propagation(&recipient, &recipient_node, NOW + 1.0, |_| false, &policy)
+            .await
+            .unwrap();
     let served = server.await.unwrap();
     let transfer_mode = served.message_mode.expect("node served one batch");
     assert_eq!(served.served, fetched.offered);
@@ -287,7 +311,10 @@ async fn file_backed_voice_crosses_a_propagation_node_once_and_retains_receipts(
         &fetched.message.payload,
         MessagePeer::new(
             fetched.message.source,
-            Some(*fetched.source_identity.ed25519_bytes()),
+            fetched
+                .source_identity
+                .as_ref()
+                .map(|identity| *identity.ed25519_bytes()),
         ),
         recipient_peer,
         fetched.message.message_id,

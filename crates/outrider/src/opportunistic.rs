@@ -10,35 +10,51 @@
 //! Prepending the packet destination reconstructs the ordinary signed LXMF object used by
 //! direct and propagation delivery. Signature and message-id rules do not fork here.
 
-use retinue::endpoint::{Endpoint, InterfaceId, PeerAnnounce, ReceivedSingle, SinglePacketReceipt};
+use retinue::endpoint::{
+    Endpoint, InterfaceId, PeerAnnounce, ProofStrategy, ReceivedSingle, SinglePacketReceipt,
+};
 use retinue::hash::{AddressHash, NameHash};
 use retinue::identity::{Identity, PrivateIdentity};
 use retinue::ratchet::RatchetStore;
 
 use crate::announce::{AnnounceError, DeliveryAnnounce, delivery_destination, delivery_name};
 use crate::codec::{
-    CodecError, DEFAULT_MAX_MESSAGE_BYTES, DESTINATION_LEN, DecodedLxmf, LxmfPayload,
+    CodecError, DEFAULT_MAX_MESSAGE_BYTES, DESTINATION_LEN, DecodedLxmf, LxmfPayload, PreparedLxmf,
     decode_bounded, prepare,
 };
-use crate::stamp::{MESSAGE_WORKBLOCK_ROUNDS, STAMP_LEN, find_streamed, valid_streamed};
+use crate::delivered::DeliveredCache;
+use crate::inbound::{Verification, check_stamp, unix_now, verify};
+use crate::stamp::{MESSAGE_WORKBLOCK_ROUNDS, STAMP_LEN, find_parallel, valid_streamed};
+use crate::ticket::{StampFault, StampOutcome, TICKET_LEN, is_ticket_stamp};
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct OpportunisticReceipt {
     pub message_id: [u8; 32],
-    /// The peer's advertised ratchet the packet was encrypted to, or `None` when the peer
-    /// advertised none and its identity key was used, as stock LXMF does.
-    pub ratchet_id: Option<NameHash>,
-    pub queued_interfaces: usize,
     /// The complete signed LXMF object. The on-wire plaintext omits its first 16 bytes.
     pub packed: Vec<u8>,
+    /// Retinue's receipt for the packet: the peer ratchet it was encrypted to (`None` when
+    /// the peer advertised none and its identity key was used, as stock LXMF does), the
+    /// queues that took it, and [`SinglePacketReceipt::delivery`], which resolves once the
+    /// recipient proves it. Stock proves before it validates, so a proof, stock's DELIVERED,
+    /// means received rather than accepted.
+    pub packet: SinglePacketReceipt,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ReceivedOpportunistic {
     pub message: DecodedLxmf,
-    pub source_identity: Identity,
+    /// [`Verification::Verified`] or [`Verification::SourceUnknown`]; an invalid signature is
+    /// refused. An unknown source's packet is left unproved, so stock sends it again and the
+    /// retry is delivered once the source verifies: there is no need to hold it.
+    pub verification: Verification,
+    /// The sender's identity, when it verified.
+    pub source_identity: Option<Identity>,
+    /// The stamp's worth, when this destination asks for one.
+    pub stamp: Option<StampOutcome>,
     pub interface: InterfaceId,
-    pub ratchet_id: NameHash,
+    /// The receive ratchet that decrypted the packet, or `None` for the identity key, which
+    /// stock accepts unless ratchets are enforced (`Endpoint::set_enforce_ratchets`).
+    pub ratchet_id: Option<NameHash>,
     /// The reconstructed complete signed LXMF object.
     pub packed: Vec<u8>,
 }
@@ -48,6 +64,7 @@ pub struct ReceivedOpportunistic {
 /// The endpoint takes ownership of `ratchets` (empty, or restored from a snapshot). Each
 /// [`Endpoint::announce`] rotates it when due and carries the current ratchet; install
 /// [`Endpoint::set_ratchet_persistence`] first to keep retained epochs across restarts.
+/// [`receive`] proves each packet it verifies.
 pub fn register(
     endpoint: &Endpoint,
     announce: &DeliveryAnnounce,
@@ -56,7 +73,8 @@ pub fn register(
     let app_data = announce.encode()?;
     let name = delivery_name();
     let destination = name.destination_hash(endpoint.identity());
-    endpoint.register_resource_with_ratchets(name, &app_data, ratchets)?;
+    endpoint.register_resource_with_ratchets(name.clone(), &app_data, ratchets)?;
+    endpoint.set_proof_strategy(&name, ProofStrategy::App)?;
     Ok(destination)
 }
 
@@ -67,6 +85,55 @@ pub fn send(
     peer: &PeerAnnounce,
     payload: &LxmfPayload,
 ) -> Result<OpportunisticReceipt, OpportunisticError> {
+    let (announce, prepared) = prepare_for(endpoint, sender, peer, payload)?;
+    enforce_stamp(&announce, payload, prepared.message_id)?;
+    finish_send(endpoint, sender, peer.destination, prepared)
+}
+
+/// Generate any stamp required by the peer, then send opportunistically.
+///
+/// The size is checked before minting, so a message that cannot fit one packet costs no
+/// work, and the minted stamp is attached as found rather than checked again.
+pub fn send_stamped(
+    endpoint: &Endpoint,
+    sender: &PrivateIdentity,
+    peer: &PeerAnnounce,
+    payload: &LxmfPayload,
+    stamp_seed: [u8; STAMP_LEN],
+    max_stamp_attempts: u64,
+) -> Result<OpportunisticReceipt, OpportunisticError> {
+    let (announce, prepared) = prepare_for(endpoint, sender, peer, payload)?;
+    // A payload already carrying a ticket stamp needs no proof of work.
+    let ticketed = is_ticket_stamp(payload.stamp.as_deref());
+    let Some(target) = announce.stamp_cost.filter(|_| !ticketed) else {
+        return finish_send(endpoint, sender, peer.destination, prepared);
+    };
+    if prepared.stamped_len() - DESTINATION_LEN > retinue::packet::ENCRYPTED_MDU {
+        return Err(OpportunisticError::TooLarge);
+    }
+    let (stamp, _) = find_parallel(
+        &prepared.message_id,
+        MESSAGE_WORKBLOCK_ROUNDS,
+        u16::from(target),
+        stamp_seed,
+        max_stamp_attempts,
+    )
+    .ok_or(OpportunisticError::StampBudgetExhausted)?;
+    finish_send(
+        endpoint,
+        sender,
+        peer.destination,
+        prepared.with_stamp(&stamp),
+    )
+}
+
+/// Check the sender and peer, and prepare the message for the peer's delivery destination.
+fn prepare_for(
+    endpoint: &Endpoint,
+    sender: &PrivateIdentity,
+    peer: &PeerAnnounce,
+    payload: &LxmfPayload,
+) -> Result<(DeliveryAnnounce, PreparedLxmf), OpportunisticError> {
     if sender.public() != endpoint.identity() {
         return Err(OpportunisticError::LocalIdentityMismatch);
     }
@@ -76,43 +143,14 @@ pub fn send(
     let announce = DeliveryAnnounce::decode(&peer.app_data)?;
     let source = delivery_destination(sender.public());
     let prepared = prepare(*peer.destination.as_bytes(), *source.as_bytes(), payload)?;
-    enforce_stamp(&announce, payload, prepared.message_id)?;
-    finish_send(endpoint, sender, peer.destination, prepared)
-}
-
-/// Generate any stamp required by the peer, then send opportunistically.
-pub fn send_stamped(
-    endpoint: &Endpoint,
-    sender: &PrivateIdentity,
-    peer: &PeerAnnounce,
-    payload: &LxmfPayload,
-    stamp_seed: [u8; STAMP_LEN],
-    max_stamp_attempts: u64,
-) -> Result<OpportunisticReceipt, OpportunisticError> {
-    let announce = DeliveryAnnounce::decode(&peer.app_data)?;
-    let Some(target) = announce.stamp_cost else {
-        return send(endpoint, sender, peer, payload);
-    };
-    let source = delivery_destination(sender.public());
-    let initial = prepare(*peer.destination.as_bytes(), *source.as_bytes(), payload)?;
-    let (stamp, _) = find_streamed(
-        &initial.message_id,
-        MESSAGE_WORKBLOCK_ROUNDS,
-        u16::from(target),
-        stamp_seed,
-        max_stamp_attempts,
-    )
-    .ok_or(OpportunisticError::StampBudgetExhausted)?;
-    let mut stamped = payload.clone();
-    stamped.stamp = Some(stamp.to_vec());
-    send(endpoint, sender, peer, &stamped)
+    Ok((announce, prepared))
 }
 
 fn finish_send(
     endpoint: &Endpoint,
     sender: &PrivateIdentity,
     destination: AddressHash,
-    prepared: crate::codec::PreparedLxmf,
+    prepared: PreparedLxmf,
 ) -> Result<OpportunisticReceipt, OpportunisticError> {
     let message_id = prepared.message_id;
     let signature = sender.sign(prepared.signing_bytes());
@@ -121,16 +159,11 @@ fn finish_send(
     if single_payload.len() > retinue::packet::ENCRYPTED_MDU {
         return Err(OpportunisticError::TooLarge);
     }
-    let SinglePacketReceipt {
-        ratchet_id,
-        queued_interfaces,
-        ..
-    } = endpoint.send_single(destination, single_payload)?;
+    let packet = endpoint.send_single(destination, single_payload)?;
     Ok(OpportunisticReceipt {
         message_id,
-        ratchet_id,
-        queued_interfaces,
         packed,
+        packet,
     })
 }
 
@@ -138,25 +171,52 @@ fn finish_send(
 pub fn receive(
     endpoint: &Endpoint,
     received: ReceivedSingle,
+    delivered: &DeliveredCache,
     max_message_bytes: usize,
 ) -> Result<ReceivedOpportunistic, OpportunisticError> {
-    receive_with_stamp_cost(endpoint, received, max_message_bytes, None)
+    receive_with_stamp_cost(endpoint, received, delivered, max_message_bytes, None)
 }
 
 /// Decode and authenticate one opportunistic packet, enforcing the local advertised cost.
+///
+/// A verified packet is proved, a duplicate included, so the sender stops retrying
+/// (`LXMRouter.py` 1995-1996). One from an unknown source is returned unproved: the sender
+/// retries while the path request [`resolve_source`](crate::resolve_source) sent fetches its
+/// keys. A verified message already in `delivered` is refused as
+/// [`Duplicate`](OpportunisticError::Duplicate).
 pub fn receive_with_stamp_cost(
     endpoint: &Endpoint,
     received: ReceivedSingle,
+    delivered: &DeliveredCache,
     max_message_bytes: usize,
     stamp_cost: Option<u8>,
+) -> Result<ReceivedOpportunistic, OpportunisticError> {
+    let no_tickets = |_: &AddressHash| Vec::new();
+    receive_with_tickets(
+        endpoint,
+        received,
+        delivered,
+        max_message_bytes,
+        stamp_cost,
+        no_tickets,
+    )
+}
+
+/// As [`receive_with_stamp_cost`], also accepting a stamp made with one of the tickets
+/// `inbound_tickets` returns for the source, such as
+/// [`TicketBook::inbound`](crate::TicketBook::inbound).
+pub fn receive_with_tickets(
+    endpoint: &Endpoint,
+    received: ReceivedSingle,
+    delivered: &DeliveredCache,
+    max_message_bytes: usize,
+    stamp_cost: Option<u8>,
+    inbound_tickets: impl Fn(&AddressHash) -> Vec<[u8; TICKET_LEN]>,
 ) -> Result<ReceivedOpportunistic, OpportunisticError> {
     let local_destination = delivery_destination(endpoint.identity());
     if received.destination != local_destination {
         return Err(OpportunisticError::WrongDestination);
     }
-    let ratchet_id = received
-        .ratchet_id
-        .ok_or(OpportunisticError::UnratchetedPacket)?;
     let mut packed = Vec::with_capacity(DESTINATION_LEN + received.data.len());
     packed.extend_from_slice(received.destination.as_slice());
     packed.extend_from_slice(&received.data);
@@ -166,21 +226,33 @@ pub fn receive_with_stamp_cost(
         return Err(OpportunisticError::WrongDestination);
     }
     let source = AddressHash::from_bytes(message.source);
-    let source_identity = crate::announce::resolve_source(endpoint, source)
-        .ok_or(OpportunisticError::UnknownSource(source))?;
-    if source != delivery_destination(&source_identity) {
-        return Err(OpportunisticError::WrongSource);
+    let source_identity = crate::announce::resolve_source(endpoint, source);
+    let verification = verify(&message, source_identity.as_ref());
+    match verification {
+        Verification::SignatureInvalid => return Err(OpportunisticError::BadSignature),
+        Verification::Verified => endpoint.prove_single(&received)?,
+        Verification::SourceUnknown => {}
     }
-    if !message.verify_with(|bytes, signature| source_identity.verify(bytes, signature)) {
-        return Err(OpportunisticError::BadSignature);
+    let stamp =
+        check_stamp(&message, stamp_cost, &inbound_tickets(&source)).map_err(
+            |fault| match fault {
+                StampFault::Missing => {
+                    OpportunisticError::StampRequired(stamp_cost.unwrap_or_default())
+                }
+                StampFault::Invalid => OpportunisticError::InvalidStamp,
+            },
+        )?;
+    if verification == Verification::Verified && !delivered.admit(message.message_id, unix_now()) {
+        return Err(OpportunisticError::Duplicate(message.message_id));
     }
-    enforce_received_stamp(&message, stamp_cost)?;
 
     Ok(ReceivedOpportunistic {
         message,
+        verification,
         source_identity,
+        stamp,
         interface: received.interface,
-        ratchet_id,
+        ratchet_id: received.ratchet_id,
         packed,
     })
 }
@@ -193,6 +265,10 @@ fn enforce_stamp(
     let Some(target) = announce.stamp_cost else {
         return Ok(());
     };
+    // A ticket stamp only its receiver can check.
+    if is_ticket_stamp(payload.stamp.as_deref()) {
+        return Ok(());
+    }
     let stamp = payload
         .stamp
         .as_deref()
@@ -200,30 +276,6 @@ fn enforce_stamp(
         .ok_or(OpportunisticError::StampRequired(target))?;
     if !valid_streamed(
         &message_id,
-        MESSAGE_WORKBLOCK_ROUNDS,
-        stamp,
-        u16::from(target),
-    ) {
-        return Err(OpportunisticError::InvalidStamp);
-    }
-    Ok(())
-}
-
-fn enforce_received_stamp(
-    message: &DecodedLxmf,
-    stamp_cost: Option<u8>,
-) -> Result<(), OpportunisticError> {
-    let Some(target) = stamp_cost else {
-        return Ok(());
-    };
-    let stamp = message
-        .payload
-        .stamp
-        .as_deref()
-        .and_then(|stamp| <&[u8; STAMP_LEN]>::try_from(stamp).ok())
-        .ok_or(OpportunisticError::StampRequired(target))?;
-    if !valid_streamed(
-        &message.message_id,
         MESSAGE_WORKBLOCK_ROUNDS,
         stamp,
         u16::from(target),
@@ -245,14 +297,10 @@ pub enum OpportunisticError {
     LocalIdentityMismatch,
     #[error("the packet or announce is not for the expected lxmf.delivery destination")]
     WrongDestination,
-    #[error("the LXMF source is not that identity's lxmf.delivery destination")]
-    WrongSource,
-    #[error("the message source {0} has no validated delivery announce")]
-    UnknownSource(AddressHash),
     #[error("the LXMF signature does not verify against the announced source identity")]
     BadSignature,
-    #[error("an opportunistic packet arrived without a receive ratchet")]
-    UnratchetedPacket,
+    #[error("the message was already delivered here")]
+    Duplicate([u8; 32]),
     #[error("the signed LXMF object does not fit one encrypted Reticulum packet")]
     TooLarge,
     #[error("the peer requires a delivery stamp with cost {0}")]

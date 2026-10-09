@@ -1,31 +1,34 @@
+use std::io::Cursor;
 use std::sync::Arc;
 use std::time::Duration;
 
 use outrider::{
-    DeliveryAnnounce, LxmfPayload, PROPAGATION_METADATA_NAME, PropagationAnnounce,
-    PropagationBatch, PropagationCosts, PropagationStore, PropagationStoreLimits,
-    fetch_propagation_with_resource_config, prepare_propagation, register_delivery,
-    register_propagation, serve_fetch,
+    Acknowledgement, DeliveryAnnounce, FETCH_LIMIT, FetchPolicy, LxmfPayload, NodePolicy,
+    PROPAGATION_METADATA_NAME, PropagationAnnounce, PropagationBatch, PropagationCosts,
+    PropagationError, PropagationNode, PropagationStamps, PropagationStore, PropagationStoreLimits,
+    Verification, delivery_name, fetch_propagation, prepare_propagation, prepare_propagation_with,
+    register_delivery, register_opportunistic, register_propagation, serve_fetch,
 };
-use retinue::endpoint::{Endpoint, ResourceTransferConfig};
+use retinue::endpoint::{Endpoint, PeerAnnounce, ResourceTransferConfig};
+use retinue::hash::{AddressHash, full_hash};
 use retinue::identity::PrivateIdentity;
 use retinue::lossy::{LossModel, connect};
+use retinue::ratchet::RatchetStore;
 use rmpv::Value;
 
-#[tokio::test]
-async fn large_fetch_response_uses_a_resource_and_authenticates() {
-    let node_identity = PrivateIdentity::from_secret_bytes(&[0x70; 64]);
-    let recipient_identity = PrivateIdentity::from_secret_bytes(&[0x62; 64]);
-    let node = Arc::new(Endpoint::new(node_identity.clone()));
-    let recipient = Arc::new(Endpoint::new(recipient_identity.clone()));
-    connect(&recipient, &node, LossModel::new(62), LossModel::new(70));
+const QUICK: ResourceTransferConfig = ResourceTransferConfig {
+    timeout: Duration::from_secs(5),
+    retry_interval: Duration::from_millis(50),
+    request_window: 1,
+};
 
-    let announce = PropagationAnnounce {
+fn node_announce() -> PropagationAnnounce {
+    PropagationAnnounce {
         legacy: false,
         unix_time: 1_753_603_200,
         active: true,
-        transfer_limit_kib: 256,
-        sync_limit_kib: 10_240,
+        transfer_limit_kb: 256.0,
+        sync_limit_kb: 10_240.0,
         costs: PropagationCosts {
             propagation: 0,
             flexibility: 0,
@@ -33,41 +36,86 @@ async fn large_fetch_response_uses_a_resource_and_authenticates() {
         },
         metadata: vec![(
             Value::from(PROPAGATION_METADATA_NAME),
-            Value::Binary(b"Large Response Node".to_vec()),
+            Value::Binary(b"Fetch Node".to_vec()),
         )],
-    };
-    register_propagation(&node, &announce).unwrap();
-    let node_announce = tokio::time::timeout(Duration::from_secs(2), recipient.next_announcement())
-        .await
-        .unwrap()
-        .unwrap();
-    register_delivery(&node, &DeliveryAnnounce::named(b"Large Response Sender")).unwrap();
-    let source_announce =
-        tokio::time::timeout(Duration::from_secs(2), recipient.next_announcement())
+    }
+}
+
+async fn heard(endpoint: &Endpoint, destination: AddressHash) -> PeerAnnounce {
+    loop {
+        let announce = tokio::time::timeout(Duration::from_secs(2), endpoint.next_announcement())
             .await
             .unwrap()
             .unwrap();
-    assert_eq!(source_announce.identity, *node_identity.public());
-    register_delivery(
+        if announce.destination == destination {
+            return announce;
+        }
+    }
+}
+
+/// A node that is also a known sender, and a recipient registered with ratchets.
+struct Pair {
+    node: Arc<Endpoint>,
+    node_identity: PrivateIdentity,
+    recipient: Arc<Endpoint>,
+    recipient_destination: AddressHash,
+    node_seen: PeerAnnounce,
+}
+
+async fn ratcheted_pair() -> Pair {
+    let node_identity = PrivateIdentity::from_secret_bytes(&[0x70; 64]);
+    let recipient_identity = PrivateIdentity::from_secret_bytes(&[0x62; 64]);
+    let node = Arc::new(Endpoint::new(node_identity.clone()));
+    let recipient = Arc::new(Endpoint::new(recipient_identity));
+    connect(&recipient, &node, LossModel::new(62), LossModel::new(70));
+
+    let propagation = register_propagation(&node, &node_announce()).unwrap();
+    let node_seen = heard(&recipient, propagation).await;
+    let source = register_delivery(&node, &DeliveryAnnounce::named(b"Fetch Sender")).unwrap();
+    heard(&recipient, source).await;
+    let recipient_destination = register_opportunistic(
         &recipient,
-        &DeliveryAnnounce::named(b"Large Response Recipient"),
+        &DeliveryAnnounce::named(b"Ratcheted Recipient"),
+        RatchetStore::new(Default::default()).unwrap(),
     )
     .unwrap();
+    heard(&node, recipient_destination).await;
+    Pair {
+        node,
+        node_identity,
+        recipient,
+        recipient_destination,
+        node_seen,
+    }
+}
 
+fn stamps(delivery_cost: Option<u8>) -> PropagationStamps {
+    PropagationStamps {
+        delivery_cost,
+        propagation_cost: 0,
+        seed: [0; 32],
+        max_attempts: 100_000,
+    }
+}
+
+#[tokio::test]
+async fn large_ratcheted_fetch_response_uses_a_resource_and_authenticates() {
+    let pair = ratcheted_pair().await;
     let content: Vec<u8> = (0..4_096_u32)
         .map(|value| value.wrapping_mul(73).wrapping_add(19) as u8)
         .collect();
     let prepared = prepare_propagation(
-        &node_identity,
-        recipient_identity.public(),
+        &pair.node,
+        &pair.node_identity,
+        pair.recipient_destination,
         &LxmfPayload::text(1_753_603_204.5, b"PROPAGATION TITLE", content.clone()),
-        &[0x31; 32],
-        &[0x41; 16],
-        [0; 32],
-        0,
-        1,
+        &stamps(None),
     )
     .unwrap();
+    let current = pair.recipient.current_ratchet_id(&delivery_name());
+    assert!(current.is_some());
+    assert_eq!(prepared.ratchet_id, current);
+
     let mut store = PropagationStore::new(PropagationStoreLimits {
         max_entries: 4,
         max_bytes: 64 * 1024,
@@ -75,49 +123,39 @@ async fn large_fetch_response_uses_a_resource_and_authenticates() {
         max_age: Duration::from_secs(60),
         max_per_fetch: 1,
     });
-    assert_eq!(
-        store
-            .ingest(
-                &PropagationBatch {
-                    transfer_time: 1_753_603_205.0,
-                    entries: vec![prepared.entry],
-                },
-                1_753_603_205.0,
-            )
-            .inserted,
-        1
-    );
+    let batch = PropagationBatch {
+        transfer_time: 1_753_603_205.0,
+        entries: vec![prepared.entry],
+    };
+    assert_eq!(store.ingest(&batch, 1_753_603_205.0).inserted, 1);
 
+    let store = PropagationNode::new(store, NodePolicy::from_announce(&node_announce()));
     let server = tokio::spawn({
-        let node = Arc::clone(&node);
+        let node = Arc::clone(&pair.node);
         async move {
             let mut accepted = node.accept_resource().await.unwrap();
-            accepted.session.set_config(ResourceTransferConfig {
-                timeout: Duration::from_secs(5),
-                retry_interval: Duration::from_millis(50),
-                request_window: 1,
-            });
-            serve_fetch(&node, &mut accepted, &mut store, 1_753_603_206.0)
+            accepted.session.set_config(QUICK);
+            serve_fetch(&node, accepted, &store, || 1_753_603_206.0)
                 .await
                 .unwrap()
         }
     });
+    let policy = FetchPolicy {
+        max_messages: 1,
+        retain_on_node: true,
+        max_entry_bytes: 16 * 1024,
+        max_message_bytes: 16 * 1024,
+        resource: QUICK,
+        ..FetchPolicy::default()
+    };
     let receipt = tokio::time::timeout(
         Duration::from_secs(15),
-        fetch_propagation_with_resource_config(
-            &recipient,
-            &recipient_identity,
-            &node_announce,
-            &[],
-            1,
+        fetch_propagation(
+            &pair.recipient,
+            &pair.node_seen,
             1_753_603_206.0,
-            16 * 1024,
-            16 * 1024,
-            ResourceTransferConfig {
-                timeout: Duration::from_secs(5),
-                retry_interval: Duration::from_millis(50),
-                request_window: 1,
-            },
+            |_| false,
+            &policy,
         ),
     )
     .await
@@ -129,7 +167,313 @@ async fn large_fetch_response_uses_a_resource_and_authenticates() {
         .unwrap();
 
     assert_eq!(receipt.offered.len(), 1);
-    assert_eq!(receipt.messages.len(), 1);
-    assert_eq!(receipt.messages[0].message.payload.content, content);
+    assert!(receipt.rejected.is_empty());
+    assert!(matches!(receipt.acknowledgement, Acknowledgement::NotSent));
+    let fetched = &receipt.messages[0];
+    assert_eq!(fetched.message.payload.content, content);
+    assert_eq!(fetched.ratchet_id, current);
+    assert_eq!(fetched.verification, Verification::Verified);
+    assert_eq!(fetched.source_identity, Some(*pair.node_identity.public()));
     assert_eq!(served.served, receipt.offered);
+}
+
+#[tokio::test]
+async fn a_default_fetch_from_our_node_is_acknowledged_and_drains_it() {
+    let pair = ratcheted_pair().await;
+    let prepared = prepare_propagation(
+        &pair.node,
+        &pair.node_identity,
+        pair.recipient_destination,
+        &LxmfPayload::text(1_753_603_207.5, b"DRAIN", b"fetched once"),
+        &stamps(None),
+    )
+    .unwrap();
+    let mut store = PropagationStore::new(PropagationStoreLimits::default());
+    let batch = PropagationBatch {
+        transfer_time: 1_753_603_208.0,
+        entries: vec![prepared.entry],
+    };
+    assert_eq!(store.ingest(&batch, 1_753_603_208.0).inserted, 1);
+    let node = Arc::new(PropagationNode::new(
+        store,
+        NodePolicy::from_announce(&node_announce()),
+    ));
+    // Each fetch is one link: serve it until the client closes it.
+    let serve = || {
+        let (endpoint, node) = (Arc::clone(&pair.node), Arc::clone(&node));
+        tokio::spawn(async move {
+            let mut accepted = endpoint.accept_resource().await.unwrap();
+            accepted.session.set_config(QUICK);
+            serve_fetch(&endpoint, accepted, &node, || 1_753_603_209.0)
+                .await
+                .unwrap()
+        })
+    };
+    let policy = FetchPolicy {
+        resource: QUICK,
+        ..FetchPolicy::default()
+    };
+    let fetch = || {
+        fetch_propagation(
+            &pair.recipient,
+            &pair.node_seen,
+            1_753_603_209.0,
+            |_| false,
+            &policy,
+        )
+    };
+
+    let server = serve();
+    let first = tokio::time::timeout(Duration::from_secs(15), fetch())
+        .await
+        .unwrap()
+        .unwrap();
+    let served = tokio::time::timeout(Duration::from_secs(5), server)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(first.messages.len(), 1);
+    assert_eq!(first.messages[0].message.message_id, prepared.message_id);
+    assert!(matches!(first.acknowledgement, Acknowledgement::Confirmed));
+    assert_eq!(served.acknowledged, 1);
+    assert!(node.store().is_empty());
+
+    let server = serve();
+    let second = tokio::time::timeout(Duration::from_secs(15), fetch())
+        .await
+        .unwrap()
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(5), server)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(second.offered.is_empty());
+    assert!(second.messages.is_empty());
+    assert!(matches!(second.acknowledgement, Acknowledgement::NotSent));
+}
+
+fn request_data(packed: &[u8]) -> Vec<Value> {
+    let Value::Array(mut request) = rmpv::decode::read_value(&mut Cursor::new(packed)).unwrap()
+    else {
+        panic!("request is an array")
+    };
+    let Value::Array(data) = request.pop().unwrap() else {
+        panic!("request data is an array")
+    };
+    data
+}
+
+fn ids(ids: &[[u8; 32]]) -> Value {
+    Value::Array(ids.iter().map(|id| Value::Binary(id.to_vec())).collect())
+}
+
+fn packed(value: Value) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    rmpv::encode::write_value(&mut bytes, &value).unwrap();
+    bytes
+}
+
+#[tokio::test]
+async fn fetch_splits_haves_opens_each_entry_and_acknowledges_everything_received() {
+    let pair = ratcheted_pair().await;
+    let payload = |title: &[u8]| LxmfPayload::text(1_753_603_204.5, title.to_vec(), b"body");
+    let prepare = |sender: &PrivateIdentity, title: &[u8], cost| {
+        let node = Arc::clone(&pair.node);
+        let destination = pair.recipient_destination;
+        prepare_propagation_with(
+            sender,
+            destination,
+            &payload(title),
+            &stamps(cost),
+            |plain| {
+                node.encrypt_for(destination, plain)
+                    .map_err(PropagationError::Decrypt)
+            },
+        )
+        .unwrap()
+        .entry
+        .message()
+        .encode()
+    };
+    let stranger = PrivateIdentity::from_secret_bytes(&[0x71; 64]);
+    let good = prepare(&pair.node_identity, b"good", Some(4));
+    let unknown = prepare(&stranger, b"unknown", Some(4));
+    let unstamped = prepare(&pair.node_identity, b"unstamped", None);
+    let mut corrupt = pair.recipient_destination.as_slice().to_vec();
+    corrupt.extend_from_slice(&[0x5a; 128]);
+    let unexpected = prepare(&pair.node_identity, b"unexpected", Some(4));
+    let held = [0x48; 32];
+    let id = |bytes: &[u8]| full_hash(bytes);
+    let offered = [held, id(&good), id(&unknown), id(&unstamped), id(&corrupt)];
+    let served = [&good, &unknown, &unstamped, &corrupt, &unexpected];
+    let received: Vec<[u8; 32]> = served.iter().map(|bytes| id(bytes)).collect();
+
+    let server = tokio::spawn({
+        let node = Arc::clone(&pair.node);
+        let (served, received) = (
+            served.map(|bytes| Value::Binary(bytes.clone())).to_vec(),
+            received.clone(),
+        );
+        async move {
+            let mut accepted = node.accept_resource().await.unwrap();
+            let session = &mut accepted.session;
+            let list = session.receive_raw_request().await.unwrap();
+            assert_eq!(request_data(&list.packed), vec![Value::Nil, Value::Nil]);
+            session
+                .respond_value_auto(list.request_id, &packed(ids(&offered)))
+                .await
+                .unwrap();
+            let get = session.receive_raw_request().await.unwrap();
+            assert_eq!(
+                request_data(&get.packed),
+                vec![ids(&offered[1..]), ids(&[held]), Value::from(7)]
+            );
+            session
+                .respond_value_auto(get.request_id, &packed(Value::Array(served)))
+                .await
+                .unwrap();
+            let ack = session.receive_raw_request().await.unwrap();
+            assert_eq!(request_data(&ack.packed), vec![Value::Nil, ids(&received)]);
+            session
+                .respond_value_auto(ack.request_id, &packed(Value::Array(Vec::new())))
+                .await
+                .unwrap();
+
+            // The next session is refused outright.
+            let mut refused = node.accept_resource().await.unwrap();
+            let list = refused.session.receive_raw_request().await.unwrap();
+            refused
+                .session
+                .respond_value_auto(list.request_id, &packed(Value::from(0xf1)))
+                .await
+                .unwrap();
+        }
+    });
+    let policy = FetchPolicy {
+        max_messages: 4,
+        transfer_limit_kb: 7,
+        stamp_cost: Some(4),
+        resource: QUICK,
+        ..FetchPolicy::default()
+    };
+    let fetch = || {
+        fetch_propagation(
+            &pair.recipient,
+            &pair.node_seen,
+            1_753_603_206.0,
+            |id| *id == held,
+            &policy,
+        )
+    };
+    let receipt = tokio::time::timeout(Duration::from_secs(10), fetch())
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(receipt.haves, vec![held]);
+    assert_eq!(receipt.wants, offered[1..].to_vec());
+    assert!(matches!(
+        receipt.acknowledgement,
+        Acknowledgement::Confirmed
+    ));
+    let titles: Vec<_> = receipt
+        .messages
+        .iter()
+        .map(|fetched| {
+            (
+                fetched.message.payload.title.clone(),
+                fetched.verification,
+                fetched.source_identity,
+            )
+        })
+        .collect();
+    assert_eq!(
+        titles,
+        vec![
+            (
+                b"good".to_vec(),
+                Verification::Verified,
+                Some(*pair.node_identity.public())
+            ),
+            (b"unknown".to_vec(), Verification::SourceUnknown, None),
+        ]
+    );
+    let rejected: Vec<_> = receipt
+        .rejected
+        .iter()
+        .map(|rejected| (rejected.transient_id, format!("{:?}", rejected.error)))
+        .collect();
+    assert_eq!(rejected.len(), 3);
+    assert_eq!(rejected[0], (id(&unstamped), "InvalidDeliveryStamp".into()));
+    assert_eq!(rejected[1].0, id(&corrupt));
+    assert!(rejected[1].1.starts_with("Decrypt"));
+    assert_eq!(
+        rejected[2],
+        (id(&unexpected), "UnexpectedTransientId".into())
+    );
+
+    let refused = tokio::time::timeout(Duration::from_secs(10), fetch())
+        .await
+        .unwrap();
+    assert!(matches!(refused, Err(PropagationError::NoAccess)));
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn wants_are_capped_past_held_ids_and_an_unregistered_fetch_asks_for_nothing() {
+    let pair = ratcheted_pair().await;
+    let held = [0x48; 32];
+    let offered = [held, [0x01; 32], [0x02; 32], [0x03; 32]];
+    let server = tokio::spawn({
+        let node = Arc::clone(&pair.node);
+        async move {
+            let mut accepted = node.accept_resource().await.unwrap();
+            let session = &mut accepted.session;
+            let list = session.receive_raw_request().await.unwrap();
+            session
+                .respond_value_auto(list.request_id, &packed(ids(&offered)))
+                .await
+                .unwrap();
+            // The held id takes no slot: the first two others are wanted.
+            let get = session.receive_raw_request().await.unwrap();
+            assert_eq!(
+                request_data(&get.packed),
+                vec![ids(&offered[1..3]), ids(&[held]), Value::from(FETCH_LIMIT)]
+            );
+            session
+                .respond_value_auto(get.request_id, &packed(Value::Array(Vec::new())))
+                .await
+                .unwrap();
+        }
+    });
+    let policy = FetchPolicy {
+        max_messages: 2,
+        resource: QUICK,
+        ..FetchPolicy::default()
+    };
+    let receipt = tokio::time::timeout(
+        Duration::from_secs(10),
+        fetch_propagation(
+            &pair.recipient,
+            &pair.node_seen,
+            1_753_603_206.0,
+            |id| *id == held,
+            &policy,
+        ),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    server.await.unwrap();
+    assert_eq!(receipt.wants, offered[1..3].to_vec());
+    assert_eq!(receipt.haves, vec![held]);
+    assert!(matches!(receipt.acknowledgement, Acknowledgement::NotSent));
+
+    // Nothing could be opened, and all of it would be acknowledged: refused up front.
+    let unregistered = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x64; 64]));
+    let refused = fetch_propagation(&unregistered, &pair.node_seen, 1.0, |_| false, &policy).await;
+    assert!(matches!(
+        refused,
+        Err(PropagationError::DeliveryNotRegistered)
+    ));
 }

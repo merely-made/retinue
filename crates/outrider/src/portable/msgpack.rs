@@ -35,7 +35,7 @@ pub(super) fn at_map(bytes: &[u8], at: usize) -> bool {
     }
 }
 
-pub(super) fn read_array_len(bytes: &[u8], at: &mut usize) -> Result<usize, CodecError> {
+pub(crate) fn read_array_len(bytes: &[u8], at: &mut usize) -> Result<usize, CodecError> {
     let marker = byte(bytes, *at)?;
     *at += 1;
     match marker {
@@ -72,11 +72,34 @@ pub(super) fn read_bin<'a>(bytes: &'a [u8], at: &mut usize) -> Result<&'a [u8], 
     take(bytes, at, len)
 }
 
+/// A title or content part: binary, or a UTF-8 string (`true` in the second place).
+pub(super) fn read_text<'a>(
+    bytes: &'a [u8],
+    at: &mut usize,
+) -> Result<(&'a [u8], bool), CodecError> {
+    let marker = byte(bytes, *at)?;
+    let len = match marker {
+        0xc4..=0xc6 => return Ok((read_bin(bytes, at)?, false)),
+        0xa0..=0xbf => {
+            *at += 1;
+            (marker & 0x1f) as usize
+        }
+        0xd9..=0xdb => {
+            *at += 1;
+            be(take(bytes, at, 1 << (marker - 0xd9))?)
+        }
+        _ => return Err(CodecError::InvalidTextParts),
+    };
+    let text = take(bytes, at, len).map_err(|_| CodecError::InvalidTextParts)?;
+    core::str::from_utf8(text).map_err(|_| CodecError::InvalidTextParts)?;
+    Ok((text, true))
+}
+
 /// Advance past one complete MessagePack value, whatever it is.
 ///
 /// A full skipper rather than a map-only one: a map's values may be anything, and a skipper
 /// that missed a shape would silently mis-slice the rest of the payload.
-pub(super) fn skip(bytes: &[u8], at: &mut usize) -> Result<(), CodecError> {
+pub(crate) fn skip(bytes: &[u8], at: &mut usize) -> Result<(), CodecError> {
     skip_nested(bytes, at, 0)
 }
 
@@ -170,14 +193,14 @@ fn skip_many(bytes: &[u8], at: &mut usize, count: usize, depth: u32) -> Result<(
     Ok(())
 }
 
-pub(super) fn write_f64(out: &mut Vec<u8>, value: f64) {
+pub(crate) fn write_f64(out: &mut Vec<u8>, value: f64) {
     out.push(0xcb);
     out.extend_from_slice(&value.to_be_bytes());
 }
 
 /// Write a binary in the shortest encoding that holds it, which is what stock MessagePack
 /// writers do and therefore what byte-exactness requires.
-pub(super) fn write_bin(out: &mut Vec<u8>, bytes: &[u8]) {
+pub(crate) fn write_bin(out: &mut Vec<u8>, bytes: &[u8]) {
     let len = bytes.len();
     if len <= u8::MAX as usize {
         out.push(0xc4);
@@ -190,4 +213,27 @@ pub(super) fn write_bin(out: &mut Vec<u8>, bytes: &[u8]) {
         out.extend_from_slice(&(len as u32).to_be_bytes());
     }
     out.extend_from_slice(bytes);
+}
+
+/// Write a title or content part as binary, or as a str when `as_str`, which must be UTF-8.
+pub(crate) fn write_text(out: &mut Vec<u8>, bytes: &[u8], as_str: bool) -> Result<(), CodecError> {
+    if !as_str {
+        write_bin(out, bytes);
+        return Ok(());
+    }
+    core::str::from_utf8(bytes).map_err(|_| CodecError::InvalidTextParts)?;
+    let len = bytes.len();
+    if len < 32 {
+        out.push(0xa0 | len as u8);
+    } else if len <= u8::MAX as usize {
+        out.extend_from_slice(&[0xd9, len as u8]);
+    } else if len <= u16::MAX as usize {
+        out.push(0xda);
+        out.extend_from_slice(&(len as u16).to_be_bytes());
+    } else {
+        out.push(0xdb);
+        out.extend_from_slice(&(len as u32).to_be_bytes());
+    }
+    out.extend_from_slice(bytes);
+    Ok(())
 }

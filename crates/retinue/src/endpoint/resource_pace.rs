@@ -54,6 +54,12 @@ impl Pace {
         self.heard = Instant::now();
     }
 
+    /// Carry on the same clock with a new silence limit, counted from now.
+    pub(super) fn resume(&mut self, idle: Duration) {
+        self.idle = idle;
+        self.heard();
+    }
+
     /// When to wake next: the transfer's deadline or the silence limit, whichever is first.
     pub(super) fn wake(&self, deadline: Option<u64>) -> Instant {
         let idle = self.heard + self.idle;

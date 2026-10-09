@@ -14,6 +14,118 @@ this crate; see the repository's
 notices are carried in LICENSE. Each adapted portion is listed below with its
 upstream revision, file and line range, and target file.
 
-Adapted from LXMF: none yet.
+### Adapted from LXMF
 
-Adapted from RNS: none yet.
+All entries were read from LXMF 1.2.0 (PyPI wheel `lxmf-1.2.0-py3-none-any.whl`,
+SHA-256 805f053e61082f585efc6d09beffd039fd921174c5e1547a2e690bc479d75b85), with
+RNS 1.5.7 for the encryption paths. The behaviour was adopted and the Rust is
+written for this crate; no Python was translated line by line. The findings are
+recorded in `design_docs/2026-10-09_lxmf_120_comparative_review.md`.
+
+Delivery (2026-10-09):
+
+- Inbound messages are proved: opportunistic packets once the signature
+  verifies (stock proves before parsing), direct link data on arrival.
+  `LXMRouter.py` 1995-1996, 2805-2846. Targets: `src/opportunistic.rs`,
+  `src/direct.rs`.
+- Delivered message and transient ids are remembered for 180 days, bounded at
+  65,536 and persisted; only verified messages are recorded.
+  `LXMRouter.py` 42, 177, 239-264, 1013-1033, 1234-1245, 1975-1980, 2565-2577.
+  Target: `src/delivered.rs`.
+- A message from an unknown source is handed over unverified rather than
+  refused; an invalid signature is still refused. `LXMessage.py` 760-827.
+  Targets: `src/inbound.rs`, `src/opportunistic.rs`, `src/direct.rs`.
+- Opportunistic receive accepts unratcheted packets; enforcement is opt-in.
+  `LXMRouter.py` 103, 157, 370-371. Target: `src/opportunistic.rs`.
+- Received messages report their stamp outcome (value or ticket), kept as a
+  separate variant rather than stock's 0x100 value. `LXMessage.py` 53, 278-299;
+  `LXMRouter.py` 1924-1945. Target: `src/inbound.rs`.
+- Outbound receipts: opportunistic sends return the packet receipt, direct sends
+  and submissions wait for the proof, and a node's 0xf5 reply is `Rejected`.
+  `LXMessage.py` 468-515, 580-628; `LXMRouter.py` 2303-2329, 2515-2523,
+  2739-2749. Targets: `src/opportunistic.rs`, `src/direct.rs`,
+  `src/propagation/client.rs`.
+- Stamped sends mint once and splice the stamp onto the prepared payload; the
+  host mints on scoped threads with disjoint seeds (stock uses processes).
+  `LXStamper.py`. Targets: `src/codec.rs`, `src/stamp.rs`,
+  `src/stamp/parallel.rs`.
+
+Announces, codec and fields:
+
+- Delivery announces decode a nil, absent or non-bin name as none (keeping the
+  cost), accept a legacy UTF-8 name, and hold costs to 1..=254; a non-integer
+  cost reads as none. Announces are decoded by aspect.
+  `LXMRouter.py` 321-323, 386-402, 1042-1058; `LXMF.py` 152-186;
+  `Handlers.py` 8-12. Targets: `src/announce.rs`, postilion `management.rs`.
+- Propagation-node announces accept 7 or more elements, 3 or more costs and
+  float limits and timebase; costs saturate to 0..=255 and a negative timebase
+  reads as 0. `LXMF.py` 225-250; `Handlers.py` 59-65; `lxmd.py` 165-184 (the
+  170-177 override is not ported). Target: `src/propagation/wire.rs`.
+- The node announce carries the time of each emission, including path
+  responses. `LXMRouter.py` 193, 332-346. Target: `src/propagation/node.rs`.
+- Field numbers and sub-constants. `LXMF.py` 8-143. Target: `src/fields.rs`.
+- Title and content may arrive as msgpack str; `transfer_time` may be an
+  integer. `LXMessage.py` 198-211, 772-774, 807-808. Targets:
+  `src/portable/message.rs`, `src/codec.rs`, `src/propagation/wire.rs`.
+- A stamped message's id is computed over its canonical unstamped form; field
+  maps nest at most 16 levels. `LXMessage.py` 360-391, 754-771. Targets:
+  `src/codec.rs`, `src/portable/`.
+
+Propagation client:
+
+- Fetch opens each entry on its own, skips held ids, caps wants, and sends the
+  final `[nil, haves]` acknowledgement; node errors 0xf0/0xf1 are typed. A
+  fetch without a registered delivery destination is refused before any
+  request, and `retain_on_node` sends no haves and no acknowledgement.
+  `LXMRouter.py` 64, 84, 124, 461, 1489-1560, 1571-1651. Target:
+  `src/propagation/fetch.rs`.
+- Propagated messages are sealed to, and opened with, the recipient's ratchets.
+  `LXMessage.py` 434-436; `LXMRouter.py` 2558-2576. Targets:
+  `src/propagation/client.rs`, `src/propagation/fetch.rs`.
+- Propagated messages carry a delivery stamp, and fetched messages are
+  stamp-checked. `LXMRouter.py` 1822-1826, 1930-1946, 2558-2576;
+  `LXMessage.py` 278-298. Targets: `src/propagation/client.rs`,
+  `src/propagation/fetch.rs`.
+
+Propagation node:
+
+- The fetch link serves `/get` until it closes or idles 180 s, and takes
+  `[nil|ids, nil|ids, limit?]` with the limit as a KB budget.
+  `LXMRouter.py` 40, 978, 1488-1560. Targets: `src/propagation/node.rs`,
+  `src/propagation/policy.rs`.
+- Size is admitted before transfer: the transfer ceiling is what the store
+  admits, and a packet the store cannot hold is left unproved (stock's store
+  has no per-message limit). `LXMRouter.py` 339-340, 2289-2292. Targets: `src/propagation/node.rs`,
+  `src/propagation/store.rs`.
+- The store keeps each entry's stamp and value (snapshot v2 reads v1), and
+  remembers processed transient ids for 180 days, bounded at 65,536 (stock sets
+  no bound). `LXMRouter.py` 1013-1033, 1078-1080, 2565-2568, 2581-2585.
+  Targets: `src/propagation/store.rs`, `src/propagation/snapshot.rs`.
+- Submissions are validated per entry against cost minus flexibility, answered
+  with 0xf5 on a bad stamp, and the sender is throttled 180 s; a non-peer may
+  submit one entry per transfer. With no peering yet, the throttle is only
+  exposed to hosts (`is_throttled`). `LXMRouter.py` 2303-2329, 2354-2359,
+  2451-2470, 2483, 2515-2523; `LXStamper.py` 84-121; `LXMPeer.py` 24-31.
+  Targets: `src/propagation/node.rs`, `src/propagation/policy.rs`.
+- Eviction is weighted by size and age, with prioritised destinations at 0.1x,
+  and runs on insert rather than periodically. `LXMRouter.py` 1064-1075,
+  1191-1226. Target: `src/propagation/store.rs`.
+- `/get` answers 0xf0 without an identity and 0xf1 outside an optional allow
+  list. `LXMRouter.py` 465-484, 1480-1492. Target: `src/propagation/node.rs`.
+
+Tickets and paper:
+
+- Ticket stamps are the first 16 bytes of SHA-256(ticket || message id) and are
+  checked before proof of work; a `TicketBook` issues, includes, learns and
+  expires tickets. Unlike stock, a ticket is learned only after the stamp
+  passes, a non-matching 16-byte stamp is `InvalidStamp`, delivery times older
+  than a day are dropped, and the caller supplies the clock and randomness.
+  `LXMessage.py` 42-53, 278-308; `LXMRouter.py` 1081-1142, 1309-1373,
+  1832-1841, 1917-1950, 2765-2768. Targets: `src/ticket.rs`,
+  `src/ticket/book.rs`, `src/direct.rs`, `src/opportunistic.rs`.
+- Paper messages and `lxm://` URIs, bounded at 2210 bytes and sealed to the
+  recipient's ratchet; the scheme is stripped in any case and ASCII whitespace
+  is skipped, while other characters outside the alphabet are refused. `LXMessage.py` 102-106, 451-463, 705-723;
+  `LXMRouter.py` 2556-2580, 2611-2627. Target: `src/propagation/paper.rs`.
+
+Adapted from RNS: none; outrider reaches RNS through retinue.

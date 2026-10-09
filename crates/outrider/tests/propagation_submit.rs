@@ -2,13 +2,15 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use outrider::{
-    LxmfPayload, PROPAGATION_METADATA_NAME, PropagationAnnounce, PropagationBatch,
-    PropagationCosts, prepare_propagation, receive_submission, register_propagation,
+    LxmfPayload, NodePolicy, PROPAGATION_METADATA_NAME, PropagationAnnounce, PropagationBatch,
+    PropagationCosts, PropagationNode, PropagationStamps, PropagationStore, PropagationStoreLimits,
+    delivery_destination, prepare_propagation_with, receive_submission, register_propagation,
     submit_propagation_with_resource_config,
 };
 use retinue::endpoint::{Endpoint, PayloadMode, ResourceTransferConfig};
 use retinue::identity::PrivateIdentity;
 use retinue::lossy::{LossModel, connect};
+use retinue::token::encrypt_to_identity;
 use rmpv::Value;
 
 #[tokio::test]
@@ -24,8 +26,8 @@ async fn stamped_submission_crosses_the_propagation_boundary() {
         legacy: false,
         unix_time: 1_753_603_200,
         active: true,
-        transfer_limit_kib: 256,
-        sync_limit_kib: 10_240,
+        transfer_limit_kb: 256.0,
+        sync_limit_kb: 10_240.0,
         costs: PropagationCosts {
             propagation: 8,
             flexibility: 3,
@@ -42,15 +44,26 @@ async fn stamped_submission_crosses_the_propagation_boundary() {
         .unwrap()
         .unwrap();
 
-    let prepared = prepare_propagation(
+    let stamps = PropagationStamps {
+        delivery_cost: None,
+        propagation_cost: 8,
+        seed: [0; 32],
+        max_attempts: 100_000,
+    };
+    let prepared = prepare_propagation_with(
         &sender_identity,
-        recipient_identity.public(),
+        delivery_destination(recipient_identity.public()),
         &LxmfPayload::text(1_753_603_204.5, b"PROPAGATION TITLE", b"PROPAGATION BODY"),
-        &[0x31; 32],
-        &[0x41; 16],
-        [0; 32],
-        8,
-        100_000,
+        &stamps,
+        |plaintext| {
+            let token = encrypt_to_identity(
+                recipient_identity.public(),
+                &[0x31; 32],
+                &[0x41; 16],
+                plaintext,
+            );
+            Ok((token, None))
+        },
     )
     .unwrap();
     let batch = PropagationBatch {
@@ -58,11 +71,19 @@ async fn stamped_submission_crosses_the_propagation_boundary() {
         entries: vec![prepared.entry.clone()],
     };
 
+    let propagation_node = Arc::new(PropagationNode::new(
+        PropagationStore::new(PropagationStoreLimits {
+            max_message_bytes: 4_096,
+            ..PropagationStoreLimits::default()
+        }),
+        NodePolicy::from_announce(&announce),
+    ));
     let receive_task = tokio::spawn({
         let node = Arc::clone(&node);
+        let propagation_node = Arc::clone(&propagation_node);
         async move {
             let accepted = node.accept_resource().await.unwrap();
-            receive_submission(&node, accepted, 8, 4_096, 1)
+            receive_submission(&node, accepted, &propagation_node, || 1_753_603_205.0)
                 .await
                 .unwrap()
         }
@@ -90,6 +111,8 @@ async fn stamped_submission_crosses_the_propagation_boundary() {
 
     assert_eq!(receipt.mode, PayloadMode::Data);
     assert_eq!(received.mode, PayloadMode::Data);
+    assert_eq!((received.rejected, received.stored.inserted), (0, 1));
+    assert_eq!(propagation_node.store().len(), 1);
     assert_eq!(receipt.transient_ids, vec![prepared.transient_id]);
     assert_eq!(
         received.batch.entries[0].transient_id(),

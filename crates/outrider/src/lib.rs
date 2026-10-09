@@ -48,18 +48,25 @@
 
 extern crate alloc;
 
-/// The `no_std` codec, built beside the shipping one. See its own docs for the bar it
-/// must clear before it replaces `codec`.
+/// LXMF's field numbers and specifiers. `no_std`.
+pub mod fields;
+/// The `no_std` codec, which `codec` parses with.
 pub mod portable;
 /// Proof-of-work stamps. `no_std`, so a board can mint and check its own.
 pub mod stamp;
+/// Tickets: stamps a receiver issued, in place of proof of work. `no_std` but for the book.
+pub mod ticket;
 
 #[cfg(feature = "std")]
 pub mod announce;
 #[cfg(feature = "std")]
 pub mod codec;
 #[cfg(feature = "std")]
+pub mod delivered;
+#[cfg(feature = "std")]
 pub mod direct;
+#[cfg(feature = "std")]
+pub mod inbound;
 #[cfg(feature = "std")]
 pub mod opportunistic;
 #[cfg(feature = "std")]
@@ -82,6 +89,12 @@ pub use codec::{
     PreparedLxmf, SIGNATURE_LEN, SOURCE_LEN, decode, decode_bounded, prepare,
 };
 #[cfg(feature = "std")]
+pub use delivered::{
+    DEFAULT_MAX_DELIVERED_IDS, DELIVERED_EXPIRY_SECONDS, DeliveredCache, DeliveredSnapshotError,
+};
+#[cfg(feature = "std")]
+pub use direct::receive_with_tickets as receive_direct_with_tickets;
+#[cfg(feature = "std")]
 pub use direct::{
     DirectError, DirectReceipt, ReceivedDirect, announce as announce_delivery,
     receive as receive_direct, receive_with_resource_config as receive_direct_with_resource_config,
@@ -92,6 +105,10 @@ pub use direct::{
     send_with_resource_config as send_direct_with_resource_config,
 };
 #[cfg(feature = "std")]
+pub use inbound::{Verification, reverify, verify as verify_message};
+#[cfg(feature = "std")]
+pub use opportunistic::receive_with_tickets as receive_opportunistic_with_tickets;
+#[cfg(feature = "std")]
 pub use opportunistic::{
     OpportunisticError, OpportunisticReceipt, ReceivedOpportunistic,
     receive as receive_opportunistic,
@@ -101,22 +118,30 @@ pub use opportunistic::{
 };
 #[cfg(feature = "std")]
 pub use propagation::{
-    DEFAULT_MAX_PROPAGATION_ANNOUNCE_BYTES, DEFAULT_MAX_PROPAGATION_BATCH_BYTES,
+    Acknowledgement, DEFAULT_MAX_PROPAGATION_ANNOUNCE_BYTES, DEFAULT_MAX_PROPAGATION_BATCH_BYTES,
     DEFAULT_MAX_PROPAGATION_ENTRIES, DEFAULT_MAX_PROPAGATION_STORE_SNAPSHOT_BYTES,
-    DEFAULT_MAX_STORED_MESSAGE_BYTES, FETCH_LIMIT, FETCH_PATH_HASH, FetchedPropagation,
-    MIN_ENCRYPTED_MESSAGE_BYTES, PROPAGATION_METADATA_NAME, PreparedPropagation,
-    PropagationAnnounce, PropagationBatch, PropagationCosts, PropagationEntry, PropagationError,
-    PropagationFetchReceipt, PropagationMessage, PropagationStore, PropagationStoreLimits,
-    PropagationSubmitReceipt, ReceivedPropagationBatch, ServedFetch, StoreReceipt,
-    StoreRestoreReceipt, announce_propagation, fetch as fetch_propagation,
-    fetch_with_resource_config as fetch_propagation_with_resource_config, prepare_propagation,
-    propagation_destination, propagation_name, receive_submission, register_propagation,
-    serve_fetch, submit as submit_propagation,
+    DEFAULT_MAX_STORED_MESSAGE_BYTES, FETCH_LIMIT, FETCH_PATH_HASH, FetchPolicy,
+    FetchedPropagation, MIN_ENCRYPTED_MESSAGE_BYTES, NodePolicy, PROPAGATION_METADATA_NAME,
+    PreparedPropagation, PropagationAnnounce, PropagationBatch, PropagationCosts, PropagationEntry,
+    PropagationError, PropagationFetchReceipt, PropagationMessage, PropagationNode,
+    PropagationStamps, PropagationStore, PropagationStoreLimits, PropagationSubmitReceipt,
+    ReceivedPropagationBatch, RejectedPropagation, ServedFetch, StoreReceipt, StoreRestoreReceipt,
+    announce_propagation, delivery_stamp_valid, fetch as fetch_propagation, prepare_propagation,
+    prepare_propagation_with, propagation_destination, propagation_name, receive_submission,
+    register_propagation, serve_fetch, submit as submit_propagation,
     submit_with_resource_config as submit_propagation_with_resource_config,
 };
+#[cfg(feature = "std")]
+pub use propagation::{PAPER_MDU, PreparedPaper, URI_SCHEMA, prepare_paper, prepare_paper_with};
 pub use stamp::{
     Derivation as StampDerivation, MESSAGE_WORKBLOCK_ROUNDS, PROPAGATION_WORKBLOCK_ROUNDS,
     STAMP_LEN, WORKBLOCK_BYTES_PER_ROUND, find as find_stamp, find_streamed as find_stamp_streamed,
     propagation_valid, propagation_value, valid as stamp_valid, value as stamp_value,
     value_streamed as stamp_value_streamed, workblock,
 };
+pub use ticket::{
+    COST_TICKET, FIELD_TICKET, StampFault, StampOutcome, TICKET_LEN, Ticket, check_stamp,
+    ticket_stamp,
+};
+#[cfg(feature = "std")]
+pub use ticket::{TicketBook, TicketBookError};

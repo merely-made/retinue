@@ -1,14 +1,47 @@
 use std::time::Duration;
 
-use retinue::identity::PrivateIdentity;
-use retinue::token::IV_LEN;
+use retinue::identity::{Identity, PrivateIdentity};
+use retinue::token::{IV_LEN, encrypt_to_identity};
 use rmpv::Value;
 
-use super::msgpack::{decode_fetch_selection, decode_offer_request, decode_one, encode_value};
+use super::msgpack::{
+    GetRequest, decode_entry_response, decode_fetch_request, decode_get_request,
+    decode_id_response, decode_one, encode_value,
+};
 use super::*;
 use crate::announce::delivery_destination;
 use crate::codec::LxmfPayload;
 use crate::stamp::STAMP_LEN;
+
+/// Prepare to the recipient's identity key with a fixed ephemeral key and IV.
+fn sealed(
+    sender: &PrivateIdentity,
+    recipient: &Identity,
+    payload: &LxmfPayload,
+    key: u8,
+    propagation_cost: u16,
+    max_attempts: u64,
+) -> Result<PreparedPropagation, PropagationError> {
+    let stamps = PropagationStamps {
+        delivery_cost: None,
+        propagation_cost,
+        seed: [0; STAMP_LEN],
+        max_attempts,
+    };
+    prepare_propagation_with(
+        sender,
+        delivery_destination(recipient),
+        payload,
+        &stamps,
+        |plaintext| {
+            let iv = [key.wrapping_add(0x10); IV_LEN];
+            Ok((
+                encrypt_to_identity(recipient, &[key; 32], &iv, plaintext),
+                None,
+            ))
+        },
+    )
+}
 
 fn captured_announce() -> Vec<u8> {
     hex::decode(
@@ -23,8 +56,8 @@ fn stock_announce_decodes_and_round_trips_exactly() {
     let announce = PropagationAnnounce::decode(&bytes).unwrap();
     assert!(!announce.legacy);
     assert!(announce.active);
-    assert_eq!(announce.transfer_limit_kib, 256);
-    assert_eq!(announce.sync_limit_kib, 10_240);
+    assert_eq!(announce.transfer_limit_kb, 256.0);
+    assert_eq!(announce.sync_limit_kb, 10_240.0);
     assert_eq!(
         announce.costs,
         PropagationCosts {
@@ -40,22 +73,122 @@ fn stock_announce_decodes_and_round_trips_exactly() {
     assert_eq!(announce.encode().unwrap(), bytes);
 }
 
+/// lxmd announces float limits when configured, may append elements and costs, and stock
+/// never checks the legacy flag's type (`LXMF.py` 225-250).
+#[test]
+fn tolerant_announce_shapes_decode_as_stock_validates_them() {
+    let mut parts = match decode_one(&captured_announce()).unwrap() {
+        Value::Array(parts) => parts,
+        _ => unreachable!(),
+    };
+    parts[0] = Value::Nil;
+    parts[1] = Value::F64(1_760_000_000.75);
+    parts[3] = Value::F32(256.5);
+    parts[4] = Value::F64(0.38);
+    parts[5] = Value::Array(vec![13.into(), Value::F64(3.0), 8.into(), 99.into()]);
+    parts.push(Value::from("future"));
+    let announce =
+        PropagationAnnounce::decode(&encode_value(&Value::Array(parts)).unwrap()).unwrap();
+    assert!(!announce.legacy);
+    assert_eq!(announce.unix_time, 1_760_000_000);
+    assert_eq!(announce.transfer_limit_kb, 256.5);
+    assert_eq!(announce.transfer_limit_bytes(), 256_500);
+    assert_eq!(announce.sync_limit_bytes(), 380);
+    assert_eq!(announce.costs.flexibility, 3);
+    assert_eq!(
+        announce.name(),
+        Some(b"Stock Propagation Oracle".as_slice())
+    );
+
+    let float = PropagationAnnounce::decode(&announce.encode().unwrap()).unwrap();
+    assert_eq!(float.transfer_limit_kb, 256.5);
+}
+
+#[test]
+fn announces_stock_would_refuse_are_refused() {
+    let with = |index: usize, value: Value| {
+        let Value::Array(mut parts) = decode_one(&captured_announce()).unwrap() else {
+            unreachable!()
+        };
+        parts[index] = value;
+        PropagationAnnounce::decode(&encode_value(&Value::Array(parts)).unwrap())
+    };
+    assert!(with(1, Value::from("now")).is_err());
+    assert!(with(2, Value::Nil).is_err());
+    assert!(with(3, Value::Nil).is_err());
+    assert!(with(5, Value::Array(vec![13.into(), 3.into()])).is_err());
+    assert!(with(6, Value::Array(Vec::new())).is_err());
+    assert!(with(2, Value::from(1)).unwrap().active);
+    assert!(with(2, Value::from("1")).is_err());
+    let short = &captured_announce();
+    let Value::Array(mut parts) = decode_one(short).unwrap() else {
+        unreachable!()
+    };
+    parts.pop();
+    assert!(PropagationAnnounce::decode(&encode_value(&Value::Array(parts)).unwrap()).is_err());
+}
+
+/// Where stock's `int()` reads a value, so do we; where it keeps a value we cannot hold, we
+/// saturate rather than refuse the node.
+#[test]
+fn announces_stock_reads_with_int_are_read() {
+    let with = |index: usize, value: Value| {
+        let Value::Array(mut parts) = decode_one(&captured_announce()).unwrap() else {
+            unreachable!()
+        };
+        parts[index] = value;
+        PropagationAnnounce::decode(&encode_value(&Value::Array(parts)).unwrap()).unwrap()
+    };
+    assert_eq!(with(1, Value::from(-5)).unix_time, 0);
+    assert_eq!(
+        with(1, Value::from(" 1760000000 ")).unix_time,
+        1_760_000_000
+    );
+    assert_eq!(
+        with(3, Value::Binary(b"256".to_vec())).transfer_limit_kb,
+        256.0
+    );
+    let costs = with(
+        5,
+        Value::Array(vec![Value::from(300), Value::from(-2), Value::from("8")]),
+    )
+    .costs;
+    assert_eq!(
+        (costs.propagation, costs.flexibility, costs.peering),
+        (255, 0, 8)
+    );
+}
+
+#[test]
+fn a_batch_with_an_integer_transfer_time_decodes() {
+    let entry =
+        PropagationEntry::decode(&[0x07; 16 + MIN_ENCRYPTED_MESSAGE_BYTES + STAMP_LEN], 4096)
+            .unwrap();
+    let batch = |time: Value| {
+        let packed = encode_value(&Value::Array(vec![
+            time,
+            Value::Array(vec![Value::Binary(entry.encode())]),
+        ]))
+        .unwrap();
+        PropagationBatch::decode(&packed, 4096, 1)
+    };
+    assert_eq!(
+        batch(Value::from(1_760_000_000)).unwrap().transfer_time,
+        1_760_000_000.0
+    );
+    assert_eq!(batch(Value::F64(1.5)).unwrap().transfer_time, 1.5);
+    assert!(matches!(
+        batch(Value::from("now")),
+        Err(PropagationError::InvalidTransferTime)
+    ));
+}
+
 #[test]
 fn prepared_entry_decrypts_and_authenticates() {
     let sender = PrivateIdentity::from_secret_bytes(&[0x61; 64]);
     let recipient = PrivateIdentity::from_secret_bytes(&[0x62; 64]);
     let payload = LxmfPayload::text(1_753_603_204.5, b"TITLE", b"BODY");
-    let prepared = prepare_propagation(
-        &sender,
-        recipient.public(),
-        &payload,
-        &[0x31; 32],
-        &[0x41; IV_LEN],
-        [0; STAMP_LEN],
-        8,
-        100_000,
-    )
-    .unwrap();
+    let prepared = sealed(&sender, recipient.public(), &payload, 0x31, 8, 100_000).unwrap();
     assert_eq!(prepared.transient_id, prepared.entry.transient_id());
     assert!(prepared.entry.validate_stamp(8));
     let decoded = prepared
@@ -65,6 +198,79 @@ fn prepared_entry_decrypts_and_authenticates() {
     assert_eq!(decoded.message_id, prepared.message_id);
     assert_eq!(decoded.payload.title, b"TITLE");
     assert_eq!(decoded.payload.content, b"BODY");
+}
+
+#[test]
+fn delivery_cost_mints_a_stamp_on_the_message_id_inside_the_encryption() {
+    let sender = PrivateIdentity::from_secret_bytes(&[0x61; 64]);
+    let recipient = PrivateIdentity::from_secret_bytes(&[0x62; 64]);
+    let payload = LxmfPayload::text(1_753_603_204.5, b"TITLE", b"BODY");
+    let unstamped = sealed(&sender, recipient.public(), &payload, 0x31, 0, 1).unwrap();
+    let ratchet = retinue::hash::NameHash::of(&[0x77; 32]);
+    let stamps = PropagationStamps {
+        delivery_cost: Some(8),
+        propagation_cost: 0,
+        seed: [0; STAMP_LEN],
+        max_attempts: 100_000,
+    };
+    let stamped = prepare_propagation_with(
+        &sender,
+        delivery_destination(recipient.public()),
+        &payload,
+        &stamps,
+        |plaintext| {
+            let token =
+                encrypt_to_identity(recipient.public(), &[0x31; 32], &[0x41; 16], plaintext);
+            Ok((token, Some(ratchet)))
+        },
+    )
+    .unwrap();
+    assert_eq!(stamped.ratchet_id, Some(ratchet));
+    assert_eq!(stamped.message_id, unstamped.message_id);
+    let decoded = stamped.entry.decrypt(&recipient, 4_096).unwrap();
+    assert!(delivery_stamp_valid(&decoded, 8));
+    let plain = unstamped.entry.decrypt(&recipient, 4_096).unwrap();
+    assert!(plain.payload.stamp.is_none());
+    assert!(!delivery_stamp_valid(&plain, 8));
+
+    let exhausted = PropagationStamps {
+        delivery_cost: Some(32),
+        max_attempts: 1,
+        ..stamps
+    };
+    assert!(matches!(
+        prepare_propagation_with(
+            &sender,
+            delivery_destination(recipient.public()),
+            &payload,
+            &exhausted,
+            |_| unreachable!("no stamp, no encryption"),
+        ),
+        Err(PropagationError::StampBudgetExhausted)
+    ));
+}
+
+#[test]
+fn node_error_codes_are_typed() {
+    let response = |code: u64| {
+        encode_value(&Value::Array(vec![
+            Value::Binary(vec![0; 16]),
+            Value::from(code),
+        ]))
+        .unwrap()
+    };
+    assert!(matches!(
+        decode_id_response(&response(0xf0)),
+        Err(PropagationError::NoIdentity)
+    ));
+    assert!(matches!(
+        decode_entry_response(&response(0xf1)),
+        Err(PropagationError::NoAccess)
+    ));
+    assert!(matches!(
+        decode_id_response(&response(0xf2)),
+        Err(PropagationError::InvalidFetchResponse)
+    ));
 }
 
 #[test]
@@ -91,24 +297,20 @@ fn batch_is_one_timestamp_and_binary_entry_list() {
 fn store_is_bounded_expires_and_acknowledges_by_owner() {
     let sender = PrivateIdentity::from_secret_bytes(&[0x61; 64]);
     let recipient = PrivateIdentity::from_secret_bytes(&[0x62; 64]);
-    let first = prepare_propagation(
+    let first = sealed(
         &sender,
         recipient.public(),
         &LxmfPayload::text(1.0, b"A", b"one"),
-        &[0x31; 32],
-        &[0x41; IV_LEN],
-        [0; STAMP_LEN],
+        0x31,
         0,
         1,
     )
     .unwrap();
-    let second = prepare_propagation(
+    let second = sealed(
         &sender,
         recipient.public(),
         &LxmfPayload::text(2.0, b"B", b"two"),
-        &[0x32; 32],
-        &[0x42; IV_LEN],
-        [0; STAMP_LEN],
+        0x32,
         0,
         1,
     )
@@ -128,10 +330,7 @@ fn store_is_bounded_expires_and_acknowledges_by_owner() {
     assert_eq!(receipt.inserted, 2);
     assert_eq!(receipt.evicted, 1);
     assert_eq!(
-        store.offer(
-            *delivery_destination(recipient.public()).as_bytes(),
-            usize::MAX
-        ),
+        store.offer(*delivery_destination(recipient.public()).as_bytes()),
         vec![second.transient_id]
     );
     assert_eq!(
@@ -146,13 +345,11 @@ fn store_is_bounded_expires_and_acknowledges_by_owner() {
     let later = PropagationBatch {
         transfer_time: 4.0,
         entries: vec![
-            prepare_propagation(
+            sealed(
                 &sender,
                 recipient.public(),
                 &LxmfPayload::text(4.0, b"C", b"three"),
-                &[0x33; 32],
-                &[0x43; IV_LEN],
-                [0; STAMP_LEN],
+                0x33,
                 0,
                 1,
             )
@@ -170,24 +367,20 @@ fn store_snapshot_round_trip_rederives_ids_bytes_and_owner_scope() {
     let sender = PrivateIdentity::from_secret_bytes(&[0x61; 64]);
     let first_recipient = PrivateIdentity::from_secret_bytes(&[0x62; 64]);
     let second_recipient = PrivateIdentity::from_secret_bytes(&[0x63; 64]);
-    let first = prepare_propagation(
+    let first = sealed(
         &sender,
         first_recipient.public(),
         &LxmfPayload::text(10.0, b"A", b"first"),
-        &[0x31; 32],
-        &[0x41; IV_LEN],
-        [0; STAMP_LEN],
+        0x31,
         0,
         1,
     )
     .unwrap();
-    let second = prepare_propagation(
+    let second = sealed(
         &sender,
         second_recipient.public(),
         &LxmfPayload::text(11.0, b"B", b"second"),
-        &[0x32; 32],
-        &[0x42; IV_LEN],
-        [0; STAMP_LEN],
+        0x32,
         0,
         1,
     )
@@ -238,17 +431,11 @@ fn store_snapshot_round_trip_rederives_ids_bytes_and_owner_scope() {
     assert_eq!(restored.bytes(), original_bytes);
     assert_eq!(restored.encode_snapshot().unwrap(), snapshot);
     assert_eq!(
-        restored.offer(
-            *delivery_destination(first_recipient.public()).as_bytes(),
-            usize::MAX,
-        ),
+        restored.offer(*delivery_destination(first_recipient.public()).as_bytes()),
         vec![first.transient_id]
     );
     assert_eq!(
-        restored.offer(
-            *delivery_destination(second_recipient.public()).as_bytes(),
-            usize::MAX,
-        ),
+        restored.offer(*delivery_destination(second_recipient.public()).as_bytes()),
         vec![second.transient_id]
     );
     assert_eq!(
@@ -271,13 +458,11 @@ fn restore_reapplies_expiry_and_current_capacity_limits() {
     let recipient = PrivateIdentity::from_secret_bytes(&[0x62; 64]);
     let prepared: Vec<_> = (0..3_u8)
         .map(|index| {
-            prepare_propagation(
+            sealed(
                 &sender,
                 recipient.public(),
                 &LxmfPayload::text(f64::from(index), [index], [index; 8]),
-                &[0x31 + index; 32],
-                &[0x41 + index; IV_LEN],
-                [0; STAMP_LEN],
+                0x31 + index,
                 0,
                 1,
             )
@@ -322,10 +507,7 @@ fn restore_reapplies_expiry_and_current_capacity_limits() {
     );
     assert_eq!(restored.len(), 1);
     assert_eq!(
-        restored.offer(
-            *delivery_destination(recipient.public()).as_bytes(),
-            usize::MAX,
-        ),
+        restored.offer(*delivery_destination(recipient.public()).as_bytes()),
         vec![prepared[2].transient_id]
     );
 
@@ -362,10 +544,10 @@ fn corrupt_or_unknown_store_snapshots_are_rejected_atomically() {
     let Value::Array(parts) = &mut wrong_version else {
         unreachable!()
     };
-    parts[1] = Value::from(2);
+    parts[1] = Value::from(3);
     assert!(matches!(
         PropagationStore::restore(limits.clone(), &encode_value(&wrong_version).unwrap(), 1.0),
-        Err(PropagationError::UnsupportedStoreSnapshotVersion(2))
+        Err(PropagationError::UnsupportedStoreSnapshotVersion(3))
     ));
 
     let mut trailing = empty;
@@ -390,14 +572,21 @@ fn corrupt_or_unknown_store_snapshots_are_rejected_atomically() {
 fn captured_fetch_requests_decode_to_offer_and_selection() {
     let offer =
         hex::decode("93cb41da9a05b2533e92c4109dc1a72883468f57fed571e796e9ce9892c0c0").unwrap();
-    decode_offer_request(&offer).unwrap();
+    assert_eq!(
+        decode_get_request(&decode_fetch_request(&offer).unwrap()).unwrap(),
+        GetRequest::Offer
+    );
 
     let followup = hex::decode(
         "93cb41da9a060120c7b3c4109dc1a72883468f57fed571e796e9ce989391c420444444444444444444444444444444444444444444444444444444444444444490cd03e8",
     )
     .unwrap();
-    let (wanted, handled, limit) = decode_fetch_selection(&followup).unwrap();
-    assert_eq!(wanted, vec![[0x44; 32]]);
-    assert!(handled.is_empty());
-    assert_eq!(limit, FETCH_LIMIT);
+    assert_eq!(
+        decode_get_request(&decode_fetch_request(&followup).unwrap()).unwrap(),
+        GetRequest::Fetch {
+            wanted: vec![[0x44; 32]],
+            handled: Vec::new(),
+            limit_kb: Some(FETCH_LIMIT as f64),
+        }
+    );
 }

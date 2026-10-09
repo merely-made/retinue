@@ -12,10 +12,9 @@ use tokio::sync::oneshot;
 
 use crate::destination::DestinationName;
 use crate::hash::{AddressHash, NameHash};
-use crate::identity::{Identity, KEY_LEN};
+use crate::identity::Identity;
 use crate::packet::{DestinationType, Packet, PacketType};
 
-use super::entropy::{fill_random, next_iv};
 use super::interface::{InterfaceId, QueueAdmission};
 use super::queue::TrafficClass;
 use super::runtime::{Endpoint, endpoint_closed, recv_until_closed};
@@ -288,23 +287,7 @@ impl Endpoint {
                 "single-packet plaintext exceeds ENCRYPTED_MDU",
             ));
         }
-        let (peer, ratchet) = {
-            let mut address_book = self.shared.address_book.lock().unwrap();
-            address_book.mark_used(dest, super::known_destinations::book_clock_ms());
-            let peer = address_book.resolve(dest).ok_or_else(|| {
-                io::Error::new(io::ErrorKind::NotFound, "destination has not announced")
-            })?;
-            (peer.identity, peer.ratchet)
-        };
-
-        let mut ephemeral = [0u8; KEY_LEN];
-        fill_random(&mut ephemeral);
-        let payload = match &ratchet {
-            Some(ratchet) => {
-                crate::token::encrypt_to_ratchet(&peer, ratchet, &ephemeral, &next_iv(), data)
-            }
-            None => crate::token::encrypt_to_identity(&peer, &ephemeral, &next_iv(), data),
-        };
+        let sealed = super::sealing::seal(&self.shared, dest, data)?;
         let packet = Packet {
             ifac: false,
             header_type: crate::packet::HeaderType::Type1,
@@ -316,7 +299,7 @@ impl Endpoint {
             transport: None,
             destination: dest,
             context: 0,
-            payload,
+            payload: sealed.token,
         };
         debug_assert!(packet.within_mtu());
 
@@ -344,7 +327,7 @@ impl Endpoint {
                 proof_destination,
                 PendingReceipt {
                     packet_hash,
-                    identity: peer,
+                    identity: sealed.peer,
                     sent_at,
                     deadline: sent_at + timeout,
                     proved: proved_tx,
@@ -376,7 +359,7 @@ impl Endpoint {
         }
         Ok(SinglePacketReceipt {
             destination: dest,
-            ratchet_id: ratchet.as_ref().map(|ratchet| NameHash::of(ratchet)),
+            ratchet_id: sealed.ratchet_id,
             queued_interfaces: queued.queued,
             packet_hash,
             timeout,
@@ -418,19 +401,9 @@ pub(super) fn deliver_single(
         return;
     };
 
-    // Retained ratchets first, then the identity key unless ratchets are enforced (RNS
-    // `Identity.decrypt`).
-    let ratcheted = ratchets
-        .and_then(|ratchets| ratchets.decrypt(&shared.identity, &pkt.payload).ok())
-        .map(|(data, ratchet_id)| (data, Some(ratchet_id)));
-    let decrypted = match ratcheted {
-        Some(decrypted) => Some(decrypted),
-        None if enforce_ratchets => None,
-        None => crate::token::decrypt_to_identity(&shared.identity, &pkt.payload)
-            .ok()
-            .map(|data| (data, None)),
-    };
-    let Some((data, ratchet_id)) = decrypted else {
+    let Ok((data, ratchet_id)) =
+        super::sealing::open(shared, ratchets.as_deref(), enforce_ratchets, &pkt.payload)
+    else {
         return;
     };
     let _ = shared.single_tx.send(ReceivedSingle {

@@ -6,7 +6,7 @@ use std::time::Duration;
 use outrider::{
     DeliveryAnnounce, LxmfPayload, delivery_destination, register_opportunistic, send_opportunistic,
 };
-use retinue::endpoint::Endpoint;
+use retinue::endpoint::{Endpoint, SingleDelivery};
 use retinue::identity::PrivateIdentity;
 use retinue::ratchet::{RatchetPolicy, RatchetStore};
 
@@ -61,11 +61,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     let receipt = send_opportunistic(&endpoint, &identity, &peer, &payload)?;
     println!("MESSAGE_ID {}", hex::encode(receipt.message_id));
-    match receipt.ratchet_id {
+    match receipt.packet.ratchet_id {
         Some(ratchet_id) => println!("RATCHET {ratchet_id}"),
         None => println!("RATCHET none"),
     }
-    println!("QUEUED {}", receipt.queued_interfaces);
+    println!("QUEUED {}", receipt.packet.queued_interfaces);
+    // Stock proves every opportunistic message it decrypts; this is its DELIVERED.
+    match receipt.packet.delivery().await {
+        SingleDelivery::Delivered { rtt } => println!("DELIVERED {}", rtt.as_millis()),
+        other => println!("UNDELIVERED {other:?}"),
+    }
 
     announcer.abort();
     endpoint.shutdown(Duration::from_secs(3)).await;

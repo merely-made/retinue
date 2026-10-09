@@ -245,3 +245,71 @@ async fn resource_metadata_reaches_the_receiver() {
     assert_eq!(data, payload);
     assert_eq!(received, Some(metadata));
 }
+
+/// A packet that arrives while `next_inbound` is receiving a Resource returns first, and
+/// the Resource completes on the next call, as on one stock propagation link.
+#[tokio::test]
+async fn a_packet_mid_resource_leaves_the_transfer_running() {
+    let server_id = PrivateIdentity::from_secret_bytes(&[0x78; 64]);
+    let server = Arc::new(Endpoint::new(server_id.clone()));
+    let client = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x77; 64]));
+    let name = DestinationName::new("retinue", ["interleaved"]);
+    let destination = name.destination_hash(server_id.public());
+    server.register_resource(name, b"");
+    // Hold the client's first data packet until the first Resource part has passed.
+    let (mut client_out, client_sink) = client.attach_interface().split();
+    let (mut server_out, server_sink) = server.attach_interface().split();
+    tokio::spawn(async move {
+        let mut held = None;
+        while let Some(packet) = client_out.recv().await {
+            let is_data = packet.destination_type == DestinationType::Link
+                && packet.packet_type == PacketType::Data
+                && packet.context == 0;
+            if is_data && held.is_none() {
+                held = Some(packet);
+                continue;
+            }
+            let part = packet.context == CTX_RESOURCE;
+            if !server_sink.deliver(packet) {
+                break;
+            }
+            if part && let Some(data) = held.take() {
+                server_sink.deliver(data);
+            }
+        }
+    });
+    tokio::spawn(async move {
+        while let Some(packet) = server_out.recv().await {
+            if !client_sink.deliver(packet) {
+                break;
+            }
+        }
+    });
+
+    let payload = incompressible(20_000);
+    let expected = payload.clone();
+    let receiver = tokio::spawn({
+        let server = Arc::clone(&server);
+        async move {
+            let mut session = server.accept_resource().await.unwrap().session;
+            let idle = Duration::from_secs(5);
+            let first = session.next_inbound(idle).await.unwrap();
+            let second = session.next_inbound(idle).await.unwrap();
+            (first, second)
+        }
+    });
+    let mut session = client
+        .open_resource(destination, *server_id.public())
+        .await
+        .unwrap();
+    session.set_config(quick(Duration::from_secs(3)));
+    session.send_data(b"ping");
+    tokio::time::timeout(Duration::from_secs(10), session.publish(&payload))
+        .await
+        .expect("publish completes")
+        .expect("receiver proves the resource");
+
+    let (first, second) = receiver.await.unwrap();
+    assert!(matches!(first, SessionInbound::Data(data) if data.data == b"ping"));
+    assert_eq!(second, SessionInbound::Resource(expected));
+}

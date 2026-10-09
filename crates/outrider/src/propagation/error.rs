@@ -36,26 +36,40 @@ pub enum PropagationError {
     EntryTooLarge,
     #[error("propagation entry is truncated")]
     TruncatedEntry,
+    #[error("the message exceeds the paper message limit")]
+    PaperTooLarge,
+    #[error("not an lxm:// URI carrying a message")]
+    InvalidUri,
     #[error("propagation entry stamp does not meet the node cost")]
     InvalidStamp,
     #[error("the configured proof-of-work attempt budget was exhausted")]
     StampBudgetExhausted,
+    #[error("the propagation node rejected the submission's stamps")]
+    Rejected,
     #[error("the propagation destination does not match the recipient or node identity")]
     WrongDestination,
     #[error("the decrypted LXMF source does not match the supplied source identity")]
     WrongSource,
     #[error("the decrypted LXMF signature is invalid")]
     BadSignature,
-    #[error("the announced propagation node is inactive")]
-    InactiveNode,
     #[error("the local recipient identity is not the endpoint identity")]
     LocalIdentityMismatch,
     #[error("propagation fetch response has the wrong shape")]
     InvalidFetchResponse,
     #[error("propagation node returned an entry it did not offer")]
     UnexpectedTransientId,
-    #[error("the decrypted message source {0} has no validated delivery announce")]
-    UnknownSource(AddressHash),
+    #[error("the recipient {0} has no validated delivery announce")]
+    UnknownRecipient(AddressHash),
+    #[error("this endpoint has not registered lxmf.delivery, so it cannot open fetched messages")]
+    DeliveryNotRegistered,
+    #[error("the propagated message could not be decrypted: {0}")]
+    Decrypt(#[source] std::io::Error),
+    #[error("the message's delivery stamp does not meet the required cost")]
+    InvalidDeliveryStamp,
+    #[error("the propagation node requires the link to be identified")]
+    NoIdentity,
+    #[error("the propagation node refused access to this identity")]
+    NoAccess,
     #[error("propagation fetch request has the wrong shape")]
     InvalidFetchRequest,
     #[error("propagation fetch link did not identify its owner")]
@@ -68,4 +82,6 @@ pub enum PropagationError {
     InvalidStoreSnapshot,
     #[error("unsupported propagation-store snapshot version {0}")]
     UnsupportedStoreSnapshotVersion(u64),
+    #[error("a client may submit only one propagation entry per transfer")]
+    UnpeeredBatch,
 }

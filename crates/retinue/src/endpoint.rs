@@ -17,18 +17,21 @@ mod facts;
 mod inbound;
 mod interface;
 mod known_destinations;
+mod link_receipt;
 mod link_setup;
 mod paths;
 mod queue;
 mod rebroadcast;
 mod registration;
 mod reliable_driver;
+mod resource_inbound;
 mod resource_pace;
 mod resource_requests;
 mod resource_session;
 mod router;
 mod routing;
 mod runtime;
+mod sealing;
 mod shared;
 mod single;
 mod stream;
@@ -44,9 +47,11 @@ pub use facts::{
 };
 pub use inbound::{Accepted, AcceptedResource, InboundLinkLimits};
 pub use interface::{Interface, InterfaceId, InterfaceSink};
+pub use link_receipt::{LinkDelivery, PayloadReceipt};
 pub use queue::{
     ClassCounters, OutboundPackets, QueueCounters, QueueDepths, QueueWeights, TrafficClass,
 };
+pub use resource_inbound::{ReceivedLinkData, SessionInbound};
 pub use resource_requests::{ReceivedRawRequest, ReceivedRawResponse, ReceivedRequest};
 pub use resource_session::{PayloadMode, ReceivedPayload, ResourceSession, ResourceTransferConfig};
 pub use routing::{InterfaceSelector, RoutingCounters, RoutingPolicy};

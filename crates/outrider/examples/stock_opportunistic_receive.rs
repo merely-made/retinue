@@ -3,7 +3,10 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use outrider::{DeliveryAnnounce, receive_opportunistic_with_stamp_cost, register_opportunistic};
+use outrider::{
+    DeliveredCache, DeliveryAnnounce, OpportunisticError, Verification,
+    receive_opportunistic_with_stamp_cost, register_delivery, register_opportunistic,
+};
 use retinue::endpoint::Endpoint;
 use retinue::identity::PrivateIdentity;
 use retinue::ratchet::{RatchetPolicy, RatchetStore};
@@ -20,8 +23,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         display_name: Some(b"Outrider Opportunistic Receiver".to_vec()),
         stamp_cost: None,
     };
-    let ratchets = RatchetStore::new(RatchetPolicy::default())?;
-    let destination = register_opportunistic(&endpoint, &delivery_announce, ratchets)?;
+    // `OUTRIDER_NO_RATCHETS=1` registers without ratchets, so stock encrypts to the identity.
+    let destination = if std::env::var_os("OUTRIDER_NO_RATCHETS").is_some_and(|v| v == "1") {
+        register_delivery(&endpoint, &delivery_announce)?
+    } else {
+        let ratchets = RatchetStore::new(RatchetPolicy::default())?;
+        register_opportunistic(&endpoint, &delivery_announce, ratchets)?
+    };
 
     println!("LISTENING {}", address.port());
     println!("DESTINATION {destination}");
@@ -51,25 +59,51 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    let single = tokio::time::timeout(Duration::from_secs(45), endpoint.accept_single())
-        .await
-        .map_err(|_| "timed out waiting for stock opportunistic delivery")??;
-    let received = receive_opportunistic_with_stamp_cost(
-        &endpoint,
-        single,
-        outrider::DEFAULT_MAX_MESSAGE_BYTES,
-        None,
-    )?;
+    // Receive until one message and `OUTRIDER_EXPECT_DUPLICATES` resends of it (default 0)
+    // have been handled. Each verified packet is proved, a duplicate included.
+    let expect_duplicates: usize = std::env::var("OUTRIDER_EXPECT_DUPLICATES")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(0);
+    let delivered = DeliveredCache::default();
+    let (mut fresh, mut duplicates) = (0, 0);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(90);
+    while fresh == 0 || duplicates < expect_duplicates {
+        let single = tokio::time::timeout_at(deadline, endpoint.accept_single())
+            .await
+            .map_err(|_| "timed out waiting for stock opportunistic delivery")??;
+        match receive_opportunistic_with_stamp_cost(
+            &endpoint,
+            single,
+            &delivered,
+            outrider::DEFAULT_MAX_MESSAGE_BYTES,
+            None,
+        ) {
+            Ok(received) if received.verification == Verification::Verified => {
+                fresh += 1;
+                println!("PACKED {}", hex::encode(&received.packed));
+                println!("MESSAGE_ID {}", hex::encode(received.message.message_id));
+                println!("TITLE {}", hex::encode(&received.message.payload.title));
+                println!("CONTENT {}", hex::encode(&received.message.payload.content));
+                match received.ratchet_id {
+                    Some(ratchet_id) => println!("USED_RATCHET {ratchet_id}"),
+                    None => println!("USED_RATCHET none"),
+                }
+                println!("SIGNATURE_VERIFIED true");
+                println!("STAMP_POLICY none");
+            }
+            Ok(received) => println!("UNVERIFIED {}", hex::encode(received.message.message_id)),
+            Err(OpportunisticError::Duplicate(id)) => {
+                duplicates += 1;
+                println!("DUPLICATE {}", hex::encode(id));
+            }
+            Err(error) => println!("REFUSED {error}"),
+        }
+    }
     announcer.abort();
     announcement_log.abort();
-
-    println!("PACKED {}", hex::encode(&received.packed));
-    println!("MESSAGE_ID {}", hex::encode(received.message.message_id));
-    println!("TITLE {}", hex::encode(&received.message.payload.title));
-    println!("CONTENT {}", hex::encode(&received.message.payload.content));
-    println!("USED_RATCHET {}", received.ratchet_id);
-    println!("SIGNATURE_VERIFIED true");
-    println!("STAMP_POLICY none");
+    // Let the last proof leave before the interface goes.
+    tokio::time::sleep(Duration::from_millis(500)).await;
     endpoint.shutdown(Duration::from_secs(2)).await;
     Ok(())
 }

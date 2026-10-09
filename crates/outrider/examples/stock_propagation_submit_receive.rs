@@ -4,8 +4,9 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use outrider::{
-    PROPAGATION_METADATA_NAME, PropagationAnnounce, PropagationCosts, announce_propagation,
-    propagation_destination, receive_submission, register_propagation,
+    NodePolicy, PROPAGATION_METADATA_NAME, PropagationAnnounce, PropagationCosts, PropagationNode,
+    PropagationStore, PropagationStoreLimits, announce_propagation, propagation_destination,
+    receive_submission, register_propagation,
 };
 use retinue::endpoint::Endpoint;
 use retinue::identity::PrivateIdentity;
@@ -24,8 +25,8 @@ fn propagation_announce() -> PropagationAnnounce {
         legacy: false,
         unix_time: started,
         active: true,
-        transfer_limit_kib: 256,
-        sync_limit_kib: 10_240,
+        transfer_limit_kb: 256.0,
+        sync_limit_kb: 10_240.0,
         costs: PropagationCosts {
             propagation: 13,
             flexibility: 3,
@@ -65,7 +66,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let accepted =
         tokio::time::timeout(Duration::from_secs(180), endpoint.accept_resource()).await??;
-    let received = receive_submission(&endpoint, accepted, 13, 16 * 1024 * 1024, 4_096).await?;
+    let node = PropagationNode::new(
+        PropagationStore::new(PropagationStoreLimits {
+            max_message_bytes: 256_000,
+            ..PropagationStoreLimits::default()
+        }),
+        NodePolicy::from_announce(&announce),
+    );
+    let received = receive_submission(&endpoint, accepted, &node, || {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0.0, |elapsed| elapsed.as_secs_f64())
+    })
+    .await?;
     announcer.abort();
     println!("SUBMISSION_MODE {:?}", received.mode);
     println!("SUBMISSION_LEN {}", received.packed_batch.len());

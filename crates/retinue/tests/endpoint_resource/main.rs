@@ -5,15 +5,18 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use retinue::destination::DestinationName;
-use retinue::endpoint::{Endpoint, PayloadMode, ReceivedPayload, ResourceTransferConfig};
+use retinue::endpoint::{
+    Endpoint, PayloadMode, ReceivedPayload, ResourceTransferConfig, SessionInbound,
+};
 use retinue::identity::PrivateIdentity;
 use retinue::link::{CTX_CACHE_REQUEST, CTX_RESOURCE, CTX_RESOURCE_PRF, CTX_RESOURCE_REQ};
 use retinue::lossy::{LossModel, connect};
-use retinue::packet::{Packet, PacketType};
+use retinue::packet::{DestinationType, Packet, PacketType};
 use retinue::request::Request;
 
 mod cancel;
 mod proofs;
+mod receipts;
 mod segments;
 mod transfer;
 
