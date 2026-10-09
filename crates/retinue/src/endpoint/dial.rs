@@ -13,6 +13,7 @@ use tokio::net::{TcpStream, lookup_host};
 
 use crate::identity::PrivateIdentity;
 use crate::ifac::Ifac;
+use crate::iface::hdlc;
 use crate::node::InterfaceMode;
 
 use super::interface::InterfaceId;
@@ -128,7 +129,7 @@ impl Endpoint {
         mut stream: Option<TcpStream>,
     ) -> io::Result<InterfaceId> {
         let attached = self.shared.add_interface(
-            crate::packet::MTU,
+            hdlc::MAX_FRAME,
             client.ifac.clone(),
             InterfaceMode::Full,
             stream.is_some(),

@@ -9,6 +9,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{Notify, mpsc};
 
 use crate::ifac::Ifac;
+use crate::iface::hdlc;
 use crate::node::InterfaceMode;
 
 use super::iface_policy::IfacePolicy;
@@ -144,7 +145,7 @@ impl Endpoint {
 /// The flag is false if the endpoint has stopped.
 fn spawn(shared: &Arc<Shared>, stream: TcpStream, policy: &ListenPolicy) -> (InterfaceId, bool) {
     let _ = sockopt::tune(&stream, policy.i2p_tunneled);
-    let attached = shared.add_interface(crate::packet::MTU, policy.ifac.clone(), policy.mode, true);
+    let attached = shared.add_interface(hdlc::MAX_FRAME, policy.ifac.clone(), policy.mode, true);
     let id = attached.id;
     if !attached.registered {
         return (id, false);

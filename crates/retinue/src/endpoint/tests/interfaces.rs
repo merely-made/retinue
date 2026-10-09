@@ -319,6 +319,44 @@ async fn an_announce_queued_right_after_attaching_is_sent() {
     assert_eq!(heard, [b"dialed".to_vec(), b"streamed".to_vec()]);
 }
 
+/// A TCP interface with IFAC still carries a full 500-byte packet: the access code rides on
+/// top of the protocol MTU, as on a stock stream carrier.
+#[tokio::test]
+async fn tcp_interfaces_with_ifac_carry_the_full_mtu() {
+    let ifac = Ifac::for_stream(Some("mtu"), None).unwrap();
+    let hub = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x6c; 64]));
+    let addr = hub
+        .listen_tcp_with_ifac("127.0.0.1:0".parse().unwrap(), ifac.clone())
+        .await
+        .unwrap();
+    let dialer = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x6d; 64]));
+    let dialed = dialer
+        .attach_tcp_client_with_ifac(addr, ifac.clone())
+        .await
+        .unwrap();
+    let streamed = dialer.attach_stream_with_ifac(TcpStream::connect(addr).await.unwrap(), ifac);
+    for id in [dialed, streamed] {
+        assert_eq!(
+            dialer.shared.link_mtu_on(id),
+            Some(crate::packet::MTU as u32)
+        );
+    }
+    let spawned = tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            if let Some(id) = hub.interface_ids().first().copied() {
+                return id;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        hub.shared.link_mtu_on(spawned),
+        Some(crate::packet::MTU as u32)
+    );
+}
+
 /// An unreachable hub is attached offline, then forgotten after the configured tries.
 #[tokio::test]
 async fn an_unreachable_hub_is_retried_then_given_up() {
