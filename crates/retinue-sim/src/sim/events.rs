@@ -53,9 +53,10 @@ impl<'a, const P: usize, const A: usize, const L: usize, const R: usize> Sim<'a,
         Ok(())
     }
 
-    /// Poll a node at its next rebroadcast, as a shell does between regular polls.
+    /// Poll a node at its earliest deadline (rebroadcast, link, resource), as the
+    /// firmware's channel node does between its regular beats.
     fn arm_wake(&mut self, t: u64, n: usize) {
-        let Some(at) = self.nodes[n].node.next_rebroadcast() else {
+        let Some(at) = self.nodes[n].node.next_deadline() else {
             return;
         };
         let at = at.max(t);

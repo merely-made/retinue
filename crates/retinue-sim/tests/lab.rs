@@ -285,13 +285,13 @@ fn warm_lost_requests_expire_at_their_deadlines() {
 
     let scenario = scenarios::warm();
     let trace = run(&scenario).unwrap();
-    let poll = scenario.timing.poll_interval;
     let expected: Vec<(u64, String, Option<u32>)> = trace.messages[1..4]
         .iter()
         .map(|lost| {
-            let deadline = lost.sent_at + link_request_timeout(1);
+            // Nodes wake at their earliest deadline, as the firmware does, so a request
+            // expires exactly at its deadline rather than at the next beat.
             (
-                deadline.div_ceil(poll) * poll,
+                lost.sent_at + link_request_timeout(1),
                 "fire".to_owned(),
                 Some(lost.id),
             )
@@ -304,7 +304,7 @@ fn warm_lost_requests_expire_at_their_deadlines() {
     assert_eq!(got, expected);
     assert_eq!(
         got.iter().map(|(t, ..)| *t).collect::<Vec<_>>(),
-        [200_000, 380_000, 560_000]
+        [198_000, 378_000, 558_000]
     );
     for event in &trace.events {
         if let Event::LinkRequestExpired {
@@ -349,7 +349,7 @@ fn open_link_expiries_precede_the_send_that_freed_them() {
         send(183_000, 5),
         send(180_000 + 20_000, 6),
     ];
-    // Three deadlines fall at or before 200 s; the fourth, 201 s, does not.
+    // Each request expires at its own deadline; the third's falls exactly on the sixth send.
     assert_eq!(182_000 + deadline, 200_000);
     let trace = run(&scenario).unwrap();
 
@@ -362,12 +362,12 @@ fn open_link_expiries_precede_the_send_that_freed_them() {
     let at_send: Vec<_> = got.iter().filter(|(_, t, ..)| *t == 200_000).collect();
     assert_eq!(
         at_send.iter().map(|(.., m)| *m).collect::<Vec<_>>(),
-        [Some(1), Some(2), Some(3)]
+        [Some(3)]
     );
     assert!(at_send.iter().all(|(i, ..)| *i < send_6));
-    // Ruling 76: each carries fire's state at expiry, before the sixth send's request is
-    // added, so only the fourth request is pending. The request's own transmit, after it was
-    // added, counts two.
+    // Ruling 76: the expiry carries fire's state before the sixth send's request is added,
+    // so only the fourth request is pending. The request's own transmit, after it was added,
+    // counts two.
     let pending = |i: usize| match &trace.events[i] {
         Event::LinkRequestExpired { state, .. } | Event::Transmit { state, .. } => {
             state.pending_links
@@ -379,7 +379,7 @@ fn open_link_expiries_precede_the_send_that_freed_them() {
             .iter()
             .map(|(i, ..)| pending(*i))
             .collect::<Vec<_>>(),
-        [1, 1, 1]
+        [1]
     );
     let request = trace.events[send_6..]
         .iter()
@@ -392,14 +392,19 @@ fn open_link_expiries_precede_the_send_that_freed_them() {
             .iter()
             .any(|event| matches!(event, Event::SendRefused { .. }))
     );
-    // The fourth expires at the next poll after its own deadline, and the sixth send, lost
-    // behind the cut like the others, at the poll after its own.
+    // The others expire at their own deadlines too. The fourth sees the sixth send's
+    // request still pending; the last leaves nothing.
     assert_eq!(
         got.iter()
             .filter(|(_, t, ..)| *t != 200_000)
-            .map(|(_, t, _, m)| (*t, *m))
+            .map(|(i, t, _, m)| (*t, *m, pending(*i)))
             .collect::<Vec<_>>(),
-        [(205_000, Some(4)), (220_000, Some(5))]
+        [
+            (198_000, Some(1), 3),
+            (199_000, Some(2), 2),
+            (201_000, Some(4), 1),
+            (218_000, Some(5), 0),
+        ]
     );
 }
 
