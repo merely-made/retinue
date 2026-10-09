@@ -6,6 +6,7 @@ use alloc::vec::Vec;
 use super::PROOF_CACHE_REQUESTS;
 use super::cancel::{cancel_packet, names_resource};
 use crate::Error;
+use crate::hash::AddressHash;
 use crate::link::{
     CTX_CACHE_REQUEST, CTX_RESOURCE, CTX_RESOURCE_ADV, CTX_RESOURCE_HMU, CTX_RESOURCE_ICL,
     CTX_RESOURCE_PRF, CTX_RESOURCE_RCL, CTX_RESOURCE_REQ, Link,
@@ -30,9 +31,15 @@ pub struct ResourceSender {
     sent: Vec<bool>,
     unsent: usize,
     cache_requests_left: u8,
+    /// Hashes of the latest requests served, so a replayed one is not served again
+    /// (`Link.py` 1088-1093). RNS keeps every one; a few suffice to catch a duplicate frame.
+    served_requests: Vec<AddressHash>,
     done: bool,
     canceled: bool,
 }
+
+/// How many served request hashes a sender remembers.
+const SERVED_REQUESTS: usize = 8;
 
 impl ResourceSender {
     /// Prepare to publish `data` (uncompressed) over `link`. `random_hash` salts the resource
@@ -94,8 +101,10 @@ impl ResourceSender {
         let (transfer, compressed) = (content(data, &random_hash), false);
         let token = link.seal(&transfer, iv);
         drop(transfer);
+        // The link MTU less `HEADER_MAXSIZE` and `IFAC_MIN_SIZE` (`Resource.py` 343-344), so a
+        // part still fits once a relay addresses it. Held to the SDU above MTU 500.
         let part_size = (link.mtu() as usize)
-            .saturating_sub(crate::packet::HEADER_MIN_LEN)
+            .saturating_sub(crate::packet::HEADER_MAX_LEN + 1)
             .clamp(1, SDU);
         let mut out = Outgoing::from_token(data, token, random_hash, compressed, part_size);
         if let Some(request_id) = request_id {
@@ -108,7 +117,8 @@ impl ResourceSender {
     }
 
     /// A sender for an already-built resource, its advertised hashmap window fitted to the
-    /// link MTU.
+    /// link MTU. Batches under 74 hashes are retinue's own: RNS always sends 74 and places
+    /// an update at `segment * 74`, so only a retinue receiver follows a narrower window.
     pub(super) fn from_outgoing(link: Link, out: Outgoing) -> Self {
         let mtu = link.mtu() as usize;
         let mut hash_window = out
@@ -132,6 +142,7 @@ impl ResourceSender {
             sent: vec![false; parts],
             unsent: parts,
             cache_requests_left: PROOF_CACHE_REQUESTS,
+            served_requests: Vec::new(),
             done: false,
             canceled: false,
         }
@@ -172,9 +183,16 @@ impl ResourceSender {
                 let Ok(req) = parse_request(&plain) else {
                     return vec![];
                 };
-                if req.resource_hash != self.out.resource_hash() {
+                let hash = packet.hash();
+                if req.resource_hash != self.out.resource_hash()
+                    || self.served_requests.contains(&hash)
+                {
                     return vec![];
                 }
+                if self.served_requests.len() == SERVED_REQUESTS {
+                    self.served_requests.remove(0);
+                }
+                self.served_requests.push(hash);
                 self.started = true;
                 let mut out = Vec::new();
                 // Serve every part whose map hash we hold, framed (already encrypted in-token).
