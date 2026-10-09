@@ -32,7 +32,7 @@ mod tests;
 
 pub use advertisement::{Advertisement, advertise};
 #[cfg(feature = "compression")]
-pub(crate) use compression::{BoundedDecompressError, decompress_bounded};
+pub(crate) use compression::{BoundedDecompressError, compress_after, decompress_bounded};
 #[cfg(feature = "compression")]
 pub use compression::{compress, decompress};
 pub use control::{

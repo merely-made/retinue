@@ -54,8 +54,9 @@ async fn endpoint_publish_survives_a_lost_completion_proof() {
 }
 
 /// A publisher that hears none of the proofs sent at completion asks for one with a cache
-/// request, and the receiver, still holding the link, answers from the proof it kept.
-#[tokio::test]
+/// request, after RNS's proof wait, and the receiver, still holding the link, answers from
+/// the proof it kept.
+#[tokio::test(start_paused = true)]
 async fn endpoint_publish_recovers_a_lost_proof_with_a_cache_request() {
     let server_id = PrivateIdentity::from_secret_bytes(&[0x25; 64]);
     let client_id = PrivateIdentity::from_secret_bytes(&[0x14; 64]);
@@ -88,7 +89,7 @@ async fn endpoint_publish_recovers_a_lost_proof_with_a_cache_request() {
             *server_id.public(),
             &payload,
             ResourceTransferConfig {
-                timeout: Duration::from_secs(2),
+                timeout: Duration::from_secs(30),
                 retry_interval: Duration::from_millis(20),
                 request_window: 1,
             },
@@ -178,7 +179,7 @@ async fn endpoint_resource_proof_is_proof_typed_and_completes_the_publisher() {
 /// A publisher that never hears a proof asks for it three times, then cancels and fails,
 /// as RNS's sender does, rather than waiting out its whole timeout. The receiver answers
 /// each request, and no more than its cap however often it is asked.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_publish_whose_proof_never_arrives_gives_up_after_its_cache_requests() {
     let server_id = PrivateIdentity::from_secret_bytes(&[0x37; 64]);
     let server = Arc::new(Endpoint::new(server_id.clone()));
@@ -210,19 +211,20 @@ async fn a_publish_whose_proof_never_arrives_gives_up_after_its_cache_requests()
             (payload, accepted)
         }
     });
-    let started = std::time::Instant::now();
+    let started = tokio::time::Instant::now();
     let error = client
         .send_payload_with_config(
             destination,
             *server_id.public(),
             &incompressible(2_000),
-            quick(Duration::from_secs(20)),
+            quick(Duration::from_secs(120)),
         )
         .await
         .unwrap_err();
     assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+    // Four proof waits of RTT × 3 + 10 s each.
     assert!(
-        started.elapsed() < Duration::from_secs(5),
+        started.elapsed() < Duration::from_secs(60),
         "{:?}",
         started.elapsed()
     );

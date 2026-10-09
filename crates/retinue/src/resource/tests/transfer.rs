@@ -440,3 +440,42 @@ fn sender_and_receiver_round_trip() {
     // Proof round-trips to the value the sender precomputed.
     assert_eq!(inc.proof(recovered), proof(&data, &inc.resource_hash()));
 }
+
+/// Parts land in place in a token sized from the advertisement. A last part that arrives
+/// first waits until another fixes the part size, and a part of the wrong size is refused.
+#[test]
+fn parts_assemble_in_place_in_any_order() {
+    let token: Vec<u8> = (0..250_u32).map(|i| i as u8).collect();
+    let out = Outgoing::from_token(b"data", token.clone(), [4, 3, 2, 1], false, 100);
+    let mut inc = Incoming::new(&out.advertisement()).unwrap();
+    let part = |i: usize| out.part(i).unwrap();
+    assert!(inc.accept_part(part(2)), "the 50-byte tail is held aside");
+    assert!(!inc.is_complete());
+    assert!(inc.accept_part(part(0)));
+    assert!(inc.accept_part(part(1)));
+    assert!(inc.is_complete());
+    assert_eq!(inc.take_token().unwrap(), token);
+
+    let mut inc = Incoming::new(&out.advertisement()).unwrap();
+    let mut short = part(0).to_vec();
+    short.pop();
+    assert!(!inc.accept_part(&short), "an unknown hash");
+    assert!(inc.accept_part(part(0)));
+    assert!(inc.take_token().is_err(), "incomplete");
+}
+
+/// The next request asks for every known missing part in the window, and says when the
+/// window reaches past the known hashmap.
+#[test]
+fn the_next_request_marks_an_exhausted_hashmap() {
+    let data = vec![0xA5; 64];
+    let token = vec![0x5A; SDU * (HASHMAP_MAX_PARTS + 4)];
+    let out = Outgoing::new(&data, &token, [1, 2, 3, 4], false);
+    let mut inc = Incoming::new(&out.advertisement()).unwrap();
+    inc.set_window(WINDOW_MAX);
+    let (wanted, exhausted) = inc.next_request();
+    assert!(exhausted);
+    assert_eq!(wanted.len(), HASHMAP_MAX_PARTS);
+    inc.set_window(10);
+    assert_eq!(inc.next_request(), (wanted[..10].to_vec(), false));
+}

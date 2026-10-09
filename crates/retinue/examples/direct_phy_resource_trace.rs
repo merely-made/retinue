@@ -12,7 +12,7 @@ use retinue::identity::PrivateIdentity;
 use retinue::link::{LinkMode, LinkTrailer, PendingLink, accept};
 use retinue::packet::Packet;
 use retinue::resource::RANDOM_HASH_LEN;
-use retinue::resource_transfer::{ResourceReceiver, ResourceSender};
+use retinue::resource_transfer::{ResourceReceiver, ResourceSender, Timing};
 use retinue::token::IV_LEN;
 use tulle::PhyProfile;
 use tulle::airtime::AirtimeBudget;
@@ -115,12 +115,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut iv = iv_gen();
     let mut random_hash = [0_u8; RANDOM_HASH_LEN];
     random_hash.copy_from_slice(&[0x51, 0x52, 0x53, 0x54]);
-    let mut publisher = ResourceSender::publish(publisher_link, &input, random_hash, &iv());
-    let mut receiver = ResourceReceiver::with_request_window(receiver_link, 1);
+    // Three seconds covers a request-plus-part round trip on this profile.
+    let timing = Timing {
+        rtt: 3_000,
+        floor: 3_000,
+    };
+    let clock = std::time::Instant::now();
+    let now = || clock.elapsed().as_millis() as u64;
+    let mut publisher =
+        ResourceSender::publish(publisher_link, &input, random_hash, &iv()).with_timing(timing);
+    let mut receiver = ResourceReceiver::with_request_window(receiver_link, 1).with_timing(timing);
     send(
         "publisher",
         &mut publisher_radio,
-        publisher.advertisement(&iv()),
+        publisher.advertise(now(), &iv()),
     )
     .await?;
 
@@ -143,7 +151,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         received.rssi_dbm,
                         received.snr_db,
                     );
-                    for outbound in receiver.on_packet(&packet, &mut iv) {
+                    for outbound in receiver.on_packet(&packet, now(), &mut iv) {
                         send("receiver", &mut receiver_radio, outbound).await?;
                     }
                 }
@@ -160,20 +168,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         received.rssi_dbm,
                         received.snr_db,
                     );
-                    for outbound in publisher.on_packet(&packet, &mut iv) {
+                    for outbound in publisher.on_packet(&packet, now(), &mut iv) {
                         send("publisher", &mut publisher_radio, outbound).await?;
                     }
                 }
                 _ = retry.tick() => {
-                    if !publisher.has_started() {
-                        send(
-                            "publisher retry",
-                            &mut publisher_radio,
-                            publisher.advertisement(&iv()),
-                        )
-                        .await?;
+                    if let Some(outbound) = publisher.poll(now(), &mut iv) {
+                        send("publisher retry", &mut publisher_radio, outbound).await?;
                     }
-                    for outbound in receiver.retransmit(&mut iv) {
+                    for outbound in receiver.poll(now(), &mut iv) {
                         send("receiver retry", &mut receiver_radio, outbound).await?;
                     }
                 }

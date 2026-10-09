@@ -16,6 +16,7 @@ use crate::Result;
 use crate::hash::AddressHash;
 use crate::identity::{IDENTITY_LEN, Identity, KEY_LEN, PrivateIdentity, SIGNATURE_LEN};
 use crate::packet::{DestinationType, HeaderType, Packet, PacketType, Propagation};
+use crate::resource_transfer::WindowCarry;
 use crate::token::{DerivedKeys, IV_LEN};
 
 /// What an inbound link-layer packet is, once matched to a link by its id.
@@ -58,6 +59,8 @@ pub struct Link {
     /// Ed25519 public key the peer proves link data with. Not checked to be a valid point
     /// when the link forms: a bad one only means the peer's proofs never verify.
     pub(super) peer_signer: [u8; KEY_LEN],
+    /// What the last incoming resource left for the next (`Link.py` 1257-1266).
+    pub(super) resource_carry: Option<WindowCarry>,
 }
 
 impl Link {
@@ -71,6 +74,16 @@ impl Link {
 
     pub fn mtu(&self) -> u32 {
         self.mtu
+    }
+
+    /// The window and rate the last incoming resource ended at, which the next starts from.
+    pub fn resource_carry(&self) -> Option<WindowCarry> {
+        self.resource_carry
+    }
+
+    /// Record what an incoming resource ended at, for the next on this link.
+    pub fn set_resource_carry(&mut self, carry: WindowCarry) {
+        self.resource_carry = Some(carry);
     }
 
     /// Encrypt application bytes into a link data packet.
@@ -94,9 +107,19 @@ impl Link {
         self.keys.encrypt(plaintext, iv)
     }
 
+    /// [`seal`](Self::seal), encrypting in the plaintext's own buffer.
+    pub fn seal_owned(&self, plaintext: Vec<u8>, iv: &[u8; IV_LEN]) -> Vec<u8> {
+        self.keys.encrypt_owned(plaintext, iv)
+    }
+
     /// Open a whole blob sealed with [`seal`](Self::seal).
     pub fn open(&self, token: &[u8]) -> Result<Vec<u8>> {
         self.keys.decrypt(token)
+    }
+
+    /// [`open`](Self::open), decrypting in the token's own buffer.
+    pub fn open_owned(&self, token: Vec<u8>) -> Result<Vec<u8>> {
+        self.keys.decrypt_owned(token)
     }
 
     /// A link packet with an arbitrary context and an already-encrypted payload.

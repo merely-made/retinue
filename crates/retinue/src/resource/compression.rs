@@ -11,8 +11,13 @@ use crate::{Error, Result};
 /// [`FLAG_COMPRESSED`](super::FLAG_COMPRESSED) accordingly) by comparing lengths. Available under the `compression`
 /// feature.
 pub fn compress(content: &[u8]) -> Vec<u8> {
+    compress_after(Vec::new(), content)
+}
+
+/// [`compress`] `content` onto the end of `out`, so a prefix needs no second copy.
+pub(crate) fn compress_after(out: Vec<u8>, content: &[u8]) -> Vec<u8> {
     use std::io::Write;
-    let mut enc = bzip2::write::BzEncoder::new(Vec::new(), bzip2::Compression::best());
+    let mut enc = bzip2::write::BzEncoder::new(out, bzip2::Compression::best());
     enc.write_all(content)
         .expect("writing to a Vec cannot fail");
     enc.finish().expect("finishing a Vec encoder cannot fail")

@@ -1,11 +1,21 @@
 //! Resource transfers riding on links.
 
 use super::tables::derived_iv;
-use super::{Action, Actions, InterfaceId, Node, RESOURCE_REQUEST_WINDOW};
+use super::{Action, Actions, InterfaceId, Node, RESOURCE_FALLBACK_RTT};
 use crate::hash::AddressHash;
 use crate::link;
+use crate::link_liveness::Liveness;
 use crate::packet::Packet;
-use crate::resource_transfer::{ResourceReceiver, ResourceSender};
+use crate::resource::WINDOW_MAX;
+use crate::resource_transfer::{ResourceReceiver, ResourceSender, Timing};
+
+/// A link's transfer timing: its measured RTT, or the fallback until there is one.
+fn timing(liveness: &Liveness) -> Timing {
+    Timing {
+        rtt: liveness.rtt().unwrap_or(RESOURCE_FALLBACK_RTT),
+        floor: 0,
+    }
+}
 
 impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES: usize>
     Node<PEERS, ACTIONS, LINKS, ROUTES>
@@ -72,7 +82,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         if self.senders.iter().any(|(id, _, _)| *id == link_id) || self.senders.is_full() {
             return None;
         }
-        let (link, _, _) = self.links.iter().find(|(l, _, _)| l.id() == link_id)?;
+        let (link, _, liveness) = self.links.iter().find(|(l, _, _)| l.id() == link_id)?;
 
         let sender = match metadata {
             None => ResourceSender::publish(link.clone(), data, random_hash, iv),
@@ -81,7 +91,8 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                     .ok()?
             }
         };
-        let advertisement = sender.advertisement(iv);
+        let mut sender = sender.with_timing(timing(liveness));
+        let advertisement = sender.advertise(now, iv);
         let _ = self.senders.push((link_id, sender, now));
 
         let mut actions = Actions::new();
@@ -90,6 +101,14 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             packet: advertisement,
         });
         Some(actions)
+    }
+
+    /// The tick at which [`Node::poll`] next has resource work: a part, request,
+    /// advertisement or proof overdue. `None` while no transfer runs.
+    pub fn resource_deadline(&self) -> Option<u64> {
+        let receivers = self.receivers.iter().filter_map(|(_, r, _)| r.deadline());
+        let senders = self.senders.iter().filter_map(|(_, s, _)| s.deadline());
+        receivers.chain(senders).min()
     }
 
     /// Whether a resource is being received or sent on this link.
@@ -117,7 +136,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         // An outbound transfer's replies come back on the same link, so try the sender
         // first: only one direction can own a given context on a given link at a time.
         if let Some(pos) = self.senders.iter().position(|(id, _, _)| *id == link_id) {
-            let replies = self.senders[pos].1.on_packet(packet, &mut iv);
+            let replies = self.senders[pos].1.on_packet(packet, now, &mut iv);
             self.iv_counter = counter;
             self.senders[pos].2 = now;
             let finished = self.senders[pos].1.is_done() || self.senders[pos].1.is_canceled();
@@ -181,18 +200,19 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                     }
                     return;
                 }
-                let link = self.links[link_index].0.clone();
+                let (link, _, liveness) = &self.links[link_index];
                 let receiver = ResourceReceiver::with_limits(
-                    link,
-                    RESOURCE_REQUEST_WINDOW,
+                    link.clone(),
+                    WINDOW_MAX,
                     self.payload_limits.max_resource_parts,
-                );
+                )
+                .with_timing(timing(liveness));
                 let _ = self.receivers.push((link_id, receiver, now));
                 self.receivers.len() - 1
             }
         };
 
-        let replies = self.receivers[pos].1.on_packet(packet, &mut iv);
+        let replies = self.receivers[pos].1.on_packet(packet, now, &mut iv);
         self.iv_counter = counter;
         self.receivers[pos].2 = now;
 
@@ -212,6 +232,8 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         }
 
         if self.receivers[pos].1.is_complete() {
+            let carry = self.receivers[pos].1.carry();
+            self.links[link_index].0.set_resource_carry(carry);
             // Keep the proof a while, for the sender's cache request if it was lost.
             if let Some(proof) = self.receivers[pos].1.proof_packet() {
                 self.resource_proofs.retain(|(id, _, _, _)| *id != link_id);

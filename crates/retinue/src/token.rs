@@ -96,26 +96,59 @@ impl DerivedKeys {
     /// `iv` is supplied by the caller so this stays free of any RNG and reproducible in
     /// tests. It must be fresh and unpredictable in production.
     pub fn encrypt(&self, plaintext: &[u8], iv: &[u8; IV_LEN]) -> Vec<u8> {
-        // PKCS7 always pads, up to a whole block.
-        let padded = (plaintext.len() / 16 + 1) * 16;
-        let mut out = Vec::with_capacity(IV_LEN + padded + MAC_LEN);
-        out.extend_from_slice(iv);
-        out.extend_from_slice(plaintext);
-        out.resize(IV_LEN + padded, 0);
-        Aes256CbcEnc::inner_iv_init(self.aes.clone(), iv.into())
-            .encrypt_padded::<Pkcs7>(&mut out[IV_LEN..], plaintext.len())
-            .expect("buffer has a full block of headroom");
+        let mut buf = Vec::with_capacity(IV_LEN + plaintext.len() + 16 + MAC_LEN);
+        buf.extend_from_slice(iv);
+        buf.extend_from_slice(plaintext);
+        self.seal_in_place(buf, iv)
+    }
 
+    /// [`encrypt`](Self::encrypt), in place: the plaintext's own buffer becomes the token.
+    pub fn encrypt_owned(&self, mut plaintext: Vec<u8>, iv: &[u8; IV_LEN]) -> Vec<u8> {
+        plaintext.reserve_exact(IV_LEN + 16 + MAC_LEN);
+        plaintext.splice(0..0, iv.iter().copied());
+        self.seal_in_place(plaintext, iv)
+    }
+
+    /// Encrypt `buf`, which holds `iv || plaintext`, behind its IV and append the HMAC,
+    /// using the cached key schedule and HMAC pads.
+    fn seal_in_place(&self, mut buf: Vec<u8>, iv: &[u8; IV_LEN]) -> Vec<u8> {
+        let len = buf.len() - IV_LEN;
+        // PKCS7 always pads, up to a whole block.
+        buf.resize(IV_LEN + (len / 16 + 1) * 16, 0);
+        let ct_len = Aes256CbcEnc::inner_iv_init(self.aes.clone(), iv.into())
+            .encrypt_padded::<Pkcs7>(&mut buf[IV_LEN..], len)
+            .expect("buffer has a full block of headroom")
+            .len();
+        buf.truncate(IV_LEN + ct_len);
         let mut mac = self.mac.clone();
-        mac.update(&out);
-        out.extend_from_slice(&mac.finalize().into_bytes());
-        out
+        mac.update(&buf);
+        buf.extend_from_slice(&mac.finalize().into_bytes());
+        buf
     }
 
     /// Verify and decrypt `IV || ciphertext || HMAC`.
     ///
     /// The HMAC is checked before anything is decrypted, and in constant time.
     pub fn decrypt(&self, token: &[u8]) -> Result<Vec<u8>> {
+        let ciphertext = self.authenticate(token)?;
+        let mut buf = ciphertext.to_vec();
+        let len = self.decrypt_block(&token[..IV_LEN], &mut buf)?;
+        buf.truncate(len);
+        Ok(buf)
+    }
+
+    /// [`decrypt`](Self::decrypt), in place: the token's own buffer becomes the plaintext.
+    pub fn decrypt_owned(&self, mut token: Vec<u8>) -> Result<Vec<u8>> {
+        let end = IV_LEN + self.authenticate(&token)?.len();
+        let (iv, body) = token[..end].split_at_mut(IV_LEN);
+        let len = self.decrypt_block(iv, body)?;
+        token.copy_within(IV_LEN..IV_LEN + len, 0);
+        token.truncate(len);
+        Ok(token)
+    }
+
+    /// Check the HMAC, returning the ciphertext it covers.
+    fn authenticate<'a>(&self, token: &'a [u8]) -> Result<&'a [u8]> {
         if token.len() <= TOKEN_OVERHEAD {
             return Err(Error::Truncated);
         }
@@ -125,19 +158,21 @@ impl DerivedKeys {
         mac.update(body);
         mac.verify_slice(tag).map_err(|_| Error::BadMac)?;
 
-        let (iv, ciphertext) = body.split_at(IV_LEN);
-        let iv: [u8; IV_LEN] = iv.try_into().expect("split at IV_LEN");
+        let ciphertext = &body[IV_LEN..];
         if ciphertext.is_empty() || ciphertext.len() % 16 != 0 {
             return Err(Error::BadPadding);
         }
+        Ok(ciphertext)
+    }
 
-        let mut plaintext = ciphertext.to_vec();
-        let len = Aes256CbcDec::inner_iv_init(self.aes.clone(), (&iv).into())
-            .decrypt_padded::<Pkcs7>(&mut plaintext)
-            .map_err(|_| Error::BadPadding)?
-            .len();
-        plaintext.truncate(len);
-        Ok(plaintext)
+    /// Decrypt `buf` in place under `iv` with the cached key schedule, returning the
+    /// unpadded length.
+    fn decrypt_block(&self, iv: &[u8], buf: &mut [u8]) -> Result<usize> {
+        let iv: &[u8; IV_LEN] = iv.try_into().expect("an IV_LEN prefix");
+        Aes256CbcDec::inner_iv_init(self.aes.clone(), iv.into())
+            .decrypt_padded::<Pkcs7>(buf)
+            .map(<[u8]>::len)
+            .map_err(|_| Error::BadPadding)
     }
 }
 

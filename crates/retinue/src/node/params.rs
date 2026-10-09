@@ -91,21 +91,14 @@ impl core::fmt::Display for AppDataTooLarge {
 
 impl core::error::Error for AppDataTooLarge {}
 
-/// Parts requested per turn. Small, because a half-duplex radio should not be asked for a
-/// burst it cannot answer before the next request arrives.
-pub const RESOURCE_REQUEST_WINDOW: usize = 4;
-
-/// How long a transfer may sit silent before [`Node::poll`] redrives it, in the caller's
-/// tick unit (milliseconds on the boards).
-///
-/// The loss-recovery clock: a receiver re-requests what it is missing, a sender re-offers an
-/// unanswered advertisement. It must clear a request-plus-part round trip at the slowest
-/// profile (about 3 s at SF11/250 kHz); deriving it from airtime is a recorded follow-up.
-pub const RESOURCE_RETRY_INTERVAL: u64 = 12_000;
+/// The round trip a resource's watchdog assumes on a link whose RTT is not yet measured,
+/// in the caller's tick unit (milliseconds on the boards): about a request-plus-part round
+/// trip at the slowest profile, SF11/250 kHz.
+pub const RESOURCE_FALLBACK_RTT: u64 = 3_000;
 
 /// How long a link keeps the last resource proof this node sent, to answer a sender's cache
 /// request for it, in milliseconds. A sender asks [`PROOF_CACHE_REQUESTS`] times, each
-/// after a retry interval of silence, so this covers them with room for slow airtime.
+/// after RTT × 3 + 10 s of silence, so this covers them with room for slow airtime.
 ///
 /// [`PROOF_CACHE_REQUESTS`]: crate::resource_transfer::PROOF_CACHE_REQUESTS
 pub const RESOURCE_PROOF_CACHE_TTL: u64 = 120_000;

@@ -3,19 +3,16 @@
 use alloc::vec::Vec;
 
 use std::io;
-use std::sync::Arc;
 
 use crate::hash::AddressHash;
 use crate::identity::Identity;
 use crate::link::Inbound;
 use crate::request::{Request, Response};
 use crate::resource::RANDOM_HASH_LEN;
-use crate::resource_transfer::{ResourceReceiver, ResourceSender};
+use crate::resource_transfer::ResourceSender;
 
 use super::entropy::{fill_random, next_iv};
-use super::resource_session::{
-    PayloadMode, ResourceSession, keep_resource_proof, resource_receive_ended,
-};
+use super::resource_session::{Pace, PayloadMode, ResourceSession};
 use super::stream::write_chunk_for_mtu;
 
 /// One request received over a resource-capable link.
@@ -228,110 +225,87 @@ impl ResourceSession {
         let request_id = packet.hash();
         self.shared.send_on(self.iface, packet);
 
-        let link = self.link.clone();
-        let shared = Arc::clone(&self.shared);
-        let iface = self.iface;
-        let packets = &mut self.packets;
-        let retry = self.config.retry_interval;
-        let request_window = self.config.request_window;
-        let response_receiver = move || {
-            let receiver = ResourceReceiver::with_request_window(link.clone(), request_window);
+        let response_receiver = |session: &Self| {
+            let receiver = session.receiver_without_accept();
             match max_response_size {
                 Some(max) => receiver.with_max_data_size(max),
                 None => receiver,
             }
         };
-        let mut receiver = response_receiver();
-        let link = self.link.clone();
-        let receiving = &mut receiver;
-        let receive = async move {
-            let mut interval = tokio::time::interval(retry);
-            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-            interval.tick().await;
-            loop {
-                tokio::select! {
-                    maybe = packets.recv() => {
-                        let packet = maybe.ok_or_else(|| {
-                            io::Error::new(io::ErrorKind::BrokenPipe, "request link closed")
-                        })?;
-                        match link.receive(&packet) {
-                            Some(Inbound::Response(bytes)) => {
-                                let response_id = Response::request_id(&bytes).map_err(|_| {
-                                    io::Error::new(io::ErrorKind::InvalidData, "invalid response envelope")
-                                })?;
-                                if response_id == request_id {
-                                    // RNS sizes a packet response by its packed value, less
-                                    // two bytes: the envelope is a fixarray, a bin8 header and
-                                    // the 16-byte id.
-                                    let size = bytes.len().saturating_sub(1 + 2 + 16 + 2);
-                                    if max_response_size.is_some_and(|max| size > max) {
-                                        return Err(io::Error::new(
-                                            io::ErrorKind::InvalidData,
-                                            "response exceeds max_response_size",
-                                        ));
-                                    }
-                                    return Ok(ReceivedRawResponse {
-                                        packed: bytes,
-                                        request_id: response_id,
-                                        metadata: None,
-                                    });
-                                }
-                            }
-                            Some(Inbound::Close) => {
-                                return Err(io::Error::new(
-                                    io::ErrorKind::BrokenPipe,
-                                    "request link closed",
-                                ));
-                            }
-                            _ => {}
-                        }
-                        for outbound in receiving.on_packet(&packet, next_iv) {
-                            shared.send_on(iface, outbound);
-                        }
-                        if receiving.is_complete() {
-                            keep_resource_proof(&shared, iface, link.id(), receiving);
-                            let advertised_id = receiving.response_request_id().map(AddressHash::from_bytes);
-                            let (packed, metadata) = receiving
-                                .take_payload()
-                                .expect("a completed receiver holds its payload");
-                            // A file response (one with metadata) carries the file's bytes,
-                            // and only its advertisement names the request.
-                            let response_id = match (&metadata, advertised_id) {
-                                (Some(_), Some(id)) => id,
-                                _ => Response::request_id(&packed).map_err(|_| {
-                                    io::Error::new(
-                                        io::ErrorKind::InvalidData,
-                                        "invalid response resource",
-                                    )
-                                })?,
-                            };
-                            if advertised_id.is_some_and(|id| id != response_id) {
-                                return Err(io::Error::new(
-                                    io::ErrorKind::InvalidData,
-                                    "response Resource request id mismatch",
-                                ));
-                            }
+        let mut receiver = response_receiver(self);
+        let mut pace = Pace::new(self.config.timeout);
+        loop {
+            tokio::select! {
+                maybe = self.packets.recv() => {
+                    let packet = maybe.ok_or_else(|| {
+                        io::Error::new(io::ErrorKind::BrokenPipe, "request link closed")
+                    })?;
+                    pace.heard();
+                    match self.link.receive(&packet) {
+                        Some(Inbound::Response(bytes)) => {
+                            let response_id = Response::request_id(&bytes).map_err(|_| {
+                                io::Error::new(io::ErrorKind::InvalidData, "invalid response envelope")
+                            })?;
                             if response_id == request_id {
+                                // RNS sizes a packet response by its packed value, less two
+                                // bytes: the envelope is a fixarray, a bin8 header and the
+                                // 16-byte id.
+                                let size = bytes.len().saturating_sub(1 + 2 + 16 + 2);
+                                if max_response_size.is_some_and(|max| size > max) {
+                                    return Err(io::Error::new(
+                                        io::ErrorKind::InvalidData,
+                                        "response exceeds max_response_size",
+                                    ));
+                                }
                                 return Ok(ReceivedRawResponse {
-                                    packed,
+                                    packed: bytes,
                                     request_id: response_id,
-                                    metadata,
+                                    metadata: None,
                                 });
                             }
-                            *receiving = response_receiver();
-                        } else {
-                            resource_receive_ended(receiving)?;
                         }
-                    }
-                    _ = interval.tick() => {
-                        for outbound in receiving.retransmit(next_iv) {
-                            shared.send_on(iface, outbound);
+                        Some(Inbound::Close) => {
+                            return Err(io::Error::new(
+                                io::ErrorKind::BrokenPipe,
+                                "request link closed",
+                            ));
                         }
+                        _ => {}
                     }
+                    if !self.on_resource_packet(&mut receiver, &packet, &pace)? {
+                        continue;
+                    }
+                    let advertised_id = receiver.response_request_id().map(AddressHash::from_bytes);
+                    let (packed, metadata) = receiver
+                        .take_payload()
+                        .expect("a completed receiver holds its payload");
+                    // A file response (one with metadata) carries the file's bytes, and only
+                    // its advertisement names the request.
+                    let response_id = match (&metadata, advertised_id) {
+                        (Some(_), Some(id)) => id,
+                        _ => Response::request_id(&packed).map_err(|_| {
+                            io::Error::new(io::ErrorKind::InvalidData, "invalid response resource")
+                        })?,
+                    };
+                    if advertised_id.is_some_and(|id| id != response_id) {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "response Resource request id mismatch",
+                        ));
+                    }
+                    if response_id == request_id {
+                        return Ok(ReceivedRawResponse {
+                            packed,
+                            request_id: response_id,
+                            metadata,
+                        });
+                    }
+                    receiver = response_receiver(self);
+                }
+                _ = tokio::time::sleep_until(pace.wake(receiver.deadline())) => {
+                    self.poll_receiver(&mut receiver, &pace, "response receive timed out")?;
                 }
             }
-        };
-        let outcome = tokio::time::timeout(self.config.timeout, receive).await;
-        self.settle_receive(&mut receiver, outcome, "response receive timed out")
+        }
     }
 }

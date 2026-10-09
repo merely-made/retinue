@@ -3,7 +3,6 @@
 use super::tables::derived_iv;
 use super::{
     Action, Actions, AppDataTooLarge, InterfaceId, MIN_LOGICAL_MTU, Node, RESOURCE_PROOF_CACHE_TTL,
-    RESOURCE_RETRY_INTERVAL,
 };
 use crate::announce::{self, AnnounceBlob, RATCHET_LEN};
 use crate::packet::Packet;
@@ -66,50 +65,43 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             }
         }
 
-        // Loss recovery: a transfer silent for a retry interval is redriven. A receiver
-        // re-requests what it is missing, a sender re-offers an unanswered advertisement.
+        // Loss recovery: each transfer's watchdog redrives it once overdue. A receiver
+        // re-requests what it is missing, a sender re-offers an unanswered advertisement or
+        // asks for a lost proof; either gives up, with a cancel, once its retries run out.
         let seed = self.identity.to_secret_bytes();
         let mut counter = self.iv_counter;
-        for index in 0..self.receivers.len() {
-            if now.saturating_sub(self.receivers[index].2) < RESOURCE_RETRY_INTERVAL {
-                continue;
-            }
+        let mut index = 0;
+        while index < self.receivers.len() {
             let link_id = self.receivers[index].0;
             let mut iv = || derived_iv(&seed, link_id, &mut counter);
-            let replies = self.receivers[index].1.retransmit(&mut iv);
-            self.receivers[index].2 = now;
-            for reply in replies {
-                actions.push(Action::Send {
-                    interface,
-                    packet: reply,
-                });
+            let receiver = &mut self.receivers[index].1;
+            for packet in receiver.poll(now, &mut iv) {
+                actions.push(Action::Send { interface, packet });
             }
+            if receiver.failure().is_some() {
+                let carry = receiver.carry();
+                if let Some((link, _, _)) =
+                    self.links.iter_mut().find(|(l, _, _)| l.id() == link_id)
+                {
+                    link.set_resource_carry(carry);
+                }
+                self.receivers.swap_remove(index);
+                continue;
+            }
+            index += 1;
         }
         let mut index = 0;
         while index < self.senders.len() {
-            if now.saturating_sub(self.senders[index].2) < RESOURCE_RETRY_INTERVAL {
-                index += 1;
-                continue;
-            }
             let link_id = self.senders[index].0;
             let mut iv = || derived_iv(&seed, link_id, &mut counter);
-            self.senders[index].2 = now;
             let sender = &mut self.senders[index].1;
-            // Every part sent and no proof: ask the receiver's cache for it, as RNS does,
-            // and cancel once those requests are spent.
-            let packet = if !sender.awaiting_proof() {
-                sender.advertisement(&iv())
-            } else if let Some(request) = sender.cache_request() {
-                request
-            } else {
-                let cancel = sender.cancel(&iv());
+            if let Some(packet) = sender.poll(now, &mut iv) {
+                actions.push(Action::Send { interface, packet });
+            }
+            if sender.is_canceled() {
                 self.senders.swap_remove(index);
-                if let Some(packet) = cancel {
-                    actions.push(Action::Send { interface, packet });
-                }
                 continue;
-            };
-            actions.push(Action::Send { interface, packet });
+            }
             index += 1;
         }
         self.iv_counter = counter;
