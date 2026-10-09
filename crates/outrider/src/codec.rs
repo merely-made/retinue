@@ -6,11 +6,13 @@
 use std::io::Cursor;
 
 use rmpv::Value;
-use sha2::{Digest, Sha256};
 
+use crate::portable::{hashed_identity, parse, write_bin, write_f64, write_text};
 // The wire's fixed shape and its failure vocabulary are defined in the `no_std` codec and
 // re-exported here, so that every path into this crate keeps naming them the same way.
-pub use crate::portable::{CodecError, DESTINATION_LEN, HEADER_LEN, SIGNATURE_LEN, SOURCE_LEN};
+pub use crate::portable::{
+    CodecError, DESTINATION_LEN, HEADER_LEN, SIGNATURE_LEN, SOURCE_LEN, StrParts,
+};
 
 pub const DEFAULT_MAX_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
 
@@ -23,6 +25,8 @@ pub struct LxmfPayload {
     pub content: Vec<u8>,
     pub fields: Value,
     pub stamp: Option<Vec<u8>>,
+    /// Text parts that travel as MessagePack str rather than bin.
+    pub str_parts: StrParts,
 }
 
 impl LxmfPayload {
@@ -33,6 +37,7 @@ impl LxmfPayload {
             content: content.into(),
             fields: Value::Map(Vec::new()),
             stamp: None,
+            str_parts: StrParts::default(),
         }
     }
 }
@@ -62,9 +67,8 @@ impl DecodedLxmf {
 /// Prepared LXMF bytes before the Reticulum identity signs them.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PreparedLxmf {
-    destination: [u8; DESTINATION_LEN],
-    source: [u8; SOURCE_LEN],
-    payload: Vec<u8>,
+    /// The whole object, its signature still zero, so signing fills it in place.
+    packed: Vec<u8>,
     pub message_id: [u8; 32],
     signing_bytes: Vec<u8>,
 }
@@ -74,13 +78,9 @@ impl PreparedLxmf {
         &self.signing_bytes
     }
 
-    pub fn finish(self, signature: [u8; SIGNATURE_LEN]) -> Vec<u8> {
-        let mut packed = Vec::with_capacity(HEADER_LEN + self.payload.len());
-        packed.extend_from_slice(&self.destination);
-        packed.extend_from_slice(&self.source);
-        packed.extend_from_slice(&signature);
-        packed.extend_from_slice(&self.payload);
-        packed
+    pub fn finish(mut self, signature: [u8; SIGNATURE_LEN]) -> Vec<u8> {
+        self.packed[DESTINATION_LEN + SOURCE_LEN..HEADER_LEN].copy_from_slice(&signature);
+        self.packed
     }
 }
 
@@ -90,142 +90,71 @@ pub fn prepare(
     source: [u8; SOURCE_LEN],
     payload: &LxmfPayload,
 ) -> Result<PreparedLxmf, CodecError> {
-    validate_payload(payload)?;
-    let hashed_payload = encode_payload(payload, false)?;
-    let message_id = message_id(destination, source, &hashed_payload);
-    let signing_bytes = signing_bytes(destination, source, &hashed_payload, message_id);
-    let packed_payload = encode_payload(payload, payload.stamp.is_some())?;
-    if HEADER_LEN + packed_payload.len() > DEFAULT_MAX_MESSAGE_BYTES {
-        return Err(CodecError::TooLarge);
-    }
-    Ok(PreparedLxmf {
-        destination,
-        source,
-        payload: packed_payload,
-        message_id,
-        signing_bytes,
-    })
-}
-
-pub fn decode(bytes: &[u8]) -> Result<DecodedLxmf, CodecError> {
-    decode_bounded(bytes, DEFAULT_MAX_MESSAGE_BYTES)
-}
-
-pub fn decode_bounded(bytes: &[u8], max_message_bytes: usize) -> Result<DecodedLxmf, CodecError> {
-    if bytes.len() > max_message_bytes {
-        return Err(CodecError::TooLarge);
-    }
-    if bytes.len() < HEADER_LEN {
-        return Err(CodecError::TruncatedHeader);
-    }
-    let destination = bytes[..DESTINATION_LEN].try_into().unwrap();
-    let source = bytes[DESTINATION_LEN..DESTINATION_LEN + SOURCE_LEN]
-        .try_into()
-        .unwrap();
-    let signature = bytes[DESTINATION_LEN + SOURCE_LEN..HEADER_LEN]
-        .try_into()
-        .unwrap();
-    let encoded_payload = &bytes[HEADER_LEN..];
-    let mut cursor = Cursor::new(encoded_payload);
-    let value =
-        rmpv::decode::read_value(&mut cursor).map_err(|_| CodecError::MalformedMessagePack)?;
-    if cursor.position() as usize != encoded_payload.len() {
-        return Err(CodecError::MalformedMessagePack);
-    }
-    let Value::Array(parts) = value else {
-        return Err(CodecError::InvalidPayloadShape);
-    };
-    if !(4..=5).contains(&parts.len()) {
-        return Err(CodecError::InvalidPayloadShape);
-    }
-    let timestamp = match parts[0] {
-        Value::F64(value) if value.is_finite() => value,
-        _ => return Err(CodecError::InvalidTimestamp),
-    };
-    let (Value::Binary(title), Value::Binary(content)) = (&parts[1], &parts[2]) else {
-        return Err(CodecError::InvalidTextParts);
-    };
-    if !matches!(parts[3], Value::Map(_)) {
-        return Err(CodecError::InvalidFields);
-    }
-    let stamp = match parts.get(4) {
-        Some(Value::Binary(stamp)) => Some(stamp.clone()),
-        Some(_) => return Err(CodecError::InvalidStamp),
-        None => None,
-    };
-    let payload = LxmfPayload {
-        timestamp,
-        title: title.clone(),
-        content: content.clone(),
-        fields: parts[3].clone(),
-        stamp,
-    };
-    let hashed_payload = if parts.len() == 4 {
-        encoded_payload.to_vec()
-    } else {
-        encode_payload(&payload, false)?
-    };
-    let message_id = message_id(destination, source, &hashed_payload);
-    let signing_bytes = signing_bytes(destination, source, &hashed_payload, message_id);
-    Ok(DecodedLxmf {
-        destination,
-        source,
-        signature,
-        payload,
-        message_id,
-        signing_bytes,
-    })
-}
-
-fn validate_payload(payload: &LxmfPayload) -> Result<(), CodecError> {
     if !payload.timestamp.is_finite() {
         return Err(CodecError::InvalidTimestamp);
     }
     if !matches!(payload.fields, Value::Map(_)) {
         return Err(CodecError::InvalidFields);
     }
-    Ok(())
-}
-
-fn encode_payload(payload: &LxmfPayload, include_stamp: bool) -> Result<Vec<u8>, CodecError> {
-    let mut parts = vec![
-        Value::F64(payload.timestamp),
-        Value::Binary(payload.title.clone()),
-        Value::Binary(payload.content.clone()),
-        payload.fields.clone(),
-    ];
-    if include_stamp {
-        parts.push(Value::Binary(payload.stamp.clone().unwrap_or_default()));
+    let mut packed = Vec::with_capacity(
+        HEADER_LEN + 32 + payload.title.len() + payload.content.len() + STAMP_ROOM,
+    );
+    packed.extend_from_slice(&destination);
+    packed.extend_from_slice(&source);
+    packed.resize(HEADER_LEN, 0);
+    // A fixarray, which is what four or five items always encode as.
+    packed.push(if payload.stamp.is_some() { 0x95 } else { 0x94 });
+    write_f64(&mut packed, payload.timestamp);
+    write_text(&mut packed, &payload.title, payload.str_parts.title)?;
+    write_text(&mut packed, &payload.content, payload.str_parts.content)?;
+    rmpv::encode::write_value(&mut packed, &payload.fields).map_err(|_| CodecError::Encode)?;
+    let body = &packed[HEADER_LEN + 1..];
+    let (message_id, signing_bytes) = hashed_identity(destination, source, &[0x94], body);
+    if let Some(stamp) = &payload.stamp {
+        write_bin(&mut packed, stamp);
     }
-    let mut bytes = Vec::new();
-    rmpv::encode::write_value(&mut bytes, &Value::Array(parts)).map_err(|_| CodecError::Encode)?;
-    Ok(bytes)
+    if packed.len() > DEFAULT_MAX_MESSAGE_BYTES {
+        return Err(CodecError::TooLarge);
+    }
+    Ok(PreparedLxmf {
+        packed,
+        message_id,
+        signing_bytes,
+    })
 }
 
-fn message_id(
-    destination: [u8; DESTINATION_LEN],
-    source: [u8; SOURCE_LEN],
-    payload: &[u8],
-) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update(destination);
-    hasher.update(source);
-    hasher.update(payload);
-    hasher.finalize().into()
+/// Room for a stamp and a small field map, so a typical message is written without regrowth.
+const STAMP_ROOM: usize = 64;
+
+pub fn decode(bytes: &[u8]) -> Result<DecodedLxmf, CodecError> {
+    decode_bounded(bytes, DEFAULT_MAX_MESSAGE_BYTES)
 }
 
-fn signing_bytes(
-    destination: [u8; DESTINATION_LEN],
-    source: [u8; SOURCE_LEN],
-    payload: &[u8],
-    message_id: [u8; 32],
-) -> Vec<u8> {
-    let mut bytes = Vec::with_capacity(64 + payload.len());
-    bytes.extend_from_slice(&destination);
-    bytes.extend_from_slice(&source);
-    bytes.extend_from_slice(payload);
-    bytes.extend_from_slice(&message_id);
-    bytes
+/// Decode with the `no_std` codec's parser, reading only the field map into a value tree.
+/// The id covers the unstamped payload; see [`crate::portable`] for the rule on a stamped one.
+pub fn decode_bounded(bytes: &[u8], max_message_bytes: usize) -> Result<DecodedLxmf, CodecError> {
+    if bytes.len() > max_message_bytes {
+        return Err(CodecError::TooLarge);
+    }
+    let parts = parse(bytes)?;
+    let fields = rmpv::decode::read_value(&mut Cursor::new(parts.fields))
+        .map_err(|_| CodecError::MalformedMessagePack)?;
+    let (message_id, signing_bytes) = parts.identity();
+    Ok(DecodedLxmf {
+        destination: parts.destination,
+        source: parts.source,
+        signature: parts.signature,
+        payload: LxmfPayload {
+            timestamp: parts.timestamp,
+            title: parts.title.to_vec(),
+            content: parts.content.to_vec(),
+            fields,
+            stamp: parts.stamp.map(<[u8]>::to_vec),
+            str_parts: parts.str_parts,
+        },
+        message_id,
+        signing_bytes,
+    })
 }
 
 #[cfg(test)]
@@ -276,6 +205,7 @@ mod tests {
             content: b"BODY".to_vec(),
             fields: Value::Map(vec![(Value::from(7), Value::Binary(b"meta".to_vec()))]),
             stamp: None,
+            str_parts: StrParts::default(),
         };
         let prepared =
             prepare(array(&oracle.destination), array(&oracle.source), &payload).unwrap();

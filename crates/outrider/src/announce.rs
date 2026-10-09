@@ -83,7 +83,7 @@ impl DeliveryAnnounce {
             None => Ok(Self::default()),
             Some(0x90..=0x9f | 0xdc) => Self::decode_array(encoded),
             Some(_) => core::str::from_utf8(encoded)
-                .map(|name| Self::named(name))
+                .map(Self::named)
                 .map_err(|_| AnnounceError::InvalidDisplayName),
         }
     }

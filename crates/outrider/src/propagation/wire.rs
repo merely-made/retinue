@@ -368,12 +368,8 @@ impl PropagationBatch {
         if parts.len() != 2 {
             return Err(PropagationError::InvalidBatch);
         }
-        let Value::F64(transfer_time) = parts[0] else {
-            return Err(PropagationError::InvalidTransferTime);
-        };
-        if !transfer_time.is_finite() {
-            return Err(PropagationError::InvalidTransferTime);
-        }
+        // Stock's own type check here is always true (`LXMRouter.py` 2410); a number will do.
+        let transfer_time = number(&parts[0]).map_err(|_| PropagationError::InvalidTransferTime)?;
         let Value::Array(entries) = &parts[1] else {
             return Err(PropagationError::InvalidBatch);
         };

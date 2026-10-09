@@ -95,6 +95,30 @@ fn announces_stock_would_refuse_are_refused() {
 }
 
 #[test]
+fn a_batch_with_an_integer_transfer_time_decodes() {
+    let entry =
+        PropagationEntry::decode(&[0x07; 16 + MIN_ENCRYPTED_MESSAGE_BYTES + STAMP_LEN], 4096)
+            .unwrap();
+    let batch = |time: Value| {
+        let packed = encode_value(&Value::Array(vec![
+            time,
+            Value::Array(vec![Value::Binary(entry.encode())]),
+        ]))
+        .unwrap();
+        PropagationBatch::decode(&packed, 4096, 1)
+    };
+    assert_eq!(
+        batch(Value::from(1_760_000_000)).unwrap().transfer_time,
+        1_760_000_000.0
+    );
+    assert_eq!(batch(Value::F64(1.5)).unwrap().transfer_time, 1.5);
+    assert!(matches!(
+        batch(Value::from("now")),
+        Err(PropagationError::InvalidTransferTime)
+    ));
+}
+
+#[test]
 fn prepared_entry_decrypts_and_authenticates() {
     let sender = PrivateIdentity::from_secret_bytes(&[0x61; 64]);
     let recipient = PrivateIdentity::from_secret_bytes(&[0x62; 64]);
