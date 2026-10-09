@@ -54,8 +54,6 @@ pub enum PropagationError {
     InvalidFetchResponse,
     #[error("propagation node returned an entry it did not offer")]
     UnexpectedTransientId,
-    #[error("the decrypted message source {0} has no validated delivery announce")]
-    UnknownSource(AddressHash),
     #[error("the recipient {0} has no validated delivery announce")]
     UnknownRecipient(AddressHash),
     #[error("the propagated message could not be decrypted: {0}")]
