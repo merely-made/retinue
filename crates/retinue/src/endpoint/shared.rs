@@ -10,7 +10,7 @@ use std::time::Instant;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::address_book::AddressBook;
-use crate::announce::TimebaseGenerator;
+use crate::announce::{TimebaseGenerator, VerifiedAnnounces};
 use crate::announce_admission::AnnounceAdmission;
 use crate::hash::AddressHash;
 use crate::identity::PrivateIdentity;
@@ -21,7 +21,7 @@ use crate::resource::Advertisement;
 use crate::resource_transfer::PROOF_CACHE_ANSWERS;
 
 use super::announces::{AnnounceFreshnessState, HeldAnnounce};
-use super::dedup::{HashList, LinkPacketMemory};
+use super::dedup::{HashList, LinkPacketMemory, VERIFIED_ANNOUNCES};
 use super::facts::{LinkDirection, LinkFactKind, LinkRemoteFact, PeerAnnounce};
 use super::inbound::{Accepted, AcceptedResource, InboundLinks};
 use super::interface::{Iface, InterfaceId, QueueAdmission};
@@ -161,6 +161,8 @@ pub(super) struct Shared {
     pub(super) path_table: Mutex<HashMap<AddressHash, PathEntry>>,
     /// The last [`SEEN_ANNOUNCES`] announce packet hashes, for de-duplication.
     pub(super) seen_announces: Mutex<(HashSet<AddressHash>, VecDeque<AddressHash>)>,
+    /// Announces that verified recently, so a copy skips its signature check.
+    pub(super) verified_announces: Mutex<VerifiedAnnounces<VERIFIED_ANNOUNCES>>,
     /// Our own link packets heard back, and the far end's heard twice. See [`LinkPacketMemory`].
     pub(super) link_packets: Mutex<LinkPacketMemory>,
     /// Transit and single packets already seen, so a loop or a second copy is dropped.

@@ -213,17 +213,17 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             }
             return;
         }
-        let Some(index) = self
+        // `prove` refuses another attempt's proof on its link id before any crypto, so at most
+        // one attempt pays for the signature check and key agreement, once.
+        let Some((index, link)) = self
             .pending
             .iter()
-            .position(|(attempt, _, _)| attempt.prove(packet).is_ok())
+            .enumerate()
+            .find_map(|(index, (attempt, _, _))| Some((index, attempt.prove(packet).ok()?)))
         else {
             return;
         };
-        let (attempt, _, opened) = self.pending.swap_remove(index);
-        let Ok(link) = attempt.prove(packet) else {
-            return;
-        };
+        let (_, _, opened) = self.pending.swap_remove(index);
         if self.links.is_full() {
             self.refused_links = self.refused_links.saturating_add(1);
             return;
@@ -268,7 +268,8 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
 
         // Our own packet, heard back from a relay. Not the far end's data, and not evidence
         // that the far end is alive.
-        if self.sent_link_data.contains(&packet.hash()) {
+        let hash = packet.hash();
+        if self.sent_link_data.contains(&hash) {
             self.transport_counters.own_echo_dropped =
                 self.transport_counters.own_echo_dropped.saturating_add(1);
             return;
@@ -292,7 +293,6 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         // The far end's packet heard a second time, directly and from a relay. Dropped
         // before the liveness stamp, as the echo is: the copy is no newer than the original.
         if is_deduplicated_link_context(packet.context) {
-            let hash = packet.hash();
             if self.received_link_data.contains(&hash) {
                 self.transport_counters.duplicate_dropped =
                     self.transport_counters.duplicate_dropped.saturating_add(1);

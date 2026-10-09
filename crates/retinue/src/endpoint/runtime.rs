@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::{Mutex as AsyncMutex, mpsc};
 
 use crate::address_book::AddressBook;
+use crate::announce::VerifiedAnnounces;
 use crate::announce_admission::{AnnounceAdmission, AnnounceIngressPolicy};
 use crate::announce_freshness::AnnounceFreshnessConfigError;
 use crate::channel::DEFAULT_DECODED_FRAME_LIMIT;
@@ -135,6 +136,7 @@ impl Endpoint {
             resource_proofs: Mutex::new(HashMap::new()),
             path_table: Mutex::new(HashMap::new()),
             seen_announces: Mutex::new((HashSet::new(), VecDeque::new())),
+            verified_announces: Mutex::new(VerifiedAnnounces::new()),
             link_packets: Mutex::new(LinkPacketMemory::new()),
             packet_filter: Mutex::new(HashList::new(PACKET_HASHES)),
             path_request_tags: Mutex::new(HashList::new(PATH_REQUEST_TAGS)),

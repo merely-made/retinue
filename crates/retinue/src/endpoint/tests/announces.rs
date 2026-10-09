@@ -199,3 +199,32 @@ fn destination_admission_preserves_the_one_second_default_floor() {
         DestinationVerdict::Relay
     );
 }
+
+/// A copy of a verified announce costs no second signature check: with a live route it is a
+/// freshness replay, refused unverified; without one it is a first sighting again, decoded
+/// from the verified-announce cache.
+#[tokio::test]
+async fn a_copy_of_a_verified_announce_is_not_verified_again() {
+    use crate::probe::{Probe, take};
+
+    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x5C; 64]));
+    let a = ep.attach_interface();
+    let (packet, announce) = peer_announce(0x5D, "copies");
+    take(Probe::AnnounceVerify);
+    route(&ep.shared, a.id(), packet.clone());
+    assert_eq!(take(Probe::AnnounceVerify), 1);
+    assert!(ep.route_to(announce.destination).is_some());
+
+    let mut relayed = packet;
+    relayed.hops = 2;
+    relayed.header_type = crate::packet::HeaderType::Type2;
+    relayed.transport = Some(AddressHash::from_bytes([0x7E; 16]));
+    route(&ep.shared, a.id(), relayed.clone());
+    assert_eq!(take(Probe::AnnounceVerify), 0);
+    assert_eq!(ep.routing_counters().freshness_replays_rejected, 1);
+
+    ep.shared.forget_path(announce.destination);
+    route(&ep.shared, a.id(), relayed);
+    assert_eq!(take(Probe::AnnounceVerify), 0);
+    assert!(ep.route_to(announce.destination).is_some());
+}

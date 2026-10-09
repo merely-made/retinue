@@ -6,7 +6,6 @@ use std::time::Instant;
 
 use tokio::sync::mpsc;
 
-use crate::announce::Announce;
 use crate::announce_admission::InterfaceVerdict;
 use crate::link::{self, Inbound, LinkMode, LinkTrailer};
 use crate::link_liveness::Liveness;
@@ -133,7 +132,13 @@ pub(super) fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
             {
                 return;
             }
-            if let Ok(a) = Announce::decode(&pkt) {
+            // A replay or stale emission needs no signature check, and a copy of an announce
+            // that verified recently skips it.
+            if shared.announce_is_stale_unverified(&pkt) {
+                return;
+            }
+            let decoded = shared.verified_announces.lock().unwrap().decode(&pkt);
+            if let Ok(a) = decoded {
                 let route_is_known = shared
                     .path_table
                     .lock()
@@ -457,9 +462,12 @@ pub(super) fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                     }
                     _ => {}
                 }
-            } else if pkt.destination_type == DestinationType::Single && shared.packet_is_new(&pkt)
-            {
-                deliver_single(shared, iface, &pkt);
+            } else if pkt.destination_type == DestinationType::Single {
+                // One hash serves the packet filter and the delivery's proof.
+                let full = pkt.full_hash();
+                if shared.packet_is_new(pkt.context, crate::proof::truncated(&full)) {
+                    deliver_single(shared, iface, &pkt, full);
+                }
             }
         }
     }

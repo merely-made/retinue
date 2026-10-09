@@ -158,7 +158,7 @@ async fn an_epoch_superseded_at_announce_still_decrypts() {
         context: 0,
         payload,
     };
-    deliver_single(&ep.shared, 1, &packet);
+    deliver_single(&ep.shared, 1, &packet, packet.full_hash());
     let received = ep.accept_single().await.unwrap();
     assert_eq!(received.data, b"older epoch");
     assert_eq!(received.ratchet_id, Some(first));

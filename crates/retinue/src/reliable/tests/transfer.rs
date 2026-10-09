@@ -118,11 +118,33 @@ fn a_proof_sweeps_every_hash_for_its_sequence() {
         0,
         "hashes from the dropped generation outlived their proved sequence"
     );
+    assert!(client.copies.is_empty());
     assert_eq!(
         client.unrecorded(),
         0,
         "nothing overflowed at the desktop size"
     );
+}
+
+/// A proof for a sequence sent once releases its one hash without scanning the table.
+#[test]
+fn a_proof_sweeps_only_after_a_retransmit() {
+    use crate::probe::{Probe, take};
+
+    let (mut client, mut server) = pair();
+    let mut ivc = 0u64;
+    let mut iv = counting_iv(&mut ivc);
+    take(Probe::ReliableSweep);
+    for round in 0..8u64 {
+        assert_eq!(client.write(b"once"), 4);
+        for packet in client.poll_transmit(round, &mut iv) {
+            let proof = server.on_data_packet(&packet).unwrap();
+            assert!(client.on_proof(&proof, round));
+        }
+    }
+    assert!(client.send_idle());
+    assert_eq!(take(Probe::ReliableSweep), 0);
+    assert!(client.sent.is_empty() && client.copies.is_empty());
 }
 
 /// A table too small for the window holds its bound, keeps putting packets on the wire,

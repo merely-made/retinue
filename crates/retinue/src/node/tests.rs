@@ -16,6 +16,7 @@ use crate::packet::{HeaderType, PacketType};
 
 mod announces;
 mod bridges;
+mod cost;
 mod freshness;
 mod limits;
 mod links;

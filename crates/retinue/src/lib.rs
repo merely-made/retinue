@@ -114,6 +114,8 @@ pub mod nomadnet;
 pub mod packet;
 #[cfg(feature = "alloc")]
 pub mod path;
+#[cfg(all(test, feature = "alloc"))]
+mod probe;
 #[cfg(feature = "alloc")]
 pub mod proof;
 #[cfg(feature = "alloc")]

@@ -166,17 +166,31 @@ fn corrupted_announces_are_rejected() {
     }
 }
 
-/// The `desthash` fixture flips a byte in the packet *header*, not the payload. It must
-/// still fail, which is only possible because the destination hash is part of the signed
-/// message. This test is the guard on the subtlest fact in the protocol.
+/// The `desthash` fixture flips a byte in the packet *header*, not the payload. The decoder
+/// refuses it on the destination binding, which it checks before the signature. The
+/// signature covers the header's destination hash too, the subtlest fact in the protocol,
+/// so that is checked directly: it fails over the flipped hash and holds over the true one.
 #[test]
-fn a_flipped_header_byte_breaks_the_signature() {
+fn a_flipped_header_byte_breaks_the_binding_and_the_signature() {
     let packet = Packet::decode(&fixture("announce_invalid_desthash.bin")).unwrap();
     assert_eq!(
         Announce::decode(&packet).unwrap_err(),
-        Error::BadSignature,
+        Error::DestinationMismatch,
+    );
+
+    let p = &packet.payload;
+    let public = p[..64].try_into().unwrap();
+    let signer = retinue::identity::Identity::from_public_bytes(public).unwrap();
+    let name_hash = NameHash::from_slice(&p[64..]).unwrap();
+    let at = 64 + 10 + RAND_HASH_LEN + if packet.context_flag { 32 } else { 0 };
+    let signature = p[at..at + 64].try_into().unwrap();
+    let signed = |destination: &[u8]| [destination, &p[..at], &p[at + 64..]].concat();
+    assert!(
+        !signer.verify(&signed(packet.destination.as_slice()), signature),
         "corrupting the destination hash must fail the signature, not merely mismatch",
     );
+    let genuine = destination_hash(name_hash, signer.hash());
+    assert!(signer.verify(&signed(genuine.as_slice()), signature));
 }
 
 // ---------------------------------------------------------------- round trip
