@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+use retinue::announce_admission::AnnounceIngressPolicy;
 use retinue::destination::DestinationName;
 use retinue::endpoint::Endpoint;
 use retinue::identity::PrivateIdentity;
@@ -45,9 +46,17 @@ async fn spawn_leaf(seed: [u8; 64], aspect: &'static str, hub_addr: std::net::So
 
 /// A transport-node hub forwards announces between its interfaces, so a leaf on one side
 /// learns a destination announced on the other (hops incremented).
+///
+/// Ingress control is off: four announces each in half a second, own echoes included, are a
+/// burst on a new interface, and RNS holds the unknown ones for a minute or more.
 #[tokio::test]
 async fn transport_node_forwards_announces() {
+    let no_ingress = AnnounceIngressPolicy {
+        enabled: false,
+        ..AnnounceIngressPolicy::default()
+    };
     let hub = Endpoint::new(PrivateIdentity::from_secret_bytes(&[9u8; 64]));
+    hub.set_announce_ingress_policy(no_ingress);
     let addr = hub
         .listen_tcp("127.0.0.1:0".parse().unwrap())
         .await
@@ -56,12 +65,14 @@ async fn transport_node_forwards_announces() {
 
     let a_id = PrivateIdentity::from_secret_bytes(&[2u8; 64]);
     let a = Endpoint::new(a_id.clone());
+    a.set_announce_ingress_policy(no_ingress);
     a.attach_tcp_client(addr).await.unwrap();
     let a_name = DestinationName::new("leaf", ["a"]);
     let a_dest = a_name.destination_hash(a_id.public());
 
     let b_id = PrivateIdentity::from_secret_bytes(&[3u8; 64]);
     let b = Endpoint::new(b_id.clone());
+    b.set_announce_ingress_policy(no_ingress);
     b.attach_tcp_client(addr).await.unwrap();
     let b_name = DestinationName::new("leaf", ["b"]);
     let b_dest = b_name.destination_hash(b_id.public());
