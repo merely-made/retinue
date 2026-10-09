@@ -1,7 +1,8 @@
 # LXMF 1.2.0 comparative review (outrider)
 
-**Date:** 2026-10-09. **Status:** findings. Fixes land in batches. Each
-adaptation goes in `crates/outrider/NOTICE`.
+**Date:** 2026-10-09. **Status:** priorities A, B and C landed 2026-10-09; L1-L3
+remain. Each adaptation is in `crates/outrider/NOTICE` (retinue seams in
+`crates/retinue/NOTICE`). Gates now check stock's own state: 18 outrider gates.
 
 ## Source and provenance
 

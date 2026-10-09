@@ -161,6 +161,24 @@ From the Priority 2 batch (2026-10-09), same source:
   `Transport.py` 1356, 1653-1668, 2211, 2573-2593; `Destination.py` 104-107,
   151.
 
+From the LXMF parity batch (2026-10-09), same source:
+
+- Link data received through a resource session can be proved by the
+  application (PROVE_APP). RNS `Link.py` 945-967; `Packet.py` 338-343.
+  Target: `src/endpoint/resource_session.rs`.
+- Link data sends can wait for their proof, or for a data answer; the timeout
+  is max(6 x RTT, 1 s), the floor standing in for RNS's one-second receipt
+  polling. RNS `Packet.py` 338-347, 413-417, 444-475; `Link.py` 81-82,
+  378-389, 1192-1196; `Transport.py` 252, 740-763.
+  Target: `src/endpoint/link_receipt.rs`.
+- Sealing to a destination's advertised ratchet, and opening with retained
+  ratchets before the identity key unless ratchets are enforced, as one seam
+  used by single packets and by applications. RNS `Destination.py` 596-651;
+  `Identity.py` 852-908. Target: `src/endpoint/sealing.rs`.
+- Announce app data may be rebuilt at each emission, including path responses.
+  RNS `Destination.py` 290-296, 678-686.
+  Targets: `src/endpoint/registration.rs`, `src/endpoint/paths.rs`.
+
 ## Prns
 
 Reference withdrawn September 26 over unresolved provenance concerns. Existing
