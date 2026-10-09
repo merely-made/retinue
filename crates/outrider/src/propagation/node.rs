@@ -22,7 +22,8 @@ use crate::announce::delivery_destination;
 /// Stock's error answers (`LXMPeer.py` 24-28).
 const ERROR_NO_IDENTITY: u8 = 0xf0;
 const ERROR_NO_ACCESS: u8 = 0xf1;
-const ERROR_INVALID_STAMP: u8 = 0xf5;
+/// `[0xf5]` packed: the invalid-stamp signal a node sends on a link (`LXMRouter.py` 2327).
+const INVALID_STAMP_SIGNAL: [u8; 3] = [0x91, 0xcc, 0xf5];
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ReceivedPropagationBatch {
@@ -113,9 +114,7 @@ async fn serve(
         add(&mut report.stored, &received.stored);
         match (&data, received.rejected) {
             (Some(data), 0) => session.prove(data),
-            (Some(_), _) => session.send_data(&encode_value(&Value::Array(vec![Value::from(
-                ERROR_INVALID_STAMP,
-            )]))?),
+            (Some(_), _) => session.send_data(&INVALID_STAMP_SIGNAL),
             (None, _) => {}
         }
         if first_submission {
