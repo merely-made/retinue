@@ -9,6 +9,7 @@ use retinue::hash::{AddressHash, NameHash};
 use retinue::identity::PrivateIdentity;
 use rmpv::Value;
 
+use super::msgpack::ERROR_INVALID_STAMP;
 use super::{
     PropagationAnnounce, PropagationBatch, PropagationEntry, PropagationError, PropagationMessage,
     propagation_destination,
@@ -129,9 +130,6 @@ pub struct PropagationSubmitReceipt {
     pub proved: bool,
 }
 
-/// The node's refusal of a submission's stamps (`LXMPeer.ERROR_INVALID_STAMP`).
-const ERROR_INVALID_STAMP: u64 = 0xf5;
-
 pub async fn submit(
     endpoint: &Endpoint,
     node: &PeerAnnounce,
@@ -198,7 +196,7 @@ pub async fn submit_with_resource_config(
 fn is_stamp_refusal(signal: &[u8]) -> bool {
     match rmpv::decode::read_value(&mut &signal[..]) {
         Ok(Value::Array(items)) => {
-            items.first().and_then(Value::as_u64) == Some(ERROR_INVALID_STAMP)
+            items.first().and_then(Value::as_u64) == Some(ERROR_INVALID_STAMP.into())
         }
         _ => false,
     }

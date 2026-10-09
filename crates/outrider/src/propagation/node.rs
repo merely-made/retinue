@@ -12,7 +12,8 @@ use retinue::identity::Identity;
 use rmpv::Value;
 
 use super::msgpack::{
-    GetRequest, decode_fetch_request, decode_get_request, decode_one, encode_value,
+    ERROR_INVALID_STAMP, ERROR_NO_ACCESS, ERROR_NO_IDENTITY, GetRequest, decode_fetch_request,
+    decode_get_request, decode_one, encode_value,
 };
 use super::policy::score_stamps;
 use super::wire::number;
@@ -22,11 +23,8 @@ use super::{
 };
 use crate::announce::delivery_destination;
 
-/// Stock's error answers (`LXMPeer.py` 24-28).
-const ERROR_NO_IDENTITY: u8 = 0xf0;
-const ERROR_NO_ACCESS: u8 = 0xf1;
 /// `[0xf5]` packed: the invalid-stamp signal a node sends on a link (`LXMRouter.py` 2327).
-const INVALID_STAMP_SIGNAL: [u8; 3] = [0x91, 0xcc, 0xf5];
+const INVALID_STAMP_SIGNAL: [u8; 3] = [0x91, 0xcc, ERROR_INVALID_STAMP];
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ReceivedPropagationBatch {

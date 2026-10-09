@@ -6,8 +6,10 @@ use rmpv::Value;
 
 use super::{DEFAULT_MAX_PROPAGATION_ENTRIES, FETCH_PATH_HASH, PropagationError};
 
-const ERROR_NO_IDENTITY: u64 = 0xf0;
-const ERROR_NO_ACCESS: u64 = 0xf1;
+/// A node's error answers (`LXMPeer.py` 24-28).
+pub(super) const ERROR_NO_IDENTITY: u8 = 0xf0;
+pub(super) const ERROR_NO_ACCESS: u8 = 0xf1;
+pub(super) const ERROR_INVALID_STAMP: u8 = 0xf5;
 
 pub(super) fn encode_value(value: &Value) -> Result<Vec<u8>, PropagationError> {
     let mut encoded = Vec::new();
@@ -34,10 +36,10 @@ pub(super) fn decode_response(bytes: &[u8]) -> Result<Value, PropagationError> {
     }
     // A node answers with a bare error code instead of a list (`LXMPeer.py` ERROR_NO_*).
     match envelope.pop().expect("two-item response") {
-        Value::Integer(code) if code.as_u64() == Some(ERROR_NO_IDENTITY) => {
+        Value::Integer(code) if code.as_u64() == Some(ERROR_NO_IDENTITY.into()) => {
             Err(PropagationError::NoIdentity)
         }
-        Value::Integer(code) if code.as_u64() == Some(ERROR_NO_ACCESS) => {
+        Value::Integer(code) if code.as_u64() == Some(ERROR_NO_ACCESS.into()) => {
             Err(PropagationError::NoAccess)
         }
         value => Ok(value),
