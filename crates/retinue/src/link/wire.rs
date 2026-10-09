@@ -68,7 +68,7 @@ pub const CTX_CACHE_REQUEST: u8 = 0x08;
 pub const KEEPALIVE_REQUEST: u8 = 0xff;
 pub const KEEPALIVE_RESPONSE: u8 = 0xfe;
 
-/// The symmetric cipher a link will use. Negotiated, not fixed.
+/// The symmetric cipher a link will use, as its trailer signals it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LinkMode {
     Aes128Cbc,
@@ -76,6 +76,15 @@ pub enum LinkMode {
 }
 
 impl LinkMode {
+    /// The mode of a request or proof without a trailer (RNS `Link.MODE_DEFAULT`).
+    pub const DEFAULT: Self = Self::Aes256Cbc;
+
+    /// Whether links may use this mode. RNS enables AES-256-CBC alone (`Link.py` 133) and
+    /// refuses a request or proof signalling anything else.
+    pub const fn is_enabled(self) -> bool {
+        matches!(self, Self::Aes256Cbc)
+    }
+
     fn from_bits(bits: u8) -> Result<Self> {
         match bits {
             0 => Ok(Self::Aes128Cbc),
