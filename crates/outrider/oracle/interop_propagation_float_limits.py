@@ -103,7 +103,7 @@ def main() -> int:
     try:
         identity = RNS.Identity.from_bytes(RECEIVER_SEED)
         router = LXMF.LXMRouter(identity=identity, storagepath=str(receiver_store))
-        router.register_delivery_identity(identity, display_name="Float Receiver", stamp_cost=None)
+        delivery = router.register_delivery_identity(identity, display_name="Float Receiver", stamp_cost=None)
         node: dict[str, object] = {}
         node_seen = threading.Event()
         delivered: dict[str, bytes] = {}
@@ -142,8 +142,16 @@ def main() -> int:
         floats_ok = announced[3] == TRANSFER_KB and announced[4] == SYNC_KB and all(
             isinstance(announced[i], float) for i in (3, 4))
 
-        submitted = wait_for(lambda: any(line == "SUBMITTED true" for line in lines)
-                             or sender.poll() is not None, 180) and "SUBMITTED true" in lines
+        # Outrider seals to the recipient's announced ratchet, so it waits for that announce.
+        submit_deadline = time.time() + 180
+        while time.time() < submit_deadline and sender.poll() is None:
+            if any(line.startswith("SUBMITTED ") for line in lines):
+                break
+            if not any(line.startswith("STOCK_RECIPIENT_ANNOUNCE ") for line in lines):
+                router.announce(delivery.hash)
+                time.sleep(1)
+            time.sleep(0.2)
+        submitted = "SUBMITTED true" in lines
         stored_ok = wait_for(lambda: stored() == 1, 30)
 
         def fetch() -> int | None:
