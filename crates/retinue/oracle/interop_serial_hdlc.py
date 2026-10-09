@@ -5,10 +5,13 @@ Stock runs `SerialInterface` at 115200 on one pty with transport on; Retinue's
 state: has_path to Retinue, an ACTIVE link, a request answered, and a multi-part Resource
 COMPLETE. The run repeats with `ifac_size = 64`.
 
-`--flood` adds the integration check that needs the per-interface ingress work: stock
-announces 20 destinations within 2 s and Retinue must validate them all, holding none.
+Two integration checks wait on other units, so they are opt-in and expected to fail until
+those land. `--flood` (per-interface ingress): stock announces 20 destinations within 2 s
+and Retinue must validate them all, holding none. `--full-mdu` (serial IFAC deframing):
+the request and its response each fill a 499-byte link packet, 507 bytes on the line with
+`ifac_size = 64`, past the 500-byte HDLC deframer cap.
 
-    .venv/bin/python -u interop_serial_hdlc.py [--flood]
+    .venv/bin/python -u interop_serial_hdlc.py [--flood] [--full-mdu]
 """
 
 from __future__ import annotations
@@ -25,7 +28,7 @@ from pty_bridge import Bridge, Retinue, exercise_stock, open_pty, report, rns_co
 SCENARIOS = {"plain": None, "ifac-64": 64}
 
 
-def scenario(name: str, flood: bool) -> int:
+def scenario(name: str, flood: bool, full_mdu: bool) -> int:
     import RNS
 
     ifac_bits = SCENARIOS[name]
@@ -47,8 +50,12 @@ def scenario(name: str, flood: bool) -> int:
     rns_config(config_dir, "  [[serial]]\n    type = SerialInterface\n    enabled = yes\n"
                f"    port = {stock_port}\n    speed = 115200\n" + access, transport=True)
     RNS.Reticulum(configdir=str(config_dir))
+    code = 1
     try:
-        results = exercise_stock(retinue)
+        # 400 bytes packs to the 431-byte link MDU (see `exercise_stock`).
+        results = exercise_stock(retinue, request_len=400 if full_mdu else 64)
+        if full_mdu:
+            results["full-MDU request answered"] = results.pop("stock request answered", False)
         if flood:
             identities = [RNS.Identity() for _ in range(20)]
             start = time.time()
@@ -62,20 +69,21 @@ def scenario(name: str, flood: bool) -> int:
         if flood:
             results["retinue validated all 20, held none"] = (
                 match is not None and int(match.group(1)) >= 20 and match.group(2) == "0")
-        return report(f"SERIAL HDLC {name}", results)
+        code = report(f"SERIAL HDLC {name}", results)
+        return code
     finally:
         retinue.close()
         shutil.rmtree(config_dir, ignore_errors=True)
-        RNS.exit(0)
+        RNS.exit(code)
 
 
 def main() -> int:
-    flood = "--flood" in sys.argv
+    flood, full_mdu = "--flood" in sys.argv, "--full-mdu" in sys.argv
     if len(sys.argv) > 1 and sys.argv[1] in SCENARIOS:
-        return scenario(sys.argv[1], flood)
+        return scenario(sys.argv[1], flood, full_mdu)
     codes = []
     for name in SCENARIOS:
-        extra = ["--flood"] if flood else []
+        extra = [flag for flag in ("--flood", "--full-mdu") if flag in sys.argv]
         codes.append(subprocess.run([sys.executable, "-u", __file__, name, *extra]).returncode)
     ok = not any(codes)
     print(f"SERIAL HDLC INTEROP: {'PASS' if ok else 'FAIL'}")

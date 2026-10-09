@@ -5,8 +5,10 @@ Scenarios, each judged on stock's state or on the air's byte log:
 
 - `main` (flow control, airtime locks and an ID beacon on both; the air answers each DATA
   with READY after 200 ms): has_path, an ACTIVE link, a request answered and a multi-part
-  Resource COMPLETE on stock; Retinue's ALOCK and ID frames equal stock's; Retinue never has
-  two DATA frames unacknowledged; on shutdown its device sees RADIO_STATE 00 then LEAVE FF.
+  Resource COMPLETE on stock, with Retinue up although the air echoes its airtime locks
+  lossily; Retinue's ALOCK and ID frames equal stock's; the ID goes out an interval after
+  traffic and never twice without traffic between; Retinue never has two DATA frames
+  unacknowledged; on shutdown its device sees RADIO_STATE 00 then LEAVE FF.
 - `ifac` (`ifac_size = 64`): Resources complete both ways, and a request and its response
   that each fill a link packet (507 bytes on the air) are answered.
 - `mismatch` (the air echoes TX power one lower): stock stays offline and Retinue faults.
@@ -52,7 +54,8 @@ def main_scenario() -> dict[str, bool]:
         air.ports[RETINUE], "--flow-control", "--alock-st", "3350", "--alock-lt", "1000",
         "--id", f"{CALLSIGN}:{ID_INTERVAL}"])
     results = exercise_stock(retinue, resource_len=1300)
-    time.sleep(ID_INTERVAL + 2)
+    # An idle stretch long enough for a repeat, were the beacon to repeat on idle.
+    time.sleep(2 * ID_INTERVAL + 2)
     retinue.close()
     time.sleep(1)
 
@@ -62,10 +65,28 @@ def main_scenario() -> dict[str, bool]:
           f"retinue {[f.hex() for f in locks[RETINUE][:2]]}")
     results["Retinue's ALOCK bytes equal stock's"] = (
         len(locks[STOCK]) >= 2 and locks[RETINUE][:2] == locks[STOCK][:2])
+    echoes = [f for _, f in air.device_frames(RETINUE, ST_ALOCK)]
+    results["Retinue online with a lossy ALOCK echo"] = (
+        bool(echoes) and bool(locks[RETINUE]) and echoes[0] != locks[RETINUE][0]
+        and results.get("stock link ACTIVE", False))
 
-    ids = {dev: [f for _, f in air.host_frames(dev, DATA) if f[1:] == CALLSIGN.encode()]
+    callsign = CALLSIGN.encode()
+    ids = {dev: [(t, f) for t, f in air.host_frames(dev, DATA) if f[1:] == callsign]
            for dev in (STOCK, RETINUE)}
-    results["ID frame bytes equal stock's"] = bool(ids[STOCK]) and ids[RETINUE][:1] == ids[STOCK][:1]
+    results["ID frame bytes equal stock's"] = (
+        bool(ids[STOCK]) and [f for _, f in ids[RETINUE][:1]] == [f for _, f in ids[STOCK][:1]])
+    # RNS re-arms the ID on any other traffic, so a busy link sends several; what must hold
+    # is the first one's delay, and that none follows another without traffic between.
+    data = [(t, f[1:] == callsign) for t, f in air.host_frames(RETINUE, DATA)]
+    first_data = next((t for t, is_id in data if not is_id), None)
+    id_times = [t for t, is_id in data if is_id]
+    kinds = [is_id for _, is_id in data]
+    print(f"  retinue ID frames at {[round(t - (first_data or 0), 1) for t in id_times]} s "
+          f"after its first DATA")
+    results["ID an interval after traffic, never repeated idle"] = (
+        first_data is not None and bool(id_times)
+        and id_times[0] - first_data >= ID_INTERVAL - 0.2
+        and not any(a and b for a, b in zip(kinds, kinds[1:])))
 
     outstanding, worst, sent = 0, 0, 0
     for _, dev, direction, frame in air.frames():
