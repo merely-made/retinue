@@ -1,14 +1,16 @@
-"""Library-path multi-segment Resource gate: 2.5 MiB each way with stock RNS.
+"""Library-path multi-segment Resource gate: 2.5 MiB with metadata each way with stock RNS.
 
 RNS splits a Resource past MAX_EFFICIENT_SIZE (1 MiB - 1) into segments that share the
 first segment's hash, advertising each once the previous one is proved (Resource.py
 274-339, 793-835). Retinue's side is the public Endpoint API (`library_oracle
 resource-segments`): first `ResourceSession::receive` takes a 2.5 MiB Resource RNS sends,
-then `ResourceSession::publish` sends the same bytes to an RNS destination that accepts
-every Resource.
+then `ResourceSession::publish_with_metadata` sends the same bytes to an RNS destination
+that accepts every Resource. Each carries metadata, which leads the first segment and
+shortens its data share (Resource.py 311); later segments keep the flag and count it in
+`d` (Resource.py 792).
 
-Must hold, in each direction: the receiver has exactly the bytes sent, delivered once at
-the last segment; the sender completes, which takes every segment's proof; every
+Must hold, in each direction: the receiver has exactly the bytes and metadata sent,
+delivered once at the last segment; the sender completes, which takes every segment's proof; every
 segment's advertisement crossed (three each way). Retinue's process exits zero.
 
 Before multi-segment support, Retinue refused RNS's split offer with a cancel and sent a
@@ -33,6 +35,8 @@ SEGMENTS = 3
 SINK_SEED = bytes([0x5A] * 64)  # RNS_SINK_SEED in examples/library_oracle/main.rs
 PROOF_GRACE = 30.0
 PAYLOAD = payload(LENGTH, SEED)
+RNS_METADATA = {"name": "rns-segments.bin", "size": LENGTH}
+RETINUE_METADATA = {"name": "segments.bin"}  # SEGMENT_METADATA in examples/library_oracle/segments.rs
 
 
 def main() -> int:
@@ -41,6 +45,7 @@ def main() -> int:
     try:
         port = retinue.wait_port()
         import RNS
+        from RNS.vendor import umsgpack
 
         start_rns(port)
         state: dict[str, object] = {}
@@ -70,13 +75,13 @@ def main() -> int:
                     print(f"  RNS: link up, sending {LENGTH}-byte Resource", flush=True)
                     started = time.monotonic()
                     state["sent_at"] = started
-                    RNS.Resource(PAYLOAD, established_link, callback=done)
+                    RNS.Resource(PAYLOAD, established_link, metadata=RNS_METADATA, callback=done)
 
                 link.set_link_established_callback(established)
 
         RNS.Transport.register_announce_handler(Linker())
         print("waiting for Retinue's announce, link and transfer...", flush=True)
-        got = retinue.wait_for(r"RESOURCE_OK|RESOURCE_MISMATCH|UNEXPECTED_DATA \d+|RECEIVE_ERR .*|MODE_ERR .*",
+        got = retinue.wait_for(r"METADATA .*|METADATA_NONE|UNEXPECTED_DATA \d+|RECEIVE_ERR .*|MODE_ERR .*",
                                240)
         if got is not None:
             sent.wait(timeout=PROOF_GRACE)
@@ -101,6 +106,7 @@ def main() -> int:
                 data = b""
                 state["read_error"] = repr(error)
             state["data"] = data
+            state["metadata"] = resource.metadata
             print(f"  RNS receiver concluded: {RESOURCE_STATUS.get(resource.status, resource.status)}, "
                   f"segment {resource.segment_index}/{resource.total_segments}, {len(data)} bytes",
                   flush=True)
@@ -130,6 +136,8 @@ def main() -> int:
             and int(digest.group(1)) == LENGTH
             and digest.group(2) == hashlib.sha256(PAYLOAD).hexdigest()
         )
+        metadata_line = retinue.find(r"METADATA ([0-9a-f]+)")
+        retinue_metadata = bytes.fromhex(metadata_line.group(1)) if metadata_line else None
         adverts_in = retinue.tap("to_retinue", "Data", RNS.Packet.RESOURCE_ADV)
         adverts_out = retinue.tap("to_rns", "Data", RNS.Packet.RESOURCE_ADV)
         data = state.get("data", b"")
@@ -138,6 +146,9 @@ def main() -> int:
             print(f"RNS data read error: {state['read_error']}")
         print(f"advertisements: to Retinue {adverts_in}, to RNS {adverts_out}")
         ok = verdict("Retinue received RNS's split Resource whole", recv_ok, f"{LENGTH} bytes")
+        ok &= verdict("Retinue received RNS's metadata exactly",
+                      retinue_metadata == umsgpack.packb(RNS_METADATA),
+                      retinue_metadata.hex() if retinue_metadata else "none")
         ok &= verdict("RNS sender completed every segment",
                       state.get("sender_status") == RNS.Resource.COMPLETE,
                       RESOURCE_STATUS.get(state.get("sender_status"), str(state.get("sender_status"))))
@@ -147,6 +158,8 @@ def main() -> int:
                       and state.get("recv_segments") == (SEGMENTS, SEGMENTS),
                       str(state.get("recv_segments")))
         ok &= verdict("RNS assembled the exact bytes", data == PAYLOAD, f"{len(data)} of {LENGTH} bytes")
+        ok &= verdict("RNS read Retinue's metadata", state.get("metadata") == RETINUE_METADATA,
+                      repr(state.get("metadata")))
         ok &= verdict("Retinue sent one advertisement per segment", adverts_out >= SEGMENTS, str(adverts_out))
         ok &= verdict("Retinue publish returned after the last proof",
                       retinue.find(rf"PUBLISH_OK {LENGTH}") is not None)

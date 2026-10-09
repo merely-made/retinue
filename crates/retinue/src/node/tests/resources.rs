@@ -1,6 +1,7 @@
 //! Resource transfer, refusal and the receiver's proof cache.
 
 use super::*;
+use crate::resource_transfer::ResourceSender;
 
 /// Drive every packet between two nodes until neither has anything more to say.
 ///
@@ -389,10 +390,10 @@ fn a_stray_resource_proof_opens_nothing() {
     assert_eq!(a.refused_offers(), 0);
 }
 
-/// A multi-segment offer is refused with a sealed cancel and holds no state, rather
-/// than being received as its first segment.
+/// A multi-segment offer whose segment count disagrees with its size is refused with a
+/// sealed cancel and holds no state, rather than being received as its first segment.
 #[test]
-fn a_multi_segment_offer_is_refused_with_a_cancel() {
+fn a_malformed_multi_segment_offer_is_refused_with_a_cancel() {
     let (a, mut b, id) = linked();
     let link = a
         .links
@@ -423,5 +424,64 @@ fn a_multi_segment_offer_is_refused_with_a_cancel() {
         "no data"
     );
     assert!(!b.transfer_active(id), "and holds no reassembly state");
+    assert_eq!(b.refused_offers(), 1);
+}
+
+/// Past one segment a resource goes as RNS segments, each advertised once the previous is
+/// proved, and arrives whole only after the last. Compressible, so each segment fits the
+/// node's part ceiling.
+#[cfg(feature = "compression")]
+#[test]
+fn a_split_resource_crosses_a_link_in_segments() {
+    let (mut a, mut b, id) = linked();
+    let payload: Vec<u8> = (0..2 * crate::resource::MAX_SEGMENT_SIZE + 5_000)
+        .map(|i| (i % 7) as u8)
+        .collect();
+    let started = a
+        .publish(
+            id,
+            IFACE,
+            &payload,
+            [0xA1; 4],
+            &[7; crate::token::IV_LEN],
+            0,
+        )
+        .expect("a can publish");
+
+    let (_, got_b) = pump(&mut a, &mut b, started);
+
+    assert_eq!(got_b.len(), 1, "one resource, not three");
+    assert!(got_b[0] == payload, "byte for byte");
+    assert!(!a.transfer_active(id) && !b.transfer_active(id));
+}
+
+/// A split offer is advertised as RNS's first segment, and one past the receiver's total
+/// cap is refused at that first advertisement.
+#[test]
+fn a_split_offer_past_the_inbound_cap_is_refused() {
+    let (mut a, mut b, id) = linked();
+    b.set_max_inbound_resource(crate::resource::MAX_SEGMENT_SIZE);
+    let payload = vec![0x5A_u8; 2 * crate::resource::MAX_SEGMENT_SIZE + 1];
+    let started = a
+        .publish(
+            id,
+            IFACE,
+            &payload,
+            [0xA2; 4],
+            &[8; crate::token::IV_LEN],
+            0,
+        )
+        .expect("a can publish");
+    let offer = sent(&started).unwrap();
+    let link = &b.links.iter().find(|(l, _, _)| l.id() == id).unwrap().0;
+    let adv = crate::resource::Advertisement::parse(&link.decrypt(&offer).unwrap()).unwrap();
+    assert_eq!((adv.i, adv.l), (1, 3));
+    assert_eq!(adv.data_size, payload.len() as u64);
+    assert_ne!(adv.flags & crate::resource::FLAG_SPLIT, 0);
+    assert_eq!(adv.original_hash, adv.resource_hash);
+
+    let answer = b.ingest(IFACE, &offer, 0);
+    assert_eq!(sent(&answer).unwrap().context, link::CTX_RESOURCE_RCL);
+    assert!(!b.transfer_active(id));
     assert_eq!(b.refused_offers(), 1);
 }

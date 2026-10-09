@@ -120,14 +120,21 @@ impl ResourceReceiver {
         self
     }
 
+    /// Lower the decompression bound to `max` bytes, keeping any lower one already set.
+    pub(super) fn cap_decompressed(mut self, max: usize) -> Self {
+        self.max_decompressed = self.max_decompressed.min(max);
+        self
+    }
+
     /// The part ceiling this receiver enforces.
     pub fn max_parts(&self) -> usize {
         self.max_parts
     }
 
     /// Why this receiver failed, if it has: [`Error::MultiSegmentResource`] for an offer
-    /// it cannot reassemble whole (see [`SegmentedReceiver`](super::SegmentedReceiver)), [`Error::CapacityExceeded`] for one past its part or
-    /// size ceiling, [`Error::ResourceRejected`] for one its accept hook refused,
+    /// it cannot reassemble whole (see [`SegmentedReceiver`](super::SegmentedReceiver)),
+    /// [`Error::CapacityExceeded`] for one past its part or size ceiling,
+    /// [`Error::ResourceRejected`] for one its accept hook refused,
     /// [`Error::DecompressionLimit`] for a body that inflated past its limit, and
     /// [`Error::ResourceCorrupt`] for one that failed to open or verify. The sender has
     /// been sent a cancel; a failed receiver never yields data.

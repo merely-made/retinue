@@ -318,3 +318,51 @@ fn request_resources_are_flagged_and_filterable() {
     assert_eq!(receiver.kind(), Some(ResourceKind::Request(id)));
     assert_eq!(receiver.data(), Some(payload(3000).as_slice()));
 }
+
+/// Drive a whole-resource `sender` into `receiver` until neither has more to say.
+fn drive_whole(
+    sender: &mut ResourceSender,
+    receiver: &mut SegmentedReceiver,
+    ivg: &mut impl FnMut() -> [u8; IV_LEN],
+) {
+    let mut to_receiver = vec![sender.advertisement(&ivg())];
+    while !to_receiver.is_empty() {
+        let to_sender = deliver(core::mem::take(&mut to_receiver), |p| {
+            receiver.on_packet(p, &mut *ivg)
+        });
+        to_receiver = deliver(to_sender, |p| sender.on_packet(p, &mut *ivg));
+    }
+}
+
+/// A whole resource whose `d` understates its body is held to `d`: an uncompressed body
+/// fails on arrival, and a compressed one stops inflating there, under a session cap far
+/// below the default decompression bound.
+#[test]
+fn a_whole_resource_larger_than_advertised_fails() {
+    let (send_link, recv_link) = link_pair();
+    let mut ivg = iv_gen();
+    let random_hash = [5; 4];
+    let understated = |data: &[u8], body: &[u8], compressed| {
+        let token = send_link.seal(&content(body, &random_hash), &[4; 16]);
+        let out =
+            Outgoing::new(data, &token, random_hash, compressed).with_segment(1, 1, 100, [0; 32]);
+        ResourceSender::from_outgoing(send_link.clone(), out)
+    };
+
+    let data = payload(2000);
+    let mut sender = understated(&data, &data, false);
+    let mut receiver = receiver_for(&recv_link).with_max_size(10_000);
+    drive_whole(&mut sender, &mut receiver, &mut ivg);
+    assert_eq!(receiver.failure(), Some(Error::ResourceCorrupt));
+    assert_eq!(receiver.data(), None);
+
+    #[cfg(feature = "compression")]
+    {
+        let data = vec![0_u8; 200_000];
+        let mut sender = understated(&data, &crate::resource::compress(&data), true);
+        let mut receiver = receiver_for(&recv_link).with_max_size(10_000);
+        drive_whole(&mut sender, &mut receiver, &mut ivg);
+        assert_eq!(receiver.failure(), Some(Error::DecompressionLimit));
+        assert_eq!(receiver.data(), None);
+    }
+}

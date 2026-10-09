@@ -25,7 +25,7 @@
 //!   RNS offer; RNS cancels a transfer mid-way; RNS rejects a Retinue publish; and a
 //!   Retinue publish times out mid-way. Each side must stop promptly.
 //! - `resource-segments LEN SEED` (`interop_library_resource_segments.py`): as
-//!   `resource-recv` then `resource-send`, with a payload past one segment.
+//!   `resource-meta`, with a payload past one segment.
 //! - `request-resource LEN SEED` (`interop_library_request_resource.py`): a request of `LEN`
 //!   data bytes each way, too large for a packet, each answered with its echo.
 //!

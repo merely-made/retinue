@@ -35,7 +35,9 @@ pub fn segment_count(total_size: usize) -> usize {
 /// The fixed part of a publish: everything needed to build any one segment.
 struct Plan<D> {
     link: Link,
-    data: D,
+    /// The data, released once the last segment is built.
+    data: Option<D>,
+    len: usize,
     /// Metadata framed by [`pack_metadata`]; it leads the first segment.
     metadata: Option<Vec<u8>>,
     kind: ResourceKind,
@@ -50,13 +52,13 @@ impl<D: AsRef<[u8]>> Plan<D> {
     }
 
     fn total_size(&self) -> usize {
-        self.data.as_ref().len() + self.framed_metadata_len()
+        self.len + self.framed_metadata_len()
     }
 
     /// The data bytes segment `index` (1-based) carries. The first segment's share is
     /// reduced by the metadata in front of it (`Resource.py` 310-320).
     fn range(&self, index: usize) -> Range<usize> {
-        let len = self.data.as_ref().len();
+        let len = self.len;
         let first = MAX_SEGMENT_SIZE.saturating_sub(self.framed_metadata_len());
         let (start, end) = match index {
             1 if self.segments == 1 => (0, len),
@@ -70,12 +72,13 @@ impl<D: AsRef<[u8]>> Plan<D> {
     }
 
     fn segment(
-        &self,
+        &mut self,
         index: usize,
         random_hash: [u8; RANDOM_HASH_LEN],
         iv: &[u8; IV_LEN],
     ) -> ResourceSender {
-        let slice = &self.data.as_ref()[self.range(index)];
+        let data = self.data.as_ref().expect("held until the last segment");
+        let slice = &data.as_ref()[self.range(index)];
         let bytes = match (&self.metadata, index) {
             (Some(metadata), 1) => Cow::Owned([metadata.as_slice(), slice].concat()),
             _ => Cow::Borrowed(slice),
@@ -95,6 +98,9 @@ impl<D: AsRef<[u8]>> Plan<D> {
         if self.metadata.is_some() {
             out = out.with_metadata();
         }
+        if index == self.segments {
+            self.data = None;
+        }
         ResourceSender::from_outgoing(self.link.clone(), out)
     }
 }
@@ -104,7 +110,8 @@ impl<D: AsRef<[u8]>> Plan<D> {
 /// first segment's hash as `o`, each advertised once the previous one is proved.
 ///
 /// Only the current segment is sealed and held; `data` is borrowed or owned as the caller
-/// chooses, so memory beyond it is bounded by one segment.
+/// chooses, so memory beyond it is bounded by one segment, and it is released once the
+/// last segment is built (at once, for a whole resource).
 pub struct SegmentedSender<D> {
     plan: Plan<D>,
     current: ResourceSender,
@@ -137,7 +144,8 @@ impl<D: AsRef<[u8]>> SegmentedSender<D> {
         }
         let mut plan = Plan {
             link,
-            data,
+            data: Some(data),
+            len,
             metadata,
             kind,
             // RNS compresses only data up to its auto-compress limit (`Resource.py` 392).

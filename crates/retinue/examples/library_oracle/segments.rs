@@ -1,5 +1,5 @@
-//! The big-transfer modes: a multi-segment Resource each way, and a request each way that
-//! travels as a Resource.
+//! The big-transfer modes: a multi-segment Resource with metadata each way, and a request
+//! each way that travels as a Resource.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,13 +12,17 @@ use crate::support::{
     accept_resource_link, hold_until_peer_closes, keep_announcing, report_received, resolve_rns,
     transfer_config,
 };
-use crate::{RNS_BIG_REQUEST_SEED, RNS_SINK_SEED};
+use crate::{RNS_BIG_REQUEST_SEED, RNS_SINK_SEED, hex};
 
 /// Generous for a few MiB over loopback; RNS proves each segment before advertising the
 /// next.
 const SEGMENT_TIMEOUT: Duration = Duration::from_secs(240);
 
-/// RNS publishes `data` to us, then we publish it to RNS.
+/// The metadata Retinue attaches to its split Resource: msgpack `{"name": "segments.bin"}`.
+/// It leads the first segment and shortens that segment's data (`Resource.py` 311).
+const SEGMENT_METADATA: &[u8] = b"\x81\xa4name\xacsegments.bin";
+
+/// RNS publishes `data` to us, then we publish it to RNS, each with metadata.
 pub(super) async fn resource_segments(
     endpoint: Arc<Endpoint>,
     data: Vec<u8>,
@@ -26,6 +30,10 @@ pub(super) async fn resource_segments(
     let mut session = accept_resource_link(&endpoint).await?;
     session.set_config(transfer_config(SEGMENT_TIMEOUT));
     report_received(session.receive().await, &data);
+    match session.take_metadata() {
+        Some(metadata) => println!("METADATA {}", hex(&metadata)),
+        None => println!("METADATA_NONE"),
+    }
     hold_until_peer_closes(&mut session).await;
     drop(session);
 
@@ -42,7 +50,7 @@ pub(super) async fn resource_segments(
     .map_err(|e| format!("open_resource: {e}"))?;
     println!("SEND_LINK {}", session.link_id());
     session.set_config(transfer_config(SEGMENT_TIMEOUT));
-    match session.publish(&data).await {
+    match session.publish_with_metadata(&data, SEGMENT_METADATA).await {
         Ok(()) => println!("PUBLISH_OK {}", data.len()),
         Err(e) => println!("PUBLISH_ERR {:?} {e}", e.kind()),
     }

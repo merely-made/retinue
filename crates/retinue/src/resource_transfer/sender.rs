@@ -272,7 +272,7 @@ impl ResourceSender {
 }
 
 /// Seal `data` into an [`Outgoing`] whose parts fit `link`'s MTU, bz2-compressing it first
-/// when `compress` is set and that shrinks it.
+/// when `try_compress` is set and that shrinks it.
 pub(super) fn outgoing(
     link: &Link,
     data: &[u8],

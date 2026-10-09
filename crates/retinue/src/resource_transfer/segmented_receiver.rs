@@ -43,6 +43,9 @@ struct Offer {
 /// [`with_max_size`](Self::with_max_size)). Memory is the data so far plus one segment's
 /// parts. Each segment's offer passes the per-segment receiver's own limits and accept
 /// hook, as RNS asks its `ACCEPT_APP` callback for every advertisement.
+///
+/// Between segments a sender's cancel goes unseen: it names the next segment, whose
+/// advertisement has not arrived. The caller's timeout ends such a transfer.
 pub struct SegmentedReceiver {
     link: Link,
     make: MakeReceiver,
@@ -92,6 +95,7 @@ impl SegmentedReceiver {
 
     /// Refuse a resource whose advertised total size exceeds `max_size` bytes. The sender
     /// gets a receiver cancel and this receiver fails with [`Error::CapacityExceeded`].
+    /// A body larger than advertised fails too, and a compressed one stops inflating there.
     pub fn with_max_size(mut self, max_size: usize) -> Self {
         self.max_size = max_size;
         self
@@ -193,12 +197,16 @@ impl SegmentedReceiver {
             }
         };
         let mut receiver = (self.make)();
-        if adv.l > 1 {
+        receiver = if adv.l > 1 {
             // A segment inflates to at most the segment size.
-            receiver = receiver
+            receiver
                 .allow_segments()
-                .with_max_decompressed_size(MAX_SEGMENT_SIZE);
-        }
+                .with_max_decompressed_size(MAX_SEGMENT_SIZE)
+        } else {
+            // A whole resource inflates to at most its advertised size, already within
+            // `max_size`: an understated `d` cannot buy more memory.
+            receiver.cap_decompressed(adv.data_size as usize)
+        };
         let replies = receiver.on_packet(packet, &mut *iv);
         if let Some(error) = receiver.failure() {
             self.failure = Some(error);
@@ -247,7 +255,7 @@ impl SegmentedReceiver {
         }
         let offer = self.offer.as_mut().expect("a segment implies an offer");
         let split = offer.segments > 1;
-        if split && self.received > offer.total_size {
+        if self.received > offer.total_size {
             self.failure = Some(Error::ResourceCorrupt);
         } else if offer.index < offer.segments {
             offer.index += 1;

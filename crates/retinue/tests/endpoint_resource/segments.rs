@@ -120,3 +120,47 @@ async fn large_requests_and_responses_travel_as_resources() {
     .await
     .expect("the exchange completes");
 }
+
+/// A request packet past the responder's `max_request_size` is ignored, as RNS ignores it
+/// (`Link.py` 999-1000), and the responder goes on to the next.
+#[tokio::test]
+async fn a_request_packet_past_max_request_size_is_ignored() {
+    tokio::time::timeout(Duration::from_secs(30), async {
+        let server_id = PrivateIdentity::from_secret_bytes(&[0x87; 64]);
+        let server = Endpoint::new(server_id.clone());
+        let client = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x88; 64]));
+        let name = DestinationName::new("retinue", ["small-request"]);
+        let destination = name.destination_hash(server_id.public());
+        server.register_resource(name, b"");
+        connect(&client, &server, LossModel::new(87), LossModel::new(88));
+
+        let small = Request::new(b"/small", vec![7; 8], 0.0);
+        let responder = tokio::spawn(async move {
+            let mut accepted = server.accept_resource().await.unwrap();
+            accepted.session.set_config(quick(Duration::from_secs(20)));
+            accepted.session.set_max_request_size(Some(64));
+            let request = accepted.session.receive_request().await.unwrap();
+            accepted
+                .session
+                .respond(request.request_id, request.request.data);
+            accepted
+        });
+        let mut session = client
+            .open_resource(destination, *server_id.public())
+            .await
+            .unwrap();
+        session.set_config(quick(Duration::from_secs(2)));
+        let oversized = Request::new(b"/small", vec![7; 100], 0.0);
+        assert!(oversized.pack().len() > 64);
+        assert_eq!(
+            session.request(&oversized).await.unwrap_err().kind(),
+            std::io::ErrorKind::TimedOut
+        );
+        session.set_config(quick(Duration::from_secs(20)));
+        let response = session.request(&small).await.unwrap();
+        assert_eq!(response.data, small.data);
+        drop(responder.await.unwrap());
+    })
+    .await
+    .expect("the exchange completes");
+}

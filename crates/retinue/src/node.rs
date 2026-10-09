@@ -28,7 +28,7 @@ use crate::identity::PrivateIdentity;
 use crate::link::{Link, PendingLink};
 use crate::link_liveness::Liveness;
 use crate::packet::Packet;
-use crate::resource_transfer::{ResourceReceiver, ResourceSender};
+use crate::resource_transfer::{SegmentedReceiver, SegmentedSender};
 
 mod action;
 mod ingest;
@@ -118,9 +118,11 @@ pub struct Node<
     /// Interfaces whose mode is not [`InterfaceMode::Full`].
     interface_modes: BoundedVec<(InterfaceId, InterfaceMode), INTERFACE_MODE_INTERFACES>,
     /// Inbound resource transfers, at most one per link.
-    receivers: BoundedVec<(AddressHash, ResourceReceiver, u64), LINKS>,
+    receivers: BoundedVec<(AddressHash, SegmentedReceiver, u64), LINKS>,
+    /// The largest inbound resource accepted, in all; see [`Node::set_max_inbound_resource`].
+    max_inbound_resource: usize,
     /// Outbound resource transfers, at most one per link.
-    senders: BoundedVec<(AddressHash, ResourceSender, u64), LINKS>,
+    senders: BoundedVec<(AddressHash, SegmentedSender<Vec<u8>>, u64), LINKS>,
     /// The last resource proof sent on each link, with when and how many times it has been
     /// re-sent, kept for [`RESOURCE_PROOF_CACHE_TTL`] to answer the sender's cache request
     /// (or a re-advertisement) if it was lost.

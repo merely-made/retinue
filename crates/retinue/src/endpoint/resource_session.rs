@@ -34,7 +34,8 @@ const RESOURCE_PROOF_MAX_SENDS: u32 = 3;
 /// Runtime policy for an endpoint-driven resource transfer.
 #[derive(Clone, Copy, Debug)]
 pub struct ResourceTransferConfig {
-    /// Maximum time allowed for the complete transfer.
+    /// Maximum time allowed for the complete transfer, every segment of a split Resource
+    /// included.
     pub timeout: Duration,
     /// Interval between advertisement or request retransmissions.
     pub retry_interval: Duration,
@@ -148,9 +149,10 @@ impl ResourceSession {
         self.max_resource_size = max_size;
     }
 
-    /// Reject a request sent as a Resource whose size exceeds `max_size`, as RNS's
-    /// `Destination.max_request_size` does (`Link.py` 1036-1043). The default, `None`,
-    /// leaves only [`set_max_resource_size`](Self::set_max_resource_size)'s cap.
+    /// Drop a request whose packed size exceeds `max_size`, as RNS's
+    /// `Destination.max_request_size` does: a request packet is ignored and a request
+    /// Resource rejected (`Link.py` 999-1000, 1036-1043). The default, `None`, leaves only
+    /// [`set_max_resource_size`](Self::set_max_resource_size)'s cap on request Resources.
     pub fn set_max_request_size(&mut self, max_size: Option<usize>) {
         self.max_request_size = max_size;
     }
@@ -385,7 +387,9 @@ impl ResourceSession {
     ///
     /// Protocols such as LXMF use both forms on one destination: register it with
     /// [`Endpoint::register_resource`] and receive here. Metadata a Resource carried is kept
-    /// for [`take_metadata`](Self::take_metadata).
+    /// for [`take_metadata`](Self::take_metadata). A data packet that arrives while a
+    /// Resource is in progress returns at once, abandoning that Resource; its sender is left
+    /// to time out.
     ///
     /// [`Endpoint::register_resource`]: super::Endpoint::register_resource
     pub async fn receive(&mut self) -> io::Result<ReceivedPayload> {

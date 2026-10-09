@@ -92,11 +92,15 @@ impl ResourceSession {
     /// than a binary blob. Consumers with their own grammar use this method;
     /// byte-oriented requests can use [`receive_request`](Self::receive_request).
     ///
-    /// A request too large for one packet arrives as a Resource, bounded by
-    /// [`set_max_request_size`](Self::set_max_request_size); one past it is rejected and the
-    /// wait goes on, as in RNS (`Link.py` 1036-1043).
+    /// A request too large for one packet arrives as a Resource. Requests are bounded by
+    /// [`set_max_request_size`](Self::set_max_request_size): past it a packet is ignored and
+    /// a Resource rejected, and the wait goes on, as in RNS (`Link.py` 999-1000, 1036-1043).
+    ///
+    /// A request packet that arrives while a request Resource is in progress returns at
+    /// once, abandoning that Resource; its sender is left to time out.
     pub async fn receive_raw_request(&mut self) -> io::Result<ReceivedRawRequest> {
-        let make = self.receivers(self.max_request_size, false);
+        let max_request = self.max_request_size;
+        let make = self.receivers(max_request, false);
         let new_receiver = move || make().with_filter(|adv| adv.flags & FLAG_REQUEST != 0);
         let mut receiver = new_receiver();
         let link = self.link.clone();
@@ -122,7 +126,9 @@ impl ResourceSession {
                             continue;
                         }
                         match link.receive(&packet) {
-                            Some(Inbound::Request(bytes)) => {
+                            Some(Inbound::Request(bytes))
+                                if max_request.is_none_or(|max| bytes.len() <= max) =>
+                            {
                                 return Ok(ReceivedRawRequest {
                                     packed: bytes,
                                     request_id: packet.hash(),

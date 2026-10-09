@@ -7,7 +7,7 @@
 //! ```text
 //! t  transfer size   (bytes on the wire, after compression)
 //! d  data size       (uncompressed, the whole resource with any metadata framing)
-//! n  parts           (number of segments)
+//! n  parts           (in this segment)
 //! h  resource hash   (32)
 //! o  original hash   (32, the first segment's hash, shared by every segment)
 //! r  random hash     (4)

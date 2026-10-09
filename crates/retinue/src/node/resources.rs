@@ -5,12 +5,16 @@ use super::{Action, Actions, InterfaceId, Node, RESOURCE_REQUEST_WINDOW};
 use crate::hash::AddressHash;
 use crate::link;
 use crate::packet::Packet;
-use crate::resource_transfer::{ResourceReceiver, ResourceSender};
+use crate::resource_transfer::{
+    ResourceKind, ResourceReceiver, SegmentedReceiver, SegmentedSender,
+};
 
 impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES: usize>
     Node<PEERS, ACTIONS, LINKS, ROUTES>
 {
-    /// Publish a resource on an established link.
+    /// Publish a resource on an established link. Past
+    /// [`MAX_SEGMENT_SIZE`](crate::resource::MAX_SEGMENT_SIZE) it goes as RNS segments, each
+    /// advertised once the previous one is proved; the data is held until the last.
     ///
     /// `random_hash` and `iv` are caller-supplied, per the same no-RNG discipline as
     /// everything else here. Returns `None` if the link is unknown or a transfer is already
@@ -33,7 +37,15 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         }
         let (link, _, _) = self.links.iter().find(|(l, _, _)| l.id() == link_id)?;
 
-        let sender = ResourceSender::publish(link.clone(), data, random_hash, iv);
+        let sender = SegmentedSender::new(
+            link.clone(),
+            data.to_vec(),
+            None,
+            ResourceKind::Data,
+            random_hash,
+            iv,
+        )
+        .ok()?;
         let advertisement = sender.advertisement(iv);
         let _ = self.senders.push((link_id, sender, now));
 
@@ -43,6 +55,17 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             packet: advertisement,
         });
         Some(actions)
+    }
+
+    /// Refuse an inbound resource larger than `max_size` bytes in all, metadata included.
+    /// A split resource is held whole until its last segment, so this bounds its memory;
+    /// each segment is also bounded by [`PayloadLimits::max_resource_parts`]. The default
+    /// is [`DEFAULT_MAX_RESOURCE_SIZE`].
+    ///
+    /// [`PayloadLimits::max_resource_parts`]: super::PayloadLimits::max_resource_parts
+    /// [`DEFAULT_MAX_RESOURCE_SIZE`]: crate::resource_transfer::DEFAULT_MAX_RESOURCE_SIZE
+    pub fn set_max_inbound_resource(&mut self, max_size: usize) {
+        self.max_inbound_resource = max_size;
     }
 
     /// Whether a resource is being received or sent on this link.
@@ -135,19 +158,32 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                     return;
                 }
                 let link = self.links[link_index].0.clone();
-                let receiver = ResourceReceiver::with_limits(
-                    link,
-                    RESOURCE_REQUEST_WINDOW,
-                    self.payload_limits.max_resource_parts,
-                );
+                let max_parts = self.payload_limits.max_resource_parts;
+                let segment_link = link.clone();
+                let receiver = SegmentedReceiver::new(link, move || {
+                    ResourceReceiver::with_limits(
+                        segment_link.clone(),
+                        RESOURCE_REQUEST_WINDOW,
+                        max_parts,
+                    )
+                })
+                .with_max_size(self.max_inbound_resource);
                 let _ = self.receivers.push((link_id, receiver, now));
                 self.receivers.len() - 1
             }
         };
 
+        let proved = self.receivers[pos].1.segments_proved();
         let replies = self.receivers[pos].1.on_packet(packet, &mut iv);
         self.iv_counter = counter;
         self.receivers[pos].2 = now;
+        // Keep each segment's proof a while, for the sender's cache request if it was lost.
+        if self.receivers[pos].1.segments_proved() != proved
+            && let Some(proof) = self.receivers[pos].1.last_proof()
+        {
+            self.resource_proofs.retain(|(id, _, _, _)| *id != link_id);
+            let _ = self.resource_proofs.push((link_id, proof.clone(), now, 0));
+        }
 
         // A receiver created for this packet that then said nothing did not accept the
         // transfer (an advertisement past the part ceiling). Keeping it would hold a slot.
@@ -165,11 +201,6 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         }
 
         if self.receivers[pos].1.is_complete() {
-            // Keep the proof a while, for the sender's cache request if it was lost.
-            if let Some(proof) = self.receivers[pos].1.proof_packet() {
-                self.resource_proofs.retain(|(id, _, _, _)| *id != link_id);
-                let _ = self.resource_proofs.push((link_id, proof, now, 0));
-            }
             // Metadata the sender attached is not carried: a Node delivers the data, and
             // counts the drop.
             if let Some((data, metadata)) = self.receivers[pos].1.take_payload() {
