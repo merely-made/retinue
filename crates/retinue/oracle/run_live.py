@@ -44,6 +44,11 @@ GATES = (
     "interop_library_resource_segments.py",
     "interop_library_request_resource.py",
     "interop_rebroadcast.py",
+    "interop_ifac_resource.py",
+    "interop_ifac_default.py",
+    "interop_tcp_reconnect.py",
+    "interop_egress_stall.py",
+    "interop_listener_mode.py",
 )
 
 

@@ -5,11 +5,10 @@ Stock runs `SerialInterface` at 115200 on one pty with transport on; Retinue's
 state: has_path to Retinue, an ACTIVE link, a request answered, and a multi-part Resource
 COMPLETE. The run repeats with `ifac_size = 64`.
 
-Two integration checks wait on other units, so they are opt-in and expected to fail until
-those land. `--flood` (per-interface ingress): stock announces 20 destinations within 2 s
-and Retinue must validate them all, holding none. `--full-mdu` (serial IFAC deframing):
-the request and its response each fill a 499-byte link packet, 507 bytes on the line with
-`ifac_size = 64`, past the 500-byte HDLC deframer cap.
+Two opt-in checks, each its own serial-lane run. `--flood` (ingress control off on serial,
+as RNS sets it): stock announces 20 destinations within 2 s and Retinue must validate them
+all, holding none. `--full-mdu` (serial IFAC deframing): the request and its response each
+fill a 499-byte link packet, 507 bytes on the line with `ifac_size = 64`.
 
     .venv/bin/python -u interop_serial_hdlc.py [--flood] [--full-mdu]
 """

@@ -19,8 +19,19 @@ ORACLE = REPO / "crates/retinue/oracle"
 sys.path.insert(0, str(ORACLE))
 from run_live import GATES
 
-# Serial-carrier gates over ptys; registered by the merge captain as units land.
-SERIAL_GATES = ()
+# Interface-batch routing gates: announce ingress, rate, gravity and interface modes.
+ROUTING_GATES = ("interop_held_path_response.py", "interop_ingress_burst.py",
+                 "interop_announce_rate.py", "interop_gravity.py", "interop_interface_modes.py")
+
+# Serial carriers over pty pairs the gates open themselves (no hardware): (name, script, args).
+# Only macOS is supported: the carriers open a pty slave unconfigured there.
+SERIAL_GATES = (
+    ("serial-hdlc", "interop_serial_hdlc.py", []),
+    ("serial-hdlc-flood", "interop_serial_hdlc.py", ["--flood"]),
+    ("serial-hdlc-full-mdu", "interop_serial_hdlc.py", ["--full-mdu"]),
+    ("kiss-tnc", "interop_kiss_tnc.py", []),
+    ("rnode-air", "interop_rnode_air.py", []),
+)
 
 
 def main():
@@ -30,6 +41,8 @@ def main():
     parser.add_argument("--raw-output", type=Path,
                         default=REPO / "validation/results/rns-1.5.7-repin")
     args = parser.parse_args()
+    if args.lane == "serial" and sys.platform != "darwin":
+        parser.error("the serial lane runs on macOS ptys only")
     assert version("rns") == "1.5.7", "requires rns==1.5.7"
     assert version("lxmf") == "1.2.0", "requires lxmf==1.2.0"
     args.output.mkdir(parents=True, exist_ok=False)
@@ -43,14 +56,16 @@ def main():
                  for name in ("interop_resource_recv.py", "interop_resource_send.py",
                               "interop_send_large.py", "interop_send_multiseg.py")]
     elif args.lane == "serial":
-        gates = [(name, ORACLE / name, []) for name in SERIAL_GATES]
+        gates = [(name, ORACLE / script, extra) for name, script, extra in SERIAL_GATES]
+        assert len(gates) == 5
     else:
         raw = args.raw_output.resolve()
         gates = [
             ("timebase", ORACLE / "probe_announce_timebase.py", ["--output", str(raw / "timebase/result.json")]),
             ("route-full", ORACLE / "probe_route_freshness.py", ["--profile", "full", "--output", str(raw / "route-full")]),
             ("same-blob", ORACLE / "probe_route_freshness.py", ["--profile", "same-blob-diagnostic", "--output", str(raw / "same-blob")]),
-        ]
+        ] + [(name, ORACLE / name, []) for name in ROUTING_GATES]
+        assert len(gates) == 8
     result = {"baseline_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip(),
               "rns": version("rns"), "lxmf": version("lxmf"), "lane": args.lane,
               "started_utc": datetime.now(timezone.utc).isoformat(), "gates": [], "all_passed": False}

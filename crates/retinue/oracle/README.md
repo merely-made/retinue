@@ -255,7 +255,7 @@ ports, raw captures, and exact clean-commit state.
 | file | what |
 | --- | --- |
 | `requirements.txt` | the current live-oracle pin: `rns==1.5.4`, `lxmf==1.1.1` |
-| `run_live.py` | the complete twelve-gate mixed-runtime matrix |
+| `run_live.py` | the complete mixed-runtime matrix (`GATES`, the 1.5.7 repin `live` lane) |
 | `flake_census.py` | census one gate by failure **mode**, not rate; see below |
 | `capture.py` | R0 fixtures: identity vector, announces, negatives, a token |
 | `capture_tcp.py` | R1 fixtures: the raw TCP stream, and the framing rules |

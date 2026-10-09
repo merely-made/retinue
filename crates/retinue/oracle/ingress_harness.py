@@ -2,8 +2,8 @@
 
 Each stock RNS node runs in its own child process (RNS state is process-global), started as
 `python -u ingress_harness.py --node CONFIG_DIR` and driven with one JSON command per stdin
-line; it answers `REPLY <json>`. The Retinue side is the prebuilt `ingress_probe` example
-(`cargo build -p retinue --examples --all-features`), found under CARGO_TARGET_DIR.
+line; it answers `REPLY <json>`. The Retinue side is the `ingress_probe` example, which
+the first `Retinue` builds under CARGO_TARGET_DIR.
 """
 from __future__ import annotations
 
@@ -24,6 +24,7 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
 EXPECTED_RNS = "1.5.7"
 _children: list["Child"] = []
+_built = False
 
 
 def free_port() -> int:
@@ -108,10 +109,13 @@ class Retinue(Child):
     """The ingress_probe example."""
 
     def __init__(self, env: dict) -> None:
+        global _built
+        if not _built:
+            subprocess.run(["cargo", "build", "--quiet", "-p", "retinue", "--example", "ingress_probe"],
+                           cwd=REPO, check=True)
+            _built = True
         target = Path(os.environ.get("CARGO_TARGET_DIR", REPO.parent.parent / "target"))
         binary = target / "debug" / "examples" / "ingress_probe"
-        if not binary.is_file():
-            raise FileNotFoundError(f"build the ingress_probe example first: {binary}")
         super().__init__([str(binary)], "retinue", env)
         up = self.wait_for(r"UP ([0-9a-f]{32})", 30)
         if up is None:
