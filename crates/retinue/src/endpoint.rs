@@ -16,6 +16,7 @@ mod entropy;
 mod facts;
 mod inbound;
 mod interface;
+mod known_destinations;
 mod link_setup;
 mod paths;
 mod queue;

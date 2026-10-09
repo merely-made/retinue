@@ -289,7 +289,8 @@ impl Endpoint {
             ));
         }
         let (peer, ratchet) = {
-            let address_book = self.shared.address_book.lock().unwrap();
+            let mut address_book = self.shared.address_book.lock().unwrap();
+            address_book.mark_used(dest, super::known_destinations::book_clock_ms());
             let peer = address_book.resolve(dest).ok_or_else(|| {
                 io::Error::new(io::ErrorKind::NotFound, "destination has not announced")
             })?;
