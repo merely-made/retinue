@@ -132,7 +132,7 @@ pub use propagation::{
     submit_with_resource_config as submit_propagation_with_resource_config,
 };
 #[cfg(feature = "std")]
-pub use propagation::{PAPER_MDU, PreparedPaper, URI_SCHEMA, prepare_paper};
+pub use propagation::{PAPER_MDU, PreparedPaper, URI_SCHEMA, prepare_paper, prepare_paper_with};
 pub use stamp::{
     Derivation as StampDerivation, MESSAGE_WORKBLOCK_ROUNDS, PROPAGATION_WORKBLOCK_ROUNDS,
     STAMP_LEN, WORKBLOCK_BYTES_PER_ROUND, find as find_stamp, find_streamed as find_stamp_streamed,

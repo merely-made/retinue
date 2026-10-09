@@ -147,12 +147,11 @@ pub async fn fetch(
         ]),
     )?;
     let entries = decode_entry_response(&session.request_raw(&get).await?.packed)?;
-    let local = delivery_destination(endpoint.identity());
     let mut received = Vec::with_capacity(entries.len());
     for bytes in entries {
         let transient_id = full_hash(&bytes);
         received.push(transient_id);
-        match open(endpoint, local, &bytes, &receipt.wants, policy) {
+        match open(endpoint, &bytes, &receipt.wants, policy) {
             Ok(fetched) => receipt.messages.push(fetched),
             Err(error) => receipt.rejected.push(RejectedPropagation {
                 transient_id,
@@ -179,7 +178,6 @@ pub async fn fetch(
 
 fn open(
     endpoint: &Endpoint,
-    local: AddressHash,
     bytes: &[u8],
     wants: &[[u8; 32]],
     policy: &FetchPolicy,
@@ -189,13 +187,7 @@ fn open(
     if !wants.contains(&transient_id) {
         return Err(PropagationError::UnexpectedTransientId);
     }
-    if entry.destination != *local.as_bytes() {
-        return Err(PropagationError::WrongDestination);
-    }
-    let (remainder, ratchet_id) = endpoint
-        .decrypt_for(&delivery_name(), &entry.encrypted)
-        .map_err(PropagationError::Decrypt)?;
-    let message = entry.open(&remainder, policy.max_message_bytes)?;
+    let (message, ratchet_id) = entry.decrypt_for(endpoint, policy.max_message_bytes)?;
     let source_identity = resolve_source(endpoint, AddressHash::from_bytes(message.source));
     let verification = verify(&message, source_identity.as_ref());
     if verification == Verification::SignatureInvalid {
@@ -218,6 +210,25 @@ fn open(
 /// (`LXMRouter.py` 1930-1946).
 pub fn delivery_stamp_valid(message: &DecodedLxmf, cost: u8) -> bool {
     check_stamp(message, Some(cost), &[]).is_ok()
+}
+
+impl PropagationMessage {
+    /// Open this message with `endpoint`'s registered `lxmf.delivery` destination: its
+    /// retained ratchets first, then its identity key unless ratchets are enforced
+    /// (`LXMRouter.py` 2558-2576). Returns the ratchet that opened it.
+    pub fn decrypt_for(
+        &self,
+        endpoint: &Endpoint,
+        max_message_bytes: usize,
+    ) -> Result<(DecodedLxmf, Option<NameHash>), PropagationError> {
+        if self.destination != *delivery_destination(endpoint.identity()).as_bytes() {
+            return Err(PropagationError::WrongDestination);
+        }
+        let (remainder, ratchet_id) = endpoint
+            .decrypt_for(&delivery_name(), &self.encrypted)
+            .map_err(PropagationError::Decrypt)?;
+        Ok((self.open(&remainder, max_message_bytes)?, ratchet_id))
+    }
 }
 
 fn id_list(ids: &[[u8; 32]]) -> Value {

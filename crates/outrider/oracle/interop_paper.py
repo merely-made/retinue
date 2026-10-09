@@ -4,6 +4,11 @@ Outrider writes a URI and stock's ingest_lxm_uri must deliver it, signature
 validated, exactly once: a second ingest of the same URI must be refused as a
 duplicate. Stock writes a URI (its message reaching the PAPER state) and Outrider
 must read, decrypt and verify it, with the scheme in upper case.
+
+Covers identity-key paper only: neither side has heard the other announce a
+ratchet. Outrider opens stock's URI through its registered delivery destination,
+the path fetched propagated messages take. Ratchet-sealed paper is covered by
+crates/outrider/tests/paper.rs.
 """
 
 from __future__ import annotations

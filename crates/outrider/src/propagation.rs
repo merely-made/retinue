@@ -30,7 +30,7 @@ pub use node::{
     ReceivedPropagationBatch, ServedFetch, announce_propagation, propagation_destination,
     propagation_name, receive_submission, register_propagation, serve_fetch,
 };
-pub use paper::{PAPER_MDU, PreparedPaper, URI_SCHEMA, prepare_paper};
+pub use paper::{PAPER_MDU, PreparedPaper, URI_SCHEMA, prepare_paper, prepare_paper_with};
 pub use policy::{LINK_MAX_INACTIVITY, NodePolicy, PropagationNode, STAMP_THROTTLE};
 pub use store::{
     MAX_PROCESSED_TRANSIENT_IDS, PROCESSED_TRANSIENT_ID_TTL, PropagationStore,

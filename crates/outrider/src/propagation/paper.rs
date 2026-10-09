@@ -1,8 +1,9 @@
 //! Paper messages: a propagation-shaped message carried as an `lxm://` URI, for a QR code
 //! or any other channel outside Reticulum.
 
-use retinue::identity::{Identity, PrivateIdentity};
-use retinue::token::{IV_LEN, encrypt_to_identity};
+use retinue::endpoint::Endpoint;
+use retinue::hash::{AddressHash, NameHash};
+use retinue::identity::PrivateIdentity;
 
 use super::{PropagationError, PropagationMessage};
 use crate::announce::delivery_destination;
@@ -21,28 +22,46 @@ pub struct PreparedPaper {
     pub message_id: [u8; 32],
     pub packed_message: Vec<u8>,
     pub message: PropagationMessage,
+    /// The recipient ratchet the message was sealed to, `None` for its identity key.
+    pub ratchet_id: Option<NameHash>,
 }
 
-/// Build, sign and encrypt one message for paper delivery.
-///
-/// Encrypted to the recipient's identity key. `ephemeral_secret` and `iv` must be fresh and
-/// unpredictable. Refused when it would not fit [`PAPER_MDU`].
+/// Build, sign and seal one message for paper delivery to the delivery destination
+/// `recipient`, to its advertised ratchet when `endpoint` has heard one, as stock packs a
+/// paper message (`LXMessage.py` 451-463). Refused when it would not fit [`PAPER_MDU`].
 pub fn prepare_paper(
+    endpoint: &Endpoint,
     sender: &PrivateIdentity,
-    recipient: &Identity,
+    recipient: AddressHash,
     payload: &LxmfPayload,
-    ephemeral_secret: &[u8; 32],
-    iv: &[u8; IV_LEN],
 ) -> Result<PreparedPaper, PropagationError> {
-    let destination = delivery_destination(recipient);
+    if sender.public() != endpoint.identity() {
+        return Err(PropagationError::LocalIdentityMismatch);
+    }
+    prepare_paper_with(sender, recipient, payload, |plaintext| {
+        endpoint
+            .encrypt_for(recipient, plaintext)
+            .map_err(|_| PropagationError::UnknownRecipient(recipient))
+    })
+}
+
+/// [`prepare_paper`] with the sealing supplied by the caller, which returns the token and
+/// the ratchet it used, for a host that knows the recipient only by its key.
+pub fn prepare_paper_with(
+    sender: &PrivateIdentity,
+    recipient: AddressHash,
+    payload: &LxmfPayload,
+    seal: impl FnOnce(&[u8]) -> Result<(Vec<u8>, Option<NameHash>), PropagationError>,
+) -> Result<PreparedPaper, PropagationError> {
     let source = delivery_destination(sender.public());
-    let prepared = prepare(*destination.as_bytes(), *source.as_bytes(), payload)?;
+    let prepared = prepare(*recipient.as_bytes(), *source.as_bytes(), payload)?;
     let message_id = prepared.message_id;
     let signature = sender.sign(prepared.signing_bytes());
     let packed_message = prepared.finish(signature);
+    let (encrypted, ratchet_id) = seal(&packed_message[16..])?;
     let message = PropagationMessage {
-        destination: *destination.as_bytes(),
-        encrypted: encrypt_to_identity(recipient, ephemeral_secret, iv, &packed_message[16..]),
+        destination: *recipient.as_bytes(),
+        encrypted,
     };
     if 16 + message.encrypted.len() > PAPER_MDU {
         return Err(PropagationError::PaperTooLarge);
@@ -51,6 +70,7 @@ pub fn prepare_paper(
         message_id,
         packed_message,
         message,
+        ratchet_id,
     })
 }
 
@@ -121,6 +141,8 @@ fn sextet(digit: u8) -> Option<u8> {
 
 #[cfg(test)]
 mod tests {
+    use retinue::token::{IV_LEN, encrypt_to_identity};
+
     use super::*;
 
     fn message(len: usize) -> PropagationMessage {
@@ -190,15 +212,13 @@ mod tests {
     fn a_prepared_paper_message_decrypts_and_verifies() {
         let sender = PrivateIdentity::from_secret_bytes(&[0x21; 64]);
         let recipient = PrivateIdentity::from_secret_bytes(&[0x42; 64]);
+        let to_key = |plaintext: &[u8]| {
+            let token = encrypt_to_identity(recipient.public(), &[9; 32], &[3; IV_LEN], plaintext);
+            Ok((token, None))
+        };
+        let destination = delivery_destination(recipient.public());
         let payload = LxmfPayload::text(1_753_603_202.5, b"paper", b"by hand");
-        let paper = prepare_paper(
-            &sender,
-            recipient.public(),
-            &payload,
-            &[9; 32],
-            &[3; IV_LEN],
-        )
-        .unwrap();
+        let paper = prepare_paper_with(&sender, destination, &payload, to_key).unwrap();
         let read = PropagationMessage::from_uri(&paper.message.to_uri().unwrap(), 4096).unwrap();
         let decoded = read.decrypt(&recipient, 4096).unwrap();
         assert_eq!(decoded.message_id, paper.message_id);
@@ -207,7 +227,7 @@ mod tests {
 
         let large = LxmfPayload::text(1.0, b"", vec![0; PAPER_MDU]);
         assert!(matches!(
-            prepare_paper(&sender, recipient.public(), &large, &[9; 32], &[3; IV_LEN]),
+            prepare_paper_with(&sender, destination, &large, to_key),
             Err(PropagationError::PaperTooLarge)
         ));
     }

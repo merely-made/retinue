@@ -4,8 +4,10 @@
 //! `stock_paper decode <uri> <sender public key hex>` reads one addressed to this identity.
 //! Driven by `oracle/interop_paper.py`, which judges stock's side.
 
-use outrider::{LxmfPayload, PropagationMessage, prepare_paper};
+use outrider::{DeliveryAnnounce, LxmfPayload, PropagationMessage, prepare_paper_with};
+use retinue::endpoint::Endpoint;
 use retinue::identity::{Identity, PrivateIdentity};
+use retinue::token::encrypt_to_identity;
 
 const SEED: [u8; 64] = [0x6a; 64];
 const TIMESTAMP: f64 = 1_753_603_203.5;
@@ -17,7 +19,8 @@ fn identity(hex_key: &str) -> Result<Identity, Box<dyn std::error::Error>> {
     Ok(Identity::from_public_bytes(&bytes)?)
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let me = PrivateIdentity::from_secret_bytes(&SEED);
     println!("PUBLIC {}", hex::encode(me.public().to_public_bytes()));
     println!(
@@ -31,13 +34,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let (mut ephemeral, mut iv) = ([0; 32], [0; 16]);
             getrandom::fill(&mut ephemeral).map_err(|error| error.to_string())?;
             getrandom::fill(&mut iv).map_err(|error| error.to_string())?;
-            let paper = prepare_paper(&me, &identity(recipient)?, &payload, &ephemeral, &iv)?;
+            // Stock's recipient never announces, so it is known by its key alone.
+            let recipient = identity(recipient)?;
+            let to_key = |plaintext: &[u8]| {
+                Ok((
+                    encrypt_to_identity(&recipient, &ephemeral, &iv, plaintext),
+                    None,
+                ))
+            };
+            let destination = outrider::delivery_destination(&recipient);
+            let paper = prepare_paper_with(&me, destination, &payload, to_key)?;
             println!("MESSAGE_ID {}", hex::encode(paper.message_id));
             println!("URI {}", paper.message.to_uri()?);
         }
         ["decode", uri, sender] => {
-            let message = PropagationMessage::from_uri(uri, outrider::PAPER_MDU)?
-                .decrypt(&me, outrider::DEFAULT_MAX_MESSAGE_BYTES)?;
+            // Opened as a fetched message is, through the registered delivery destination.
+            let endpoint = Endpoint::new(me.clone());
+            outrider::register_delivery(&endpoint, &DeliveryAnnounce::named(b"Outrider Paper"))?;
+            let (message, _) = PropagationMessage::from_uri(uri, outrider::PAPER_MDU)?
+                .decrypt_for(&endpoint, outrider::DEFAULT_MAX_MESSAGE_BYTES)?;
             let sender = identity(sender)?;
             let verified = message.source == *outrider::delivery_destination(&sender).as_bytes()
                 && message.verify_with(|bytes, signature| sender.verify(bytes, signature));
