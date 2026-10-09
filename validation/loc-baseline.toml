@@ -2,10 +2,6 @@
 # shrink and must be removed once a file is within the ceiling.
 
 [files]
-"apps/signalman-desktop/src/audio.rs" = 848
-"apps/signalman-desktop/src/state.rs" = 1577
-"apps/signalman-desktop/src/views.rs" = 1850
-"apps/signalman-desktop/tests/owner_flow.rs" = 658
 "firmware/heltec-v4-phy/src/channels.rs" = 647
 "firmware/heltec-v4-phy/src/control_boot.rs" = 848
 "firmware/heltec-v4-phy/src/main.rs" = 1113
