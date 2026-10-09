@@ -26,6 +26,7 @@ fn spawn_carrier(ep: &Endpoint, streams: Vec<DuplexStream>, framing: Framing) ->
         outbound,
         sink,
         framing,
+        watch::channel(CarrierStatus::Opening).0,
     ));
     opened
 }

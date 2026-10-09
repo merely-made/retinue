@@ -5,6 +5,7 @@
 //! fails is reopened every 5 s under the same [`InterfaceId`], and packets offered while it
 //! is down are dropped, as RNS drops them while offline.
 
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use std::future::Future;
@@ -12,8 +13,9 @@ use std::io;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use serial2_tokio::{CharSize, FlowControl, SerialPort, Settings, StopBits};
+use serial2_tokio::{CharSize, FlowControl, Settings, StopBits};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::sync::watch;
 use tokio::time::{Instant, sleep_until};
 
 use super::hdlc;
@@ -124,8 +126,24 @@ impl Framing {
     }
 }
 
-/// Attach a serial carrier to `endpoint` and return its interface id with the future that
-/// runs it. The future ends when the endpoint closes.
+/// What a serial carrier is doing.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CarrierStatus {
+    /// Opening the port, or waiting out the settle time.
+    Opening,
+    Online,
+    /// The port failed or would not open; it is retried after [`REOPEN`].
+    Down(String),
+}
+
+/// An attached serial carrier. Spawn `run`; it ends when the endpoint closes.
+pub struct SerialCarrier<F> {
+    pub id: InterfaceId,
+    pub status: watch::Receiver<CarrierStatus>,
+    pub run: F,
+}
+
+/// Attach a serial carrier to `endpoint`.
 ///
 /// Like every RNS serial-family interface, the carrier is exempt from announce ingress
 /// control (`SerialInterface.py` 230) and declares its bitrate.
@@ -134,7 +152,7 @@ pub fn attach(
     config: SerialConfig,
     framing: Framing,
     ifac: Option<Ifac>,
-) -> io::Result<(InterfaceId, impl Future<Output = ()> + Send + 'static)> {
+) -> io::Result<SerialCarrier<impl Future<Output = ()> + Send + 'static>> {
     config.char_size()?;
     config.stop_bits()?;
     let interface = match ifac {
@@ -149,25 +167,16 @@ pub fn attach(
     };
     endpoint.set_interface_ingress_policy(id, Some(exempt));
     let (outbound, sink) = interface.split();
-    let carrier = run(move || open(&config), outbound, sink, framing);
-    Ok((id, carrier))
+    let (status_tx, status) = watch::channel(CarrierStatus::Opening);
+    let run = run(
+        move || port::open(&config),
+        outbound,
+        sink,
+        framing,
+        status_tx,
+    );
+    Ok(SerialCarrier { id, status, run })
 }
-
-/// Open a port with best-effort modem lines.
-fn open(config: &SerialConfig) -> io::Result<SerialPort> {
-    let port = SerialPort::open(&config.path, |settings| config.apply(settings))?;
-    // pyserial asserts DTR and RTS but tolerates a line that has neither, as a pty has not.
-    for line in [port.set_dtr(true), port.set_rts(true)] {
-        line.or_else(|error| match error.raw_os_error() {
-            Some(code) if code == ENOTTY || code == EINVAL => Ok(()),
-            _ => Err(error),
-        })?;
-    }
-    Ok(port)
-}
-
-const EINVAL: i32 = 22;
-const ENOTTY: i32 = 25;
 
 /// Open, run until the port fails, wait out [`REOPEN`] dropping offered packets, repeat.
 async fn run<T, F>(
@@ -175,24 +184,29 @@ async fn run<T, F>(
     mut outbound: OutboundPackets,
     sink: InterfaceSink,
     mut framing: Framing,
+    status: watch::Sender<CarrierStatus>,
 ) where
     T: AsyncRead + AsyncWrite + Unpin,
     F: FnMut() -> io::Result<T>,
 {
     let epoch = Instant::now();
     loop {
-        if let Ok(port) = open() {
-            let settled = Instant::now() + framing.settle();
-            if !idle_until(settled, &mut outbound).await {
-                return;
+        let _ = status.send(CarrierStatus::Opening);
+        let error = match open() {
+            Ok(port) => {
+                let settled = Instant::now() + framing.settle();
+                if !idle_until(settled, &mut outbound).await {
+                    return;
+                }
+                let _ = status.send(CarrierStatus::Online);
+                match run_port(port, &mut outbound, &sink, &mut framing, epoch).await {
+                    Ok(()) => return,
+                    Err(error) => error,
+                }
             }
-            if run_port(port, &mut outbound, &sink, &mut framing, epoch)
-                .await
-                .is_ok()
-            {
-                return;
-            }
-        }
+            Err(error) => error,
+        };
+        let _ = status.send(CarrierStatus::Down(error.to_string()));
         if !idle_until(Instant::now() + REOPEN, &mut outbound).await {
             return;
         }
@@ -283,6 +297,9 @@ where
         }
     }
 }
+
+#[path = "serial_port.rs"]
+mod port;
 
 fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidInput, message)
