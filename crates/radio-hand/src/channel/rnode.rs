@@ -228,7 +228,10 @@ where
         | Command::Bandwidth(_)
         | Command::TxPower(_)
         | Command::SpreadingFactor(_)
-        | Command::CodingRate(_) => Flow::Continue,
+        | Command::CodingRate(_)
+        | Command::AirtimeLock { .. }
+        | Command::Leave
+        | Command::Ready => Flow::Continue,
     }
 }
 

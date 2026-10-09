@@ -49,11 +49,16 @@ pub mod cmd {
     pub const CR: u8 = 0x05;
     pub const RADIO_STATE: u8 = 0x06;
     pub const DETECT: u8 = 0x08;
+    pub const LEAVE: u8 = 0x0A;
+    pub const ST_ALOCK: u8 = 0x0B;
+    pub const LT_ALOCK: u8 = 0x0C;
+    pub const READY: u8 = 0x0F;
     pub const STAT_RSSI: u8 = 0x23;
     pub const STAT_SNR: u8 = 0x24;
     pub const PLATFORM: u8 = 0x48;
     pub const MCU: u8 = 0x49;
     pub const FW_VERSION: u8 = 0x50;
+    pub const RESET: u8 = 0x55;
     pub const ERROR: u8 = 0x90;
 }
 
@@ -76,12 +81,13 @@ pub const FW_VERSION: [u8; 2] = [0x01, 0x56];
 pub const PLATFORM: u8 = 0x70;
 pub const MCU: u8 = 0x71;
 
-/// The largest frame the host protocol carries.
+/// The largest frame the host protocol carries: RNS's RNode HW_MTU, a 500-byte packet plus
+/// an 8-byte IFAC (`RNodeInterface.py` 110, 195).
 ///
-/// Reticulum's packet MTU, and larger than this radio's 255-byte air frame. Kept at the
-/// protocol's number on purpose: a host that sends 500 bytes must be *told* so, and a
-/// deframer bounded at 255 would silently resync instead. See [`MAX_AIR_FRAME`].
-pub const MAX_FRAME: usize = 500;
+/// Larger than this radio's 255-byte air frame on purpose: a host that sends 508 bytes must
+/// be *told* so, and a deframer bounded at 255 would silently resync instead. See
+/// [`MAX_AIR_FRAME`].
+pub const MAX_FRAME: usize = 508;
 
 /// The largest frame this radio can actually put on the air.
 ///
@@ -132,6 +138,15 @@ pub enum Command<'a> {
     CodingRate(u8),
     /// Turn the radio on or off. This is what commits the settings above.
     RadioState(bool),
+    /// A short- (`long == false`) or long-term airtime limit, in hundredths of a percent.
+    AirtimeLock {
+        long: bool,
+        centi: u16,
+    },
+    /// The host is detaching (`RNodeInterface.py` 496-500).
+    Leave,
+    /// Flow control's READY. A device sends it; a host has no reason to.
+    Ready,
     /// A packet to put on the air.
     Data(&'a [u8]),
     /// A command this device does not implement, or one whose payload did not decode.
@@ -145,6 +160,10 @@ pub enum Command<'a> {
 pub fn decode(frame: &[u8]) -> Option<Command<'_>> {
     let (&command, payload) = frame.split_first()?;
     let byte = || payload.first().copied();
+    let half = || {
+        let bytes: [u8; 2] = payload.get(..2)?.try_into().ok()?;
+        Some(u16::from_be_bytes(bytes))
+    };
     let word = || {
         let bytes: [u8; 4] = payload.get(..4)?.try_into().ok()?;
         Some(u32::from_be_bytes(bytes))
@@ -175,6 +194,15 @@ pub fn decode(frame: &[u8]) -> Option<Command<'_>> {
             None => Command::Unhandled(command),
         },
         cmd::RADIO_STATE => Command::RadioState(byte() == Some(1)),
+        cmd::ST_ALOCK | cmd::LT_ALOCK => match half() {
+            Some(centi) => Command::AirtimeLock {
+                long: command == cmd::LT_ALOCK,
+                centi,
+            },
+            None => Command::Unhandled(command),
+        },
+        cmd::LEAVE => Command::Leave,
+        cmd::READY => Command::Ready,
         cmd::DATA => Command::Data(payload),
         other => Command::Unhandled(other),
     })
@@ -186,8 +214,11 @@ pub type Payload = heapless::Vec<u8, 4>;
 
 /// The device's answer to a command that needs no radio.
 ///
-/// The probes, and the echo of each setting. `None` for the two commands that touch hardware,
-/// which the channel owns: `RADIO_STATE` commits a profile and `DATA` puts a frame on the air.
+/// The probes, and the echo of each setting, airtime limits included, since RNS records
+/// those echoes (`RNodeInterface.py` 896-925). `None` for the two commands that touch
+/// hardware, which the channel owns: `RADIO_STATE` commits a profile and `DATA` puts a frame
+/// on the air. `LEAVE` and `READY` take no answer: the host that sent LEAVE has gone, and
+/// READY is the device's own word.
 ///
 /// Settings are echoed from the *decoded* value rather than by copying the bytes back, so a
 /// decode that misread a field would show up as a wrong echo. The capture is what says which
@@ -209,7 +240,15 @@ pub fn answer(command: &Command<'_>) -> Option<(u8, Payload)> {
         Command::TxPower(dbm) => (cmd::TXPOWER, one(dbm)),
         Command::SpreadingFactor(sf) => (cmd::SF, one(sf)),
         Command::CodingRate(cr) => (cmd::CR, one(cr)),
-        Command::RadioState(_) | Command::Data(_) | Command::Unhandled(_) => return None,
+        Command::AirtimeLock { long, centi } => (
+            if long { cmd::LT_ALOCK } else { cmd::ST_ALOCK },
+            Payload::from_slice(&centi.to_be_bytes()).unwrap_or_default(),
+        ),
+        Command::RadioState(_)
+        | Command::Data(_)
+        | Command::Leave
+        | Command::Ready
+        | Command::Unhandled(_) => return None,
     })
 }
 
@@ -326,6 +365,30 @@ mod tests {
         assert_eq!(
             decode(&[cmd::RADIO_STATE, 0x01]),
             Some(Command::RadioState(true))
+        );
+    }
+
+    #[test]
+    fn airtime_locks_are_echoed_and_leave_is_known() {
+        let lock = decode(&[cmd::ST_ALOCK, 0x0D, 0x16]).unwrap();
+        assert_eq!(
+            lock,
+            Command::AirtimeLock {
+                long: false,
+                centi: 3_350
+            }
+        );
+        let (marker, payload) = answer(&lock).unwrap();
+        assert_eq!(
+            (marker, payload.as_slice()),
+            (cmd::ST_ALOCK, &[0x0D, 0x16][..])
+        );
+        assert_eq!(decode(&[cmd::LEAVE, 0xFF]), Some(Command::Leave));
+        assert_eq!(decode(&[cmd::READY, 0x01]), Some(Command::Ready));
+        assert_eq!(answer(&Command::Leave), None);
+        assert_eq!(
+            decode(&[cmd::LT_ALOCK, 0x01]),
+            Some(Command::Unhandled(cmd::LT_ALOCK))
         );
     }
 
