@@ -276,6 +276,8 @@ async fn a_session_proves_the_data_packet_it_received() {
             assert!(accepted.session.prove_data().is_err());
             let received = accepted.session.receive().await.unwrap();
             accepted.session.prove_data().unwrap();
+            // Each packet is proved once.
+            assert!(accepted.session.prove_data().is_err());
             tokio::time::sleep(Duration::from_millis(100)).await;
             received
         }

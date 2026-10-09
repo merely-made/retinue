@@ -396,13 +396,13 @@ impl ResourceSession {
     }
 
     /// Prove the data packet the last [`receive`](Self::receive) returned, as an RNS
-    /// destination under `PROVE_APP` does (`Link.py` 961-967). A Resource is proved on
-    /// completion already. Fails if no data packet has been received.
-    pub fn prove_data(&self) -> io::Result<()> {
-        let packet = self.last_data.as_ref().ok_or_else(|| {
+    /// destination under `PROVE_APP` does (`Link.py` 961-967), once. A Resource is proved on
+    /// completion already. Fails if that receive returned no data packet, or it was proved.
+    pub fn prove_data(&mut self) -> io::Result<()> {
+        let packet = self.last_data.take().ok_or_else(|| {
             io::Error::new(io::ErrorKind::InvalidInput, "no data packet to prove")
         })?;
-        let proof = self.link.prove_packet(packet);
+        let proof = self.link.prove_packet(&packet);
         self.shared
             .send_on_class(self.iface, proof, TrafficClass::Control);
         Ok(())
@@ -418,6 +418,7 @@ impl ResourceSession {
     ///
     /// [`Endpoint::register_resource`]: super::Endpoint::register_resource
     pub async fn receive(&mut self) -> io::Result<ReceivedPayload> {
+        self.last_data = None;
         let mut receiver = self.receivers(None, true)();
         let mut pace = Pace::new(self.config.timeout);
         let mut kept = 0;

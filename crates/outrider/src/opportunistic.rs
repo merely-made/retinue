@@ -44,7 +44,8 @@ pub struct OpportunisticReceipt {
 pub struct ReceivedOpportunistic {
     pub message: DecodedLxmf,
     /// [`Verification::Verified`] or [`Verification::SourceUnknown`]; an invalid signature is
-    /// refused.
+    /// refused. An unknown source's packet is left unproved, so stock sends it again and the
+    /// retry is delivered once the source verifies: there is no need to hold it.
     pub verification: Verification,
     /// The sender's identity, when it verified.
     pub source_identity: Option<Identity>,

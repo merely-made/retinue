@@ -164,7 +164,7 @@ impl Station {
                     let Ok(accepted) = endpoint.accept_resource().await else {
                         return;
                     };
-                    let event = match receive_direct_with_stamp_cost_and_resource_config(
+                    let events = match receive_direct_with_stamp_cost_and_resource_config(
                         &endpoint,
                         accepted,
                         &held.delivered,
@@ -175,13 +175,14 @@ impl Station {
                     .await
                     {
                         Ok(received) if received.verification == Verification::SourceUnknown => {
-                            held.hold(received)
+                            held.hold(&endpoint, received, now_secs())
                         }
-                        Ok(received) => Some(Event::authenticated_message(received)),
-                        Err(error) => Some(Event::Dropped(error.to_string())),
+                        Ok(received) => vec![Event::authenticated_message(received)],
+                        Err(error) => vec![Event::Dropped(error.to_string())],
                     };
-                    if let Some(event) = event
-                        && events_tx.send(event).is_err()
+                    if events
+                        .into_iter()
+                        .any(|event| events_tx.send(event).is_err())
                     {
                         return;
                     }

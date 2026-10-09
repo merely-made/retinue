@@ -124,7 +124,7 @@ impl DeliveredCache {
             .max_ids
             .max(DEFAULT_MAX_DELIVERED_IDS)
             .saturating_mul(2);
-        let limit = 64 + SNAPSHOT_ENTRY_BYTES.saturating_mul(ids);
+        let limit = SNAPSHOT_ENTRY_BYTES.saturating_mul(ids).saturating_add(64);
         if snapshot.len() > limit {
             return Err(DeliveredSnapshotError::TooLarge);
         }

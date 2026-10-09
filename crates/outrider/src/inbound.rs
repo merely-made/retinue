@@ -14,8 +14,10 @@ use crate::ticket::{self, StampFault, StampOutcome, TICKET_LEN};
 /// How a received message's signature stands (`LXMessage.py` 814-827).
 ///
 /// The delivery lanes and propagation fetch refuse [`SignatureInvalid`](Self::SignatureInvalid)
-/// and hand over the other two. A [`SourceUnknown`](Self::SourceUnknown) message is the
-/// host's to hold: once the sender's announce arrives, [`reverify`] settles it.
+/// and hand over the other two. A direct [`SourceUnknown`](Self::SourceUnknown) message was
+/// proved, so its sender will not resend it: the host holds it until the sender's announce
+/// arrives and [`reverify`] settles it. An opportunistic one need not be held: it was left
+/// unproved, and the lane delivers the sender's retry once that verifies.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Verification {
     Verified,
@@ -38,7 +40,10 @@ pub fn verify(message: &DecodedLxmf, source: Option<&Identity>) -> Verification 
 }
 
 /// Settle a held [`Verification::SourceUnknown`] message against the identities `endpoint`
-/// has learned since, returning the identity when it verifies. Asks the network for nothing.
+/// has learned since, returning the identity when it verifies. Asks the network for nothing
+/// and records nothing: admit a verified message to the lane's
+/// [`DeliveredCache`](crate::DeliveredCache), which says whether it is new, before handing
+/// it over.
 pub fn reverify(endpoint: &Endpoint, message: &DecodedLxmf) -> (Verification, Option<Identity>) {
     let identity = endpoint.resolve(AddressHash::from_bytes(message.source));
     let verification = verify(message, identity.as_ref());
