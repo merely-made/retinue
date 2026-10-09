@@ -147,3 +147,50 @@ fn a_full_rebroadcast_table_refuses_rather_than_displaces() {
         REBROADCAST_SLOTS
     );
 }
+
+/// A destination re-announcing while its relay waits for the retry takes over that retry, so
+/// repeats of a few destinations cannot keep the bounded table full of unsent entries.
+#[test]
+fn re_announcing_cannot_pin_the_rebroadcast_table() {
+    let mut relay = transit(0x69, "relay");
+    let announce = |seed: u8, ordinal| {
+        let blob = AnnounceBlob::mint([seed; 5], ordinal).unwrap();
+        announcer(0x90 + seed).announce(&blob, None)
+    };
+    for seed in 0..REBROADCAST_SLOTS as u8 {
+        relay.ingest(IFACE, &announce(seed, 1), 0);
+    }
+    let first = relay.poll(REBROADCAST_WINDOW, IFACE, None);
+    assert_eq!(first.len(), REBROADCAST_SLOTS);
+    for seed in 0..REBROADCAST_SLOTS as u8 {
+        relay.ingest(IFACE, &announce(seed, 2), REBROADCAST_WINDOW + 1);
+    }
+
+    let newcomer = announcer(0x9F).announce(&blob([0x9F; RAND_HASH_LEN]), None);
+    relay.ingest(IFACE, &newcomer, REBROADCAST_WINDOW + 2);
+    assert_eq!(relay.transport_counters().refused_rebroadcasts, 0);
+}
+
+/// A shell that wakes at `next_rebroadcast` and polls always makes progress: the next wake is
+/// later, or there is none, so a deadline-driven board cannot spin.
+#[test]
+fn polling_at_the_next_rebroadcast_moves_it_on() {
+    let mut relay = transit(0x6A, "relay");
+    relay
+        .set_first_hop_airtime(IFACE, first_hop_airtime(62_500))
+        .unwrap();
+    for seed in 0xA0..0xA6 {
+        let announce = announcer(seed).announce(&blob([seed; RAND_HASH_LEN]), None);
+        relay.ingest(IFACE, &announce, 0);
+    }
+    let mut wakes = 0;
+    while let Some(at) = relay.next_rebroadcast() {
+        relay.poll(at, IFACE, None);
+        assert!(relay.next_rebroadcast().is_none_or(|next| next > at));
+        wakes += 1;
+        assert!(wakes < 64, "bounded");
+    }
+    let counters = relay.transport_counters();
+    assert!(counters.forwarded_announces >= 6, "each sent at least once");
+    assert_eq!(counters.dropped_announces, 0);
+}

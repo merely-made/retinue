@@ -270,18 +270,18 @@ async fn relay_jitter_delays_the_relay_without_dropping_it() {
     assert!(started.elapsed() < Duration::from_secs(3));
 }
 
-/// Jitter off is the default, so a point-to-point link pays no latency for a defence it does
-/// not need.
+/// The default relay jitter is RNS's rebroadcast window (`Transport.py` 2338): a relay goes
+/// out within it, not immediately and not never.
 #[tokio::test]
-async fn relay_jitter_is_off_by_default() {
+async fn relay_jitter_defaults_to_the_rns_window() {
     let (hub, a, mut b) = hub();
     hub.enable_routing();
 
     let far = teach_route(&hub, &a, 3, "c").await;
-    // With no jitter the relay is already queued by the time the route is learned.
-    let relayed = tokio::time::timeout(Duration::from_millis(500), b.next_outbound())
+    let window = Duration::from_millis(retinue::node::REBROADCAST_WINDOW);
+    let relayed = tokio::time::timeout(window + Duration::from_secs(2), b.next_outbound())
         .await
-        .expect("an unjittered relay goes out immediately")
+        .expect("a relay goes out within the jitter window")
         .expect("interface open");
     assert_eq!(relayed.destination, far);
 }

@@ -58,8 +58,12 @@ impl Rebroadcasts {
     /// Schedule a first transmission `delay` after `now`, replacing any entry for the same
     /// destination as RNS does. At capacity an entry already sent once makes room; with none,
     /// the announce is refused rather than displacing one still waiting for its first send.
+    ///
+    /// A replacement keeps the old entry's send count: the newer announce takes over the
+    /// remaining transmission, so re-announcing one destination cannot pin a slot as unsent
+    /// and starve the table (RNS resets its retries; its table is unbounded).
     pub(crate) fn schedule(&mut self, rebroadcast: Rebroadcast, now: u64, delay: u64) -> bool {
-        let entry = Entry {
+        let mut entry = Entry {
             rebroadcast,
             due: now.saturating_add(delay),
             sent: 0,
@@ -67,6 +71,7 @@ impl Rebroadcasts {
         };
         let destination = entry.rebroadcast.destination;
         if let Some(existing) = self.find(destination) {
+            entry.sent = self.entries[existing].sent;
             self.entries[existing] = entry;
             return true;
         }
@@ -158,7 +163,10 @@ impl Rebroadcasts {
 /// The wait after sending `len` bytes before the next relayed announce, given the airtime of
 /// one 500-byte MTU (`first_hop_airtime`): the transmission time over the cap share.
 pub(crate) fn cap_wait(len: usize, mtu_airtime: u64) -> u64 {
-    (mtu_airtime.saturating_mul(len as u64) * 100).div_ceil(500 * ANNOUNCE_CAP_PERCENT)
+    mtu_airtime
+        .saturating_mul(len as u64)
+        .saturating_mul(100)
+        .div_ceil(500 * ANNOUNCE_CAP_PERCENT)
 }
 
 /// What [`AnnounceCap::offer`] did with an announce.
@@ -199,7 +207,8 @@ impl AnnounceCap {
     /// queued keeps one entry, replaced by a newer emission (`Transport.py` 1531-1565).
     pub(crate) fn offer(&mut self, rebroadcast: Rebroadcast, now: u64, mtu_airtime: u64) -> Offer {
         if self.queue.is_empty() && now >= self.allowed_at {
-            self.allowed_at = now + cap_wait(rebroadcast.packet.encoded_len(), mtu_airtime);
+            self.allowed_at =
+                now.saturating_add(cap_wait(rebroadcast.packet.encoded_len(), mtu_airtime));
             return Offer::Send(rebroadcast.packet);
         }
         if let Some(queued) = self
@@ -240,7 +249,7 @@ impl AnnounceCap {
             .min_by_key(|(_, queued)| (queued.rebroadcast.packet.hops, queued.at))
             .map(|(index, _)| index)?;
         let packet = self.queue.remove(index).rebroadcast.packet;
-        self.allowed_at = now + cap_wait(packet.encoded_len(), mtu_airtime);
+        self.allowed_at = now.saturating_add(cap_wait(packet.encoded_len(), mtu_airtime));
         Some(packet)
     }
 
@@ -326,6 +335,47 @@ mod tests {
         assert!(!table.schedule(rebroadcast(2, 1, 0), 0, 10));
         table.pop_due(10);
         assert!(table.schedule(rebroadcast(2, 1, 0), 10, 10));
+    }
+
+    #[test]
+    fn a_replacement_takes_over_the_remaining_transmission() {
+        let mut table = Rebroadcasts::new(1);
+        assert!(table.schedule(rebroadcast(1, 1, 0), 0, 0));
+        table.pop_due(0);
+        assert!(
+            table.schedule(rebroadcast(1, 2, 1), 10, 10),
+            "a newer announce"
+        );
+        assert!(
+            table.schedule(rebroadcast(2, 1, 0), 10, 10),
+            "the replaced entry stays evictable"
+        );
+        assert!(!table.contains(AddressHash::from_bytes([1; 16])));
+
+        let mut table = Rebroadcasts::new(4);
+        table.schedule(rebroadcast(3, 1, 0), 0, 0);
+        table.pop_due(0);
+        table.schedule(rebroadcast(3, 1, 1), 10, 10);
+        assert_eq!(table.pop_due(20).unwrap().emitted, 1);
+        assert_eq!(table.len(), 0, "sent once more, then done");
+    }
+
+    #[test]
+    fn an_extreme_airtime_saturates() {
+        assert_eq!(
+            cap_wait(500, u64::MAX),
+            u64::MAX.div_ceil(500 * ANNOUNCE_CAP_PERCENT)
+        );
+        let mut cap = AnnounceCap::new(1);
+        assert!(matches!(
+            cap.offer(rebroadcast(1, 1, 0), 5, u64::MAX),
+            Offer::Send(_)
+        ));
+        assert!(matches!(
+            cap.offer(rebroadcast(2, 1, 0), 6, u64::MAX),
+            Offer::Queued
+        ));
+        assert!(cap.pop_due(u64::MAX - 1, u64::MAX).is_none());
     }
 
     #[test]
