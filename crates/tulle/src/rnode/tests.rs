@@ -76,6 +76,30 @@ fn airtime_locks_are_sent_before_the_radio_comes_up() {
     );
 }
 
+/// A device may store the limit lossily: 2.09% echoed as 2.08%, 100% as 0 (no limit).
+#[test]
+fn airtime_lock_echoes_are_recorded_not_compared() {
+    for (asked, echoed) in [(209_u16, 208_u16), (10_000, 0)] {
+        let config = RNodeConfig {
+            st_alock: Some(asked),
+            lt_alock: Some(asked),
+            ..RNodeConfig::new(params())
+        };
+        let mut rnode = started(config);
+        rnode.on_serial(&device_echoes(&config, |e| {
+            let state = e.pop().unwrap();
+            for marker in [cmd::ST_ALOCK, cmd::LT_ALOCK] {
+                e.push([&[marker][..], &echoed.to_be_bytes()].concat());
+            }
+            e.push(state);
+        }));
+        assert_eq!(rnode.take_fault(), None);
+        assert!(rnode.is_online());
+        assert_eq!(rnode.reported().st_alock, Some(echoed));
+        assert_eq!(rnode.reported().lt_alock, Some(echoed));
+    }
+}
+
 #[test]
 fn mismatched_echoes_fault_instead_of_going_online() {
     let config = RNodeConfig::new(params());

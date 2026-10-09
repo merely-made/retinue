@@ -174,11 +174,10 @@ impl Reported {
     /// The first echo that disagrees with `config`.
     ///
     /// Stricter than RNS (`RNodeInterface.py` 667-695): a missing frequency echo and a wrong
-    /// coding rate both fail here. Airtime limits are checked only when echoed, since RNS
-    /// records but never compares them.
+    /// coding rate both fail here. Airtime limits are recorded but, as in RNS (896-925), never
+    /// compared: a device may store the limit lossily and echo a different value.
     pub fn mismatch(&self, config: &RNodeConfig) -> Option<Mismatch> {
         let p = &config.params;
-        let alock = |asked: Option<u16>, echoed: Option<u16>| matches!((asked, echoed), (Some(a), Some(e)) if a != e);
         let checks = [
             (
                 self.frequency_hz
@@ -199,10 +198,6 @@ impl Reported {
                 Mismatch::CodingRate,
             ),
             (self.radio_state == Some(1), Mismatch::RadioState),
-            (
-                !alock(config.st_alock, self.st_alock) && !alock(config.lt_alock, self.lt_alock),
-                Mismatch::AirtimeLimit,
-            ),
         ];
         checks.into_iter().find_map(|(ok, m)| (!ok).then_some(m))
     }
@@ -217,7 +212,6 @@ pub enum Mismatch {
     SpreadingFactor,
     CodingRate,
     RadioState,
-    AirtimeLimit,
 }
 
 /// An `ERROR` code, as RNS treats it (`RNodeInterface.py` 1076-1090).
