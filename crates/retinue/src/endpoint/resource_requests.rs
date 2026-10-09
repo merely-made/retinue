@@ -49,9 +49,8 @@ pub struct ReceivedRawResponse {
     pub packed: Vec<u8>,
     /// Request id read from the first response item.
     pub request_id: AddressHash,
-    /// Packed (msgpack) metadata of a response Resource that carried some: RNS's file
-    /// response. `packed` then holds the file's bytes rather than a response envelope, and
-    /// `request_id` is the one the advertisement named.
+    /// Packed (msgpack) metadata of a response Resource that carried some, RNS's file
+    /// response: `packed` then holds the file's bytes, and `request_id` is the advertised one.
     pub metadata: Option<Vec<u8>>,
 }
 
@@ -75,11 +74,8 @@ impl ResourceSession {
 
     /// The peer identity proven by an IDENTIFY on this link, if the sender sent one.
     ///
-    /// Stronger evidence than an announce: an announce says a destination exists somewhere,
-    /// while this is the peer on the other end of *this* link signing that it is that
-    /// identity. A caller still has to check that the identity is the one its payload claims
-    /// as the source, because IDENTIFY proves who the peer is and says nothing about who the
-    /// payload says it is from.
+    /// Stronger than an announce: the peer on *this* link signed it. It says nothing about
+    /// who a payload claims to be from, which the caller must still check.
     pub fn identified_peer(&self) -> Option<Identity> {
         self.identified_peer
     }
@@ -219,8 +215,7 @@ impl ResourceSession {
         packed_request: &[u8],
         max_response_size: Option<usize>,
     ) -> io::Result<ReceivedRawResponse> {
-        // Outgoing request Resources are not implemented. Refuse a value that
-        // cannot fit this link instead of transmitting an oversized packet.
+        // Outgoing request Resources are not implemented.
         if packed_request.len() > write_chunk_for_mtu(self.link.mtu()) {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -297,9 +292,8 @@ impl ResourceSession {
                             let (packed, metadata) = receiving
                                 .take_payload()
                                 .expect("a completed receiver holds its payload");
-                            // A response with metadata is RNS's file response: the data is
-                            // the file's bytes, not an envelope, and the advertisement alone
-                            // names the request.
+                            // A file response (one with metadata) carries the file's bytes,
+                            // and only its advertisement names the request.
                             let response_id = match (&metadata, advertised_id) {
                                 (Some(_), Some(id)) => id,
                                 _ => Response::request_id(&packed).map_err(|_| {

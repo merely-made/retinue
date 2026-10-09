@@ -276,8 +276,8 @@ impl Endpoint {
     /// to its identity key when it advertises none, as RNS does.
     ///
     /// Success means the packet was encrypted to the latest validated announce and accepted
-    /// by at least one local interface queue. The receipt's [`delivery`](SinglePacketReceipt::delivery)
-    /// learns whether the destination proved it.
+    /// by at least one local interface queue; the receipt's
+    /// [`delivery`](SinglePacketReceipt::delivery) learns whether the destination proved it.
     pub fn send_single(&self, dest: AddressHash, data: &[u8]) -> io::Result<SinglePacketReceipt> {
         if !self.shared.is_running() {
             return Err(endpoint_closed());

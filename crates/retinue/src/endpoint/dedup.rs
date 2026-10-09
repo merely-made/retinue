@@ -13,11 +13,9 @@ pub(super) const SEEN_ANNOUNCES: usize = 4096;
 
 /// Recent link packet hashes, both ways, across every link this endpoint holds.
 ///
-/// On a shared medium a relay's retransmission of our own link packet reaches us under the
-/// shared link key, with hops+1 and the same hash: `sent` marks it as ours rather than the
-/// far end's. That covers Channel too, where taking our own sequence for the far end's would
-/// also drop the far end's real one as a repeat. The same medium hands us the far end's packet
-/// twice, directly and from a relay: `received` delivers it once.
+/// On a shared medium a relay hands our own link packet back under the shared key with the
+/// same hash: `sent` marks it ours, so Channel never mistakes our sequence for the far end's.
+/// The far end's packet can also arrive twice, directly and relayed: `received` keeps one.
 pub(super) struct LinkPacketMemory {
     sent: HashWindow,
     received: HashWindow,

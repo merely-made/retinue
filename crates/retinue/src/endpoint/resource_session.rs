@@ -24,11 +24,9 @@ use super::interface::InterfaceId;
 use super::shared::{LinkEntry, LinkKind, Shared};
 use super::stream::LINK_QUEUE;
 
-/// How many copies of a completed Resource receipt are sent when the receiving call
-/// returns: the one completion sent, and the rest queued behind it. A receiver commonly
-/// drops its session, and with it the link and its kept proof, as soon as it has the data,
-/// after which a publisher's cache request has nothing to answer it. RNS sends one proof
-/// and ignores a proof for a resource already concluded, so the copies cost only airtime.
+/// Copies of a completed Resource's proof sent when the receive returns. A receiver often
+/// drops its session, and the kept proof with it, as soon as it has the data; RNS ignores a
+/// proof for a concluded resource, so the extra copies cost only airtime.
 const RESOURCE_PROOF_MAX_SENDS: u32 = 3;
 
 /// Runtime policy for an endpoint-driven resource transfer.
@@ -52,10 +50,7 @@ impl Default for ResourceTransferConfig {
     }
 }
 
-/// A live link whose raw packets are driven by the resource transfer state machines.
-///
-/// One session carries one transfer at a time. A peer may either publish to this session or
-/// fetch from it; the other side performs the complementary operation.
+/// What [`ResourceSession::receive`] delivered.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ReceivedPayload {
     /// One decrypted best-effort link packet.
@@ -73,6 +68,9 @@ pub enum PayloadMode {
     Resource,
 }
 
+/// A live link whose raw packets are driven by the resource transfer state machines.
+///
+/// One session carries one transfer at a time: one peer publishes, the other fetches.
 pub struct ResourceSession {
     pub(super) shared: Arc<Shared>,
     pub(super) link: Link,
@@ -227,8 +225,7 @@ impl ResourceSession {
                             && publishing.awaiting_proof()
                         {
                             // Every part went out and no proof came back: ask the
-                            // receiver to re-send it, as RNS asks its peer's cache, and
-                            // once those requests are spent give up and say so.
+                            // receiver's cache, as RNS does, until those requests run out.
                             if let Some(request) = publishing.cache_request() {
                                 shared.send_on(iface, request);
                             } else {
@@ -343,10 +340,11 @@ impl ResourceSession {
 
     /// Receive either one best-effort data packet or one complete Resource.
     ///
-    /// Protocols such as LXMF use both delivery forms on the same destination.
-    /// Register that destination with [`Endpoint::register_resource`](super::Endpoint::register_resource), then use
-    /// this method instead of deciding the inbound form before the link arrives.
-    /// Metadata a Resource carried is kept for [`take_metadata`](Self::take_metadata).
+    /// Protocols such as LXMF use both forms on one destination: register it with
+    /// [`Endpoint::register_resource`] and receive here. Metadata a Resource carried is kept
+    /// for [`take_metadata`](Self::take_metadata).
+    ///
+    /// [`Endpoint::register_resource`]: super::Endpoint::register_resource
     pub async fn receive(&mut self) -> io::Result<ReceivedPayload> {
         let mut receiver = self.receiver();
         let shared = Arc::clone(&self.shared);
@@ -366,12 +364,8 @@ impl ResourceSession {
                         let packet = maybe.ok_or_else(|| {
                             io::Error::new(io::ErrorKind::BrokenPipe, "resource link closed")
                         })?;
-                        // An IDENTIFY on a resource link is the sender telling us who it is,
-                        // signed under the link. Reading it here is what lets a receiver
-                        // authenticate a first message from somebody it has never heard
-                        // announce: the request path already did this, and dropping it here
-                        // meant the strongest evidence available was thrown away in favour of
-                        // an address-book lookup that could only fail.
+                        // The sender's IDENTIFY, signed under the link: what authenticates a
+                        // first message from a peer we have never heard announce.
                         if let Some(identity) = link.read_identify(&packet) {
                             identified = Some(identity);
                             continue;

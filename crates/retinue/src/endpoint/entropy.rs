@@ -2,10 +2,8 @@
 
 use crate::token::IV_LEN;
 
-/// Fill `buf` with cryptographically secure OS randomness. Link ephemeral secrets and AES
-/// IVs depend on this being unpredictable — the whole link's secrecy rests on the ephemeral
-/// key an eavesdropper must not be able to guess — so a failure to obtain entropy is fatal:
-/// this panics rather than hand back weak bytes.
+/// Fill `buf` with OS randomness. Link secrecy rests on these bytes being unpredictable, so
+/// this panics rather than hand back weak ones.
 pub(super) fn fill_random(buf: &mut [u8]) {
     getrandom::getrandom(buf).expect("OS CSPRNG unavailable");
 }

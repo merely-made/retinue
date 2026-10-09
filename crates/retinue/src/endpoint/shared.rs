@@ -53,8 +53,7 @@ pub(super) struct LinkEntry {
     /// How inbound traffic for this link is handled: best-effort delivers decrypted bytes
     /// straight to the stream; reliable hands raw channel and proof packets to a driver.
     pub(super) kind: LinkKind,
-    /// The interface this link's traffic goes out on. Recorded for routing (R7), where a
-    /// forwarded link's return traffic must go back the way it came.
+    /// The interface this link's traffic goes out on.
     pub(super) iface: InterfaceId,
     pub(super) direction: LinkDirection,
     pub(super) remote: LinkRemoteFact,
@@ -66,8 +65,7 @@ pub(super) struct LinkEntry {
 
 /// The delivery discipline of a link's stream, chosen when the stream is registered.
 pub(super) enum LinkKind {
-    /// The router decrypts each data packet and forwards the plaintext (right for TCP,
-    /// where the medium never drops).
+    /// The router decrypts each data packet and forwards the plaintext (right for TCP).
     /// `fault` is the stream's receive error, set if its queue overflows.
     BestEffort {
         inbound: mpsc::Sender<Vec<u8>>,
@@ -103,8 +101,8 @@ pub(super) struct Shared {
     /// The host's ratchet persistence hook. Its lock also serializes ratchet rotation, so
     /// two announces cannot rotate one store twice or persist out of order.
     pub(super) ratchet_persistence: Mutex<Option<RatchetPersistence>>,
-    /// Per-destination host announce ordinals. A destination needs its own strictly increasing
-    /// timebase, because it is the destination's signed blob that receivers retain.
+    /// Per-destination announce ordinals: receivers retain each destination's signed blob,
+    /// so each needs its own strictly increasing timebase.
     pub(super) announce_timebases: Mutex<HashMap<AddressHash, TimebaseGenerator>>,
     /// Every attached interface. Announces broadcast to all; link traffic targets one.
     pub(super) interfaces: Mutex<Vec<Iface>>,
@@ -112,9 +110,7 @@ pub(super) struct Shared {
     pub(super) router_tx: mpsc::Sender<(InterfaceId, Packet)>,
     /// Inbound accepted links (stream + destination), surfaced to `accept`.
     pub(super) accepted_tx: mpsc::UnboundedSender<Accepted>,
-    /// Inbound accepted reliable links, surfaced to `accept_reliable_on_any`. Registered
-    /// eagerly (the peer identity is learned from the initiator's IDENTIFY, not needed up
-    /// front).
+    /// Inbound accepted reliable links, surfaced to `accept_reliable_on_any`.
     pub(super) reliable_accepted_tx: mpsc::UnboundedSender<Accepted>,
     /// Inbound resource links, surfaced to `accept_resource`.
     pub(super) resource_accepted_tx: mpsc::UnboundedSender<AcceptedResource>,
@@ -137,8 +133,8 @@ pub(super) struct Shared {
     pub(super) diagnostic_generation: AtomicU64,
     /// Serializes diagnostic fact mutation against a multi-table diagnostic capture.
     pub(super) diagnostic_barrier: RwLock<()>,
-    /// Upper bound, in milliseconds, of the random delay before relaying an announce. Zero
-    /// (the default) relays immediately. See [`Endpoint::set_relay_jitter`].
+    /// Upper bound, in milliseconds, of the random delay before relaying an announce. See
+    /// [`Endpoint::set_relay_jitter`].
     pub(super) relay_jitter_ms: AtomicU64,
     /// First reliable-channel RTT estimate. Proofs adapt it after traffic starts.
     pub(super) reliable_initial_rtt_ms: AtomicU64,
@@ -152,20 +148,18 @@ pub(super) struct Shared {
     pub(super) first_hop_airtime_ms: Mutex<HashMap<InterfaceId, u64>>,
     /// MTU requested and offered by subsequently established links.
     pub(super) link_mtu: AtomicU32,
-    /// Proofs for recently accepted link requests, keyed by link id. Replaying the same
-    /// proof avoids creating a second stream when only the first proof was lost.
+    /// Proofs for recently accepted link requests, keyed by link id, replayed when only the
+    /// proof was lost rather than creating a second stream.
     pub(super) inbound_link_proofs: Mutex<HashMap<AddressHash, (Packet, Instant)>>,
     /// Live inbound links counted against their caps, and the accept backlog.
     pub(super) inbound: Mutex<InboundLinks>,
-    /// The last resource proof sent on each link, with when and how many times it has been
-    /// re-sent, answered to a publisher's cache request (or re-advertisement) for
-    /// [`RESOURCE_PROOF_CACHE_TTL`], at most [`PROOF_CACHE_ANSWERS`] times.
+    /// The last resource proof sent on each link, when, and how often it was re-sent: it
+    /// answers a cache request for [`RESOURCE_PROOF_CACHE_TTL`], at most
+    /// [`PROOF_CACHE_ANSWERS`] times.
     pub(super) resource_proofs: Mutex<HashMap<AddressHash, (Packet, Instant, u8)>>,
-    /// Learned routes: destination → the interface to reach it and its hop count. Populated
-    /// from announces.
+    /// Learned routes, from announces.
     pub(super) path_table: Mutex<HashMap<AddressHash, PathEntry>>,
-    /// Recently-seen announce packet hashes, for de-duplication (a ring of the last
-    /// [`SEEN_ANNOUNCES`]).
+    /// The last [`SEEN_ANNOUNCES`] announce packet hashes, for de-duplication.
     pub(super) seen_announces: Mutex<(HashSet<AddressHash>, VecDeque<AddressHash>)>,
     /// Our own link packets heard back, and the far end's heard twice. See [`LinkPacketMemory`].
     pub(super) link_packets: Mutex<LinkPacketMemory>,
@@ -175,28 +169,24 @@ pub(super) struct Shared {
     pub(super) path_request_tags: Mutex<HashList>,
     /// Bounded freshness admission. Its lock spans the complete announce-effect bundle.
     pub(super) announce_freshness: Mutex<AnnounceFreshnessState>,
-    /// Route expiry follows the host freshness policy without needing to acquire the freshness
-    /// bundle lock during ordinary packet routing.
+    /// The freshness policy's route TTL, readable without the freshness lock.
     pub(super) route_ttl_ms: AtomicU64,
-    /// The bounded interface and destination announce-admission state machines. Their clock
-    /// is relative to this endpoint so the verdicts are deterministic under a supplied time.
+    /// Announce admission, on a clock relative to this endpoint so verdicts are deterministic
+    /// under a supplied time.
     pub(super) announce_admission: Mutex<AnnounceAdmission>,
     pub(super) announce_admission_started: tokio::time::Instant,
     /// Verified unknown-route announces held until their ingress burst has subsided.
     pub(super) held_announces: Mutex<VecDeque<HeldAnnounce>>,
     /// At most one release task runs for each interface, however many announces it is holding.
     pub(super) held_release_tasks: Mutex<HashSet<InterfaceId>>,
-    /// Wakes deferred-release tasks when a carrier is detached, so a removed interface never
-    /// leaves a full burst penalty's worth of sleeping tasks behind.
+    /// Wakes release tasks when a carrier is detached or the policy changes.
     pub(super) held_release_wake: tokio::sync::Notify,
-    /// Last time a path request went out per destination, for the same reason: see
-    /// [`PATH_REQUEST_MIN_INTERVAL`].
+    /// Last time a path request went out per destination: see [`PATH_REQUEST_MIN_INTERVAL`].
     pub(super) path_request_budget: Mutex<HashMap<AddressHash, Instant>>,
     /// When the path requests in the current window went out, oldest first, for the global
     /// cap ([`PATH_REQUEST_GLOBAL_MAX`]). Never longer than the cap.
     pub(super) path_request_stamps: Mutex<VecDeque<Instant>>,
-    /// Links being forwarded through us (this node is a transport hop): a link id maps to the
-    /// two interfaces it bridges, so a proof or link data arriving on one goes out the other.
+    /// Links carried through this node, by link id.
     pub(super) link_transport: Mutex<HashMap<AddressHash, LinkBridge>>,
     /// Return paths for the proofs of other packets we carried, keyed by truncated packet
     /// hash. Bounded, expired after [`REVERSE_TIMEOUT`], and consumed by the proof.
@@ -206,17 +196,11 @@ pub(super) struct Shared {
     pub(super) single_receipts: Mutex<HashMap<AddressHash, PendingReceipt>>,
     /// Whether our proofs carry the signature alone (RNS's default) or the hash too.
     pub(super) implicit_proofs: AtomicBool,
-    /// Abort handles for every task the endpoint spawned (the router, interface readers and
-    /// writers, TCP listeners, and link relays). [`Endpoint`]'s drop aborts them all, which is
-    /// what lets the router's `Arc<Shared>` — and thus `Shared` and every socket — be released
-    /// rather than kept alive forever by the router<->`Shared` reference cycle.
+    /// Abort handles for every task the endpoint spawned. Aborting them on close is what
+    /// breaks the router<->`Shared` reference cycle and releases every socket.
     pub(super) tasks: Mutex<Vec<tokio::task::AbortHandle>>,
-    /// Tasks that *finish on their own* once the thing feeding them goes away,
-    /// as opposed to the perpetual ones (router, interface readers/writers,
-    /// listeners) that only ever stop by being aborted. These are the best-effort
-    /// outbound relays and reliable channel drivers. [`Endpoint::shutdown`] awaits
-    /// them before it stops anything, which lets written and proven replies reach
-    /// the wire.
+    /// Tasks that finish on their own once their input goes away (best-effort relays and
+    /// reliable drivers), which [`Endpoint::shutdown`] awaits before stopping anything.
     pub(super) drainable: Mutex<Vec<tokio::task::JoinHandle<()>>>,
     /// Caller-driven resource sessions must finish or be dropped before their close packet
     /// can be included in an orderly shutdown.
@@ -236,9 +220,8 @@ impl Shared {
         value
     }
 
-    /// Capture a value against one stable diagnostic revision. Writers take the barrier
-    /// first, mutate their owned fact state, and advance the revision before releasing it.
-    /// The repeated revision read is defensive and keeps the stamped-value contract explicit.
+    /// Capture a value against one stable diagnostic revision. The repeated revision read is
+    /// defensive: writers advance it before releasing the barrier.
     pub(super) fn capture_diagnostic<T>(&self, mut capture: impl FnMut() -> T) -> (u64, T) {
         loop {
             let _barrier = self.diagnostic_barrier.read().unwrap();
@@ -367,8 +350,7 @@ impl Shared {
         self.resource_notify.notify_waiters();
     }
 
-    /// Send a packet out every interface (announces, path requests). These are our own
-    /// protocol upkeep, so they ride the control class.
+    /// Send our own upkeep (announces, path requests) out every interface, as control.
     pub(super) fn broadcast(&self, pkt: Packet) {
         for i in self.interfaces.lock().unwrap().iter() {
             let _ = i.push(pkt.clone(), TrafficClass::Control);
@@ -393,7 +375,7 @@ impl Shared {
         pkt: Packet,
         class: TrafficClass,
     ) -> bool {
-        // Carried traffic is someone else's, and its copies coming back are theirs to judge.
+        // Copies of carried traffic coming back are its owner's to judge.
         if class != TrafficClass::Transit {
             self.link_packets.lock().unwrap().note_sent(&pkt);
         }
@@ -410,14 +392,10 @@ impl Shared {
         false
     }
 
-    /// Wrap a packet for the interface it will go out on: if that interface reaches a
-    /// transport node, make it header-type-2 with the node's id in the transport field so the
-    /// node forwards it toward `destination`. A directly-connected interface leaves it as is.
+    /// Address a packet through its destination's transport node, if its route has one
+    /// (header-type-2), so the node forwards it.
     pub(super) fn address_for(&self, iface: InterfaceId, mut pkt: Packet) -> Packet {
-        // Looked up by destination, not by interface. Keyed by interface, a second
-        // destination learned through a different transport node overwrote the first, and
-        // every packet for the first was then addressed to the wrong node: announce A via X
-        // and B via Y on one radio, and A silently routes through Y.
+        // By destination, not interface: one radio reaches A via X and B via Y.
         let via = self
             .path_table
             .lock()

@@ -100,9 +100,7 @@ async fn ignores_a_path_request_for_an_unknown_destination() {
 }
 
 /// Repeated asking for the same destination broadcasts once, and a different destination
-/// is unaffected. The thing being bounded is a stranger's ability to decide how much of a
-/// shared band we use: what provokes a path request is usually inbound traffic we cannot
-/// verify, so without a floor a peer gets one broadcast per packet it sends.
+/// is unaffected.
 #[tokio::test]
 async fn a_path_request_is_rate_limited_per_destination() {
     let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[11u8; 64]));
@@ -142,10 +140,8 @@ async fn a_path_request_is_rate_limited_per_destination() {
     assert!(ep.request_path(wanted), "the floor expires");
 }
 
-/// A flood of unique destinations cannot broadcast without bound, because the peer that
-/// provokes a path request also chooses the destination it names: the per-destination
-/// floor never engages when no key repeats, so the global cap is what actually limits
-/// the airtime — and, since a refused request records nothing, the budget table too.
+/// A flood of unique destinations, which the per-destination floor never sees repeat, is
+/// held to the global cap, and refused requests do not grow the budget table.
 #[tokio::test]
 async fn fabricated_unique_destinations_hit_the_global_path_request_cap() {
     let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[12u8; 64]));

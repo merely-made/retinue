@@ -33,10 +33,8 @@ use super::shared::{Lifecycle, Quiesce, Shared};
 use super::single::ReceivedSingle;
 use super::watchdog::{LINK_WATCHDOG_TICK, watch_links};
 
-/// Depth of the router's inbound queue. Bounded so a flooding peer cannot make the endpoint
-/// buffer packets without limit: a TCP reader awaits when it is full (back-pressuring the
-/// socket, so the flow control reaches the peer), and the [`InterfaceSink::deliver`] seam,
-/// which cannot await, drops instead.
+/// Depth of the router's inbound queue. When it is full a TCP reader awaits, back-pressuring
+/// the peer, and [`InterfaceSink::deliver`], which cannot await, drops.
 const ROUTER_QUEUE: usize = 1024;
 
 /// A Reticulum endpoint over any number of interfaces.
@@ -211,10 +209,9 @@ impl Endpoint {
             .map(|p| p.identity)
     }
 
-    /// Stop the endpoint: abort the router, every interface reader and writer, any TCP
-    /// listeners, and every link relay, closing their sockets. [`Drop`](Self::drop) calls
-    /// this too; use it to release everything at a chosen point. Streams handed out earlier
-    /// will see their connection end. Idempotent.
+    /// Stop the endpoint at once: abort every task it spawned, closing their sockets, so
+    /// streams handed out see their connection end. [`Drop`](Self::drop) calls this too.
+    /// Idempotent.
     pub fn close(&self) {
         if !self.shared.mark_closed() {
             return;
@@ -222,8 +219,7 @@ impl Endpoint {
         for handle in self.shared.tasks.lock().unwrap().drain(..) {
             handle.abort();
         }
-        // Drop every link sender after aborting its driver. This releases best-effort,
-        // reliable, and resource receivers even when the Endpoint itself remains alive.
+        // Release every link's receiver even while the Endpoint itself lives on.
         self.shared.write_diagnostic(|| {
             let mut links = self.shared.links.lock().unwrap();
             let had_links = !links.is_empty();
@@ -235,33 +231,19 @@ impl Endpoint {
             inbound.slots.clear();
             inbound.backlog.clear();
         }
-        // Close every interface's outbound scheduler so a caller-driven pump parked in
-        // `next_outbound` wakes and sees the end, rather than waiting on a sender that will
-        // never come. (The channel this replaced ended implicitly when its sender dropped.)
+        // Wake any caller-driven pump parked in `next_outbound`, to see the end.
         for i in self.shared.interfaces.lock().unwrap().iter() {
             i.outbound.close();
         }
         self.shared.closed_notify.notify_waiters();
     }
 
-    /// Stop the endpoint, giving work already queued for the interfaces a
-    /// bounded chance to reach the wire first.
+    /// Stop the endpoint, giving work already queued a bounded chance to reach the wire.
     ///
-    /// [`close`](Self::close) and [`Drop`](Self::drop) are abrupt by design:
-    /// they abort every tracked task, including the interface writers, so a
-    /// packet sitting in an outbound queue dies with them. That is fine for a
-    /// hard stop and wrong for an orderly one, and the difference is not
-    /// visible from the caller's side — `AsyncWrite::flush` on a link stream
-    /// returns once the bytes reach the relay's duplex, long before they are
-    /// framed, queued, and written.
-    ///
-    /// Finish or drop streams and resource sessions first, then await this. It
-    /// waits for best-effort relays, reliable channel proofs, resource-session
-    /// release, and both queued and in-flight interface packets. The grace
-    /// deadline bounds the whole sequence, after which remaining work is aborted.
-    ///
-    /// A stream whose write side remains open, or a resource session still held
-    /// by its caller, cannot finish itself. The deadline bounds those cases.
+    /// [`close`](Self::close) aborts the interface writers with everything else, and a
+    /// stream's `flush` returns long before its bytes are written. Finish or drop streams and
+    /// resource sessions first, then await this: it waits for relays, reliable proofs,
+    /// resource sessions, and queued and in-flight packets, for at most `grace`.
     pub async fn shutdown(&self, grace: Duration) {
         let closed = self.shared.closed_notify.notified();
         match self.shared.begin_quiesce() {
@@ -279,23 +261,18 @@ impl Endpoint {
         }
         let deadline = Instant::now() + grace;
 
-        // First the link drivers. Best-effort relays finish once their stream is
-        // dropped; reliable drivers finish after both EOFs and all proofs. Waiting
-        // on queues alone would confuse finished with not-started-yet.
+        // First the link drivers: waiting on queues alone would mistake not started yet
+        // for finished.
         let relays: Vec<_> = self.shared.drainable.lock().unwrap().drain(..).collect();
         for relay in relays {
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
                 break;
             }
-            // A relay whose stream a caller still holds never reaches EOF; the
-            // deadline is what bounds that case.
             let _ = tokio::time::timeout(remaining, relay).await;
         }
 
-        // Resource sessions are caller-driven rather than spawned tasks. Their Drop queues
-        // the link-close packet, so give active sessions the same bounded opportunity to
-        // finish or be released before checking the wire.
+        // Then caller-driven resource sessions, whose Drop queues their link close.
         loop {
             if self.shared.active_resources.load(Ordering::Acquire) == 0
                 || Instant::now() >= deadline
@@ -322,8 +299,6 @@ impl Endpoint {
             if drained || Instant::now() >= deadline {
                 break;
             }
-            // Short enough that an orderly close stays prompt, long enough not
-            // to spin: the writers only need to be scheduled.
             tokio::time::sleep(Duration::from_millis(2)).await;
         }
         self.close();
@@ -332,16 +307,13 @@ impl Endpoint {
 
 impl Drop for Endpoint {
     fn drop(&mut self) {
-        // Abort every spawned task. This releases the router's `Arc<Shared>` — breaking the
-        // router<->`Shared` cycle that would otherwise keep the whole runtime alive — and
-        // stops all interface tasks, listeners, and relays so their sockets close.
+        // Aborting the tasks breaks the router<->`Shared` cycle and closes every socket.
         self.close();
     }
 }
 
-/// Spawn a task and record its abort handle on `shared`, so the endpoint's drop can cancel
-/// every task it started. Every `tokio::spawn` in this module goes through here; a task that
-/// is not tracked would outlive the endpoint.
+/// Spawn a task and record its abort handle on `shared`, so closing the endpoint cancels it.
+/// Every endpoint task is spawned through here; an untracked one would outlive the endpoint.
 pub(super) fn track<F>(shared: &Arc<Shared>, fut: F) -> bool
 where
     F: std::future::Future<Output = ()> + Send + 'static,
@@ -352,9 +324,7 @@ where
     }
     let handle = tokio::spawn(fut);
     let mut tasks = shared.tasks.lock().unwrap();
-    // Forget the ones that have already ended. Handles were only ever appended, so a
-    // process that connects and disconnects repeatedly grew this vector with the ghosts of
-    // every finished task, and the abort-them-all on shutdown walked all of them.
+    // Forget finished tasks, so reconnect churn cannot grow this without bound.
     tasks.retain(|handle| !handle.is_finished());
     tasks.push(handle.abort_handle());
     true

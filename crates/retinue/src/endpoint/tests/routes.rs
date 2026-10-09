@@ -124,9 +124,7 @@ async fn diagnostic_capture_waits_for_an_inflight_writer() {
     assert_eq!(generation, ep.diagnostic_generation());
 }
 
-/// The path table was the last place a stranger could grow this process's memory for
-/// free. It is capped now, and what it forgets is chosen rather than arbitrary: the peer
-/// that has gone quietest, because announces are what feed and refresh the table.
+/// The path table is capped, and forgets the peer that has gone quietest.
 #[tokio::test]
 async fn a_full_path_table_forgets_the_quietest_peer() {
     let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x34; 64]));
@@ -163,8 +161,7 @@ async fn a_full_path_table_forgets_the_quietest_peer() {
     );
 }
 
-/// A peer that keeps announcing keeps its route, which is the other half of the policy:
-/// re-announcing refreshes `learned`, so the still-talking are never the ones evicted.
+/// A peer that keeps announcing keeps its route: re-announcing refreshes `learned`.
 #[tokio::test]
 async fn a_peer_that_keeps_announcing_keeps_its_route() {
     let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x35; 64]));
@@ -176,7 +173,7 @@ async fn a_peer_that_keeps_announcing_keeps_its_route() {
         ep.shared
             .learn_path(AddressHash::from_bytes([n; 16]), iface, 1, None);
     }
-    // It re-announces, which is what a live peer does and what moves it off oldest.
+    // It re-announces, which moves it off oldest.
     ep.shared.learn_path(talkative, iface, 1, None);
 
     ep.shared
@@ -189,10 +186,8 @@ async fn a_peer_that_keeps_announcing_keeps_its_route() {
     );
 }
 
-/// One radio routinely reaches different destinations through different transport
-/// nodes. Keyed by interface, the second one learned overwrote the first, and every
-/// packet for the first was addressed to the wrong node: announce A via X and B via Y on
-/// one interface, and A silently routes through Y.
+/// One radio reaches different destinations through different transport nodes: A via X
+/// and B via Y on one interface must each keep their own.
 
 #[tokio::test]
 async fn two_destinations_on_one_interface_keep_their_own_transports() {
@@ -216,8 +211,7 @@ async fn two_destinations_on_one_interface_keep_their_own_transports() {
 }
 
 /// Once freshness admits an announce, it is the current route even when the predecessor
-/// had fewer hops. Freshness owns ordering; routing does not reopen that decision with a
-/// local shortest-path filter.
+/// had fewer hops: freshness owns ordering.
 #[tokio::test]
 async fn a_newer_worse_route_replaces_the_incumbent() {
     let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x32; 64]));
@@ -278,9 +272,8 @@ async fn routes_live_a_week_unless_their_interface_mode_shortens_them() {
     assert!(ep.route_to_at(a, learned + hours(7 * 24)).is_none());
 }
 
-/// A route that carries traffic is refreshed, as RNS refreshes a path whenever it inserts
-/// a packet into transport by it or forwards transit along it. A local send to a direct
-/// neighbour does not insert anything, and does not refresh.
+/// A route carrying traffic is refreshed, as RNS refreshes a path when it inserts a packet
+/// into transport or forwards transit along it. A direct local send does not refresh.
 #[tokio::test]
 async fn a_route_in_use_is_refreshed() {
     let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x62; 64]));

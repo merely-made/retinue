@@ -15,13 +15,8 @@ use super::queue::TrafficClass;
 use super::routing::{InterfaceSelector, RoutingPolicy};
 use super::shared::Shared;
 
-/// How long a validated bridged link's interface pair is remembered after its last packet.
-///
-/// A transport node records which two interfaces a forwarded link joins, so a proof or link
-/// data arriving on one goes out the other. An hour is far longer than any live link goes
-/// quiet, and short enough that a node carrying strangers' traffic all day does not
-/// accumulate the day. A link not yet proved lapses sooner, at its proof deadline, and the
-/// table is bounded by [`LINK_TRANSPORT_CAPACITY`].
+/// How long a validated bridge is remembered after its last packet: far longer than a live
+/// link goes quiet. An unproved one lapses at its proof deadline.
 pub(super) const LINK_TRANSPORT_TTL: Duration = Duration::from_secs(3600);
 
 /// How long a validated link may go unheard before a new request may take its place in a full
@@ -59,11 +54,10 @@ impl LinkBridge {
         )
     }
 
-    /// Whether `pkt`, heard on `iface`, may cross: `None` if not, else whether it is the
-    /// proof that validates the bridge once carried. Only the bridge's two sides may use it,
-    /// nothing crosses before the destination's proof, and the proof must come from the
-    /// destination's side under its signature (the side check stands alone when its identity
-    /// is unknown).
+    /// Whether `pkt`, heard on `iface`, may cross: `None` if not, else whether it is the proof
+    /// that validates the bridge once carried. Only the two sides may use it, nothing crosses
+    /// before the proof, and the proof must come from the destination's side under its
+    /// signature (the side alone when its identity is unknown).
     pub(super) fn admit(
         &self,
         iface: InterfaceId,
@@ -124,9 +118,8 @@ pub(super) fn make_room<V, A: Ord>(
 }
 
 impl Shared {
-    /// Relay a packet out every interface except the one it arrived on, restricted to those
-    /// the egress selector permits. Returns how many interfaces it went out on, so a caller
-    /// can tell a real relay from a policy that permitted nothing.
+    /// Relay a packet out every permitted interface but the one it arrived on. Returns how
+    /// many it went out on.
     fn broadcast_transit(
         &self,
         except: InterfaceId,
@@ -135,8 +128,7 @@ impl Shared {
     ) -> usize {
         let mut sent = 0;
         for i in self.interfaces.lock().unwrap().iter() {
-            // Relayed announces are someone else's upkeep: useful, but not at the expense of
-            // this node's own traffic, so they queue as transit.
+            // Others' announces queue as transit, behind this node's own traffic.
             if i.id != except
                 && egress.allows(i.id)
                 && matches!(
@@ -212,11 +204,9 @@ pub(super) fn forward(
     }
     let dest = pkt.destination;
 
-    // Route toward the destination by the path table (unexpired routes only).
     let next = shared.path_iface(dest);
     if let Some(out) = next {
-        // Refuse before recording anything: a bridge recorded for a route policy will not
-        // carry would strand the link's later packets in a table that never fires.
+        // Refuse before recording a bridge that policy would never carry.
         if !policy.allowed_egress.allows(out) {
             shared
                 .routing_stats
@@ -224,8 +214,7 @@ pub(super) fn forward(
                 .fetch_add(1, Ordering::Relaxed);
             return;
         }
-        // A link request establishes a bridge: record the link id's two interfaces so the
-        // proof and subsequent link data forward back the way they came.
+        // A link request establishes a bridge for its proof and later link data.
         let mut pkt = pkt;
         let mut admitted = None;
         if pkt.packet_type == PacketType::LinkRequest
@@ -349,10 +338,8 @@ pub(super) fn relay_announce(
 }
 
 /// Re-address a forwarded packet for the interface it leaves on (stripping our transport
-/// stamp, so `send_on` re-adds the next hop's if there is one), bump hops, and send.
-///
-/// This is transit's single egress choke point: every packet carried for someone else leaves
-/// through here, so the egress permission and the forwarded count are both enforced once.
+/// stamp, so `send_on` re-adds the next hop's), bump hops, and send. Transit's single egress
+/// point, where egress permission and the forwarded count are enforced.
 pub(super) fn forward_on(
     shared: &Arc<Shared>,
     out: InterfaceId,
@@ -377,7 +364,6 @@ pub(super) fn forward_on(
         .routing_stats
         .forwarded_packets
         .fetch_add(1, Ordering::Relaxed);
-    // Carried traffic queues as transit, so it can never outcompete this node's own.
     pkt.hops += 1;
     pkt.header_type = crate::packet::HeaderType::Type1;
     pkt.transport = None;

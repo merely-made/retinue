@@ -14,10 +14,8 @@ pub(super) const MAX_HOPS: u8 = 128;
 
 /// Which interfaces a routing rule applies to.
 ///
-/// Transit is directional: an endpoint may accept forwarded traffic from one interface and
-/// emit it on another without the reverse being true. A node bridging a public radio to a
-/// private wired segment, for instance, can carry the radio's traffic outward while refusing
-/// to inject anything from the wire back onto the air.
+/// Transit is directional: a node bridging a public radio to a private wire can carry the
+/// radio's traffic outward while injecting nothing from the wire onto the air.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum InterfaceSelector {
     /// No interface. Nothing is accepted from, or sent to, any of them.
@@ -42,11 +40,8 @@ impl InterfaceSelector {
 
 /// What this endpoint carries on behalf of others.
 ///
-/// Transit is not one switch: a node may relay announces so its neighbours stay discoverable
-/// while refusing to carry their data, may accept transit from one interface only, or may cap
-/// how far it will propagate traffic. Every axis is independent, and the default
-/// ([`RoutingPolicy::none`]) carries nothing — an endpoint moves its own traffic until its
-/// owner opts in.
+/// Every axis is independent: a node may relay announces but not data, accept transit from
+/// one interface only, or cap its hops. The default ([`RoutingPolicy::none`]) carries nothing.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RoutingPolicy {
     /// Re-broadcast others' announces (hops+1, de-duplicated, never back the way they came),
@@ -58,11 +53,10 @@ pub struct RoutingPolicy {
     pub allowed_ingress: InterfaceSelector,
     /// Interfaces this endpoint will emit transit *on*.
     pub allowed_egress: InterfaceSelector,
-    /// Hop ceiling for forwarded traffic. A packet at or above this is dropped rather than
-    /// relayed, bounding how far this node will carry anything.
+    /// Hop ceiling for forwarded traffic: a packet at or above it is dropped, not relayed.
     pub max_hops: u8,
-    /// Each class's share of a contended interface. This is where transit is bounded against
-    /// local traffic, so it lives with the transit policy even though it governs both.
+    /// Each class's share of a contended interface, which bounds transit against local
+    /// traffic.
     pub queue_weights: QueueWeights,
     /// How deep each class may queue on one interface before packets are dropped.
     pub queue_depths: QueueDepths,
@@ -125,17 +119,15 @@ pub struct RoutingCounters {
     pub policy_rejected: u64,
     /// Packets dropped for reaching the policy's hop ceiling.
     pub hop_limit_dropped: u64,
-    /// Packets dropped for carrying the IFAC flag into an interface without IFAC. An IFAC
-    /// interface strips the flag when it verifies a frame, so any flag that reaches the
-    /// router came off a plain interface, where RNS drops it too.
+    /// Packets dropped for carrying the IFAC flag in from an interface without IFAC (an IFAC
+    /// interface strips the flag when it verifies a frame), as RNS drops them.
     pub ifac_flag_rejected: u64,
     /// Packets RNS's packet filter drops: header-type-2 packets for another transport, PLAIN
     /// or GROUP packets past their first hop, repeated transit or single packets, and tagless
     /// or repeated path requests.
     pub filtered_packets: u64,
-    /// Announces turned away by a full address book, and therefore not routed, relayed, or
-    /// published either. Climbing means the book is at capacity, which is worth knowing:
-    /// past that point this endpoint is deaf to peers it has not already met.
+    /// Announces whose identity a full address book turned away, so no `PeerAnnounce` was
+    /// published for them. Climbing means the book is at capacity.
     pub refused_announces: u64,
     /// Verified unknown-route announces retained during an ingress interface burst.
     pub held_announces: u64,
@@ -144,11 +136,10 @@ pub struct RoutingCounters {
     /// Valid announces learned locally but not relayed because their destination was rate
     /// blocked on this incoming interface.
     pub relay_rate_limited_announces: u64,
-    /// Routes dropped to make room in a full path table. Climbing means this endpoint knows
-    /// more destinations than it can hold, and is forgetting the quietest to keep the rest.
+    /// Routes dropped, the quietest first, to make room in a full path table.
     pub paths_evicted: u64,
     /// Announces rejected because their exact freshness blob is in this destination's live
-    /// route history. Packet-loop de-duplication is deliberately separate and runs later.
+    /// route history. Packet-loop de-duplication is separate and runs later.
     pub freshness_replays_rejected: u64,
     /// Announces rejected because their emission is no newer than this destination's live
     /// route.
@@ -230,12 +221,9 @@ impl RoutingStats {
 }
 
 impl Endpoint {
-    /// Act as a transport node: forward announces (hops+1, de-duplicated, never back the way
-    /// they came) and forward packets toward learned destinations. Off by default, since an
-    /// endpoint carries only its own traffic unless it opts in.
-    ///
-    /// Shorthand for [`RoutingPolicy::transit`]; use
-    /// [`set_routing_policy`](Self::set_routing_policy) for anything narrower.
+    /// Act as a transport node, relaying announces and forwarding packets: shorthand for
+    /// [`RoutingPolicy::transit`]. Use [`set_routing_policy`](Self::set_routing_policy) for
+    /// anything narrower.
     pub fn enable_routing(&self) {
         self.set_routing_policy(RoutingPolicy::transit());
     }
@@ -243,22 +231,19 @@ impl Endpoint {
     /// Install the transit policy: what this endpoint carries for others, from and to which
     /// interfaces, and how far. Takes effect for packets routed after it returns.
     ///
-    /// Transit and local service are independent. Carrying nothing
-    /// ([`RoutingPolicy::none`], the default) does not affect this endpoint's own links,
-    /// announces, or registered destinations.
+    /// Transit is independent of local service: carrying nothing does not affect this
+    /// endpoint's own links, announces, or destinations.
     pub fn set_routing_policy(&self, policy: RoutingPolicy) {
         let (weights, depths) = (policy.queue_weights, policy.queue_depths);
         *self.shared.routing.lock().unwrap() = policy;
-        // Apply the queue policy to interfaces already attached, so a policy change is not
-        // silently limited to interfaces attached afterwards.
+        // Interfaces already attached take the new queue policy too.
         for i in self.shared.interfaces.lock().unwrap().iter() {
             i.outbound.set_policy(weights, depths);
         }
     }
 
     /// What the outbound schedule has done across every interface: released and dropped, by
-    /// class. Dropped transit is the visible sign of a bound being enforced rather than a
-    /// backlog quietly growing.
+    /// class.
     pub fn queue_counters(&self) -> QueueCounters {
         let mut out = QueueCounters::default();
         for i in self.shared.interfaces.lock().unwrap().iter() {
@@ -271,8 +256,7 @@ impl Endpoint {
 
     /// Packets currently queued or in flight across attached interfaces.
     ///
-    /// This is a point-in-time host observation. It does not alter scheduling
-    /// and must not be used as a delivery receipt.
+    /// A point-in-time observation, not a delivery receipt.
     pub fn outbound_queue_depth(&self) -> usize {
         self.shared
             .interfaces

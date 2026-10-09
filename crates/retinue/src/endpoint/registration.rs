@@ -22,8 +22,7 @@ use super::single::ProofStrategy;
 pub(super) struct Registered {
     pub(super) dest: AddressHash,
     pub(super) kind: RegistrationKind,
-    /// The name and app data this destination announced with, retained so a path request for
-    /// it can be answered by re-announcing it as a path response.
+    /// The name and app data this destination announced with, kept to answer path requests.
     pub(super) name: DestinationName,
     pub(super) app_data: Vec<u8>,
     /// Receive ratchets, owned here and rotated at announce. Shared so inbound trial
@@ -165,11 +164,10 @@ impl Endpoint {
 
     /// Register a best-effort-link destination that also receives ratcheted single packets.
     ///
-    /// The endpoint takes ownership of `ratchets`, which may be empty or restored from a
-    /// snapshot. It rotates the store whenever an announce or path response finds the
-    /// current epoch older than the policy's interval, and hands each new snapshot to the
-    /// [`set_ratchet_persistence`](Self::set_ratchet_persistence) hook before advertising
-    /// it. Registration fails if that hook refuses the initial snapshot.
+    /// The endpoint owns `ratchets` (empty or restored) and rotates it when an announce finds
+    /// the epoch due, persisting each snapshot through
+    /// [`set_ratchet_persistence`](Self::set_ratchet_persistence) before advertising it.
+    /// Fails if that hook refuses the initial snapshot.
     pub fn register_with_ratchets(
         &self,
         name: DestinationName,
@@ -179,10 +177,9 @@ impl Endpoint {
         self.register_ratcheted(name, app_data, RegistrationKind::BestEffort, ratchets)
     }
 
-    /// Register a destination to accept **reliable** links on — the Channel/Buffer path with
-    /// proof acks, for lossy interfaces — and announce it. Accept these with
-    /// [`accept_reliable`](Self::accept_reliable); the initiator's identity arrives over the
-    /// link, so none need be supplied.
+    /// Register a destination to accept **reliable** links on (Channel/Buffer with proof
+    /// acks, for lossy interfaces) and announce it. Accept these with
+    /// [`accept_reliable`](Self::accept_reliable).
     pub fn register_reliable(&self, name: DestinationName, app_data: &[u8]) {
         self.register_with(name, app_data, RegistrationKind::Reliable, None);
     }
@@ -207,12 +204,10 @@ impl Endpoint {
     /// Install the host's durable store for ratchet snapshots, `(destination, snapshot)`.
     /// Install it before registering ratcheted destinations.
     ///
-    /// The endpoint calls it with the identity-signed snapshot (restore it with
-    /// [`RatchetStore::restore`]) whenever a ratcheted destination is registered or updated
-    /// and whenever an announce rotates its ratchet, always before any announce carries the
-    /// new ratchet. An error keeps the previously persisted ratchet advertised. The hook runs
-    /// with rotation locked, so it must not call back into this endpoint. Without a hook,
-    /// ratchets live only in memory and retained epochs are lost on restart.
+    /// It receives the identity-signed snapshot (see [`RatchetStore::restore`]) on register,
+    /// update, and every rotation, before any announce carries the new ratchet; an error keeps
+    /// the previous one advertised. It runs with rotation locked, so it must not call back
+    /// into this endpoint. Without a hook, ratchets are lost on restart.
     pub fn set_ratchet_persistence(
         &self,
         persist: impl FnMut(AddressHash, &[u8]) -> io::Result<()> + Send + 'static,
@@ -316,9 +311,8 @@ impl Endpoint {
         self.shared.broadcast(pkt);
     }
 
-    /// The deterministic half of [`Self::announce`]. It is kept private because host callers
-    /// obtain wall-clock seconds here; firmware must supply its own reservation-backed
-    /// ordinal rather than inherit this unbounded host generator.
+    /// The deterministic half of [`Self::announce`]. Private: firmware must supply its own
+    /// reservation-backed ordinal rather than inherit this unbounded host generator.
     pub(super) fn build_announce_at(
         &self,
         name: &DestinationName,

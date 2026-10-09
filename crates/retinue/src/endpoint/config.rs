@@ -15,28 +15,21 @@ pub(super) const DEFAULT_RELIABLE_INITIAL_RTT_MS: u64 = 750;
 /// can lower it without changing the wire format.
 pub(super) const DEFAULT_RELIABLE_MAX_WINDOW: u32 = crate::channel::WINDOW_MAX;
 
-/// Default link MTU advertised by Reticulum. Radio callers can lower it to
-/// keep encrypted Channel frames and resource parts inside a proven RF size.
+/// Default link MTU advertised by Reticulum; radio callers may lower it.
 pub(super) const DEFAULT_LINK_MTU: u32 = crate::packet::MTU as u32;
-/// Smallest link MTU currently exercised by the direct-PHY Data and Resource
-/// paths. It leaves room for an eight-byte IFAC on a 255-byte packet radio.
+/// Smallest link MTU the direct-PHY Data and Resource paths exercise: room for an
+/// eight-byte IFAC on a 255-byte packet radio.
 const MIN_LINK_MTU: u32 = 247;
 
 /// Default interval between identical link-request transmissions while setup is pending.
 pub(super) const DEFAULT_LINK_SETUP_RETRY_MS: u64 = 2_000;
 
 impl Endpoint {
-    /// Spread announce relays over a random delay of `0..=max`, instead of relaying the
-    /// instant the router hands the announce over.
+    /// Spread announce relays over a random delay of `0..=max`, so neighbours relaying the
+    /// same announce on a shared medium do not transmit simultaneously.
     ///
-    /// Every neighbour that heard an announce is about to relay it. On a shared medium,
-    /// relaying immediately means relaying *simultaneously*, so a flood partly destroys
-    /// itself. Jitter is the cheapest fix: local timing only, nothing on the wire, nothing
-    /// asked of the radio.
-    ///
-    /// Off by default, since it costs latency and buys nothing on a point-to-point link.
-    /// Set it on a shared radio, to something near the air time of an announce (hundreds of
-    /// milliseconds on slow spreading factors, tens on fast ones).
+    /// Off by default: it costs latency and buys nothing point to point. On a shared radio,
+    /// set it near the air time of an announce.
     pub fn set_relay_jitter(&self, max: Duration) {
         let ms = max.as_millis().min(u128::from(u64::MAX)) as u64;
         self.shared.relay_jitter_ms.store(ms, Ordering::Relaxed);

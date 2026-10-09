@@ -126,8 +126,7 @@ async fn an_inbound_link_fact_keeps_unknown_remote_unknown() {
     assert_eq!(facts[0].interface, interface);
 }
 
-/// A peer that connects and drops repeatedly -- a flapping link, a daemon being
-/// restarted -- used to leave its interface record and queues behind on every cycle.
+/// A peer that connects and drops repeatedly leaves no interface record behind.
 #[tokio::test]
 async fn a_dropped_tcp_peer_leaves_no_interface_behind() {
     let server = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x36; 64]));
@@ -153,9 +152,7 @@ async fn a_dropped_tcp_peer_leaves_no_interface_behind() {
     );
 }
 
-/// Attaching was one-way, so a peer that reconnects repeatedly grew the interface list
-/// and its queues without bound, and the scheduler kept visiting records for carriers
-/// that were long gone.
+/// Detaching forgets the interface, so reconnects do not accumulate records.
 #[tokio::test]
 async fn detaching_an_interface_forgets_it() {
     let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x33; 64]));

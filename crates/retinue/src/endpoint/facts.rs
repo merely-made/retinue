@@ -98,9 +98,8 @@ impl Endpoint {
         self.route_to_at(dest, Instant::now())
     }
 
-    /// As [`Self::route_to`], against a supplied monotonic instant. Kept private because a
-    /// host captures route observations through [`Self::route_facts_at`], while endpoint tests
-    /// need deterministic expiry without sleeping.
+    /// As [`Self::route_to`], at a supplied instant, so tests can expire routes without
+    /// sleeping. Hosts observe routes through [`Self::route_facts_at`].
     pub(super) fn route_to_at(&self, dest: AddressHash, now: Instant) -> Option<(InterfaceId, u8)> {
         let route_ttl = self.shared.route_ttl();
         self.shared.write_diagnostic(|| {

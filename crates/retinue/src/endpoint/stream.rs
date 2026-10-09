@@ -74,12 +74,8 @@ impl LinkStream {
         self.link_id
     }
 
-    /// The interface this link arrived on.
-    ///
-    /// Ingress is a *fact about the session*, so it lives on the stream rather
-    /// than only on the accepted-session wrappers: the reliable accept path
-    /// surfaces a bare `LinkStream`, and it must report the same ingress as the
-    /// best-effort and Resource paths instead of diverging.
+    /// The interface this link arrived on. It lives on the stream because the reliable accept
+    /// path surfaces a bare `LinkStream`.
     pub fn interface(&self) -> InterfaceId {
         self.iface
     }
@@ -214,23 +210,20 @@ pub(super) fn register_stream(
         ((), true)
     });
 
-    // Inbound: decrypted data from the router → the stream's read side.
+    // Inbound: decrypted data from the router to the stream's read side.
     let inbound_started = track(shared, async move {
         while let Some(bytes) = inbound_rx.recv().await {
             if write_half.write_all(&bytes).await.is_err() {
                 break;
             }
         }
-        // The inbound channel closed: the link was torn down (a peer link-close, or
-        // the endpoint shutting down). Shut the write side explicitly so the reader
-        // sees EOF — dropping this half alone would not, since the outbound relay
-        // still holds the duplex's read half alive.
+        // The link was torn down. Shut down explicitly: the outbound relay still holds the
+        // duplex's read half, so dropping this one would not give the reader EOF.
         let _ = write_half.shutdown().await;
     });
 
-    // Outbound: the stream's writes → encrypted link data packets, out the link's interface.
-    // Drainable: it ends on its own when the stream is dropped, having read the
-    // duplex to EOF, so an orderly shutdown can wait for exactly that.
+    // Outbound: the stream's writes as encrypted link data packets. Drainable, since it ends
+    // on its own once the stream is dropped.
     let out_link = link;
     let iv_shared = Arc::clone(shared);
     let out_lost = Arc::clone(&lost);
@@ -238,19 +231,15 @@ pub(super) fn register_stream(
         let mut buf = vec![0u8; write_chunk];
         loop {
             let read = read_half.read(&mut buf).await;
-            // The watchdog dropped the link and already sent its close: stop, so the
-            // writer sees a broken pipe instead of feeding a link nobody hears.
+            // The watchdog dropped the link and sent its close: the writer gets a broken pipe.
             if out_lost.load(Ordering::Acquire) {
                 break;
             }
             match read {
                 Ok(0) | Err(_) => {
-                    // The stream was shut down or dropped: close the link so the
-                    // peer's read side sees EOF. This is what lets a read-to-end
-                    // protocol (e.g. gemini) end a response by closing the stream.
+                    // Closing the link gives the peer EOF, which ends a read-to-end
+                    // response (gemini, say). A close is final, so drop the entry too.
                     iv_shared.send_on(iface, out_link.close_packet(&next_iv()));
-                    // A link close is final, so nothing more on this link needs routing:
-                    // drop its entry (ending the inbound relay) and its inbound slot.
                     iv_shared.remove_link(link_id);
                     break;
                 }

@@ -22,12 +22,9 @@ use super::runtime::{Endpoint, recv_until_closed, track};
 use super::shared::Shared;
 use super::transit::relay_announce;
 
-/// Host-owned policy for receive-side announce freshness.
-///
-/// This is deliberately independent of the packet-loop cache: it bounds receiver memory and
-/// decides whether a verified announce may mutate peer, path, publication, or relay state. A
-/// destination's freshness lives exactly as long as its route, as RNS keeps announce blobs on
-/// the path-table row.
+/// Host-owned policy for receive-side announce freshness: whether a verified announce may
+/// change peer, path, publication, or relay state. Independent of the packet-loop cache, and
+/// a destination's freshness lives as long as its route (RNS keeps blobs on the path row).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AnnounceFreshnessPolicy {
     /// How long a learned route, and with it the destination's freshness, stays live. One
@@ -166,8 +163,8 @@ impl Endpoint {
 
     /// Replace the host receive-freshness policy without discarding retained replay state.
     ///
-    /// Shrinking a bound deterministically trims the oldest retained rows or blobs, and drops
-    /// the routes of evicted rows. Those removals are reflected in [`RoutingCounters`](super::RoutingCounters).
+    /// Shrinking a bound trims the oldest rows or blobs and drops the routes of evicted rows,
+    /// as counted in [`RoutingCounters`](super::RoutingCounters).
     pub fn set_announce_freshness_policy(
         &self,
         policy: AnnounceFreshnessPolicy,
@@ -303,9 +300,8 @@ pub(super) fn process_verified_announce(
     pkt: Packet,
     announce: Announce,
 ) {
-    // This guard deliberately spans every announce effect. Held-release tasks run separately
-    // from the packet loop; without one ordered bundle, two candidates could both evaluate as
-    // admissible and publish/relay out of freshness order.
+    // This guard spans every announce effect: held-release tasks run beside the packet loop,
+    // and two candidates must not both pass and publish or relay out of freshness order.
     let mut freshness = shared.announce_freshness.lock().unwrap();
     // A known destination announced under another key is rejected outright, before it can
     // touch freshness, a route, or a relay (RNS `Identity.validate_announce`).
@@ -341,12 +337,9 @@ pub(super) fn process_verified_announce(
         }
     };
 
-    // A full book makes room by evicting the least recently heard peer that has neither a
-    // live path nor a live link. Pending link requests already hold the peer's identity, so
-    // they do not need the entry. A refusal only keeps the identity out of the book (and so
-    // publishes no `PeerAnnounce`): the path is still learned and the announce still relayed,
-    // as RNS relays from its path table rather than its known destinations.
-    // The book only needs a monotonic tick to order peers by when they were last heard.
+    // A full book evicts the least recently heard peer with no live path or link. A refusal
+    // only keeps the identity out of the book (no `PeerAnnounce`): the path is still learned
+    // and the announce still relayed, as RNS relays from its path table.
     let now = shared.announce_admission_now_ms();
     let in_use = {
         let book = shared.address_book.lock().unwrap();
@@ -385,9 +378,8 @@ pub(super) fn process_verified_announce(
             .fetch_add(1, Ordering::Relaxed);
     }
     let destination = announce.destination;
-    // A header-type-2 announce names the transport node forwarding it. It belongs to this
-    // destination's route, not to the interface: the same radio routinely reaches different
-    // destinations through different nodes.
+    // A header-type-2 announce's transport node belongs to this destination's route, not to
+    // the interface: one radio reaches different destinations through different nodes.
     shared.learn_path(destination, iface, pkt.hops, pkt.transport);
     if admitted {
         let sequence = shared.announce_sequence.fetch_add(1, Ordering::Relaxed) + 1;
@@ -402,16 +394,14 @@ pub(super) fn process_verified_announce(
         });
     }
 
-    // A path response answers one requester. RNS learns from it but never queues it for
-    // rebroadcast, and leaves it out of the announce rate table, so one path request cannot
-    // flood the mesh.
+    // A path response answers one requester: RNS learns from it but never rebroadcasts it or
+    // rate-counts it, so one path request cannot flood the mesh.
     if pkt.context == crate::path::CTX_PATH_RESPONSE {
         return;
     }
 
-    // As a transport node, propagate the announce onward: hops+1, stamped with our identity
-    // as the transport node so downstream peers address replies through us, out every
-    // permitted interface but the one it came in on, de-duplicated by packet hash.
+    // Relay as a transport node: hops+1, stamped with our identity so downstream peers
+    // address replies through us, out every permitted interface but the ingress one.
     let policy = shared.routing.lock().unwrap().clone();
     if !policy.relays_announce_from(iface) || !shared.announce_is_new(pkt.hash()) {
         return;
@@ -440,9 +430,8 @@ pub(super) fn process_verified_announce(
     fwd.hops += 1;
     fwd.header_type = crate::packet::HeaderType::Type2;
     fwd.transport = Some(shared.identity.public().hash());
-    // Every neighbour that heard this announce is about to relay it. If they all relay the
-    // instant the router hands it over, they transmit on top of each other and the flood partly
-    // destroys itself. A short random delay spreads the relays out.
+    // Every neighbour that heard this announce relays it too; jitter keeps them from
+    // transmitting on top of each other.
     let jitter = shared.relay_jitter();
     if jitter.is_zero() {
         relay_announce(shared, iface, fwd, &policy.allowed_egress);

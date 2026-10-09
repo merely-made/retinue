@@ -40,29 +40,23 @@ impl ClassCounters {
 pub struct QueueCounters {
     /// Packets the schedule released to the wire, by class.
     pub sent: ClassCounters,
-    /// Packets dropped because their class's queue was full, by class. A non-zero transit
-    /// count on an otherwise healthy node is the expected sign of a neighbour offering more
-    /// than this node agreed to carry.
+    /// Packets dropped because their class's queue was full, by class. Dropped transit on a
+    /// healthy node means a neighbour offers more than this node agreed to carry.
     pub dropped: ClassCounters,
 }
 
-/// What a packet is for, which decides how it shares a busy interface.
-///
-/// A radio is slow enough that packets genuinely queue in the endpoint, so the order they
-/// leave in is a policy choice rather than an accident of arrival. Classifying at the send
-/// site is deliberate: the bytes cannot say whether they are someone's chat message or a bulk
-/// sync, but the code putting them on the wire knows.
+/// What a packet is for, which decides how it shares a busy interface. Classified at the send
+/// site, since only the sender knows a chat message from a bulk sync.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum TrafficClass {
-    /// Protocol upkeep: announces, path responses, link setup, proofs. Small and infrequent;
-    /// starving it costs the network its ability to repair itself, so it is served first.
+    /// Protocol upkeep: announces, path responses, link setup, proofs. Served first, since
+    /// starving it stops the network repairing itself.
     Control,
     /// Local traffic someone is waiting on.
     Interactive,
     /// Local traffic that can wait: bulk transfer, replication.
     Background,
-    /// Someone else's traffic, carried as a courtesy. Served last and capped, so a busy
-    /// public mesh cannot consume the capacity its host reserved for itself.
+    /// Someone else's traffic, carried as a courtesy. Served last and capped.
     Transit,
 }
 
@@ -88,9 +82,8 @@ impl TrafficClass {
 
 /// Each class's share of a busy interface, as a deficit-round-robin quantum multiplier.
 ///
-/// These are *relative shares of a contended interface*, not rate limits: an idle interface
-/// sends whatever it has. They only bind when more traffic is offered than the medium can
-/// carry, which is exactly when a host's own traffic must not lose to transit.
+/// Relative shares, not rate limits: they bind only when more is offered than the medium
+/// carries, which is when a host's own traffic must not lose to transit.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct QueueWeights {
     pub control: u32,
@@ -126,11 +119,7 @@ impl QueueWeights {
 }
 
 /// How many packets each class may hold on one interface before its next packet is dropped.
-///
-/// Bounded on purpose: an unbounded queue in front of a slow radio converts memory into
-/// latency and hides the loss instead of reporting it. Transit is held shallowest, so a
-/// flooding neighbour's backlog cannot grow without limit inside a node that is doing it a
-/// favour.
+/// An unbounded queue before a slow radio would turn memory into latency and hide the loss.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct QueueDepths {
     pub control: usize,
@@ -165,12 +154,8 @@ impl QueueDepths {
     }
 }
 
-/// The scheduling half of an interface's outbound path: per-class bounded queues drained by
-/// deficit round robin.
-///
-/// The quantum is in bytes, so the shares are of *airtime* rather than packet count — on a
-/// LoRa link a 500-byte packet costs far more than a 20-byte one, and counting packets would
-/// let a class of large frames quietly take more than its share.
+/// The deficit-round-robin quantum, in bytes, so classes share *airtime* rather than packet
+/// count: large frames cannot take more than their class's share.
 const QUANTUM_UNIT: u64 = 128;
 
 #[derive(Default)]
@@ -180,9 +165,8 @@ struct QueueState {
     dropped: [u64; TrafficClass::COUNT],
     sent: [u64; TrafficClass::COUNT],
     cursor: usize,
-    /// Whether the class at `cursor` has already been credited its quantum for this visit.
-    /// Without this the cursor is re-credited on every `pop`, and a class with a standing
-    /// backlog never has to yield — which starves everything below it.
+    /// Whether the class at `cursor` has been credited its quantum for this visit. Crediting
+    /// on every `pop` would let a standing backlog starve every class below it.
     credited: bool,
     /// Packets handed to the interface pump whose delivery has not completed yet.
     in_flight: usize,
@@ -239,14 +223,12 @@ impl OutboundQueues {
         if state.queues.iter().all(VecDeque::is_empty) {
             return None;
         }
-        // Deficit round robin. A class is credited its quantum once per *visit*, not once per
-        // call: it then spends that credit over consecutive calls until its head packet costs
-        // more than it has banked, at which point the cursor moves on. A class that empties
-        // forfeits its credit, so it cannot bank capacity while idle and burst later.
+        // Deficit round robin: a class is credited once per *visit* and spends that credit
+        // until its head packet costs more than it has banked. A class that empties forfeits
+        // its credit, so it cannot bank capacity while idle.
         //
-        // Progress is guaranteed: every full cycle credits each non-empty class at least
-        // QUANTUM_UNIT (weights are clamped to 1 below), and a packet costs at most the MTU,
-        // so a class becomes affordable within a few cycles.
+        // Progress: each cycle credits every non-empty class at least QUANTUM_UNIT, and a
+        // packet costs at most the MTU, so a class becomes affordable within a few cycles.
         for _ in 0..(TrafficClass::COUNT * 8) {
             let i = state.cursor;
             let class = TrafficClass::ALL[i];
@@ -280,9 +262,8 @@ impl OutboundQueues {
             state.credited = false;
             state.cursor = (i + 1) % TrafficClass::COUNT;
         }
-        // Unreachable given the progress argument above, but a scheduler that returns None
-        // with packets still queued would park the drain forever, so fall back to strict
-        // order rather than risk a stall.
+        // Unreachable by the progress argument, but returning None with packets queued would
+        // park the drain forever, so fall back to strict order.
         for i in 0..TrafficClass::COUNT {
             if let Some(pkt) = state.queues[i].pop_front() {
                 state.sent[i] += 1;
@@ -319,10 +300,8 @@ impl OutboundQueues {
     }
 }
 
-/// The draining half of an interface's outbound path.
-///
-/// Shaped like the channel receiver it replaces — `recv().await` — so every pump keeps
-/// working, but the order packets arrive in is now the schedule's rather than arrival's.
+/// The draining half of an interface's outbound path: `recv().await` yields packets in the
+/// schedule's order.
 pub struct OutboundPackets {
     pub(super) queues: Arc<OutboundQueues>,
     pub(super) delivery_in_flight: bool,

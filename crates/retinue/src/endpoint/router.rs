@@ -49,12 +49,9 @@ pub(super) fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
             .fetch_add(1, Ordering::Relaxed);
         return;
     }
-    // A path request for a destination we own: answer it with a path response (an announce
-    // carrying context 0x0b) so a peer that lost its route to us can rediscover it. RNS drops
-    // a tagless request and a repeated target and tag (`Transport.py` 1838-1856), and answers
-    // for a local destination on the requesting interface only (`Transport.py` 3452-3456).
-    // We answer only for our own destinations; with no announce cache we cannot answer for
-    // others.
+    // Answer a path request for one of our destinations with a path response. RNS drops a
+    // tagless request and a repeated target and tag (`Transport.py` 1838-1856), and answers
+    // on the requesting interface only (`Transport.py` 3452-3456).
     if let Some(request) = crate::path::PathRequest::parse(&pkt) {
         let fresh = request
             .unique_tag()
@@ -69,15 +66,12 @@ pub(super) fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
         }
         return;
     }
-    // Transport-node forwarding (announces are re-forwarded in their own arm instead, so
-    // they still populate our address book).
+    // Transit. Announces are relayed from their own arm, so they still reach the book.
     let policy = shared.routing.lock().unwrap().clone();
     if pkt.packet_type != PacketType::Announce {
-        // A packet whose destination is a link we bridge goes to the opposite side, whatever
-        // its header type: the two endpoints may address it differently (one type-2 through
-        // us, one type-1 direct, e.g. a responder that never learned it is behind us).
-        // Traffic from either end of a bridge is proof it is still wanted. A packet
-        // arriving on a third interface cannot use or refresh that bridge.
+        // A packet for a link we bridge crosses to the other side whatever its header type,
+        // since the two ends may address it differently. Traffic from either end refreshes
+        // the bridge; a third interface can neither use nor refresh it.
         let bridged = {
             let mut bridges = shared.link_transport.lock().unwrap();
             let now = Instant::now();
@@ -96,15 +90,11 @@ pub(super) fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                 _ => None,
             }
         };
-        // A header-type-2 packet addressed to us as the transport hop is likewise someone
-        // else's traffic asking to be carried.
         let addressed_to_us_as_hop = pkt.header_type == crate::packet::HeaderType::Type2
             && pkt.transport == Some(shared.identity.public().hash());
 
         if bridged.is_some() || addressed_to_us_as_hop {
-            // This is transit, not ours. Policy decides whether we carry it; a refusal is
-            // counted and the packet is dropped rather than falling through to local
-            // handling, since we are not its destination either way.
+            // Transit, never ours: a refusal drops it rather than handling it locally.
             if !policy.accepts_transit_from(iface) {
                 shared
                     .routing_stats
@@ -132,9 +122,8 @@ pub(super) fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
     }
     match pkt.packet_type {
         PacketType::Announce => {
-            // A relay rebroadcasting one of our own announces echoes it back. We are not our
-            // own peer: drop it before it costs a signature check, or becomes a path to
-            // ourselves, a `PeerAnnounce`, or a relay.
+            // An echo of our own announce: drop it before it costs a signature check or
+            // becomes a path to ourselves, a `PeerAnnounce`, or a relay.
             if shared
                 .registered
                 .lock()
@@ -212,9 +201,8 @@ pub(super) fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                         return;
                     }
                 }
-                // Refuse a new link past the inbound caps or its destination's full accept
-                // backlog before any key agreement, task, or buffer is spent on it. Only the
-                // router admits links, so the room seen here is still there below.
+                // Refuse past the caps before spending key agreement, a task, or a buffer.
+                // Only the router admits links, so the room seen here is still there below.
                 let admission = shared.inbound.lock().unwrap().admission(dest);
                 if matches!(admission, Admission::Refuse) {
                     shared
@@ -235,8 +223,7 @@ pub(super) fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                     .and_then(|bytes| bytes.try_into().ok())
                     .and_then(|trailer| LinkTrailer::decode(trailer).ok())
                     .map(|trailer| trailer.mtu)
-                    // As in RNS a signalled 0 means the default; a request below the smallest
-                    // workable link is held to that floor.
+                    // As in RNS a signalled 0 means the default; a smaller request is floored.
                     .filter(|&mtu| mtu != 0)
                     .map_or(configured_mtu, |mtu| mtu.max(crate::node::MIN_LOGICAL_MTU));
                 if let Ok((link, proof)) = link::accept(
@@ -272,8 +259,7 @@ pub(super) fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                     let liveness = Liveness::responder(shared.link_clock_ms(), pkt.hops);
                     match kind {
                         RegistrationKind::Reliable => {
-                            // Register eagerly with no peer yet: the driver learns the
-                            // initiator's identity from the IDENTIFY it sends.
+                            // No peer yet: the driver learns it from the IDENTIFY.
                             if let Some(stream) = register_reliable_stream(
                                 shared,
                                 link,
@@ -350,10 +336,9 @@ pub(super) fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                     return;
                 }
             }
-            // Complete a pending outbound link, binding it to the interface it came in on.
-            // Validate the proof against the pending link BEFORE removing it: a forged proof
-            // addressed to a real pending link id must not be able to evict it and strand the
-            // genuine proof that follows. Only a proof that actually verifies removes it.
+            // Complete a pending outbound link on the interface the proof came in on. Only a
+            // proof that verifies removes the pending link, so a forgery cannot strand the
+            // genuine proof behind it.
             let proved = {
                 let mut pend = shared.pending_links.lock().unwrap();
                 let link = pend.get(&pkt.destination).and_then(|p| p.prove(&pkt).ok());
@@ -367,9 +352,8 @@ pub(super) fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                     let _ = tx.send((link, iface));
                 }
             } else {
-                // Otherwise a link-data proof for an established link: hand it to the
-                // reliable driver, which matches its hash to an outstanding sequence.
-                // Best-effort links never request proofs, so there is nothing to do.
+                // A link-data proof, for the reliable or resource driver. Best-effort links
+                // never request proofs.
                 let packets = shared
                     .links
                     .lock()
@@ -388,8 +372,8 @@ pub(super) fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
             }
         }
         PacketType::Data => {
-            // Link data: route to the matching stream by its delivery discipline. Clone the
-            // sender(s) under the lock, then act on the packet once the lock is released.
+            // Link data, by the link's discipline. Senders are cloned under the lock and
+            // used after it is released.
             let (link, raw, best) = {
                 let links = shared.links.lock().unwrap();
                 match links.get(&pkt.destination) {
@@ -406,8 +390,7 @@ pub(super) fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                     None => (None, None, None),
                 }
             };
-            // On one of our links, our own packet heard back or the far end's heard twice
-            // is not new traffic, whichever discipline the link uses.
+            // Our own packet heard back, or the far end's heard twice, is not new traffic.
             if raw.is_some() || best.is_some() {
                 let admission = shared.link_packets.lock().unwrap().admit(&pkt);
                 let dropped = match admission {
@@ -419,19 +402,17 @@ pub(super) fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                     counter.fetch_add(1, Ordering::Relaxed);
                     return;
                 }
-                // Heard from the peer. Keepalives and the RTT packet end here, but the RTT
-                // packet is also what activates an inbound link (RNS activates on it), so the
-                // inbound cap must see it first.
+                // Keepalives and the RTT packet end here, but the RTT packet also activates an
+                // inbound link (as in RNS), so the inbound cap sees it first.
                 if note_link_inbound(shared, &pkt) {
                     if let Some(link) = &link {
                         shared.note_inbound_traffic(link, &pkt);
                     }
                     return;
                 }
-                // A publisher asking again for a resource proof it did not hear: answered
-                // from the proof kept for this link, as RNS's transport answers from its
-                // packet cache. Cache requests are exempt from the duplicate window above,
-                // because a publisher repeats them verbatim.
+                // A publisher asking again for a lost resource proof, answered from the kept
+                // one as RNS answers from its packet cache. Publishers repeat these verbatim,
+                // so they are exempt from the duplicate window.
                 if pkt.context == link::CTX_CACHE_REQUEST {
                     if let Some(proof) = shared.resend_resource_proof(pkt.destination, |proof| {
                         proof.full_hash()[..] == pkt.payload[..]
@@ -440,8 +421,7 @@ pub(super) fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                     }
                     return;
                 }
-                // The same resource offered again after this side proved it: its proof
-                // was lost. Answer with the kept one rather than receive it all again.
+                // A resource offered again after we proved it: its proof was lost.
                 if pkt.context == link::CTX_RESOURCE_ADV
                     && let Some(proof) = shared.proof_for_advertisement(pkt.destination, &pkt)
                 {
@@ -453,16 +433,14 @@ pub(super) fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                 shared.note_inbound_traffic(link, &pkt);
             }
             if let Some(packets) = raw {
-                // The reliable or resource driver owns this packet; hand it over raw. A
-                // reliable driver recovers a dropped one by retransmission.
+                // The driver owns it; a reliable one recovers a drop by retransmission.
                 shared.queue_link_packet(&packets, pkt);
             } else if let (Some(link), Some((inbound, fault, link_iface))) = (link, best) {
                 match link.receive(&pkt) {
                     Some(Inbound::Data(bytes)) => {
                         if let Err(mpsc::error::TrySendError::Full(_)) = inbound.try_send(bytes) {
-                            // Nothing re-sends best-effort data, so a dropped chunk would
-                            // be a silent hole in the byte stream. Fail the stream instead:
-                            // its reader gets what arrived, then an error.
+                            // Nothing re-sends best-effort data: fail the stream rather than
+                            // leave a silent hole in it.
                             shared
                                 .routing_stats
                                 .link_queue_dropped
@@ -473,9 +451,8 @@ pub(super) fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                         }
                     }
                     Some(Inbound::Close) => {
-                        // The peer closed the link: drop its entry so the inbound
-                        // sender is released. The stream's inbound relay then ends
-                        // and the local reader sees EOF (what read-to-end needs).
+                        // Dropping the entry releases the inbound sender, so the local
+                        // reader sees EOF.
                         shared.remove_link(pkt.destination);
                     }
                     _ => {}

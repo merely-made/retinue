@@ -16,11 +16,9 @@ pub type InterfaceId = u32;
 
 /// A raw packet interface: the seam every transport plugs into.
 ///
-/// The endpoint sends outbound [`Packet`]s to it (drain [`next_outbound`]) and
-/// receives inbound packets from it (via its [`InterfaceSink`]). Nothing here does
-/// I/O or framing — the caller owns how bytes move. TCP's interface is exactly this
-/// seam plus HDLC framing over a socket; a serial line, or a test loss-oracle that
-/// drops/delays/reorders packets, is the same seam with a different pump.
+/// Drain outbound [`Packet`]s with [`next_outbound`] and deliver inbound ones through its
+/// [`InterfaceSink`]. Nothing here does I/O or framing: TCP is this seam plus HDLC over a
+/// socket, and a serial line or a test loss oracle is the same seam with another pump.
 ///
 /// [`next_outbound`]: Interface::next_outbound
 pub struct Interface {
@@ -43,17 +41,20 @@ impl Interface {
     /// Maximum complete Reticulum packet this interface currently admits.
     ///
     /// Raw interface owners can set an initial cap through
-    /// [`Endpoint::attach_interface_with_frame_limit`](super::Endpoint::attach_interface_with_frame_limit). Tulle also constrains
-    /// this value synchronously when its driver is constructed.
+    /// [`Endpoint::attach_interface_with_frame_limit`]. Tulle also constrains this value
+    /// synchronously when its driver is constructed.
+    ///
+    /// [`Endpoint::attach_interface_with_frame_limit`]: super::Endpoint::attach_interface_with_frame_limit
     pub fn frame_limit(&self) -> usize {
         self.frame_limit.load(Ordering::Acquire)
     }
 
     /// Lower this interface's admission limit to a carrier-discovered cap.
     ///
-    /// This is monotonic and should be called before the endpoint can queue
-    /// traffic. Prefer [`Endpoint::attach_interface_with_frame_limit`](super::Endpoint::attach_interface_with_frame_limit) when the
-    /// limit is already known.
+    /// Monotonic, and meant for before the endpoint can queue traffic. Prefer
+    /// [`Endpoint::attach_interface_with_frame_limit`] when the limit is already known.
+    ///
+    /// [`Endpoint::attach_interface_with_frame_limit`]: super::Endpoint::attach_interface_with_frame_limit
     pub fn constrain_frame_limit(&self, max_frame_len: usize) {
         self.frame_limit.fetch_min(max_frame_len, Ordering::AcqRel);
     }
@@ -103,17 +104,9 @@ pub struct InterfaceSink {
 impl InterfaceSink {
     /// Deliver a received packet into the router.
     ///
-    /// Returns whether the endpoint is **still there**, not whether the packet was queued,
-    /// and the difference is the whole point. `try_send` fails both when the router's
-    /// bounded queue is momentarily full and when the endpoint has been dropped. Collapsing
-    /// those into one `false` made every caller treat a burst as a dead endpoint, so a
-    /// thousand packets arriving faster than the router drained them detached a working
-    /// radio permanently, with nothing to bring it back but a restart.
-    ///
-    /// A full queue is backpressure, and dropping is the correct response: Reticulum is a
-    /// datagram network whose upper layers already retransmit, so a lost packet costs a
-    /// retry while a lost interface costs the carrier. The drop is counted rather than
-    /// silent; see [`Self::dropped`].
+    /// Returns whether the endpoint is **still there**, not whether the packet was queued: a
+    /// burst must not look like a dead endpoint to the caller. A full router queue drops the
+    /// packet, since Reticulum's upper layers retransmit, and counts it in [`Self::dropped`].
     pub fn deliver(&self, pkt: Packet) -> bool {
         match self.router_tx.try_send((self.id, pkt)) {
             Ok(()) => true,
@@ -127,19 +120,18 @@ impl InterfaceSink {
 
     /// Packets this interface dropped because the router could not keep up.
     ///
-    /// Nonzero means the endpoint is being offered more than it can route, which is a
-    /// capacity fact worth surfacing: it is invisible from the wire and indistinguishable,
-    /// from the outside, from a peer that never transmitted.
+    /// Nonzero means the endpoint is offered more than it can route, which the wire alone
+    /// cannot tell from a peer that never transmitted.
     pub fn dropped(&self) -> u64 {
         self.dropped.load(Ordering::Relaxed)
     }
 
     /// Authenticate and decode one complete carrier frame, then deliver it.
     ///
-    /// An IFAC-configured interface rejects open, incorrectly keyed, and
-    /// modified frames before they reach the endpoint router. An interface
-    /// without IFAC hands a frame carrying the IFAC flag on, and the router
-    /// drops it and counts it in [`RoutingCounters::ifac_flag_rejected`](super::RoutingCounters::ifac_flag_rejected).
+    /// An IFAC-configured interface rejects open, incorrectly keyed, and modified frames
+    /// before they reach the router. Without IFAC, a frame carrying the IFAC flag is passed
+    /// on, and the router drops it and counts it in
+    /// [`RoutingCounters::ifac_flag_rejected`](super::RoutingCounters::ifac_flag_rejected).
     pub fn deliver_frame(&self, frame: &[u8]) -> crate::Result<bool> {
         let packet = match &self.ifac {
             Some(ifac) => Packet::decode(&ifac.open(frame)?)?,

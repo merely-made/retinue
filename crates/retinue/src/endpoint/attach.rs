@@ -38,12 +38,8 @@ impl Shared {
         })
     }
 
-    /// Forget an interface, closing its outbound queues.
-    ///
-    /// Attaching was one-way: a transport that connects, drops, and reconnects left its old
-    /// record, its queues, and anything scheduling against them in place forever. Anything
-    /// still holding the matching [`Interface`] will see its queues closed and stop, which
-    /// is the intended way to end a carrier.
+    /// Forget an interface, closing its outbound queues: a holder of the matching
+    /// [`Interface`] sees them closed and stops, which is how a carrier ends.
     fn forget_interface(&self, id: InterfaceId) {
         self.write_diagnostic(|| {
             let mut interfaces = self.interfaces.lock().unwrap();
@@ -56,9 +52,8 @@ impl Shared {
             };
             drop(interfaces);
             self.first_hop_airtime_ms.lock().unwrap().remove(&id);
-            // Routes and bridges through a gone interface would send into nothing until they
-            // expired. RNS culls them with the interface (`Transport.py` 880-881, 975-978);
-            // a destination without a route is then reached by broadcast.
+            // RNS culls routes and bridges with their interface (`Transport.py` 880-881,
+            // 975-978); a destination without a route is then reached by broadcast.
             let routes_removed = {
                 let mut paths = self.path_table.lock().unwrap();
                 let before = paths.len();
@@ -131,25 +126,17 @@ impl Endpoint {
         attach(&self.shared, stream, Some(ifac)).0
     }
 
-    /// Attach a raw packet [`Interface`] and return its handle, doing no I/O or
-    /// framing. The caller drives the transport: drain [`Interface::next_outbound`]
-    /// to send packets, and call the [`InterfaceSink`](super::InterfaceSink) to deliver received ones.
-    /// This is the seam a non-TCP medium (serial, or a deterministic test loss
-    /// oracle) plugs into; `attach_tcp_client` / `listen_tcp` are this plus framing.
+    /// Attach a raw packet [`Interface`] and return its handle, doing no I/O or framing. The
+    /// caller drains [`Interface::next_outbound`] and delivers received packets through its
+    /// [`InterfaceSink`](super::InterfaceSink); `attach_tcp_client` and `listen_tcp` are this
+    /// plus framing.
     pub fn attach_interface(&self) -> Interface {
         self.attach_interface_with_frame_limit(crate::packet::MTU)
             .expect("the Reticulum protocol MTU is a valid interface frame limit")
     }
 
-    /// Attach a raw packet interface with an explicit complete-frame limit.
-    ///
-    /// The effective limit cannot exceed Reticulum's own protocol MTU. Interface
-    /// drivers may lower it again if they discover a stricter carrier limit.
-    /// Detach an interface, closing its queues and forgetting its record.
-    ///
-    /// The counterpart attaching never had. A transport that connects, drops, and reconnects
-    /// -- an unreliable TCP peer, a radio replugged -- otherwise left its old record and
-    /// queues behind on every cycle, and the scheduler kept visiting them.
+    /// Detach an interface, closing its queues and forgetting its record, so a carrier that
+    /// reconnects does not leave its old record behind.
     pub fn detach_interface(&self, id: InterfaceId) {
         self.shared.forget_interface(id);
     }
@@ -167,6 +154,10 @@ impl Endpoint {
             .is_some()
     }
 
+    /// Attach a raw packet interface with an explicit complete-frame limit.
+    ///
+    /// The effective limit cannot exceed Reticulum's own protocol MTU. Interface
+    /// drivers may lower it again if they discover a stricter carrier limit.
     pub fn attach_interface_with_frame_limit(&self, max_frame_len: usize) -> io::Result<Interface> {
         self.attach_interface_access(max_frame_len, None)
     }
@@ -370,21 +361,16 @@ fn attach(shared: &Arc<Shared>, stream: TcpStream, ifac: Option<Ifac>) -> (Inter
                     },
                     None => raw,
                 };
-                // Await on a full router queue rather than dropping: this back-pressures the
-                // socket read, so TCP flow control slows a flooding peer. `send` errors only
-                // when the router is gone, which means the endpoint is shutting down.
+                // Await a full router queue rather than drop: TCP flow control then slows a
+                // flooding peer. `send` fails only once the endpoint is shutting down.
                 if let Ok(pkt) = Packet::decode(&logical)
                     && router_tx.send((id, pkt)).await.is_err()
                 {
-                    // The endpoint is going away, and it will tear its own state down.
                     return;
                 }
             }
         }
-        // The socket is gone, so this interface is. Attaching used to be one-way: a peer
-        // that reconnected -- a flapping link, a restarted daemon -- left its record and its
-        // queues behind on every cycle, and the scheduler kept visiting them. Reaching here
-        // is exactly the moment there is nothing left to visit.
+        // The socket is gone, and with it the interface.
         owner.forget_interface(id);
     });
 

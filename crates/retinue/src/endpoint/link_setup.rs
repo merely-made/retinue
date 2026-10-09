@@ -47,11 +47,9 @@ impl Endpoint {
         .ok_or_else(endpoint_closed)
     }
 
-    /// Open a **reliable** link to a destination — the Channel/Buffer path with proof acks,
-    /// for lossy interfaces — and return its stream. `peer` is the destination's identity: the
-    /// handshake authenticates it, and the peer's proofs of our packets are validated against
-    /// it. As the initiator, the reliable driver IDENTIFYs us to the responder so it can
-    /// validate our proofs in turn.
+    /// Open a **reliable** link to a destination (Channel/Buffer with proof acks, for lossy
+    /// interfaces) and return its stream. `peer` is the destination's identity, which the
+    /// handshake authenticates; the driver IDENTIFYs us so the responder can do the same.
     pub async fn open_reliable(&self, dest: AddressHash, peer: Identity) -> io::Result<LinkStream> {
         let (link, iface, liveness) = self.establish(dest, peer).await?;
         register_reliable_stream(
@@ -116,9 +114,8 @@ impl Endpoint {
 
     /// Send one indivisible payload using the form that fits the negotiated link.
     ///
-    /// A payload that fits one encrypted data packet takes the low-overhead path.
-    /// Larger payloads use a proved Resource on the same established link. This
-    /// does not split a logical message into several independent data packets.
+    /// A payload that fits one encrypted data packet takes the low-overhead path; a larger one
+    /// is a proved Resource on the same link, never several independent data packets.
     pub async fn send_payload(
         &self,
         dest: AddressHash,
@@ -235,13 +232,10 @@ impl Endpoint {
     }
 
     /// Establish a link to `dest` (whose identity is `peer`), returning it with the interface
-    /// its proof arrived on and its liveness timers. The stream discipline is chosen by the
-    /// caller.
+    /// its proof arrived on and its liveness timers; the caller picks the stream discipline.
     ///
-    /// Setup waits [`crate::node::link_request_timeout`] for the route's hop count, plus the
-    /// outgoing interface's first-hop airtime ([`Endpoint::set_first_hop_airtime`]). On
-    /// timeout an endpoint that is not a transport forgets the route and asks for a new path,
-    /// within the path-request budget, as RNS does (`Transport.py` 697-725).
+    /// Setup waits [`Self::link_setup_timeout`]. On timeout a non-transport endpoint forgets
+    /// the route and asks for a new path, as RNS does (`Transport.py` 697-725).
     async fn establish(
         &self,
         dest: AddressHash,
@@ -265,23 +259,19 @@ impl Endpoint {
         let link_id = pending.link_id();
         let (tx, rx) = oneshot::channel();
         self.shared.pending.lock().unwrap().insert(link_id, tx);
-        // Stash the pending link so the router can prove it.
         self.shared
             .pending_links
             .lock()
             .unwrap()
             .insert(link_id, pending);
-        // If setup does not complete — it times out below, or the caller drops this future —
-        // remove both entries on the way out so a failed setup never leaks router state.
+        // A timeout or a dropped future must not leak either entry.
         let mut guard = PendingGuard {
             shared: Arc::clone(&self.shared),
             link_id,
             armed: true,
         };
 
-        // Send the request toward the destination: on the interface the path table names
-        // (addressed via its transport node if remote), or broadcast if we have no route yet
-        // (a directly-connected peer).
+        // Out the routed interface, or broadcast for want of a route.
         let send_request = || {
             match self.shared.path_iface(dest) {
                 Some(iface) => self.shared.send_on(iface, request.clone()),
@@ -290,9 +280,8 @@ impl Endpoint {
             Instant::now()
         };
         let setup_timeout = self.link_setup_timeout(dest);
-        // The proof's arrival measures the RTT from this first transmission. A proof after a
-        // retry cannot say which copy it answers (Karn), so the measurement keeps this
-        // conservative bound rather than guessing the shorter one.
+        // RTT runs from the first transmission: a proof after a retry cannot say which copy
+        // it answers (Karn), so keep the conservative bound.
         let sent_at = tokio::time::Instant::now();
         send_request();
 
@@ -314,9 +303,8 @@ impl Endpoint {
                     Ok((link, iface)) => {
                         guard.armed = false; // router removed both entries on success
                         if self.shared.is_running() {
-                            // The responder does not activate an inbound link until the
-                            // initiator reports its measured RTT. Keep this ahead of any
-                            // application packet emitted by the returned session.
+                            // The responder activates the link on our RTT report, so it
+                            // must precede any application packet.
                             let rtt = sent_at.elapsed();
                             self.shared
                                 .send_on(iface, link.rtt_packet(rtt.as_secs_f32(), &next_iv()));
@@ -349,10 +337,9 @@ impl Endpoint {
     }
 }
 
-/// Removes a link's pending-setup state — the `pending` waker and the `pending_links`
-/// half-open link — if setup does not complete: a timeout, or the caller dropping the `open`
-/// future. Without it, a setup that never receives its proof leaks both entries. Disarmed
-/// once the proof establishes the link, since the router has already removed them.
+/// Removes a link's `pending` waker and `pending_links` entry if setup does not complete (a
+/// timeout, or a dropped `open` future). Disarmed once the proof arrives, since the router
+/// has removed both by then.
 struct PendingGuard {
     shared: Arc<Shared>,
     link_id: AddressHash,

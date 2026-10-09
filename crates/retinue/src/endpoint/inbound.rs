@@ -25,11 +25,9 @@ const ACCEPT_BACKLOG: usize = 64;
 pub(super) const LINK_REQUEST_CACHE: usize = 1_024;
 pub(super) const LINK_REQUEST_CACHE_TTL: Duration = Duration::from_secs(30);
 
-/// Caps on live inbound links, so a flood of requests cannot make the endpoint spawn tasks
-/// and buffers without bound. At a cap, a new request displaces the oldest link that has
-/// not yet activated (no packet from the initiator has decrypted on it, so it never answered
-/// our proof), and is refused only when every counted link has. Slots free when a link
-/// closes or its stream is dropped.
+/// Caps on live inbound links, so a flood of requests cannot spawn tasks and buffers without
+/// bound. At a cap, a new request displaces the oldest link not yet activated (nothing from
+/// its initiator has decrypted), and is refused only when every counted link has activated.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct InboundLinkLimits {
     /// Live inbound links across every destination this endpoint serves.
@@ -139,11 +137,8 @@ pub struct Accepted {
     pub stream: LinkStream,
     /// The destination hash the link request targeted (an ALPN maps to one).
     pub destination: AddressHash,
-    /// The interface the link request arrived on.
-    ///
-    /// A transport fact, not a claim: it is the interface the router actually
-    /// received the packet on, so a policy layer above can distinguish a peer
-    /// reaching a service over the local mesh from one arriving over TCP.
+    /// The interface the router actually received the link request on: a transport fact a
+    /// policy layer can use to tell the local mesh from TCP.
     pub interface: InterfaceId,
 }
 
@@ -228,9 +223,8 @@ impl Endpoint {
     }
 
     /// Wait for the next inbound **reliable** link (to a destination registered with
-    /// [`register_reliable`](Self::register_reliable)) and return its stream. The initiator's
-    /// identity is learned from the IDENTIFY it sends, so — unlike before — no peer identity
-    /// need be supplied here; the driver validates the initiator's proofs once it arrives.
+    /// [`register_reliable`](Self::register_reliable)) and return its stream. The driver
+    /// learns the initiator's identity from the IDENTIFY it sends.
     pub async fn accept_reliable(&self) -> io::Result<LinkStream> {
         Ok(self.accept_reliable_on_any().await?.stream)
     }
