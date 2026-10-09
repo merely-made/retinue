@@ -233,6 +233,14 @@ required-features = ["tulle-radio"]
 name = "resident_probe"
 required-features = ["tulle-radio", "serial"]
 
+[[example]]
+name = "serial_peer"
+required-features = ["serial"]
+
+[[example]]
+name = "rnode_peer"
+required-features = ["tulle-radio"]
+
 # Everything but the command envelope corpus needs the heap-backed core.
 [[test]]
 name = "node_pause"

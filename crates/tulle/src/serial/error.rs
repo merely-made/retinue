@@ -6,11 +6,15 @@ use std::io;
 /// A frame rejected after it reached the radio pump.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TransmitError {
-    TooLong { max: usize },
+    TooLong {
+        max: usize,
+    },
     Unsupported,
     DutyCycleImpossible,
     AnnouncementDisabled,
     Transport(String),
+    /// The radio is down and a supervised link is reopening it; the frame was dropped.
+    Offline,
     Stopped,
 }
 
@@ -29,6 +33,7 @@ impl fmt::Display for TransmitError {
                 )
             }
             Self::Transport(message) => write!(f, "serial transport error: {message}"),
+            Self::Offline => write!(f, "radio offline while its port is reopened"),
             Self::Stopped => write!(f, "serial pump stopped"),
         }
     }

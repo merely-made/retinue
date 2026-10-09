@@ -41,7 +41,7 @@ pub trait PacketRadio {
 #[allow(clippy::manual_async_fn)]
 impl PacketRadio for RNodeSerialLink {
     fn max_frame_len(&self) -> usize {
-        crate::rnode::MAX_FRAME
+        crate::rnode::HW_MTU
     }
 
     fn send_frame(
