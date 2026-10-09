@@ -158,7 +158,6 @@ async fn run<T, F>(
 {
     let epoch = Instant::now();
     loop {
-        let _ = status.send(CarrierStatus::Opening);
         let error = match open() {
             Ok(port) => {
                 let settled = Instant::now() + framing.settle();
@@ -177,6 +176,7 @@ async fn run<T, F>(
         if !idle_until(Instant::now() + REOPEN, &mut outbound).await {
             return;
         }
+        let _ = status.send(CarrierStatus::Opening);
     }
 }
 
