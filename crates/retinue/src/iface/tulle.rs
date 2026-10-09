@@ -168,7 +168,7 @@ mod tests {
     use super::*;
     use crate::destination::DestinationName;
     use crate::identity::PrivateIdentity;
-    use core::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Mutex;
     use tokio::sync::mpsc;
     use tulle::link::Received;
     use tulle::lora::CodingRate;
@@ -178,13 +178,13 @@ mod tests {
         _peer: mpsc::UnboundedSender<Received>,
         inbound: mpsc::UnboundedReceiver<Received>,
         /// Station IDs to refuse as a reopening radio would.
-        offline_ids: AtomicUsize,
+        offline_ids: Mutex<usize>,
     }
 
     fn recorder(offline_ids: usize) -> (Recorder, mpsc::UnboundedReceiver<Vec<u8>>) {
         let (sent, frames) = mpsc::unbounded_channel();
         let (_peer, inbound) = mpsc::unbounded_channel();
-        let offline_ids = AtomicUsize::new(offline_ids);
+        let offline_ids = Mutex::new(offline_ids);
         let radio = Recorder {
             sent,
             _peer,
@@ -205,11 +205,12 @@ mod tests {
             frame: Vec<u8>,
         ) -> impl Future<Output = Result<Duration, TransmitError>> + Send {
             let sent = self.sent.clone();
-            let offline = frame == b"N0CALL"
-                && self
-                    .offline_ids
-                    .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_sub(1))
-                    .is_ok();
+            let offline = frame == b"N0CALL" && {
+                let mut left = self.offline_ids.lock().unwrap();
+                let drop = *left > 0;
+                *left = left.saturating_sub(1);
+                drop
+            };
             async move {
                 if offline {
                     return Err(TransmitError::Offline);
