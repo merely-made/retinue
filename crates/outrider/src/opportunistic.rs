@@ -17,20 +17,22 @@ use retinue::ratchet::RatchetStore;
 
 use crate::announce::{AnnounceError, DeliveryAnnounce, delivery_destination, delivery_name};
 use crate::codec::{
-    CodecError, DEFAULT_MAX_MESSAGE_BYTES, DESTINATION_LEN, DecodedLxmf, LxmfPayload,
+    CodecError, DEFAULT_MAX_MESSAGE_BYTES, DESTINATION_LEN, DecodedLxmf, LxmfPayload, PreparedLxmf,
     decode_bounded, prepare,
 };
-use crate::stamp::{MESSAGE_WORKBLOCK_ROUNDS, STAMP_LEN, find_streamed, valid_streamed};
+use crate::stamp::{MESSAGE_WORKBLOCK_ROUNDS, STAMP_LEN, find_parallel, valid_streamed};
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct OpportunisticReceipt {
     pub message_id: [u8; 32],
-    /// The peer's advertised ratchet the packet was encrypted to, or `None` when the peer
-    /// advertised none and its identity key was used, as stock LXMF does.
-    pub ratchet_id: Option<NameHash>,
-    pub queued_interfaces: usize,
     /// The complete signed LXMF object. The on-wire plaintext omits its first 16 bytes.
     pub packed: Vec<u8>,
+    /// Retinue's receipt for the packet: the peer ratchet it was encrypted to (`None` when
+    /// the peer advertised none and its identity key was used, as stock LXMF does), the
+    /// queues that took it, and [`SinglePacketReceipt::delivery`], which resolves once the
+    /// recipient proves it. Stock proves before it validates, so a proof, stock's DELIVERED,
+    /// means received rather than accepted.
+    pub packet: SinglePacketReceipt,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -67,6 +69,53 @@ pub fn send(
     peer: &PeerAnnounce,
     payload: &LxmfPayload,
 ) -> Result<OpportunisticReceipt, OpportunisticError> {
+    let (announce, prepared) = prepare_for(endpoint, sender, peer, payload)?;
+    enforce_stamp(&announce, payload, prepared.message_id)?;
+    finish_send(endpoint, sender, peer.destination, prepared)
+}
+
+/// Generate any stamp required by the peer, then send opportunistically.
+///
+/// The size is checked before minting, so a message that cannot fit one packet costs no
+/// work, and the minted stamp is attached as found rather than checked again.
+pub fn send_stamped(
+    endpoint: &Endpoint,
+    sender: &PrivateIdentity,
+    peer: &PeerAnnounce,
+    payload: &LxmfPayload,
+    stamp_seed: [u8; STAMP_LEN],
+    max_stamp_attempts: u64,
+) -> Result<OpportunisticReceipt, OpportunisticError> {
+    let (announce, prepared) = prepare_for(endpoint, sender, peer, payload)?;
+    let Some(target) = announce.stamp_cost else {
+        return finish_send(endpoint, sender, peer.destination, prepared);
+    };
+    if prepared.stamped_len() - DESTINATION_LEN > retinue::packet::ENCRYPTED_MDU {
+        return Err(OpportunisticError::TooLarge);
+    }
+    let (stamp, _) = find_parallel(
+        &prepared.message_id,
+        MESSAGE_WORKBLOCK_ROUNDS,
+        u16::from(target),
+        stamp_seed,
+        max_stamp_attempts,
+    )
+    .ok_or(OpportunisticError::StampBudgetExhausted)?;
+    finish_send(
+        endpoint,
+        sender,
+        peer.destination,
+        prepared.with_stamp(&stamp),
+    )
+}
+
+/// Check the sender and peer, and prepare the message for the peer's delivery destination.
+fn prepare_for(
+    endpoint: &Endpoint,
+    sender: &PrivateIdentity,
+    peer: &PeerAnnounce,
+    payload: &LxmfPayload,
+) -> Result<(DeliveryAnnounce, PreparedLxmf), OpportunisticError> {
     if sender.public() != endpoint.identity() {
         return Err(OpportunisticError::LocalIdentityMismatch);
     }
@@ -76,43 +125,14 @@ pub fn send(
     let announce = DeliveryAnnounce::decode(&peer.app_data)?;
     let source = delivery_destination(sender.public());
     let prepared = prepare(*peer.destination.as_bytes(), *source.as_bytes(), payload)?;
-    enforce_stamp(&announce, payload, prepared.message_id)?;
-    finish_send(endpoint, sender, peer.destination, prepared)
-}
-
-/// Generate any stamp required by the peer, then send opportunistically.
-pub fn send_stamped(
-    endpoint: &Endpoint,
-    sender: &PrivateIdentity,
-    peer: &PeerAnnounce,
-    payload: &LxmfPayload,
-    stamp_seed: [u8; STAMP_LEN],
-    max_stamp_attempts: u64,
-) -> Result<OpportunisticReceipt, OpportunisticError> {
-    let announce = DeliveryAnnounce::decode(&peer.app_data)?;
-    let Some(target) = announce.stamp_cost else {
-        return send(endpoint, sender, peer, payload);
-    };
-    let source = delivery_destination(sender.public());
-    let initial = prepare(*peer.destination.as_bytes(), *source.as_bytes(), payload)?;
-    let (stamp, _) = find_streamed(
-        &initial.message_id,
-        MESSAGE_WORKBLOCK_ROUNDS,
-        u16::from(target),
-        stamp_seed,
-        max_stamp_attempts,
-    )
-    .ok_or(OpportunisticError::StampBudgetExhausted)?;
-    let mut stamped = payload.clone();
-    stamped.stamp = Some(stamp.to_vec());
-    send(endpoint, sender, peer, &stamped)
+    Ok((announce, prepared))
 }
 
 fn finish_send(
     endpoint: &Endpoint,
     sender: &PrivateIdentity,
     destination: AddressHash,
-    prepared: crate::codec::PreparedLxmf,
+    prepared: PreparedLxmf,
 ) -> Result<OpportunisticReceipt, OpportunisticError> {
     let message_id = prepared.message_id;
     let signature = sender.sign(prepared.signing_bytes());
@@ -121,16 +141,11 @@ fn finish_send(
     if single_payload.len() > retinue::packet::ENCRYPTED_MDU {
         return Err(OpportunisticError::TooLarge);
     }
-    let SinglePacketReceipt {
-        ratchet_id,
-        queued_interfaces,
-        ..
-    } = endpoint.send_single(destination, single_payload)?;
+    let packet = endpoint.send_single(destination, single_payload)?;
     Ok(OpportunisticReceipt {
         message_id,
-        ratchet_id,
-        queued_interfaces,
         packed,
+        packet,
     })
 }
 
