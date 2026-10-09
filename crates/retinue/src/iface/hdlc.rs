@@ -40,10 +40,12 @@ pub const ESC: u8 = 0x7D;
 /// An escaped byte is XORed with this.
 pub const ESC_MASK: u8 = 0x20;
 
-/// Largest deframed frame the [`Deframer`] will assemble before discarding it. A valid
-/// Reticulum packet is at most the wire MTU (the decoder rejects anything larger), so this
-/// caps how much a peer can make us buffer by withholding the closing flag.
-const MAX_FRAME: usize = crate::packet::MTU;
+/// Largest frame a default [`Deframer`] assembles: one MTU packet plus the largest IFAC
+/// code. RNS bounds a frame by `HW_MTU + ifac_size` before IFAC is stripped (`HDLC.py`
+/// 62-106, `Transport.py` 1790, `SerialInterface.py` 85), so a cap of the bare MTU would
+/// drop every full link packet on an IFAC carrier. `Ifac::open` and `Packet::decode`
+/// enforce the exact bounds afterwards.
+pub const MAX_FRAME: usize = crate::packet::MTU + crate::ifac::MAX_SIZE;
 
 /// Wrap a packet in a frame, escaping as needed.
 pub fn frame(packet: &[u8]) -> Vec<u8> {
@@ -68,17 +70,37 @@ pub fn frame(packet: &[u8]) -> Vec<u8> {
 /// whatever frames fall out.
 ///
 /// Empty frames (two adjacent flags, which RNS does emit between packets) are discarded
-/// rather than surfaced.
-#[derive(Debug, Default)]
+/// rather than surfaced. A frame longer than the limit is dropped whole, never truncated
+/// and delivered as RNS's serial carriers do.
+#[derive(Debug)]
 pub struct Deframer {
     buf: Vec<u8>,
+    limit: usize,
     in_frame: bool,
     escaped: bool,
 }
 
+impl Default for Deframer {
+    fn default() -> Self {
+        Self::with_limit(MAX_FRAME)
+    }
+}
+
 impl Deframer {
+    /// A deframer capped at [`MAX_FRAME`].
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// A deframer that drops frames longer than `limit` bytes, for a carrier whose MTU plus
+    /// access code is below [`MAX_FRAME`].
+    pub fn with_limit(limit: usize) -> Self {
+        Self {
+            buf: Vec::new(),
+            limit,
+            in_frame: false,
+            escaped: false,
+        }
     }
 
     /// Feed a chunk of stream, and get back every complete frame it finished.
@@ -108,10 +130,9 @@ impl Deframer {
             } else {
                 self.buf.push(b);
             }
-            // A valid Reticulum packet is at most the wire MTU, so a frame growing past it is
-            // malformed — or a peer withholding the closing flag to make us buffer without
-            // bound. Discard it and resynchronise at the next flag.
-            if self.buf.len() > MAX_FRAME {
+            // A frame past the limit is malformed, or a peer withholding the closing flag to
+            // make us buffer without bound. Discard it and resynchronise at the next flag.
+            if self.buf.len() > self.limit {
                 self.buf.clear();
                 self.in_frame = false;
             }
@@ -188,5 +209,30 @@ mod tests {
         assert!(d.buf.len() <= MAX_FRAME, "buffer is capped at MAX_FRAME");
         // A genuine frame after the next flag is delivered intact.
         assert_eq!(d.push(&frame(b"after")), vec![b"after".to_vec()]);
+    }
+
+    /// A full link packet (499 bytes) sealed with RNS's 16-byte TCP access code is 515 on
+    /// the wire, past the bare MTU; it must deframe. One byte past [`MAX_FRAME`] is dropped.
+    #[test]
+    fn ifac_frames_up_to_mtu_plus_max_code_pass() {
+        let ifac = crate::ifac::Ifac::new(Some("net"), Some("pass"), 16).unwrap();
+        let mut logical = vec![0x0C, 0x00];
+        logical.resize(499, 0x7E);
+        let sealed = ifac.seal(&logical).unwrap();
+        assert_eq!(sealed.len(), 515);
+        let mut d = Deframer::new();
+        assert_eq!(d.push(&frame(&sealed)), vec![sealed]);
+
+        let largest = vec![0x55; MAX_FRAME];
+        assert_eq!(d.push(&frame(&largest)), vec![largest]);
+        assert!(d.push(&frame(&[0x55; MAX_FRAME + 1])).is_empty());
+        assert_eq!(d.push(&frame(b"next")), vec![b"next".to_vec()]);
+    }
+
+    #[test]
+    fn a_lower_limit_drops_longer_frames() {
+        let mut d = Deframer::with_limit(8);
+        assert_eq!(d.push(&frame(&[1; 8])), vec![vec![1; 8]]);
+        assert!(d.push(&frame(&[1; 9])).is_empty());
     }
 }

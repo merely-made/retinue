@@ -119,7 +119,7 @@ fn transit_fixture() -> (
 ) {
     let endpoint = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x94; 64]));
     let a = endpoint.attach_interface();
-    let ifac = Ifac::with_default_size(Some("transit"), None).unwrap();
+    let ifac = Ifac::for_serial(Some("transit"), None).unwrap();
     let b = endpoint.attach_interface_with_ifac(255, ifac).unwrap();
     endpoint.enable_routing();
 

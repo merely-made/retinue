@@ -20,8 +20,15 @@ use crate::{Error, Result};
 pub const MIN_SIZE: usize = 1;
 /// Largest supported access code: one complete Ed25519 signature.
 pub const MAX_SIZE: usize = 64;
-/// Reticulum's usual access-code size for stream interfaces.
-pub const DEFAULT_SIZE: usize = 8;
+/// RNS's default code size for TCP, UDP, Auto, Backbone, I2P and Local interfaces
+/// (`Interface.py` 96, `TCPInterface.py` 77/466, `UDPInterface.py` 42, `AutoInterface.py` 50).
+pub const STREAM_SIZE: usize = 16;
+/// RNS's default code size for Serial, KISS, AX.25, Pipe and RNode interfaces
+/// (`SerialInterface.py` 53, `KISSInterface.py` 63, `RNodeInterface.py` 110).
+pub const SERIAL_SIZE: usize = 8;
+/// The serial-class default; stock TCP peers use [`STREAM_SIZE`].
+#[deprecated(note = "use STREAM_SIZE or SERIAL_SIZE for the carrier class")]
+pub const DEFAULT_SIZE: usize = SERIAL_SIZE;
 
 const IFAC_SALT: [u8; 32] = [
     0xad, 0xf5, 0x4d, 0x88, 0x2c, 0x9a, 0x9b, 0x80, 0x77, 0x1e, 0xb4, 0x99, 0x5d, 0x70, 0x2d, 0x4a,
@@ -68,7 +75,7 @@ impl Ifac {
     /// Derive an interface identity from a network name and/or passphrase.
     ///
     /// `size` is measured in bytes. Reticulum configuration files express the
-    /// same value in bits.
+    /// same value in bits; see [`Ifac::from_config_bits`].
     pub fn new(
         network_name: Option<&str>,
         passphrase: Option<&str>,
@@ -105,12 +112,56 @@ impl Ifac {
         })
     }
 
-    /// Derive credentials using the usual eight-byte access code.
+    /// Derive credentials with the [`STREAM_SIZE`] code stock TCP, UDP and Auto peers use.
+    pub fn for_stream(
+        network_name: Option<&str>,
+        passphrase: Option<&str>,
+    ) -> core::result::Result<Self, ConfigError> {
+        Self::new(network_name, passphrase, STREAM_SIZE)
+    }
+
+    /// Derive credentials with the [`SERIAL_SIZE`] code stock serial and RNode peers use.
+    pub fn for_serial(
+        network_name: Option<&str>,
+        passphrase: Option<&str>,
+    ) -> core::result::Result<Self, ConfigError> {
+        Self::new(network_name, passphrase, SERIAL_SIZE)
+    }
+
+    /// The serial-class default, [`Ifac::for_serial`].
+    #[deprecated(note = "use Ifac::for_stream for TCP/UDP peers, Ifac::for_serial for serial ones")]
     pub fn with_default_size(
         network_name: Option<&str>,
         passphrase: Option<&str>,
     ) -> core::result::Result<Self, ConfigError> {
-        Self::new(network_name, passphrase, DEFAULT_SIZE)
+        Self::for_serial(network_name, passphrase)
+    }
+
+    /// Derive credentials from RNS `[interfaces]` values (`Reticulum.py` 884-902, 1041-1042).
+    ///
+    /// A name or passphrase of `""` or `"None"` counts as unset, and with neither set the
+    /// interface has no IFAC (`Ok(None)`). `ifac_size` is in bits: below 8, or absent, it
+    /// falls back to `default_size` (the carrier's [`STREAM_SIZE`] or [`SERIAL_SIZE`]);
+    /// otherwise the code is `bits / 8` bytes. Past [`MAX_SIZE`] is refused, where RNS
+    /// would build codes no peer can verify.
+    pub fn from_config_bits(
+        network_name: Option<&str>,
+        passphrase: Option<&str>,
+        ifac_size_bits: Option<u32>,
+        default_size: usize,
+    ) -> core::result::Result<Option<Self>, ConfigError> {
+        fn set(value: Option<&str>) -> Option<&str> {
+            value.filter(|v| !v.is_empty() && *v != "None")
+        }
+        let (network_name, passphrase) = (set(network_name), set(passphrase));
+        if network_name.is_none() && passphrase.is_none() {
+            return Ok(None);
+        }
+        let size = match ifac_size_bits {
+            Some(bits) if bits >= 8 => usize::try_from(bits / 8).unwrap_or(usize::MAX),
+            _ => default_size,
+        };
+        Self::new(network_name, passphrase, size).map(Some)
     }
 
     /// Number of bytes this envelope adds to every packet.
@@ -328,7 +379,7 @@ mod tests {
     #[test]
     fn credentials_and_size_are_required() {
         assert!(matches!(
-            Ifac::new(None, None, DEFAULT_SIZE),
+            Ifac::new(None, None, SERIAL_SIZE),
             Err(ConfigError::MissingCredentials)
         ));
         assert!(matches!(
@@ -339,6 +390,42 @@ mod tests {
             Ifac::new(Some("name"), None, MAX_SIZE + 1),
             Err(ConfigError::InvalidSize)
         ));
+    }
+
+    #[test]
+    fn carrier_defaults_match_rns() {
+        assert_eq!(Ifac::for_stream(Some("n"), None).unwrap().size(), 16);
+        assert_eq!(Ifac::for_serial(Some("n"), None).unwrap().size(), 8);
+        #[allow(deprecated)]
+        let legacy = Ifac::with_default_size(Some("n"), None).unwrap();
+        assert_eq!(legacy.size(), SERIAL_SIZE);
+    }
+
+    #[test]
+    fn config_bits_follow_rns_parsing() {
+        let size = |name, pass, bits| {
+            Ifac::from_config_bits(name, pass, bits, STREAM_SIZE).map(|i| i.map(|i| i.size()))
+        };
+        assert_eq!(size(Some("n"), None, None), Ok(Some(16)));
+        assert_eq!(size(Some("n"), None, Some(7)), Ok(Some(16)));
+        assert_eq!(size(Some("n"), None, Some(8)), Ok(Some(1)));
+        assert_eq!(size(None, Some("p"), Some(130)), Ok(Some(16)));
+        assert_eq!(size(Some("n"), Some("p"), Some(512)), Ok(Some(64)));
+        assert_eq!(
+            size(Some("n"), None, Some(520)),
+            Err(ConfigError::InvalidSize)
+        );
+        assert_eq!(size(Some(""), Some("None"), Some(64)), Ok(None));
+        assert_eq!(size(None, None, None), Ok(None));
+
+        // "None" is dropped, not hashed: the result matches the credential given alone.
+        let logical = hex::decode(LOGICAL_HEX).unwrap();
+        let alone = Ifac::new(Some("n"), None, 8).unwrap().seal(&logical);
+        let with_none = Ifac::from_config_bits(Some("n"), Some("None"), Some(64), STREAM_SIZE)
+            .unwrap()
+            .unwrap()
+            .seal(&logical);
+        assert_eq!(alone, with_none);
     }
 
     #[test]

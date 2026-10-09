@@ -23,8 +23,7 @@ fn bytes(value: &Value) -> Vec<u8> {
 
 fn protected(data: &Value) -> RetinueCarrier {
     RetinueCarrier::protected(
-        Ifac::with_default_size(data["network_name"].as_str(), data["passphrase"].as_str())
-            .unwrap(),
+        Ifac::for_serial(data["network_name"].as_str(), data["passphrase"].as_str()).unwrap(),
     )
 }
 
@@ -56,7 +55,7 @@ fn protected_ingress_refuses_wrong_credentials_plain_and_tampered_stock_frames()
     let data = fixture();
     let carrier = protected(&data);
     let wrong = RetinueCarrier::protected(
-        Ifac::with_default_size(data["network_name"].as_str(), Some("wrong credential")).unwrap(),
+        Ifac::for_serial(data["network_name"].as_str(), Some("wrong credential")).unwrap(),
     );
     for case in data["cases"].as_array().unwrap() {
         if !case["fits_physical_255"].as_bool().unwrap() {
