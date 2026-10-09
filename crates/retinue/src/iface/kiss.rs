@@ -146,11 +146,12 @@ impl KissTnc {
 
     /// The configuration bytes RNS writes once the port settles: TXDELAY, TXTAIL, P,
     /// SLOTTIME, then READY, which RNS sends whether or not flow control is on
-    /// (`KISSInterface.py` 178-253). Marks the TNC ready.
+    /// (`KISSInterface.py` 178-253). Starts a fresh line: ready, with no partial frame.
     pub fn startup(&mut self) -> Vec<u8> {
         let tenths = |ms: u32| u8::try_from(ms / 10).unwrap_or(u8::MAX);
         let c = self.config;
         self.ready = true;
+        self.reset_partial();
         [
             (cmd::TXDELAY, tenths(c.preamble_ms)),
             (cmd::TXTAIL, tenths(c.txtail_ms)),

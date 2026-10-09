@@ -18,6 +18,9 @@ use crate::announce_admission::AnnounceIngressPolicy;
 use crate::endpoint::{Endpoint, Interface, InterfaceId};
 use crate::packet::PacketType;
 
+/// How often a station ID that a reopening radio dropped is offered again.
+const BEACON_RETRY_MS: u64 = 1_000;
+
 /// Drive one endpoint interface over a running Tulle radio until either side
 /// closes or an outbound packet cannot be transmitted.
 ///
@@ -37,7 +40,8 @@ where
 /// traffic (`RNodeInterface.py` 711-744, 1145-1149).
 ///
 /// Frames a supervised radio drops while reopening its port are lost, as RNS loses them
-/// while offline; they do not end the driver.
+/// while offline; they do not end the driver. The station ID is not lost: it stays due and
+/// goes out once the radio is back.
 pub fn drive_with_beacon<R>(
     interface: Interface,
     mut radio: R,
@@ -79,11 +83,16 @@ where
                             ),
                         ));
                     }
-                    if let Some(beacon) = &mut beacon {
-                        beacon.on_tx(&bytes, now_ms());
-                    }
+                    // The ID timer runs from traffic that reached the radio, as RNS arms it
+                    // on write (`RNodeInterface.py` 711-722), not from frames queued
+                    // while the radio was still coming up.
+                    let id_check = beacon.is_some().then(|| bytes.clone());
                     let announce = packet.packet_type == PacketType::Announce;
-                    transmit(&radio, bytes, announce).await?;
+                    if transmit(&radio, bytes, announce).await?
+                        && let (Some(beacon), Some(frame)) = (&mut beacon, id_check)
+                    {
+                        beacon.on_tx(&frame, now_ms());
+                    }
                 }
                 received = radio.recv_frame() => {
                     let Some(received) = received else {
@@ -102,9 +111,9 @@ where
                 _ = sleep_until(wake) => {
                     if let Some(beacon) = &mut beacon
                         && let Some(id) = beacon.take_due(now_ms())
+                        && !transmit(&radio, id, false).await?
                     {
-                        beacon.on_tx(&id, now_ms());
-                        transmit(&radio, id, false).await?;
+                        beacon.retry_at(now_ms() + BEACON_RETRY_MS);
                     }
                 }
             }
@@ -112,7 +121,8 @@ where
     }
 }
 
-async fn transmit<R: PacketRadio>(radio: &R, frame: Vec<u8>, announce: bool) -> io::Result<()> {
+/// Send one frame. `Ok(false)` if a reopening radio dropped it.
+async fn transmit<R: PacketRadio>(radio: &R, frame: Vec<u8>, announce: bool) -> io::Result<bool> {
     let sent = if announce {
         radio.send_announcement(frame).await
     } else {
@@ -121,8 +131,9 @@ async fn transmit<R: PacketRadio>(radio: &R, frame: Vec<u8>, announce: bool) -> 
     match sent {
         // A disabled announce policy is deliberate carrier policy, not a radio fault. Keep
         // the interface alive for the other packet classes it still carries.
-        Err(TransmitError::AnnouncementDisabled) if announce => Ok(()),
-        Ok(_) | Err(TransmitError::Offline) => Ok(()),
+        Err(TransmitError::AnnouncementDisabled) if announce => Ok(true),
+        Ok(_) => Ok(true),
+        Err(TransmitError::Offline) => Ok(false),
         Err(error) => Err(io::Error::other(error.to_string())),
     }
 }
@@ -157,6 +168,7 @@ mod tests {
     use super::*;
     use crate::destination::DestinationName;
     use crate::identity::PrivateIdentity;
+    use core::sync::atomic::{AtomicUsize, Ordering};
     use tokio::sync::mpsc;
     use tulle::link::Received;
     use tulle::lora::CodingRate;
@@ -165,6 +177,21 @@ mod tests {
         sent: mpsc::UnboundedSender<Vec<u8>>,
         _peer: mpsc::UnboundedSender<Received>,
         inbound: mpsc::UnboundedReceiver<Received>,
+        /// Station IDs to refuse as a reopening radio would.
+        offline_ids: AtomicUsize,
+    }
+
+    fn recorder(offline_ids: usize) -> (Recorder, mpsc::UnboundedReceiver<Vec<u8>>) {
+        let (sent, frames) = mpsc::unbounded_channel();
+        let (_peer, inbound) = mpsc::unbounded_channel();
+        let offline_ids = AtomicUsize::new(offline_ids);
+        let radio = Recorder {
+            sent,
+            _peer,
+            inbound,
+            offline_ids,
+        };
+        (radio, frames)
     }
 
     #[allow(clippy::manual_async_fn)]
@@ -178,7 +205,15 @@ mod tests {
             frame: Vec<u8>,
         ) -> impl Future<Output = Result<Duration, TransmitError>> + Send {
             let sent = self.sent.clone();
+            let offline = frame == b"N0CALL"
+                && self
+                    .offline_ids
+                    .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_sub(1))
+                    .is_ok();
             async move {
+                if offline {
+                    return Err(TransmitError::Offline);
+                }
                 sent.send(frame).map_err(|_| TransmitError::Stopped)?;
                 Ok(Duration::ZERO)
             }
@@ -189,25 +224,36 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn the_beacon_follows_traffic_once() {
+    /// Frames sent within `wait` of one announce, with the radio dropping `offline_ids` IDs.
+    async fn beacon_run(offline_ids: usize, wait: Duration) -> Vec<Vec<u8>> {
         let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x61; 64]));
-        let (sent, mut frames) = mpsc::unbounded_channel();
-        let (_peer, inbound) = mpsc::unbounded_channel();
-        let radio = Recorder {
-            sent,
-            _peer,
-            inbound,
-        };
+        let (radio, mut frames) = recorder(offline_ids);
         let beacon = Beacon::rnode(b"N0CALL", Duration::from_millis(300));
         tokio::spawn(drive_with_beacon(ep.attach_interface(), radio, beacon));
         ep.announce(&DestinationName::new("retinue", ["beacon"]), b"");
-        tokio::time::sleep(Duration::from_millis(1_200)).await;
+        tokio::time::sleep(wait).await;
         let mut got = Vec::new();
         while let Ok(frame) = frames.try_recv() {
             got.push(frame);
         }
+        got
+    }
+
+    #[tokio::test]
+    async fn the_beacon_follows_traffic_once() {
+        let got = beacon_run(0, Duration::from_millis(1_200)).await;
         assert_eq!(got.len(), 2, "one announce, one beacon");
+        assert_eq!(got[1], b"N0CALL");
+    }
+
+    #[tokio::test]
+    async fn a_beacon_dropped_while_offline_goes_out_later() {
+        let got = beacon_run(2, Duration::from_millis(3_000)).await;
+        assert_eq!(
+            got.len(),
+            2,
+            "one announce, then the beacon once back online"
+        );
         assert_eq!(got[1], b"N0CALL");
     }
 
