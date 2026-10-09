@@ -1,9 +1,11 @@
-//! Relayed announces: jittered scheduling, neighbour suppression and the announce cap.
+//! Relayed announces: jittered scheduling, neighbour suppression, interface modes and the
+//! announce cap.
 
 use super::{Action, Actions, InterfaceId, Node, QUEUED_ANNOUNCES, REBROADCAST_WINDOW};
 use crate::hash::AddressHash;
+use crate::iface_mode::{ModeFlags, announce_permitted};
 use crate::packet::Packet;
-use crate::rebroadcast::{AnnounceCap, Offer, Rebroadcast};
+use crate::rebroadcast::{AnnounceCap, CapRate, Offer, Rebroadcast};
 
 impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES: usize>
     Node<PEERS, ACTIONS, LINKS, ROUTES>
@@ -75,9 +77,9 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
     pub(super) fn poll_rebroadcasts(&mut self, now: u64, actions: &mut Actions<ACTIONS>) {
         for index in 0..self.announce_caps.len() {
             let interface = self.announce_caps[index].0;
-            let airtime = self.first_hop_airtime(interface);
+            let rate = CapRate::new(self.first_hop_airtime(interface));
             while actions.len() < ACTIONS {
-                let Some(packet) = self.announce_caps[index].1.pop_due(now, airtime) else {
+                let Some(packet) = self.announce_caps[index].1.pop_due(now, rate) else {
                     break;
                 };
                 self.send_rebroadcast(interface, packet, actions);
@@ -96,8 +98,10 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         });
     }
 
-    /// Pass a due rebroadcast through its interface's cap, where the airtime is known
-    /// (`Transport.py` 1522-1585). An interface without a cap slot sends uncapped.
+    /// Pass a due rebroadcast through its interface's mode rule, then its cap where the
+    /// airtime is known (`Transport.py` 1458-1585). It leaves where it was heard, so that
+    /// interface is both the next hop and the egress. An interface without a cap slot sends
+    /// uncapped.
     fn offer_rebroadcast(
         &mut self,
         rebroadcast: Rebroadcast,
@@ -105,6 +109,10 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         actions: &mut Actions<ACTIONS>,
     ) {
         let interface = rebroadcast.interface;
+        let mode = self.interface_mode(interface);
+        if !announce_permitted(mode, Some(mode), false, ModeFlags::default()) {
+            return;
+        }
         let airtime = self.first_hop_airtime(interface);
         if airtime == 0 {
             self.send_rebroadcast(interface, rebroadcast.packet, actions);
@@ -128,7 +136,8 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                 self.announce_caps.len() - 1
             }
         };
-        match self.announce_caps[index].1.offer(rebroadcast, now, airtime) {
+        let rate = CapRate::new(airtime);
+        match self.announce_caps[index].1.offer(rebroadcast, now, rate) {
             Offer::Send(packet) => self.send_rebroadcast(interface, packet, actions),
             Offer::Queued => {
                 self.transport_counters.capped_announces =

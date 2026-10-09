@@ -194,6 +194,10 @@ name = "transport_node"
 required-features = ["tokio"]
 
 [[example]]
+name = "mode_transport"
+required-features = ["tokio"]
+
+[[example]]
 name = "tulle_headed"
 required-features = ["tulle-radio"]
 

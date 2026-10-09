@@ -133,6 +133,7 @@ impl SingleQueueResult {
                 self.frame_capable = true;
             }
             QueueAdmission::Full => self.frame_capable = true,
+            QueueAdmission::Refused => {}
             QueueAdmission::FrameLimit { actual, limit } => {
                 if self
                     .frame_limit_rejection
@@ -148,14 +149,7 @@ impl SingleQueueResult {
 impl Shared {
     fn queue_single_on(&self, iface: InterfaceId, pkt: Packet) -> QueueAdmission {
         let addressed = self.address_for(iface, pkt);
-        self.interfaces
-            .lock()
-            .unwrap()
-            .iter()
-            .find(|candidate| candidate.id == iface)
-            .map_or(QueueAdmission::Full, |candidate| {
-                candidate.push(addressed, TrafficClass::Interactive)
-            })
+        self.push_to(iface, addressed, TrafficClass::Interactive)
     }
 
     /// Queue a local single packet on its learned route, or broadcast when the cached route
@@ -350,6 +344,12 @@ impl Endpoint {
                     format!(
                         "single packet is {actual} bytes after encryption, interface frame limit is {limit}"
                     ),
+                ));
+            }
+            if !queued.frame_capable {
+                return Err(io::Error::new(
+                    io::ErrorKind::NotConnected,
+                    "no transmitting interface reaches the destination",
                 ));
             }
             return Err(io::Error::new(

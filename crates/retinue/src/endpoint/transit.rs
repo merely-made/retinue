@@ -237,8 +237,9 @@ enum BridgeAdmission {
 
 /// Prepare to carry a link request from `from` to `out`: lower its signalled MTU to what both
 /// interfaces carry, and record an unproved bridge with a proof deadline of the per-hop
-/// allowance for each hop still ahead. Refuses a request whose MTU must be lowered under a
-/// link mode this node cannot encode, or a full table of recently heard validated links.
+/// allowance for each hop still ahead plus the outbound first-hop airtime. Refuses a request
+/// whose MTU must be lowered under a link mode this node cannot encode, or a full table of
+/// recently heard validated links.
 fn admit_link_request(
     shared: &Shared,
     from: InterfaceId,
@@ -261,13 +262,16 @@ fn admit_link_request(
         .unwrap()
         .get(&pkt.destination)
         .map_or(0, |entry| entry.hops);
+    // RNS adds the outbound interface's MTU airtime (`Transport.py` 2059-2062, 3200-3202).
+    let allowance =
+        crate::node::transit_proof_timeout(hops).saturating_add(shared.first_hop_airtime(out));
     let now = Instant::now();
     let bridge = LinkBridge {
         from,
         out,
         destination: pkt.destination,
         seen: now,
-        proof_deadline: Some(now + Duration::from_millis(crate::node::transit_proof_timeout(hops))),
+        proof_deadline: Some(now + Duration::from_millis(allowance)),
     };
     let mut bridges = shared.link_transport.lock().unwrap();
     // Prune before inserting, so the work tracks the requests that cause growth.
