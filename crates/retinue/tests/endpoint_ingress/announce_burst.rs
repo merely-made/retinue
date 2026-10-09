@@ -45,6 +45,8 @@ async fn announce_ingress_burst_is_bounded_attributed_and_does_not_silence_a_nei
         held_release_interval: Duration::from_millis(5),
         new_interface_hz: 50,
         established_interface_hz: 50,
+        // No grace, so the second announce of one destination is a relay violation.
+        destination_grace: 0,
         ..AnnounceIngressPolicy::default()
     };
     hub.set_announce_ingress_policy(policy);

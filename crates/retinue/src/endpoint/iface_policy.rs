@@ -42,7 +42,7 @@ impl Default for AnnounceRate {
 pub struct IfacePolicy {
     /// Ingress control override; `None` defers to the endpoint-wide policy.
     pub ingress: Option<AnnounceIngressPolicy>,
-    /// Destination announce-rate rule; `None` applies none on this interface.
+    /// Destination announce-rate rule; `None` defers to the endpoint-wide one.
     pub announce_rate: Option<AnnounceRate>,
     /// Share of the bitrate announces may use, in percent (`Reticulum.py` 114, 948-951).
     pub cap_percent: u8,

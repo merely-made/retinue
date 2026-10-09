@@ -1,6 +1,7 @@
 //! Answering and budgeting path requests.
 
 use super::*;
+use crate::endpoint::paths::PATH_REQUEST_GATE;
 
 /// A path request for one of our destinations is answered once per tag, on the interface
 /// it came in on only. Tagless requests and requests relayed past one hop are ignored.
@@ -169,5 +170,37 @@ async fn fabricated_unique_destinations_hit_the_global_path_request_cap() {
     assert!(
         ep.request_path(AddressHash::from_bytes([0xEE; 16])),
         "a fresh window admits new requests",
+    );
+}
+
+/// An announce for a destination whose path we asked for in the last 45 s is not held
+/// behind an ingress burst (`Transport.py` 1815-1821).
+#[tokio::test]
+async fn a_requested_destination_is_not_held_behind_a_burst() {
+    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x66; 64]));
+    let wire = ep.attach_interface().id();
+    ep.set_announce_ingress_policy(AnnounceIngressPolicy {
+        new_interface_hz: 1,
+        established_interface_hz: 1,
+        ..Default::default()
+    });
+    for seed in 0x67..0x6A {
+        let (packet, _) = peer_announce(seed, "burst");
+        route(&ep.shared, wire, packet);
+    }
+    assert_eq!(ep.announce_ingress_counters(wire).held, 1);
+
+    let (response, requested) = peer_announce(0x6A, "requested");
+    assert!(ep.request_path(requested.destination));
+    route(&ep.shared, wire, response);
+    assert!(ep.route_to(requested.destination).is_some());
+    assert_eq!(ep.announce_ingress_counters(wire).held, 1);
+    assert!(
+        ep.shared
+            .path_requested_within(requested.destination, PATH_REQUEST_GATE)
+    );
+    assert!(
+        !ep.shared
+            .path_requested_within(requested.destination, Duration::ZERO)
     );
 }

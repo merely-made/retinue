@@ -6,12 +6,11 @@ use std::time::Instant;
 
 use tokio::sync::mpsc;
 
-use crate::announce_admission::InterfaceVerdict;
 use crate::link::{self, Inbound, LinkMode, LinkTrailer};
 use crate::link_liveness::Liveness;
 use crate::packet::{DestinationType, Packet, PacketType};
 
-use super::announces::{HeldAnnounce, process_verified_announce, start_held_announce_release};
+use super::announces::admit_verified_announce;
 use super::dedup::LinkPacketAdmission;
 use super::entropy::{ephemeral_seed, next_iv};
 use super::facts::{LinkDirection, LinkRemoteFact};
@@ -135,7 +134,7 @@ pub(super) fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
             // A replay or stale emission needs no signature check, and a copy of an announce
             // that verified recently skips it. A neighbour relaying the announce we hold for
             // rebroadcast repeats its blob, so it is turned away here; it still ends our retry.
-            if shared.announce_is_stale_unverified(&pkt) {
+            if shared.announce_is_stale_unverified(iface, &pkt) {
                 if pkt.transport.is_some() {
                     shared.hear_rebroadcast_copy(&pkt);
                 }
@@ -147,46 +146,7 @@ pub(super) fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                 {
                     shared.hear_rebroadcast(a.destination, pkt.hops);
                 }
-                let route_is_known = shared
-                    .path_table
-                    .lock()
-                    .unwrap()
-                    .contains_key(&a.destination);
-                let verdict = shared.announce_admission.lock().unwrap().observe_interface(
-                    iface,
-                    route_is_known,
-                    shared.announce_admission_now_ms(),
-                );
-                match verdict {
-                    InterfaceVerdict::Process => {
-                        process_verified_announce(shared, iface, pkt, a);
-                    }
-                    InterfaceVerdict::Hold { release_at_ms } => {
-                        let held = HeldAnnounce {
-                            interface: iface,
-                            packet: pkt,
-                            announce: a,
-                        };
-                        if shared.hold_announce(held) {
-                            shared.announce_admission.lock().unwrap().note_held(iface);
-                            shared
-                                .routing_stats
-                                .held_announces
-                                .fetch_add(1, Ordering::Relaxed);
-                            start_held_announce_release(shared, iface, release_at_ms);
-                        } else {
-                            shared
-                                .announce_admission
-                                .lock()
-                                .unwrap()
-                                .note_held_dropped(iface);
-                            shared
-                                .routing_stats
-                                .held_announces_dropped
-                                .fetch_add(1, Ordering::Relaxed);
-                        }
-                    }
-                }
+                admit_verified_announce(shared, iface, pkt, a);
             }
         }
         PacketType::LinkRequest => {
