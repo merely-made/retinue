@@ -177,6 +177,81 @@ async fn large_ratcheted_fetch_response_uses_a_resource_and_authenticates() {
     assert_eq!(served.served, receipt.offered);
 }
 
+#[tokio::test]
+async fn a_default_fetch_from_our_node_is_acknowledged_and_drains_it() {
+    let pair = ratcheted_pair().await;
+    let prepared = prepare_propagation(
+        &pair.node,
+        &pair.node_identity,
+        pair.recipient_destination,
+        &LxmfPayload::text(1_753_603_207.5, b"DRAIN", b"fetched once"),
+        &stamps(None),
+    )
+    .unwrap();
+    let mut store = PropagationStore::new(PropagationStoreLimits::default());
+    let batch = PropagationBatch {
+        transfer_time: 1_753_603_208.0,
+        entries: vec![prepared.entry],
+    };
+    assert_eq!(store.ingest(&batch, 1_753_603_208.0).inserted, 1);
+    let node = Arc::new(PropagationNode::new(
+        store,
+        NodePolicy::from_announce(&node_announce()),
+    ));
+    // Each fetch is one link: serve it until the client closes it.
+    let serve = || {
+        let (endpoint, node) = (Arc::clone(&pair.node), Arc::clone(&node));
+        tokio::spawn(async move {
+            let mut accepted = endpoint.accept_resource().await.unwrap();
+            accepted.session.set_config(QUICK);
+            serve_fetch(&endpoint, accepted, &node, || 1_753_603_209.0)
+                .await
+                .unwrap()
+        })
+    };
+    let policy = FetchPolicy {
+        resource: QUICK,
+        ..FetchPolicy::default()
+    };
+    let fetch = || {
+        fetch_propagation(
+            &pair.recipient,
+            &pair.node_seen,
+            1_753_603_209.0,
+            |_| false,
+            &policy,
+        )
+    };
+
+    let server = serve();
+    let first = tokio::time::timeout(Duration::from_secs(15), fetch())
+        .await
+        .unwrap()
+        .unwrap();
+    let served = tokio::time::timeout(Duration::from_secs(5), server)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(first.messages.len(), 1);
+    assert_eq!(first.messages[0].message.message_id, prepared.message_id);
+    assert!(matches!(first.acknowledgement, Acknowledgement::Confirmed));
+    assert_eq!(served.acknowledged, 1);
+    assert!(node.store().is_empty());
+
+    let server = serve();
+    let second = tokio::time::timeout(Duration::from_secs(15), fetch())
+        .await
+        .unwrap()
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(5), server)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(second.offered.is_empty());
+    assert!(second.messages.is_empty());
+    assert!(matches!(second.acknowledgement, Acknowledgement::NotSent));
+}
+
 fn request_data(packed: &[u8]) -> Vec<Value> {
     let Value::Array(mut request) = rmpv::decode::read_value(&mut Cursor::new(packed)).unwrap()
     else {
