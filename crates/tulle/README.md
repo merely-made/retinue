@@ -71,10 +71,8 @@ espflash flash --port COM6 --chip esp32s3 C:\t\graphshell-target\xtensa-esp32s3-
 
 ## License
 
-Licensed under the Mozilla Public License, Version 2.0 ([LICENSE](LICENSE)).
-
-MPL-2.0 is file-level copyleft: you may use this crate in a larger work under
-any license, including a proprietary one, but modifications to *these files*
-must be published under the MPL. It is GPL-compatible. The firmware images
-this project ships combine it with Reticulum-licensed `retinue`, so the images
-themselves are not GPLv3.
+Licensed under the Reticulum License ([LICENSE](LICENSE)) from 2026-10-09, so
+its RNode host can follow RNS's `RNodeInterface.py`; see [NOTICE](NOTICE).
+Release 0.1.0 was published under MPL-2.0 and keeps those terms. See
+[retinue's README](../retinue/README.md#license) for what the Reticulum License
+means in practice.

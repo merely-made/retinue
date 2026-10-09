@@ -41,7 +41,7 @@ sha2 = "0.11"
 thiserror = { version = "2", default-features = false }
 # Stamp batches are checked on tokio's blocking pool, off the executor.
 tokio = { version = "1", features = ["rt"], optional = true }
-tulle = { version = "0.1.0", path = "../tulle", features = ["serial-async"], optional = true }
+tulle = { version = "0.2.0", path = "../tulle", features = ["serial-async"], optional = true }
 
 [dev-dependencies]
 # Used by the direct_phy_ui example only.

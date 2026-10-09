@@ -1,0 +1,32 @@
+# Third-party notices
+
+radio-hand is licensed under the Reticulum License (see LICENSE) from 2026-10-09.
+Earlier revisions were MPL-2.0; radio-hand was never published.
+
+## Reticulum (RNS)
+
+The RNS reference implementation, Copyright (c) 2016-2026 Mark Qvist, is
+licensed under the Reticulum License. From 2026-10-09 it may be read and
+adapted into this crate; see the repository's
+`design_docs/2026-10-05_reticulum_license_adoption.md` (amended 2026-10-09).
+Its copyright notice is carried in LICENSE. Each adapted portion is listed
+below with its upstream revision, file and line range, and target file.
+
+### Adapted from RNS
+
+All entries were read from RNS 1.5.7 (PyPI wheel `rns-1.5.7-py3-none-any.whl`,
+SHA-256 0e4aaf8cc47f770da34572d2215b45fea900e104b009551600eb9741a41faddf), host
+side only: RNode firmware is not read. The behaviour was adopted and the Rust
+is written for this crate; no Python was translated line by line. The findings
+are recorded in `design_docs/2026-10-09_rns_157_interface_review.md`.
+
+From the interface batch (2026-10-09):
+
+- The device side answers the commands RNS's RNode host sends: airtime locks
+  (reported as none, since the board enforces none), LEAVE and READY, with
+  RNS's command and error code values, and a 508-byte frame limit. RNS
+  `Interfaces/RNodeInterface.py` 40-95, 110, 428-500, 896-925.
+  Targets: `src/rnode.rs`, `src/channel/rnode.rs`.
+- The `rnode_air` example emulates RNode devices for host-side gates, answering
+  as RNS's host expects. RNS `Interfaces/RNodeInterface.py` 428-500, 650-695,
+  746-1135. Target: `examples/rnode_air.rs`.

@@ -223,6 +223,8 @@ pub fn answer(command: &Command<'_>) -> Option<(u8, Payload)> {
         Command::TxPower(dbm) => (cmd::TXPOWER, one(dbm)),
         Command::SpreadingFactor(sf) => (cmd::SF, one(sf)),
         Command::CodingRate(cr) => (cmd::CR, one(cr)),
+        // This board enforces no airtime lock, so it reports none. RNS records the echo and
+        // never validates it (`RNodeInterface.py` 667-692, 896-925).
         Command::AirtimeLock { long, .. } => (
             if long { cmd::LT_ALOCK } else { cmd::ST_ALOCK },
             Payload::from_slice(&[0, 0]).unwrap_or_default(),

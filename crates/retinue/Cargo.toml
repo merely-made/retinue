@@ -50,7 +50,7 @@ sha2 = { version = "0.11", default-features = false }
 # Socket options std and tokio do not expose: keepalive timing and TCP_USER_TIMEOUT.
 socket2 = { version = "0.6", features = ["all"], optional = true }
 tokio = { version = "1", features = ["net", "io-util", "sync", "rt", "time", "macros"], optional = true }
-tulle = { version = "0.1.0", path = "../tulle", features = ["serial-async"], optional = true }
+tulle = { version = "0.2.0", path = "../tulle", features = ["serial-async"], optional = true }
 x25519-dalek = { version = "3", features = ["static_secrets"] }
 
 [dev-dependencies]
