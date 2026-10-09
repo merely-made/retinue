@@ -317,8 +317,8 @@ pub struct TransportConfig {
     pub relay_announces: bool,
     /// Carry header-type-2 packets addressed to this node, and packets on remembered links.
     pub relay_packets: bool,
-    /// A packet is relayed only while its forwarded hop count stays below this, as RNS
-    /// transmits only below `PATHFINDER_M` (`Transport.py` 1356).
+    /// A packet is relayed only while its forwarded hop count stays below this. See
+    /// [`crate::packet::MAX_HOPS`] for how this meets RNS.
     pub max_hops: u8,
     /// Lifetime of a route learned from a verified announce.
     pub route_ttl: u64,

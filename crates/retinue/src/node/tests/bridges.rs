@@ -295,8 +295,8 @@ fn a_proof_validates_its_bridge_only_once_carried() {
     assert!(relay.bridges[0].proof_deadline.is_some());
 }
 
-/// RNS transmits only below `PATHFINDER_M` (`Transport.py` 1356): a relay forwards a packet
-/// only while its incremented hop count stays below the ceiling.
+/// A packet forwarded with `PATHFINDER_M` hops is refused by the next hop (`Packet.py` 250),
+/// so a relay forwards only while its incremented hop count stays below the ceiling.
 #[test]
 fn a_relay_never_transmits_at_the_hop_ceiling() {
     let (mut source, mut destination) = pair();

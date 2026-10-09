@@ -199,3 +199,28 @@ fn destination_admission_preserves_the_one_second_default_floor() {
         DestinationVerdict::Relay
     );
 }
+
+/// RNS learns an announce heard with up to 127 wire hops (`Transport.py` 2211) but
+/// rebroadcasts only below `PATHFINDER_M` (`Transport.py` 1356): 126 goes on as 127, and 127
+/// is learned and kept.
+#[tokio::test]
+async fn an_announce_is_relayed_only_below_the_hop_ceiling() {
+    for (hops, relayed) in [(MAX_HOPS - 2, true), (MAX_HOPS - 1, false)] {
+        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x4F; 64]));
+        let a = ep.attach_interface();
+        let b = ep.attach_interface();
+        ep.enable_routing();
+        let peer = PrivateIdentity::from_secret_bytes(&[0x50; 64]);
+        let (packet, announcement) = freshness_announce(&peer, "ceiling", 0, 1, 10, hops);
+        process_verified_announce(&ep.shared, a.id(), packet, announcement.clone());
+
+        assert_eq!(ep.route_to(announcement.destination), Some((a.id(), hops)));
+        let out = b.outbound.queues.pop();
+        assert_eq!(
+            out.map(|p| p.hops),
+            relayed.then_some(MAX_HOPS - 1),
+            "{hops}"
+        );
+        assert_eq!(ep.routing_counters().hop_limit_dropped, u64::from(!relayed));
+    }
+}

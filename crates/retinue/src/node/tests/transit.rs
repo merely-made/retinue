@@ -1,6 +1,7 @@
 //! Relaying announces and packets, the reverse table and the packet filter.
 
 use super::*;
+use crate::packet::MAX_HOPS;
 
 /// A transport node relays both sides of a link setup: the announce makes the route
 /// visible, the type-2 request reaches the destination, and the remembered link bridge
@@ -331,4 +332,57 @@ fn foreign_interface_cannot_refresh_or_poison_a_link_bridge() {
             .any(|action| matches!(action, Action::Send { interface: 1, .. }))
     );
     assert_eq!(relay.transport_counters().forwarded_packets, 2);
+}
+
+fn transit_relay() -> Node<32, 8, 4, 4> {
+    Node::new(
+        PrivateIdentity::from_secret_bytes(&[0x44; 64]),
+        DestinationName::new("retinue", ["relay"]).name_hash(),
+    )
+    .with_transport_config(TransportConfig::transit())
+}
+
+/// RNS learns an announce heard with up to 127 wire hops (`Transport.py` 2211) but
+/// rebroadcasts only below `PATHFINDER_M` (`Transport.py` 1356): 126 goes on as 127, and 127
+/// is learned and kept.
+#[test]
+fn an_announce_is_relayed_only_below_the_hop_ceiling() {
+    let (_, destination) = pair();
+    let mut relay = transit_relay();
+    let mut announce = destination.announce(&blob([0x78; RAND_HASH_LEN]), None);
+    announce.hops = MAX_HOPS - 1;
+    let heard = relay.ingest(IFACE, &announce, 0);
+    assert!(sent(&heard).is_none());
+    assert!(heard.iter().any(|a| matches!(a, Action::Learned { .. })));
+    assert_eq!(relay.route_count(), 1);
+    assert_eq!(relay.transport_counters().hop_limit_dropped, 1);
+
+    let mut relay = transit_relay();
+    announce.hops = MAX_HOPS - 2;
+    let relayed = sent(&relay.ingest(IFACE, &announce, 0)).expect("relayed below the ceiling");
+    assert_eq!(relayed.hops, MAX_HOPS - 1);
+}
+
+/// A carried type-2 packet goes on only while its incremented hops stay below the ceiling,
+/// and one refused at it does not shadow a later copy in the transit filter.
+#[test]
+fn a_transport_packet_is_carried_only_below_the_hop_ceiling() {
+    let (mut source, destination) = pair();
+    let mut relay = transit_relay();
+    let announce = destination.announce(&blob([0x79; RAND_HASH_LEN]), None);
+    source.ingest(IFACE, &sent(&relay.ingest(IFACE, &announce, 0)).unwrap(), 1);
+    let mut request = sent(
+        &source
+            .open_link(destination.destination(), IFACE, &[0x9A; 64], 1)
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(request.transport, Some(relay.identity.hash()));
+
+    request.hops = MAX_HOPS - 1;
+    assert!(sent(&relay.ingest(IFACE, &request, 2)).is_none());
+    assert_eq!(relay.transport_counters().hop_limit_dropped, 1);
+    request.hops = MAX_HOPS - 2;
+    let carried = sent(&relay.ingest(IFACE, &request, 3)).expect("carried below the ceiling");
+    assert_eq!(carried.hops, MAX_HOPS - 1);
 }

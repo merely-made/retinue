@@ -53,7 +53,7 @@ pub struct RoutingPolicy {
     /// Interfaces this endpoint will emit transit *on*.
     pub allowed_egress: InterfaceSelector,
     /// Hop ceiling for forwarded traffic: a packet is relayed only while its forwarded hop
-    /// count stays below it, as RNS transmits only below `PATHFINDER_M` (`Transport.py` 1356).
+    /// count stays below it. See [`crate::packet::MAX_HOPS`] for how this meets RNS.
     pub max_hops: u8,
     /// Each class's share of a contended interface, which bounds transit against local
     /// traffic.

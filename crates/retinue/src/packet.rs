@@ -46,8 +46,9 @@ pub const HEADER_MIN_LEN: usize = 2 + ADDRESS_HASH_LEN + 1;
 pub const HEADER_MAX_LEN: usize = 2 + ADDRESS_HASH_LEN * 2 + 1;
 
 /// The hop ceiling, RNS `Transport.PATHFINDER_M`. A packet arriving with this many hops or
-/// more is malformed (`Packet.py` 250), and a relay never transmits one (`Transport.py`
-/// 1356), so a forwarded packet's hops stay below it.
+/// more is malformed (`Packet.py` 250). RNS rebroadcasts an announce only below it
+/// (`Transport.py` 1356, 2211); it forwards other packets regardless and the next hop
+/// refuses them, so retinue drops those one hop earlier with the same outcome.
 pub const MAX_HOPS: u8 = 128;
 
 /// Maximum size of a whole packet on the wire. `RNS.Reticulum.MTU`.
