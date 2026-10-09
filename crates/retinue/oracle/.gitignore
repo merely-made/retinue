@@ -1,1 +1,5 @@
 census/
+# Local oracle interpreter, wheels and venv: never committed. See README.md.
+.python/
+.wheels/
+.venv/
