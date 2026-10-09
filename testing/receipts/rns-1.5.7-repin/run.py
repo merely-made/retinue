@@ -33,10 +33,25 @@ SERIAL_GATES = (
     ("rnode-air", "interop_rnode_air.py", []),
 )
 
+# Datagram carriers (UDP, AutoInterface): (name, script, args). `datagram` runs anywhere
+# (loopback and offline vectors). `datagram-lan` needs en1 with IPv4 and an fe80 address,
+# and a macOS application firewall that admits the oracle Python and the example binaries.
+# `datagram-root` also needs feth pairs made as root (interop_auto_feth.py says how).
+DATAGRAM_GATES = (
+    ("udp", "interop_udp.py", []),
+    ("auto-vectors", "interop_auto_vectors.py", ["--check"]),
+)
+DATAGRAM_LAN_GATES = (
+    ("auto-sniff", "interop_auto_sniff.py", ["en1"]),
+    ("udp-lan", "interop_udp.py", ["--lan", "en1"]),
+)
+DATAGRAM_ROOT_GATES = (("auto-feth", "interop_auto_feth.py", []),)
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("lane", choices=("live", "outrider", "resource", "routing", "serial"))
+    parser.add_argument("lane", choices=("live", "outrider", "resource", "routing", "serial",
+                                         "datagram", "datagram-lan", "datagram-root"))
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--raw-output", type=Path,
                         default=REPO / "validation/results/rns-1.5.7-repin")
@@ -58,6 +73,15 @@ def main():
     elif args.lane == "serial":
         gates = [(name, ORACLE / script, extra) for name, script, extra in SERIAL_GATES]
         assert len(gates) == 5
+    elif args.lane == "datagram":
+        gates = [(name, ORACLE / script, extra) for name, script, extra in DATAGRAM_GATES]
+        assert len(gates) == 2
+    elif args.lane == "datagram-lan":
+        gates = [(name, ORACLE / script, extra) for name, script, extra in DATAGRAM_LAN_GATES]
+        assert len(gates) == 2
+    elif args.lane == "datagram-root":
+        gates = [(name, ORACLE / script, extra) for name, script, extra in DATAGRAM_ROOT_GATES]
+        assert len(gates) == 1
     else:
         raw = args.raw_output.resolve()
         gates = [

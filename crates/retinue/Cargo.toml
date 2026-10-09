@@ -25,6 +25,9 @@ compression = ["alloc", "dep:bzip2"]
 tulle-radio = ["alloc", "tokio", "dep:tulle"]
 # Host serial carriers (RNS SerialInterface and KISSInterface) over a tty.
 serial = ["tokio", "dep:serial2-tokio"]
+# RNS AutoInterface and the UDP `device` option: host interface enumeration (getifaddrs,
+# if_nametoindex) through nix, which keeps the crate free of unsafe. Unix only.
+auto = ["tokio", "dep:nix"]
 
 [dependencies]
 aes = "0.9.1"
@@ -52,6 +55,9 @@ socket2 = { version = "0.6", features = ["all"], optional = true }
 tokio = { version = "1", features = ["net", "io-util", "sync", "rt", "time", "macros"], optional = true }
 tulle = { version = "0.2.0", path = "../tulle", features = ["serial-async"], optional = true }
 x25519-dalek = { version = "3", features = ["static_secrets"] }
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.31", default-features = false, features = ["net"], optional = true }
 
 [dev-dependencies]
 hex = "0.4.3"
@@ -353,3 +359,15 @@ required-features = ["tulle-radio"]
 [[example]]
 name = "node_jam"
 required-features = ["tulle-radio"]
+
+[[example]]
+name = "udp_interop"
+required-features = ["tokio"]
+
+[[example]]
+name = "auto_sniff"
+required-features = ["auto"]
+
+[[example]]
+name = "auto_peer"
+required-features = ["auto"]
