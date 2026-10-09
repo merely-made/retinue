@@ -14,6 +14,7 @@ use retinue::request::Request;
 
 mod cancel;
 mod proofs;
+mod receipts;
 mod segments;
 mod transfer;
 

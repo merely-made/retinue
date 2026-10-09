@@ -112,7 +112,7 @@ impl ResourceSession {
     }
 
     /// The link's transfer timing: its measured RTT, else the configured retry interval.
-    fn timing(&self) -> Timing {
+    pub(super) fn timing(&self) -> Timing {
         let floor = self
             .config
             .retry_interval

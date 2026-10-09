@@ -236,7 +236,7 @@ impl Endpoint {
     ///
     /// Setup waits [`Self::link_setup_timeout`]. On timeout a non-transport endpoint forgets
     /// the route and asks for a new path, as RNS does (`Transport.py` 697-725).
-    async fn establish(
+    pub(super) async fn establish(
         &self,
         dest: AddressHash,
         peer: Identity,
