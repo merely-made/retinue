@@ -198,6 +198,9 @@ pub enum Error {
     /// A resource offer was refused by this side's accept policy, before any part of it
     /// was requested. The sender was told with a receiver cancel.
     ResourceRejected,
+    /// A resource transfer's peer stopped answering through every retry. The other side
+    /// was told with a cancel.
+    ResourceTimedOut,
 }
 
 impl core::fmt::Display for Error {
@@ -223,6 +226,7 @@ impl core::fmt::Display for Error {
             Self::DecompressionLimit => "decompressed resource exceeds the size limit",
             Self::MultiSegmentResource => "multi-segment resources are not supported",
             Self::ResourceRejected => "resource offer refused by the accept policy",
+            Self::ResourceTimedOut => "resource transfer timed out",
         };
         f.write_str(s)
     }

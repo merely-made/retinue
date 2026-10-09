@@ -140,6 +140,7 @@ impl PendingLink {
             mtu: agreed.mtu,
             signer: signing_seed(&self.ephemeral),
             peer_signer: *self.peer.ed25519_bytes(),
+            resource_carry: None,
         })
     }
 }
@@ -221,6 +222,7 @@ pub fn accept(
             mtu: offered.mtu,
             signer: signing_seed(destination),
             peer_signer,
+            resource_carry: None,
         },
         proof,
     ))

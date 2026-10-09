@@ -3,7 +3,6 @@ use alloc::vec::Vec;
 
 use super::*;
 use crate::link::CTX_RESOURCE_REQ;
-use crate::lossy::LossModel;
 use crate::resource::{Advertisement, Incoming, Outgoing};
 
 /// A clean transfer with no loss: advertise, request, serve, prove — end to end.
@@ -19,10 +18,10 @@ fn transfers_a_small_resource() {
     let mut to_sender: Vec<Packet> = Vec::new();
     for _ in 0..100 {
         for pkt in core::mem::take(&mut to_receiver) {
-            to_sender.extend(receiver.on_packet(&pkt, &mut ivg));
+            to_sender.extend(receiver.on_packet(&pkt, 0, &mut ivg));
         }
         for pkt in core::mem::take(&mut to_sender) {
-            to_receiver.extend(sender.on_packet(&pkt, &mut ivg));
+            to_receiver.extend(sender.on_packet(&pkt, 0, &mut ivg));
         }
         if sender.is_done() && receiver.is_complete() {
             break;
@@ -50,10 +49,10 @@ fn sender_compresses_when_the_encoded_body_is_smaller() {
     let mut to_sender: Vec<Packet> = Vec::new();
     for _ in 0..100 {
         for packet in core::mem::take(&mut to_receiver) {
-            to_sender.extend(receiver.on_packet(&packet, &mut ivg));
+            to_sender.extend(receiver.on_packet(&packet, 0, &mut ivg));
         }
         for packet in core::mem::take(&mut to_sender) {
-            to_receiver.extend(sender.on_packet(&packet, &mut ivg));
+            to_receiver.extend(sender.on_packet(&packet, 0, &mut ivg));
         }
         if sender.is_done() && receiver.is_complete() {
             break;
@@ -90,11 +89,11 @@ fn negotiated_mtu_bounds_resource_frames() {
     for _ in 0..500 {
         for packet in core::mem::take(&mut to_receiver) {
             assert!(packet.encoded_len() <= 255);
-            to_sender.extend(receiver.on_packet(&packet, &mut ivg));
+            to_sender.extend(receiver.on_packet(&packet, 0, &mut ivg));
         }
         for packet in core::mem::take(&mut to_sender) {
             assert!(packet.encoded_len() <= 255);
-            let replies = sender.on_packet(&packet, &mut ivg);
+            let replies = sender.on_packet(&packet, 0, &mut ivg);
             assert!(replies.len() <= 1, "one-part request window");
             to_receiver.extend(replies);
         }
@@ -112,64 +111,16 @@ fn negotiated_mtu_bounds_resource_frames() {
 /// advertisement, requests, parts, and the proof, and the HMU path for a large hashmap.
 #[test]
 fn transfers_a_large_resource_over_loss() {
-    let (send_link, recv_link) = link_pair();
     // Big enough to need many parts and stream the hashmap over more than one HMU.
     let data = payload(45_000);
-    let mut ivg = iv_gen();
-    let mut sender = ResourceSender::publish(send_link, &data, [0x01, 0x02, 0x03, 0x04], &ivg());
-    let mut receiver = ResourceReceiver::new(recv_link);
-
-    let mut fwd = LossModel::new(7).drop_per_mille(150).max_delay_ms(3);
-    let mut bwd = LossModel::new(0x5151).drop_per_mille(150).max_delay_ms(3);
-    let mut to_receiver: Vec<(u64, Packet)> = Vec::new();
-    let mut to_sender: Vec<(u64, Packet)> = Vec::new();
-
-    for now in 0..400_000u64 {
-        // Retransmit on a tick: the sender re-advertises until acked; the receiver
-        // re-requests what it still lacks.
-        if now % 50 == 0 {
-            if !sender.is_done() {
-                let adv = sender.advertisement(&ivg());
-                if !fwd.should_drop() {
-                    to_receiver.push((now + 1 + fwd.delay_ms(), adv));
-                }
-            }
-            for pkt in receiver.retransmit(&mut ivg) {
-                if !bwd.should_drop() {
-                    to_sender.push((now + 1 + bwd.delay_ms(), pkt));
-                }
-            }
-        }
-        let mut still = Vec::new();
-        for (t, pkt) in core::mem::take(&mut to_receiver) {
-            if t <= now {
-                for out in receiver.on_packet(&pkt, &mut ivg) {
-                    if !bwd.should_drop() {
-                        to_sender.push((now + 1 + bwd.delay_ms(), out));
-                    }
-                }
-            } else {
-                still.push((t, pkt));
-            }
-        }
-        to_receiver = still;
-        let mut still = Vec::new();
-        for (t, pkt) in core::mem::take(&mut to_sender) {
-            if t <= now {
-                for out in sender.on_packet(&pkt, &mut ivg) {
-                    if !fwd.should_drop() {
-                        to_receiver.push((now + 1 + fwd.delay_ms(), out));
-                    }
-                }
-            } else {
-                still.push((t, pkt));
-            }
-        }
-        to_sender = still;
-        if sender.is_done() && receiver.is_complete() {
-            break;
-        }
-    }
+    let (mut sender, mut receiver) = super::pipe::pair(&data, 10);
+    super::pipe::run(
+        &mut sender,
+        &mut receiver,
+        super::pipe::Pipe::new(100_000, 3).lossy(7, 150),
+        super::pipe::Pipe::new(100_000, 3).lossy(0x5151, 150),
+        3_600_000,
+    );
     assert!(sender.is_done(), "sender saw the proof over loss");
     assert_eq!(
         receiver.data(),
@@ -202,9 +153,9 @@ fn metadata_round_trips_beside_the_data() {
     let mut to_receiver = vec![advertisement];
     for _ in 0..100 {
         let to_sender = deliver(core::mem::take(&mut to_receiver), |packet| {
-            receiver.on_packet(packet, &mut ivg)
+            receiver.on_packet(packet, 0, &mut ivg)
         });
-        to_receiver = deliver(to_sender, |packet| sender.on_packet(packet, &mut ivg));
+        to_receiver = deliver(to_sender, |packet| sender.on_packet(packet, 0, &mut ivg));
         if sender.is_done() {
             break;
         }
@@ -233,6 +184,6 @@ fn serving_a_repeated_part_counts_every_slot_it_fills() {
     // A receiver asks once for the shared hash.
     wanted.truncate(2);
     let request = recv_link.sealed_packet(CTX_RESOURCE_REQ, &incoming.request(&wanted), &ivg());
-    assert_eq!(sender.on_packet(&request, &mut ivg).len(), 2);
+    assert_eq!(sender.on_packet(&request, 0, &mut ivg).len(), 2);
     assert!(sender.awaiting_proof(), "all three slots were served");
 }

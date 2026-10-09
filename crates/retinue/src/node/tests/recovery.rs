@@ -47,22 +47,15 @@ fn a_lost_part_is_re_requested_on_poll() {
     );
     assert!(b.transfer_active(id), "the transfer is stalled, not dead");
 
-    // Before the retry interval: silence. At it: the re-request, unprompted.
+    // Before the part timeout: silence. At it: the re-request, unprompted.
+    let due = b.resource_deadline().expect("the part timeout runs");
     assert!(
-        b.poll(
-            RESOURCE_RETRY_INTERVAL - 1,
-            IFACE,
-            Some(&blob([0; RAND_HASH_LEN]))
-        )
-        .is_empty(),
+        b.poll(due - 1, IFACE, Some(&blob([0; RAND_HASH_LEN])))
+            .is_empty(),
         "no retry before its time"
     );
-    let retry = sent(&b.poll(
-        RESOURCE_RETRY_INTERVAL,
-        IFACE,
-        Some(&blob([0; RAND_HASH_LEN])),
-    ))
-    .expect("the poll re-requests the missing part");
+    let retry = sent(&b.poll(due, IFACE, Some(&blob([0; RAND_HASH_LEN]))))
+        .expect("the poll re-requests the missing part");
 
     // The sender answers with the missing part, and the transfer completes.
     let served: Vec<Packet> = a
@@ -144,12 +137,9 @@ fn a_lost_advertisement_is_re_offered_on_poll() {
     assert!(a.transfer_active(id));
 
     // The idle link's keepalive goes out on the same poll; the offer is the advertisement.
+    let due = a.resource_deadline().expect("the advertisement timer runs");
     let again = a
-        .poll(
-            RESOURCE_RETRY_INTERVAL,
-            IFACE,
-            Some(&blob([0; RAND_HASH_LEN])),
-        )
+        .poll(due, IFACE, Some(&blob([0; RAND_HASH_LEN])))
         .into_iter()
         .find_map(|action| match action {
             Action::Send { packet, .. } if packet.context == link::CTX_RESOURCE_ADV => Some(packet),
@@ -179,9 +169,10 @@ fn derived_ivs_never_repeat_across_calls() {
         .unwrap();
     let advertisement = sent(&started).unwrap();
     let first = sent(&b.ingest(IFACE, &advertisement, 0)).expect("first request");
-    // The same advertisement again: the receiver rebuilds the same logical request. If
-    // IVs repeated, the sealed bytes would be identical.
-    let second = sent(&b.ingest(IFACE, &advertisement, 0)).expect("second request");
+    // The part timeout rebuilds the same logical request. If IVs repeated, the sealed bytes
+    // would be identical.
+    let due = b.resource_deadline().unwrap();
+    let second = sent(&b.poll(due, IFACE, None)).expect("second request");
     assert_ne!(
         first.payload, second.payload,
         "the same request sealed twice must differ, or the IV repeated"

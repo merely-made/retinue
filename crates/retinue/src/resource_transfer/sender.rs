@@ -5,6 +5,7 @@ use alloc::vec::Vec;
 
 use super::PROOF_CACHE_REQUESTS;
 use super::cancel::{cancel_packet, names_resource};
+use super::timing::{MAX_ADV_RETRIES, Timing};
 use crate::Error;
 use crate::link::{
     CTX_CACHE_REQUEST, CTX_RESOURCE, CTX_RESOURCE_ADV, CTX_RESOURCE_HMU, CTX_RESOURCE_ICL,
@@ -12,11 +13,12 @@ use crate::link::{
 };
 use crate::packet::Packet;
 #[cfg(feature = "compression")]
-use crate::resource::compress;
-use crate::resource::{
-    Outgoing, RANDOM_HASH_LEN, SDU, content, pack_metadata, parse_proof, parse_request,
-};
-use crate::token::IV_LEN;
+use crate::resource::compress_after;
+use crate::resource::{Outgoing, RANDOM_HASH_LEN, SDU, pack_metadata, parse_proof, parse_request};
+use crate::token::{IV_LEN, MAC_LEN};
+
+/// What sealing adds around the content: the IV, a padding block and the HMAC.
+const TOKEN_ROOM: usize = IV_LEN + 16 + MAC_LEN;
 
 /// Publishes one resource over a link: advertises it, serves part requests and hashmap
 /// updates, and completes when the receiver's proof of receipt arrives.
@@ -32,6 +34,15 @@ pub struct ResourceSender {
     cache_requests_left: u8,
     done: bool,
     canceled: bool,
+    timed_out: bool,
+    timing: Timing,
+    /// When the advertisement last went out, and how many re-sends remain.
+    advertised_at: Option<u64>,
+    adv_retries_left: u8,
+    /// The transfer's own RTT: advertisement to first request.
+    rtt: Option<u64>,
+    last_request: u64,
+    last_part_sent: u64,
 }
 
 impl ResourceSender {
@@ -81,19 +92,31 @@ impl ResourceSender {
         request_id: Option<[u8; 16]>,
         has_metadata: bool,
     ) -> Self {
+        // `random_hash || body`, with room to seal it in place.
+        let content = |body_len: usize| {
+            let mut transfer = Vec::with_capacity(TOKEN_ROOM + RANDOM_HASH_LEN + body_len);
+            transfer.extend_from_slice(&random_hash);
+            transfer
+        };
         #[cfg(feature = "compression")]
         let (transfer, compressed) = {
-            let encoded = compress(data);
-            if encoded.len() < data.len() {
-                (content(&encoded, &random_hash), true)
+            let encoded = compress_after(content(data.len() / 2), data);
+            if encoded.len() - RANDOM_HASH_LEN < data.len() {
+                (encoded, true)
             } else {
-                (content(data, &random_hash), false)
+                drop(encoded);
+                let mut transfer = content(data.len());
+                transfer.extend_from_slice(data);
+                (transfer, false)
             }
         };
         #[cfg(not(feature = "compression"))]
-        let (transfer, compressed) = (content(data, &random_hash), false);
-        let token = link.seal(&transfer, iv);
-        drop(transfer);
+        let (transfer, compressed) = {
+            let mut transfer = content(data.len());
+            transfer.extend_from_slice(data);
+            (transfer, false)
+        };
+        let token = link.seal_owned(transfer, iv);
         let part_size = (link.mtu() as usize)
             .saturating_sub(crate::packet::HEADER_MIN_LEN)
             .clamp(1, SDU);
@@ -134,10 +157,30 @@ impl ResourceSender {
             cache_requests_left: PROOF_CACHE_REQUESTS,
             done: false,
             canceled: false,
+            timed_out: false,
+            timing: Timing::default(),
+            advertised_at: None,
+            adv_retries_left: MAX_ADV_RETRIES,
+            rtt: None,
+            last_request: 0,
+            last_part_sent: 0,
         }
     }
 
-    /// The advertisement packet, sealed. (Re)send it until the receiver responds.
+    /// Time retransmissions from `timing`; see [`Timing`].
+    pub fn with_timing(mut self, timing: Timing) -> Self {
+        self.timing = timing;
+        self
+    }
+
+    /// The advertisement to send at tick `now`, which starts the advertisement timer.
+    /// [`poll`](Self::poll) re-sends it while unanswered.
+    pub fn advertise(&mut self, now: u64, iv: &[u8; IV_LEN]) -> Packet {
+        self.advertised_at = Some(now);
+        self.advertisement(iv)
+    }
+
+    /// The advertisement packet, sealed.
     pub fn advertisement(&self, iv: &[u8; IV_LEN]) -> Packet {
         self.link.sealed_packet(
             CTX_RESOURCE_ADV,
@@ -159,6 +202,7 @@ impl ResourceSender {
     pub fn on_packet(
         &mut self,
         packet: &Packet,
+        now: u64,
         mut iv: impl FnMut() -> [u8; IV_LEN],
     ) -> Vec<Packet> {
         if self.done || self.canceled {
@@ -175,7 +219,11 @@ impl ResourceSender {
                 if req.resource_hash != self.out.resource_hash() {
                     return vec![];
                 }
-                self.started = true;
+                if !self.started {
+                    self.started = true;
+                    self.rtt = Some(now.saturating_sub(self.advertised_at.unwrap_or(now)));
+                }
+                self.last_request = now;
                 let mut out = Vec::new();
                 // Serve every part whose map hash we hold, framed (already encrypted in-token).
                 for index in self.out.requested_indices(&req) {
@@ -198,6 +246,9 @@ impl ResourceSender {
                 {
                     let hmu = self.out.hmu_after_with_hash_limit(&last, self.hash_window);
                     out.push(self.link.sealed_packet(CTX_RESOURCE_HMU, &hmu, &iv()));
+                }
+                if !out.is_empty() {
+                    self.last_part_sent = now;
                 }
                 if self.awaiting_proof() {
                     self.cache_requests_left = PROOF_CACHE_REQUESTS;
@@ -243,6 +294,50 @@ impl ResourceSender {
             self.link
                 .framed_packet(CTX_CACHE_REQUEST, expected.full_hash().to_vec()),
         )
+    }
+
+    /// Run the sender's watchdog at tick `now` (`Resource.py` 580-600, 651-671): re-send
+    /// an unanswered advertisement up to [`MAX_ADV_RETRIES`] times, ask for a missing proof
+    /// with a [`cache_request`](Self::cache_request), and once those run out, or requests
+    /// stop mid-transfer, cancel with [`timed_out`](Self::timed_out) set.
+    pub fn poll(&mut self, now: u64, mut iv: impl FnMut() -> [u8; IV_LEN]) -> Option<Packet> {
+        if now < self.deadline()? {
+            return None;
+        }
+        if !self.started {
+            if self.adv_retries_left > 0 {
+                self.adv_retries_left -= 1;
+                return Some(self.advertise(now, &iv()));
+            }
+        } else if self.awaiting_proof()
+            && let Some(request) = self.cache_request()
+        {
+            self.last_part_sent = now;
+            return Some(request);
+        }
+        self.timed_out = true;
+        self.cancel(&iv())
+    }
+
+    /// The tick at which [`poll`](Self::poll) next has work, while the transfer runs.
+    pub fn deadline(&self) -> Option<u64> {
+        if self.done || self.canceled {
+            return None;
+        }
+        let rtt = self.rtt.unwrap_or(self.timing.rtt);
+        let (since, wait) = if !self.started {
+            (self.advertised_at?, self.timing.advertisement_wait())
+        } else if self.awaiting_proof() {
+            (self.last_part_sent, self.timing.proof_wait(rtt))
+        } else {
+            (self.last_request, self.timing.request_wait(rtt))
+        };
+        Some(since.saturating_add(wait))
+    }
+
+    /// Whether this sender gave up on a silent receiver.
+    pub fn timed_out(&self) -> bool {
+        self.timed_out
     }
 
     /// Cancel this transfer: the sealed initiator cancel (`RESOURCE_ICL`) to send, or

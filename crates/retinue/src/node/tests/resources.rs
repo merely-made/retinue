@@ -178,7 +178,8 @@ fn a_lost_resource_proof_is_recovered_from_the_receivers_cache() {
         "b delivered and released its receiver"
     );
 
-    let polled = a.poll(RESOURCE_RETRY_INTERVAL, IFACE, None);
+    let now = a.resource_deadline().expect("the proof wait runs");
+    let polled = a.poll(now, IFACE, None);
     let [request] = sent_with(&polled, link::CTX_CACHE_REQUEST)
         .try_into()
         .expect("one cache request");
@@ -189,22 +190,18 @@ fn a_lost_resource_proof_is_recovered_from_the_receivers_cache() {
     assert_eq!(request.payload, proof.full_hash());
 
     for _ in 0..2 {
-        let answer = b.ingest(IFACE, &request, RESOURCE_RETRY_INTERVAL);
+        let answer = b.ingest(IFACE, &request, now);
         assert_eq!(
             sent(&answer),
             Some(proof.clone()),
             "the kept proof, byte for byte"
         );
     }
-    assert!(a.ingest(IFACE, &proof, RESOURCE_RETRY_INTERVAL).is_empty());
+    assert!(a.ingest(IFACE, &proof, now).is_empty());
     assert!(!a.transfer_active(id), "the proof completed a's publish");
 
     // The kept proof expires.
-    b.poll(
-        RESOURCE_RETRY_INTERVAL + RESOURCE_PROOF_CACHE_TTL,
-        IFACE,
-        None,
-    );
+    b.poll(now + RESOURCE_PROOF_CACHE_TTL, IFACE, None);
     assert!(
         b.ingest(IFACE, &request, RESOURCE_PROOF_CACHE_TTL * 2)
             .is_empty()
@@ -226,9 +223,9 @@ fn a_sender_without_a_proof_cancels_after_three_cache_requests() {
         .unwrap()
         .0
         .clone();
-    let mut now = 0;
+    let mut now;
     for _ in 0..crate::resource_transfer::PROOF_CACHE_REQUESTS {
-        now += RESOURCE_RETRY_INTERVAL;
+        now = a.resource_deadline().unwrap();
         a.ingest(
             IFACE,
             &peer_link.keepalive_packet(link::KEEPALIVE_RESPONSE),
@@ -237,7 +234,7 @@ fn a_sender_without_a_proof_cancels_after_three_cache_requests() {
         let polled = a.poll(now, IFACE, None);
         assert_eq!(sent_with(&polled, link::CTX_CACHE_REQUEST).len(), 1);
     }
-    now += RESOURCE_RETRY_INTERVAL;
+    now = a.resource_deadline().unwrap();
     a.ingest(
         IFACE,
         &peer_link.keepalive_packet(link::KEEPALIVE_RESPONSE),
@@ -265,16 +262,12 @@ fn a_sender_without_a_proof_cancels_after_three_cache_requests() {
 fn cache_request_answers_are_capped() {
     let (mut a, mut b, id) = linked();
     let proof = transfer_until_proof(&mut a, &mut b, id);
-    let request = sent_with(
-        &a.poll(RESOURCE_RETRY_INTERVAL, IFACE, None),
-        link::CTX_CACHE_REQUEST,
-    )
-    .pop()
-    .expect("a cache request");
+    let now = a.resource_deadline().unwrap();
+    let request = sent_with(&a.poll(now, IFACE, None), link::CTX_CACHE_REQUEST)
+        .pop()
+        .expect("a cache request");
     let answered = (0..20)
-        .filter(|_| {
-            sent(&b.ingest(IFACE, &request, RESOURCE_RETRY_INTERVAL)) == Some(proof.clone())
-        })
+        .filter(|_| sent(&b.ingest(IFACE, &request, now)) == Some(proof.clone()))
         .count();
     assert_eq!(
         answered,
@@ -342,7 +335,7 @@ fn dropped_metadata_is_counted() {
             }
         }
         for packet in to_a {
-            to_b.extend(sender.on_packet(&packet, || derived_iv(&seed, id, &mut counter)));
+            to_b.extend(sender.on_packet(&packet, 0, || derived_iv(&seed, id, &mut counter)));
         }
     }
     assert_eq!(delivered, Some(data));

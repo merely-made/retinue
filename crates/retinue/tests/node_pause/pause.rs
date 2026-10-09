@@ -215,16 +215,15 @@ fn dropped_final_proof_keeps_sender_busy_and_poll_retries() {
 
     // Every part went out, so the retry asks the receiver's cache for the proof rather
     // than re-offering the resource.
-    let retry = a.poll(retinue::node::RESOURCE_RETRY_INTERVAL + 1, IFACE, None);
+    let retry_at = a.resource_deadline().expect("the proof wait runs");
+    let retry = a.poll(retry_at, IFACE, None);
     assert_eq!(retry.overflowed(), 0);
     let retry_packet = sent_context(&retry, retinue::link::CTX_CACHE_REQUEST);
     assert_eq!(retry_packet.context, retinue::link::CTX_CACHE_REQUEST);
     assert!(a.transfer_active(id));
     assert!(matches!(
-        a.pause_assessment().can_pause_through(
-            retinue::node::RESOURCE_RETRY_INTERVAL + 1,
-            retinue::node::RESOURCE_RETRY_INTERVAL + 100
-        ),
+        a.pause_assessment()
+            .can_pause_through(retry_at, retry_at + 99),
         Err(PauseBlocked::ActiveResources { outbound: 1, .. })
     ));
 }
