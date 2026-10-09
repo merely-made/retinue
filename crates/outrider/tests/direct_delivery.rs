@@ -2,9 +2,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use outrider::{
-    DeliveryAnnounce, LxmfPayload, receive_direct_with_stamp_cost,
-    receive_direct_with_stamp_cost_and_resource_config, register_delivery, send_direct_stamped,
-    send_direct_stamped_with_resource_config,
+    DeliveredCache, DeliveryAnnounce, DirectError, LxmfPayload, StampOutcome, Verification,
+    receive_direct_with_stamp_cost, receive_direct_with_stamp_cost_and_resource_config,
+    register_delivery, send_direct_stamped, send_direct_stamped_with_resource_config,
 };
 use retinue::endpoint::{Endpoint, PayloadMode, ResourceTransferConfig};
 use retinue::identity::PrivateIdentity;
@@ -59,15 +59,22 @@ async fn round_trip(
                 Some(config) => receive_direct_with_stamp_cost_and_resource_config(
                     &receiver,
                     accepted,
+                    &DeliveredCache::default(),
                     64 * 1024,
                     Some(8),
                     config,
                 )
                 .await
                 .unwrap(),
-                None => receive_direct_with_stamp_cost(&receiver, accepted, 64 * 1024, Some(8))
-                    .await
-                    .unwrap(),
+                None => receive_direct_with_stamp_cost(
+                    &receiver,
+                    accepted,
+                    &DeliveredCache::default(),
+                    64 * 1024,
+                    Some(8),
+                )
+                .await
+                .unwrap(),
             }
         }
     });
@@ -106,7 +113,9 @@ async fn round_trip(
     assert_eq!(received.message.message_id, receipt.message_id);
     assert_eq!(received.message.payload.title, b"TITLE");
     assert_eq!(received.message.payload.content, content);
-    assert_eq!(received.source_identity, *sender_identity.public());
+    assert_eq!(received.verification, Verification::Verified);
+    assert_eq!(received.source_identity, Some(*sender_identity.public()));
+    assert!(matches!(received.stamp, Some(StampOutcome::Value(value)) if value >= 8));
 }
 
 #[tokio::test]
@@ -131,15 +140,16 @@ async fn direct_delivery_uses_a_resource_when_the_message_does_not_fit() {
     .await;
 }
 
-/// A message from a sender we have never heard announce is refused, *and asked about*, so the
-/// sender's next attempt succeeds.
+/// A message from a sender we have never heard announce is handed over unverified, *and asked
+/// about*, so the held copy verifies once the sender's announce answers.
 ///
 /// This is the MeshChatX 2.0.1 case, reduced. A stock client opened a conversation and sent
 /// before it had announced on our air; the message arrived intact three times and was dropped
 /// three times, because verifying a signature needs the sender's keys and an announce is the
-/// only thing that carries them. Refusing is correct. Refusing silently made it permanent.
+/// only thing that carries them. Direct delivery proves on arrival, as stock does, so the
+/// sender will not try again: the message is the host's to hold (`LXMessage.py` 814-827).
 #[tokio::test]
-async fn an_unknown_sender_is_asked_about_so_its_retry_lands() {
+async fn an_unknown_sender_is_held_and_asked_about() {
     let sender_identity = PrivateIdentity::from_secret_bytes(&[0x51; 64]);
     let receiver_identity = PrivateIdentity::from_secret_bytes(&[0x62; 64]);
     let sender = Arc::new(Endpoint::new(sender_identity.clone()));
@@ -159,12 +169,14 @@ async fn an_unknown_sender_is_asked_about_so_its_retry_lands() {
             .expect("the receiver announces")
             .unwrap();
 
-    // First attempt: refused, because the source cannot be resolved.
+    let delivered = Arc::new(DeliveredCache::default());
+    // First attempt: handed over unverified, because the source cannot be resolved.
     let first = tokio::spawn({
         let receiver = Arc::clone(&receiver);
+        let delivered = Arc::clone(&delivered);
         async move {
             let accepted = receiver.accept_resource().await.unwrap();
-            receive_direct_with_stamp_cost(&receiver, accepted, 64 * 1024, None).await
+            receive_direct_with_stamp_cost(&receiver, accepted, &delivered, 64 * 1024, None).await
         }
     });
     let payload = LxmfPayload::text(1_753_603_203.5, b"TITLE", b"first try".to_vec());
@@ -178,14 +190,13 @@ async fn an_unknown_sender_is_asked_about_so_its_retry_lands() {
     )
     .await
     .unwrap();
-    let refused = tokio::time::timeout(Duration::from_secs(10), first)
+    let held = tokio::time::timeout(Duration::from_secs(10), first)
         .await
         .expect("the receive completes")
-        .unwrap();
-    assert!(
-        matches!(refused, Err(outrider::DirectError::UnknownSource { .. })),
-        "an unverifiable message is refused, not delivered: {refused:?}",
-    );
+        .unwrap()
+        .expect("an unverifiable message is handed over");
+    assert_eq!(held.verification, Verification::SourceUnknown);
+    assert_eq!(held.source_identity, None);
 
     // The refusal asked. The sender answers the path request with an announce, which is what
     // carries its identity, so the receiver now knows who it is.
@@ -198,13 +209,18 @@ async fn an_unknown_sender_is_asked_about_so_its_retry_lands() {
         *sender_identity.public(),
         "the answer is the sender's own announce",
     );
+    assert_eq!(
+        outrider::reverify(&receiver, &held.message),
+        (Verification::Verified, Some(*sender_identity.public()))
+    );
 
-    // Second attempt, which is what a retrying client does: it lands.
+    // A second message, now from a known sender, lands verified.
     let second = tokio::spawn({
         let receiver = Arc::clone(&receiver);
+        let delivered = Arc::clone(&delivered);
         async move {
             let accepted = receiver.accept_resource().await.unwrap();
-            receive_direct_with_stamp_cost(&receiver, accepted, 64 * 1024, None).await
+            receive_direct_with_stamp_cost(&receiver, accepted, &delivered, 64 * 1024, None).await
         }
     });
     let payload = LxmfPayload::text(1_753_603_204.5, b"TITLE", b"second try".to_vec());
@@ -224,7 +240,7 @@ async fn an_unknown_sender_is_asked_about_so_its_retry_lands() {
         .unwrap()
         .expect("and is accepted");
     assert_eq!(received.message.payload.content, b"second try");
-    assert_eq!(received.source_identity, *sender_identity.public());
+    assert_eq!(received.source_identity, Some(*sender_identity.public()));
 }
 
 /// A sender that has never announced is still accepted when it identifies on the link.
@@ -261,9 +277,10 @@ async fn a_sender_that_identifies_on_the_link_is_accepted_without_any_announce()
 
     let accept = tokio::spawn({
         let receiver = Arc::clone(&receiver);
+        let delivered = DeliveredCache::default();
         async move {
             let accepted = receiver.accept_resource().await.unwrap();
-            receive_direct_with_stamp_cost(&receiver, accepted, 64 * 1024, None).await
+            receive_direct_with_stamp_cost(&receiver, accepted, &delivered, 64 * 1024, None).await
         }
     });
 
@@ -293,7 +310,7 @@ async fn a_sender_that_identifies_on_the_link_is_accepted_without_any_announce()
         .unwrap()
         .expect("an identified sender is accepted with no announce anywhere");
     assert_eq!(received.message.payload.content, b"identified");
-    assert_eq!(received.source_identity, *sender_identity.public());
+    assert_eq!(received.source_identity, Some(*sender_identity.public()));
 
     // And the identity is only accepted for the source it actually derives to: a peer that
     // identifies as itself while claiming somebody else's source is refused.
@@ -311,5 +328,65 @@ async fn a_sender_that_identifies_on_the_link_is_accepted_without_any_announce()
     assert!(
         resolved.is_none(),
         "an IDENTIFY proves who the peer is, not who its message claims to be from",
+    );
+}
+
+/// A resend of a message already delivered here is refused as a duplicate, yet still proved
+/// on arrival, so its sender stops (`LXMRouter.py` 1975-1996).
+#[tokio::test]
+async fn a_resent_message_is_a_duplicate() {
+    let sender_identity = PrivateIdentity::from_secret_bytes(&[0x35; 64]);
+    let sender = Arc::new(Endpoint::new(sender_identity.clone()));
+    let receiver = Arc::new(Endpoint::new(PrivateIdentity::from_secret_bytes(
+        &[0x46; 64],
+    )));
+    connect(&sender, &receiver, LossModel::new(35), LossModel::new(46));
+    register_delivery(&sender, &DeliveryAnnounce::named(b"Sender".to_vec())).unwrap();
+    register_delivery(&receiver, &DeliveryAnnounce::named(b"Receiver".to_vec())).unwrap();
+    let receiver_announce =
+        tokio::time::timeout(Duration::from_secs(2), sender.next_announcement())
+            .await
+            .unwrap()
+            .unwrap();
+    let _ = tokio::time::timeout(Duration::from_secs(2), receiver.next_announcement())
+        .await
+        .unwrap()
+        .unwrap();
+
+    let delivered = Arc::new(DeliveredCache::default());
+    let payload = LxmfPayload::text(1_753_603_206.5, b"TITLE", b"twice".to_vec());
+    let mut outcomes = Vec::new();
+    for _ in 0..2 {
+        let receive = tokio::spawn({
+            let receiver = Arc::clone(&receiver);
+            let delivered = Arc::clone(&delivered);
+            async move {
+                let accepted = receiver.accept_resource().await.unwrap();
+                receive_direct_with_stamp_cost(&receiver, accepted, &delivered, 64 * 1024, None)
+                    .await
+            }
+        });
+        send_direct_stamped(
+            &sender,
+            &sender_identity,
+            &receiver_announce,
+            &payload,
+            [0; 32],
+            0,
+        )
+        .await
+        .unwrap();
+        outcomes.push(
+            tokio::time::timeout(Duration::from_secs(10), receive)
+                .await
+                .unwrap()
+                .unwrap(),
+        );
+    }
+    let first = outcomes.remove(0).expect("the first copy is delivered");
+    assert!(
+        matches!(outcomes[0], Err(DirectError::Duplicate(id)) if id == first.message.message_id),
+        "{:?}",
+        outcomes[0]
     );
 }

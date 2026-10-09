@@ -64,9 +64,15 @@ async fn direct_voice_keeps_field_seven_through_postilions_authenticated_event()
         let recipient = Arc::clone(&recipient);
         async move {
             let accepted = recipient.accept_resource().await.unwrap();
-            receive_direct_with_stamp_cost(&recipient, accepted, 64 * 1024, None)
-                .await
-                .unwrap()
+            receive_direct_with_stamp_cost(
+                &recipient,
+                accepted,
+                &outrider::DeliveredCache::default(),
+                64 * 1024,
+                None,
+            )
+            .await
+            .unwrap()
         }
     });
     let sent = send_direct_stamped(&sender, &sender_identity, &announce, &payload, [0; 32], 0)

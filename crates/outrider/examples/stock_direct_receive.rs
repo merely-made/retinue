@@ -8,7 +8,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use outrider::DeliveryAnnounce;
+use outrider::{DeliveredCache, DeliveryAnnounce, DirectError, StampOutcome};
 use retinue::endpoint::{Endpoint, PayloadMode};
 use retinue::identity::PrivateIdentity;
 
@@ -53,34 +53,67 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    let accepted = tokio::time::timeout(Duration::from_secs(30), endpoint.accept_resource())
+    // Receive until one message and `OUTRIDER_EXPECT_DUPLICATES` resends of it (default 0)
+    // have been handled. Every payload is proved on arrival.
+    let expect_duplicates: usize = std::env::var("OUTRIDER_EXPECT_DUPLICATES")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(0);
+    let delivered = DeliveredCache::default();
+    let (mut fresh, mut duplicates) = (0, 0);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+    while fresh == 0 || duplicates < expect_duplicates {
+        let accepted = tokio::time::timeout_at(deadline, endpoint.accept_resource())
+            .await
+            .map_err(|_| "timed out waiting for stock LXMF direct delivery")??;
+        let received = match outrider::receive_direct_with_stamp_cost(
+            &endpoint,
+            accepted,
+            &delivered,
+            outrider::DEFAULT_MAX_MESSAGE_BYTES,
+            Some(8),
+        )
         .await
-        .map_err(|_| "timed out waiting for stock LXMF direct delivery")??;
-    let received = outrider::receive_direct_with_stamp_cost(
-        &endpoint,
-        accepted,
-        outrider::DEFAULT_MAX_MESSAGE_BYTES,
-        Some(8),
-    )
-    .await?;
-    let transport = match received.mode {
-        PayloadMode::Data => "data",
-        PayloadMode::Resource => "resource",
-    };
+        {
+            Ok(received) => received,
+            Err(DirectError::Duplicate(id)) => {
+                duplicates += 1;
+                println!("DUPLICATE {}", hex::encode(id));
+                continue;
+            }
+            Err(error) => {
+                println!("REFUSED {error}");
+                continue;
+            }
+        };
+        let Some(source_identity) = received.source_identity else {
+            println!("UNVERIFIED {}", hex::encode(received.message.message_id));
+            continue;
+        };
+        fresh += 1;
+        let transport = match received.mode {
+            PayloadMode::Data => "data",
+            PayloadMode::Resource => "resource",
+        };
+        println!("RECEIVED {}", received.packed.len());
+        println!("TRANSPORT {transport}");
+        println!("PACKED {}", hex::encode(&received.packed));
+        println!("MESSAGE_ID {}", hex::encode(received.message.message_id));
+        println!(
+            "SOURCE {}",
+            outrider::delivery_destination(&source_identity)
+        );
+        println!("TITLE {}", hex::encode(&received.message.payload.title));
+        println!("CONTENT {}", hex::encode(&received.message.payload.content));
+        if let Some(StampOutcome::Value(value)) = received.stamp {
+            println!("STAMP_VALUE {value}");
+        }
+        println!("SIGNATURE_VERIFIED true");
+    }
     announcer.abort();
     announcement_log.abort();
-
-    println!("RECEIVED {}", received.packed.len());
-    println!("TRANSPORT {transport}");
-    println!("PACKED {}", hex::encode(&received.packed));
-    println!("MESSAGE_ID {}", hex::encode(received.message.message_id));
-    println!(
-        "SOURCE {}",
-        outrider::delivery_destination(&received.source_identity)
-    );
-    println!("TITLE {}", hex::encode(&received.message.payload.title));
-    println!("CONTENT {}", hex::encode(&received.message.payload.content));
-    println!("SIGNATURE_VERIFIED true");
+    // Let the last proof leave before the interface goes.
+    tokio::time::sleep(Duration::from_millis(500)).await;
 
     endpoint.shutdown(Duration::from_secs(2)).await;
     Ok(())

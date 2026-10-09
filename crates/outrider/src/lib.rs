@@ -59,7 +59,11 @@ pub mod announce;
 #[cfg(feature = "std")]
 pub mod codec;
 #[cfg(feature = "std")]
+pub mod delivered;
+#[cfg(feature = "std")]
 pub mod direct;
+#[cfg(feature = "std")]
+pub mod inbound;
 #[cfg(feature = "std")]
 pub mod opportunistic;
 #[cfg(feature = "std")]
@@ -82,6 +86,10 @@ pub use codec::{
     PreparedLxmf, SIGNATURE_LEN, SOURCE_LEN, decode, decode_bounded, prepare,
 };
 #[cfg(feature = "std")]
+pub use delivered::{
+    DEFAULT_MAX_DELIVERED_IDS, DELIVERED_EXPIRY_SECONDS, DeliveredCache, DeliveredSnapshotError,
+};
+#[cfg(feature = "std")]
 pub use direct::{
     DirectError, DirectReceipt, ReceivedDirect, announce as announce_delivery,
     receive as receive_direct, receive_with_resource_config as receive_direct_with_resource_config,
@@ -91,6 +99,8 @@ pub use direct::{
     send_stamped_with_resource_config as send_direct_stamped_with_resource_config,
     send_with_resource_config as send_direct_with_resource_config,
 };
+#[cfg(feature = "std")]
+pub use inbound::{StampOutcome, Verification, reverify, verify as verify_message};
 #[cfg(feature = "std")]
 pub use opportunistic::{
     OpportunisticError, OpportunisticReceipt, ReceivedOpportunistic,

@@ -69,9 +69,15 @@ async fn receiver(dir: &Path) {
         .expect("sender opens a delivery session")
         .unwrap();
     progress(dir, "receiver", "accepted");
-    let received = receive_direct_with_stamp_cost(&endpoint, accepted, 64 * 1024, None)
-        .await
-        .unwrap();
+    let received = receive_direct_with_stamp_cost(
+        &endpoint,
+        accepted,
+        &outrider::DeliveredCache::default(),
+        64 * 1024,
+        None,
+    )
+    .await
+    .unwrap();
     progress(dir, "receiver", "authenticated");
     let event = Event::authenticated_message(received);
     let local = MessagePeer::new(
