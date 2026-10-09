@@ -12,6 +12,9 @@ use crate::link::{RadioLink, Received, SendOutcome};
 use crate::modem::ModemError;
 use crate::rnode::RNode;
 
+/// How long the detach handshake may take before the port is abandoned.
+pub(super) const DETACH_GRACE: Duration = Duration::from_secs(1);
+
 pub(super) struct TxRequest {
     pub(super) frame: Vec<u8>,
     pub(super) announce: bool,
@@ -170,9 +173,9 @@ where
         tokio::select! {
             biased;
             _ = &mut ch.shutdown => {
-                // The detach handshake, best effort: the port may already be gone.
+                // The detach handshake, best effort: the port may be gone or wedged.
                 link.modem_mut().leave();
-                let _ = flush_modem(&mut io, link).await;
+                let _ = tokio::time::timeout(DETACH_GRACE, flush_modem(&mut io, link)).await;
                 return Ok(());
             }
             read = io.read(&mut read_buf) => {

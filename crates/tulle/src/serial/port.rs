@@ -1,7 +1,8 @@
 //! Opening an RNode's serial line: serial2 for a real port, and a fallback for a pty.
 //!
 //! macOS sets the line speed with an ioctl a pty refuses with ENOTTY, so serial2 cannot open
-//! one. Such a line is used as its other end configured it, which is what a pty pair wants.
+//! one. A pty is then used as its other end configured it, which is what a pty pair wants.
+//! Elsewhere the fallback is absent and serial2's error stands.
 
 use std::io;
 use std::path::Path;
@@ -37,6 +38,9 @@ pub(super) fn open(path: &Path, baud: u32) -> io::Result<Box<dyn Port>> {
 #[cfg(target_os = "macos")]
 fn open_unconfigured(path: &Path) -> io::Result<Box<dyn Port>> {
     use std::os::unix::fs::OpenOptionsExt;
+    if !is_pty(path) {
+        return Err(io::Error::from_raw_os_error(ENOTTY));
+    }
     use tokio::net::unix::pipe;
     // <sys/fcntl.h> on Darwin.
     const O_NONBLOCK: i32 = 0x0004;
@@ -54,4 +58,31 @@ fn open_unconfigured(path: &Path) -> io::Result<Box<dyn Port>> {
 #[cfg(not(target_os = "macos"))]
 fn open_unconfigured(_: &Path) -> io::Result<Box<dyn Port>> {
     Err(io::Error::from_raw_os_error(ENOTTY))
+}
+
+/// Whether `path` is a pty slave, which macOS names `/dev/ttysNNN`. Only a pty skips the line
+/// settings; any other line that refuses them is an error.
+#[cfg(target_os = "macos")]
+fn is_pty(path: &Path) -> bool {
+    let path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let number = path
+        .strip_prefix("/dev")
+        .ok()
+        .and_then(|name| name.to_str())
+        .and_then(|name| name.strip_prefix("ttys"));
+    number.is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
+#[cfg(all(test, target_os = "macos"))]
+#[test]
+fn only_pty_slaves_count_as_ptys() {
+    assert!(is_pty(Path::new("/dev/ttys004")));
+    for path in [
+        "/dev/tty.usbmodem1101",
+        "/dev/cu.usbserial-0001",
+        "/dev/ttys",
+        "/tmp/ttys1",
+    ] {
+        assert!(!is_pty(Path::new(path)), "{path}");
+    }
 }

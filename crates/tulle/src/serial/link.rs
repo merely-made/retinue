@@ -9,7 +9,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
-use super::pump::{PumpChannels, TxRequest, run_pump};
+use super::pump::{DETACH_GRACE, PumpChannels, TxRequest, run_pump};
 use super::{PumpError, PumpStatus, SerialPumpConfig, TransmitError};
 use crate::airtime::AirtimeBudget;
 use crate::link::{RadioLink, Received};
@@ -219,9 +219,9 @@ impl RNodeSerialLink {
 
     /// Take the next `ERROR` frame the device reported, if any is waiting.
     ///
-    /// Non-blocking, so a caller can check it beside ordinary traffic. The device
-    /// latches these when it refuses something; unread, a radio that silently
-    /// declines to transmit looks healthy from the host
+    /// Non-blocking, so a caller can check it beside ordinary traffic. Codes RNS records
+    /// (memory low, modem timeout) leave the link up; any other also faults it, as
+    /// [`crate::rnode::DeviceError`] classifies
     /// (`design_docs/2026-07-26_rnode_bulk_frame_loss.md`).
     pub fn take_device_error(&mut self) -> Option<Vec<u8>> {
         self.errors.try_recv().ok()
@@ -239,11 +239,21 @@ impl RNodeSerialLink {
     }
 }
 
-/// Signals the task rather than aborting it, so it can still send the detach handshake.
+/// Signals the task so it can still send the detach handshake, and aborts it after
+/// a second in case a wedged port keeps it from noticing. A caller that must know the
+/// handshake went out awaits [`RNodeSerialLink::shutdown`] instead.
 impl Drop for RNodeSerialLink {
     fn drop(&mut self) {
         if let Some(shutdown) = self.shutdown.take() {
             let _ = shutdown.send(());
+        }
+        if let (Some(task), Ok(runtime)) = (self.task.take(), tokio::runtime::Handle::try_current())
+        {
+            let abort = task.abort_handle();
+            runtime.spawn(async move {
+                sleep(DETACH_GRACE).await;
+                abort.abort();
+            });
         }
     }
 }
