@@ -15,6 +15,7 @@ pub const THREAD: u8 = 0x08;
 pub const COMMANDS: u8 = 0x09;
 pub const RESULTS: u8 = 0x0A;
 pub const GROUP: u8 = 0x0B;
+/// `[expires, ticket]`; see [`crate::ticket`].
 pub const TICKET: u8 = 0x0C;
 pub const EVENT: u8 = 0x0D;
 pub const RNR_REFS: u8 = 0x0E;

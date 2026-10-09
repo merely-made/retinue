@@ -20,7 +20,7 @@ pub use book::{TicketBook, TicketBookError, set_ticket_field, ticket_field};
 
 pub const TICKET_LEN: usize = 16;
 /// The field key a ticket travels under: `[expires, ticket]`.
-pub const FIELD_TICKET: u8 = 0x0C;
+pub use crate::fields::TICKET as FIELD_TICKET;
 /// The stamp value a ticket stamp is credited with: above any proof of work.
 pub const COST_TICKET: u16 = 0x100;
 
