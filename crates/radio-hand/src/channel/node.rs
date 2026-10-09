@@ -18,7 +18,7 @@ use radio_face::{EventKind, Text, UiEvent};
 use retinue::announce::{ANNOUNCE_NONCE_LEN, AnnounceBlob, TimebaseGenerator};
 use retinue::hash::AddressHash;
 use retinue::node::{Action, Actions, InterfaceId, Node};
-use retinue::packet::Packet;
+use retinue::packet::{Packet, PacketType};
 
 use crate::channel::{Channel, ChannelInfo, Event};
 use crate::executive::Executive;
@@ -31,7 +31,8 @@ mod host;
 pub const RADIO: InterfaceId = 0;
 
 /// How often the node's own timers are advanced: the granularity at which it notices an
-/// announce or link timeout is due, not the announce cadence itself.
+/// announce or link timeout is due, not the announce cadence itself. Relayed announces are
+/// timed finer, by [`ChannelInfo::wake_at`].
 const BEAT: Duration = Duration::from_secs(5);
 
 /// The longest host line: `replay <now> <hex>` with a whole radio frame in hex. Longer lines
@@ -73,6 +74,8 @@ pub struct NodeChannel<const PEERS: usize = 32, const ACTIONS: usize = 8, const 
     /// Frames the node asked for that never reached the air. Counted, not queued: a
     /// retransmit is the protocol's decision, not the shell's.
     pub(super) unsent: u16,
+    /// The board's own announces among [`Self::unsent`], the one failure the shell retries.
+    announce_unsent: u16,
     /// Announces skipped because the board could not produce entropy.
     unseeded: u16,
     /// Announces denied because this boot's durable lease is spent. This is a
@@ -134,6 +137,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
             line_lost: false,
             replay: None,
             unsent: 0,
+            announce_unsent: 0,
             unseeded: 0,
             timebase_exhausted: 0,
             timebase: TimebaseGenerator::firmware_lease(lease.floor(), lease.reserved_through())?,
@@ -209,7 +213,10 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
         for action in actions {
             match action {
                 Action::Send { packet, .. } => {
-                    self.transmit(exec, packet).await;
+                    let own = is_own_announce(self.node.destination(), &packet);
+                    if !self.transmit(exec, packet).await && own {
+                        self.announce_unsent = self.announce_unsent.saturating_add(1);
+                    }
                 }
                 // The loopback service: what arrives whole goes back whole, on the same
                 // link. N5's byte-exact both-directions receipt drives this.
@@ -265,21 +272,22 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
         Flow::Continue
     }
 
-    /// Put one packet on the air, keeping the face and the counters honest.
-    async fn transmit<RK, DLY>(&mut self, exec: &mut Executive<'_, RK, DLY>, packet: Packet)
+    /// Put one packet on the air, keeping the face and the counters honest. Returns whether
+    /// it went.
+    async fn transmit<RK, DLY>(&mut self, exec: &mut Executive<'_, RK, DLY>, packet: Packet) -> bool
     where
         RK: RadioKind,
         DLY: DelayNs,
     {
         let Ok(bytes) = self.carrier.encode(&packet) else {
             self.unsent = self.unsent.saturating_add(1);
-            return;
+            return false;
         };
         if bytes.len() > selvage::MAX_RADIO_FRAME_LEN
             || exec.transmit(&bytes).await != selvage::TX_ACCEPTED
         {
             self.unsent = self.unsent.saturating_add(1);
-            return;
+            return false;
         }
         let status = exec.status_mut();
         status.tx_frames = status.tx_frames.saturating_add(1);
@@ -287,7 +295,13 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
             frame_len: bytes.len() as u16,
         };
         exec.publish(radio_face::LedSignal::Activity);
+        true
     }
+}
+
+/// Whether `packet` is the board's own announce rather than a relay of someone else's.
+fn is_own_announce(own: AddressHash, packet: &Packet) -> bool {
+    packet.packet_type == PacketType::Announce && packet.destination == own
 }
 
 impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> ChannelInfo
@@ -301,6 +315,12 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> ChannelInfo
 
     fn heartbeat(&self) -> Option<Duration> {
         Some(BEAT)
+    }
+
+    /// The node's next relayed announce, so its jitter and retry keep RNS's timing rather than
+    /// the beat's (`Transport.py` 765-829, 2338).
+    fn wake_at(&self) -> Option<Instant> {
+        self.node.next_rebroadcast().map(Instant::from_millis)
     }
 
     /// Yes. A node with no host attached still announces, answers links, and keeps its own
@@ -399,13 +419,13 @@ where
                     None
                 };
                 let actions = self.node.poll(now, RADIO, blob.as_ref());
-                let unsent_before = self.unsent;
+                let unsent_before = self.announce_unsent;
                 let flow = self.perform(exec, link, actions).await;
 
-                // Something the node's timers asked for did not reach the air. Resource
-                // retransmits come round again on their own; the announce's stamp would
-                // swallow the failure, so it is the one rescheduled.
-                if self.unsent != unsent_before {
+                // The board's own announce did not reach the air, and its stamp would swallow
+                // the failure, so it is rescheduled. Relays and resource retransmits carry
+                // their own retries.
+                if self.announce_unsent != unsent_before {
                     self.announce_retry_wait = self
                         .announce_retry_wait
                         .max(1)
@@ -417,6 +437,12 @@ where
                     self.announce_retry_wait = 0;
                 }
                 flow
+            }
+            // A relayed announce came due between beats. Polling without a blob never
+            // announces, so the beat keeps the board's own cadence and its retry.
+            Event::Wake => {
+                let actions = self.node.poll(Self::now(), RADIO, None);
+                self.perform(exec, link, actions).await
             }
             // A host only observes (`node`, `face`) or drives a replay; the panels publish
             // from local state on the beat.

@@ -586,7 +586,7 @@ async fn main(spawner: Spawner) {
             let woken = select3(
                 host.read(&mut usb_packet),
                 exec.wait_rx_irq(),
-                heartbeat.next(),
+                heartbeat.next(channel.wake_at()),
             )
             .await;
             match woken {
@@ -627,8 +627,8 @@ async fn main(spawner: Spawner) {
                         break;
                     }
                 }
-                Either3::Third(()) => {
-                    if channel.serve(&mut exec, &mut host, Event::Beat).await == Flow::Detach {
+                Either3::Third(tick) => {
+                    if channel.serve(&mut exec, &mut host, tick).await == Flow::Detach {
                         break;
                     }
                 }

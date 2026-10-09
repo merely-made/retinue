@@ -87,8 +87,8 @@ where
             Event::RadioFrame { frame, rssi, snr } => {
                 dispatch::on_radio_frame(link, exec, frame, rssi, snr).await
             }
-            // Never delivered: this channel asks for no heartbeat.
-            Event::Beat => Flow::Continue,
+            // Never delivered: this channel asks for no heartbeat or wake.
+            Event::Beat | Event::Wake => Flow::Continue,
         }
     }
 }
