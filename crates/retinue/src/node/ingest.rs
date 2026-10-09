@@ -88,14 +88,18 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                 });
                 let accepted = match self.freshness.evaluate(candidate, route_live) {
                     AnnounceFreshnessDecision::Accept(accepted) => accepted,
-                    AnnounceFreshnessDecision::Reject(AnnounceFreshnessReject::Replay) => {
-                        self.transport_counters.replayed_announces =
-                            self.transport_counters.replayed_announces.saturating_add(1);
-                        return actions;
-                    }
-                    AnnounceFreshnessDecision::Reject(AnnounceFreshnessReject::StaleTimebase) => {
-                        self.transport_counters.stale_announces =
-                            self.transport_counters.stale_announces.saturating_add(1);
+                    AnnounceFreshnessDecision::Reject(reject) => {
+                        // A neighbour relaying the announce we hold for rebroadcast repeats
+                        // its blob, so it is turned away here; it still ends our retry.
+                        if packet.transport.is_some() {
+                            self.hear_rebroadcast_copy(packet, now);
+                        }
+                        let counters = &mut self.transport_counters;
+                        let counter = match reject {
+                            AnnounceFreshnessReject::Replay => &mut counters.replayed_announces,
+                            AnnounceFreshnessReject::StaleTimebase => &mut counters.stale_announces,
+                        };
+                        *counter = counter.saturating_add(1);
                         return actions;
                     }
                 };
@@ -109,6 +113,9 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                             .key_mismatch_announces
                             .saturating_add(1);
                         return actions;
+                    }
+                    if packet.transport.is_some() {
+                        self.hear_rebroadcast(announce.destination, packet.hops, now);
                     }
 
                     // The book makes room by evicting the least recently heard peer with no
@@ -156,7 +163,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                             destination: announce.destination,
                         });
                     }
-                    self.relay_announce(interface, packet, announce.destination, now, &mut actions);
+                    self.relay_announce(interface, packet, candidate.blob.timebase(), now);
                 }
             }
             PacketType::LinkRequest => self.on_link_request(interface, packet, now, &mut actions),

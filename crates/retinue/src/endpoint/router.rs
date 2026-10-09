@@ -133,12 +133,20 @@ pub(super) fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                 return;
             }
             // A replay or stale emission needs no signature check, and a copy of an announce
-            // that verified recently skips it.
+            // that verified recently skips it. A neighbour relaying the announce we hold for
+            // rebroadcast repeats its blob, so it is turned away here; it still ends our retry.
             if shared.announce_is_stale_unverified(&pkt) {
+                if pkt.transport.is_some() {
+                    shared.hear_rebroadcast_copy(&pkt);
+                }
                 return;
             }
             let decoded = shared.verified_announces.lock().unwrap().decode(&pkt);
             if let Ok(a) = decoded {
+                if pkt.transport.is_some() && !shared.address_book.lock().unwrap().key_conflicts(&a)
+                {
+                    shared.hear_rebroadcast(a.destination, pkt.hops);
+                }
                 let route_is_known = shared
                     .path_table
                     .lock()

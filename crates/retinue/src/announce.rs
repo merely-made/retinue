@@ -42,7 +42,9 @@ use crate::{Error, Result};
 
 mod verified;
 
-pub(crate) use verified::{VerifiedAnnounces, unverified_candidate};
+#[cfg(feature = "tokio")]
+pub(crate) use verified::VerifiedAnnounces;
+pub(crate) use verified::unverified_candidate;
 
 /// Length of the random hash carried in an announce.
 pub const RAND_HASH_LEN: usize = 10;

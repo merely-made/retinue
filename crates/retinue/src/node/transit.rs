@@ -336,19 +336,19 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         true
     }
 
-    /// Re-broadcast a verified announce with this node recorded as the transport hop.
+    /// Schedule a verified announce for rebroadcast with this node recorded as the transport
+    /// hop. It leaves from [`Node::poll`], back out the interface it was heard on.
     pub(super) fn relay_announce(
         &mut self,
         interface: InterfaceId,
         packet: &Packet,
-        destination: AddressHash,
+        emitted: u64,
         now: u64,
-        actions: &mut Actions<ACTIONS>,
     ) {
         // A path response answers one requester. RNS learns from it but never queues it for
         // rebroadcast, so one path request cannot flood the mesh.
         if !self.transport.relay_announces
-            || destination == self.destination()
+            || packet.destination == self.destination()
             || packet.context == crate::path::CTX_PATH_RESPONSE
         {
             return;
@@ -369,14 +369,6 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             self.refused_payloads = self.refused_payloads.saturating_add(1);
             return;
         }
-        if actions.push(Action::Send {
-            interface,
-            packet: forwarded,
-        }) {
-            self.transport_counters.forwarded_announces = self
-                .transport_counters
-                .forwarded_announces
-                .saturating_add(1);
-        }
+        self.schedule_rebroadcast(interface, forwarded, emitted, now);
     }
 }

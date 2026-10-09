@@ -1,9 +1,13 @@
 //! Announce work that can be skipped: the freshness fields, read before any signature
 //! check, and a small cache of announces that already verified.
 
+#[cfg(any(feature = "tokio", test))]
 use heapless::Vec as BoundedVec;
 
-use super::{Announce, AnnounceBlob, MIN_PAYLOAD_LEN, RAND_HASH_LEN, RATCHET_LEN};
+#[cfg(any(feature = "tokio", test))]
+use super::Announce;
+use super::{AnnounceBlob, MIN_PAYLOAD_LEN, RAND_HASH_LEN, RATCHET_LEN};
+#[cfg(any(feature = "tokio", test))]
 use crate::Result;
 use crate::announce_freshness::AnnounceFreshnessCandidate;
 use crate::hash::NAME_HASH_LEN;
@@ -11,7 +15,7 @@ use crate::identity::IDENTITY_LEN;
 use crate::packet::{Packet, PacketType};
 
 /// The freshness candidate of an announce packet, read without verifying it, or `None`
-/// when [`Announce::decode`] would refuse its shape anyway.
+/// when [`Announce::decode`](super::Announce::decode) would refuse its shape anyway.
 ///
 /// A freshness rejection needs no signature: the verified announce carries the same
 /// destination and blob and is rejected the same way. An acceptance still needs the decode.
@@ -35,15 +39,18 @@ pub(crate) fn unverified_candidate(packet: &Packet) -> Option<AnnounceFreshnessC
 /// The packet hash masks the flag byte to its low nibble, which leaves out the context flag,
 /// and the flag decides whether a ratchet is parsed: the same hash with the flag flipped is
 /// a different announce, and must verify on its own.
+#[cfg(any(feature = "tokio", test))]
 type Key = ([u8; 32], bool);
 
 /// The `N` announces that most recently verified, most recent first. A copy of one, relayed
 /// by another neighbour or heard on another interface, decodes without a second signature
-/// check.
+/// check. Only the endpoint keeps one: a board's Node relies on freshness alone.
+#[cfg(any(feature = "tokio", test))]
 pub(crate) struct VerifiedAnnounces<const N: usize> {
     keys: BoundedVec<Key, N>,
 }
 
+#[cfg(any(feature = "tokio", test))]
 impl<const N: usize> VerifiedAnnounces<N> {
     pub(crate) const fn new() -> Self {
         Self {

@@ -30,13 +30,22 @@ pub(super) struct SimNode<const P: usize, const A: usize, const L: usize, const 
     pub(super) face: Face,
     /// Counters feeding derived announce nonces, link seeds and IVs.
     pub(super) draws: u32,
+    /// The first frame that brought each announce, by packet hash: the cause of its relay.
+    pub(super) heard_announces: BTreeMap<AddressHash, u32>,
+    /// When a wake is armed for this node's next rebroadcast.
+    pub(super) wake: Option<u64>,
 }
 
 pub(super) enum Scheduled {
     Cut(usize),
     Send(usize),
     Poll(usize),
-    Deliver { frame: u32, node: usize },
+    /// A poll at a node's next rebroadcast, between its regular polls.
+    Wake(usize),
+    Deliver {
+        frame: u32,
+        node: usize,
+    },
 }
 
 pub(super) struct Frame {
@@ -114,6 +123,8 @@ impl<'a, const P: usize, const A: usize, const L: usize, const R: usize> Sim<'a,
                 node,
                 face: Face::default(),
                 draws: 0,
+                heard_announces: BTreeMap::new(),
+                wake: None,
             });
         }
         let names: Vec<String> = nodes.iter().map(|n| n.name.clone()).collect();

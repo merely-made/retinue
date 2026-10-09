@@ -295,6 +295,33 @@ pub const TRANSPORT_DEDUP_HASHES: usize = 32;
 /// (`Transport.py` 1847-1856).
 pub const PATH_REQUEST_TAGS: usize = 8;
 
+/// The random window before a relayed announce's first transmission, in milliseconds: RNS's
+/// `PATHFINDER_RW` (`Transport.py` 125, 2338).
+pub const REBROADCAST_WINDOW: u64 = 500;
+
+/// The grace before a relayed announce's one retry, in milliseconds, after which the window is
+/// added again: RNS's `PATHFINDER_G` (`Transport.py` 124, 780).
+pub const REBROADCAST_GRACE: u64 = 5_000;
+
+/// Neighbour rebroadcasts heard at our hop count that end our retry: RNS's
+/// `LOCAL_REBROADCASTS_MAX` (`Transport.py` 132).
+pub const LOCAL_REBROADCASTS_MAX: u8 = 2;
+
+/// The share of an interface's bitrate relayed announces may use, in percent: RNS's
+/// `ANNOUNCE_CAP` (`Reticulum.py` 114). Applied where the interface's airtime is known.
+pub const ANNOUNCE_CAP_PERCENT: u64 = 2;
+
+/// How long an announce may wait for its interface's cap before it is dropped, in
+/// milliseconds: RNS's `QUEUED_ANNOUNCE_LIFE`, three hours (`Reticulum.py` 112).
+pub const QUEUED_ANNOUNCE_LIFE: u64 = 3 * 60 * 60 * 1_000;
+
+/// Relayed announces awaiting transmission or retry at once. At capacity one already sent
+/// makes room; with none, a new announce is not relayed.
+pub const REBROADCAST_SLOTS: usize = 8;
+
+/// Relayed announces one capped interface queues for airtime. Overflow is dropped.
+pub const QUEUED_ANNOUNCES: usize = 8;
+
 /// The Reticulum transport hop ceiling, RNS's `PATHFINDER_M`.
 pub const DEFAULT_TRANSPORT_MAX_HOPS: u8 = crate::packet::MAX_HOPS;
 
@@ -307,7 +334,8 @@ pub const REVERSE_TIMEOUT: u64 = 480_000;
 /// Explicit, because many boards are endpoints, not routers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TransportConfig {
-    /// Re-broadcast verified announces with this node as their next transport hop.
+    /// Re-broadcast verified announces with this node as their next transport hop, from
+    /// [`Node::poll`] after a jitter, as RNS does: see [`Node::next_rebroadcast`].
     pub relay_announces: bool,
     /// Carry header-type-2 packets addressed to this node, and packets on remembered links.
     pub relay_packets: bool,

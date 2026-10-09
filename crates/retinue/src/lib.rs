@@ -121,6 +121,8 @@ pub mod proof;
 #[cfg(feature = "alloc")]
 pub mod ratchet;
 #[cfg(feature = "alloc")]
+mod rebroadcast;
+#[cfg(feature = "alloc")]
 pub mod reliable;
 #[cfg(feature = "alloc")]
 pub mod request;

@@ -237,7 +237,7 @@ fn own_announce_echoed_by_a_relay_is_not_a_peer() {
     .with_transport_config(TransportConfig::transit());
 
     let announce = a.announce(&blob([0x31; RAND_HASH_LEN]), None);
-    let echo = sent(&relay.ingest(IFACE, &announce, 0))
+    let echo = relayed(&mut relay, IFACE, &announce, 0)
         .expect("the relay still rebroadcasts the announce for others");
     assert_eq!(relay.transport_counters().forwarded_announces, 1);
 

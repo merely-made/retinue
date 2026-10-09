@@ -17,7 +17,7 @@ fn transport_relays_announce_request_and_proof() {
     .with_transport_config(TransportConfig::transit());
 
     let announce = destination.announce(&blob([0x77; RAND_HASH_LEN]), None);
-    let relayed_announce = sent(&relay.ingest(IFACE, &announce, 0))
+    let relayed_announce = relayed(&mut relay, IFACE, &announce, 0)
         .expect("a transport node re-broadcasts a verified announce");
     assert_eq!(relayed_announce.header_type, HeaderType::Type2);
     assert_eq!(relayed_announce.transport, Some(relay.identity.hash()));
@@ -250,8 +250,8 @@ fn non_transit_sender_addresses_its_first_relay_and_forwards_nothing() {
     let mut far = transit(0x49, "far");
 
     let announce = destination.announce(&blob([0x79; RAND_HASH_LEN]), None);
-    let via_far = sent(&far.ingest(IFACE, &announce, 0)).unwrap();
-    let via_near = sent(&near.ingest(IFACE, &via_far, 1)).unwrap();
+    let via_far = relayed(&mut far, IFACE, &announce, 0).unwrap();
+    let via_near = relayed(&mut near, IFACE, &via_far, 1).unwrap();
     let heard = source.ingest(IFACE, &via_near, 2);
     assert!(sent(&heard).is_none(), "a leaf does not re-broadcast");
     let hop = source.next_hop(destination.destination(), 2).unwrap();
@@ -356,10 +356,11 @@ fn an_announce_is_relayed_only_below_the_hop_ceiling() {
     assert!(heard.iter().any(|a| matches!(a, Action::Learned { .. })));
     assert_eq!(relay.route_count(), 1);
     assert_eq!(relay.transport_counters().hop_limit_dropped, 1);
+    assert_eq!(relay.next_rebroadcast(), None, "nor scheduled");
 
     let mut relay = transit_relay();
     announce.hops = MAX_HOPS - 2;
-    let relayed = sent(&relay.ingest(IFACE, &announce, 0)).expect("relayed below the ceiling");
+    let relayed = relayed(&mut relay, IFACE, &announce, 0).expect("relayed below the ceiling");
     assert_eq!(relayed.hops, MAX_HOPS - 1);
 }
 
@@ -370,7 +371,7 @@ fn a_transport_packet_is_carried_only_below_the_hop_ceiling() {
     let (mut source, destination) = pair();
     let mut relay = transit_relay();
     let announce = destination.announce(&blob([0x79; RAND_HASH_LEN]), None);
-    source.ingest(IFACE, &sent(&relay.ingest(IFACE, &announce, 0)).unwrap(), 1);
+    source.ingest(IFACE, &relayed(&mut relay, IFACE, &announce, 0).unwrap(), 1);
     let mut request = sent(
         &source
             .open_link(destination.destination(), IFACE, &[0x9A; 64], 1)

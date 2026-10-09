@@ -2,7 +2,8 @@
 
 use super::tables::derived_iv;
 use super::{
-    Action, Actions, AppDataTooLarge, InterfaceId, MIN_LOGICAL_MTU, Node, RESOURCE_PROOF_CACHE_TTL,
+    Action, Actions, AppDataTooLarge, InterfaceId, LINK_IDLE_TIMEOUT, MIN_LOGICAL_MTU, Node,
+    RESOURCE_PROOF_CACHE_TTL,
 };
 use crate::announce::{self, AnnounceBlob, RATCHET_LEN};
 use crate::packet::Packet;
@@ -109,8 +110,30 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             now.saturating_sub(*at) < RESOURCE_PROOF_CACHE_TTL
                 && self.links.iter().any(|(link, _, _)| link.id() == *id)
         });
+        // Last, so relayed announces take only the room this node's own work left.
+        self.poll_rebroadcasts(now, &mut actions);
 
         actions
+    }
+
+    /// The earliest tick at which [`Self::poll`] has timed work besides this node's own
+    /// announce: a relayed announce ([`Self::next_rebroadcast`]), a resource watchdog
+    /// ([`Self::resource_deadline`]), a link's keepalive, staleness, teardown or idle expiry,
+    /// or an unanswered link request's deadline. A shell that polls on a coarse beat wakes
+    /// for it; polling at it always moves it on. `None` while nothing is timed.
+    pub fn next_deadline(&self) -> Option<u64> {
+        let links = self.links.iter().flat_map(|(_, _, liveness)| {
+            [
+                liveness.next_due(),
+                liveness.last_inbound().saturating_add(LINK_IDLE_TIMEOUT),
+            ]
+        });
+        let requests = self.pending.iter().map(|(_, deadline, _)| *deadline);
+        links
+            .chain(requests)
+            .chain(self.next_rebroadcast())
+            .chain(self.resource_deadline())
+            .min()
     }
 
     /// Forget that we announced, so the next [`Node::poll`] announces again.

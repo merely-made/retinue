@@ -160,3 +160,37 @@ fn a_responder_without_an_rtt_drops_the_link_at_the_handshake_deadline() {
         "no LINKCLOSE for a link that never activated"
     );
 }
+
+/// A shell that wakes at `next_deadline` keeps every timer: it is no later than a link's
+/// keepalive or a transfer's watchdog, and polling at it always moves it on.
+#[test]
+fn next_deadline_covers_links_and_resources_and_moves_on() {
+    let (mut a, _b, id) = linked();
+    let _ = a.poll(0, IFACE, Some(&blob([0x33; RAND_HASH_LEN])));
+    let keepalive = a.links[0].2.next_due();
+    assert_eq!(a.next_deadline(), Some(keepalive), "the link's own timer");
+
+    let started = a
+        .publish(
+            id,
+            IFACE,
+            &[7; 1_024],
+            [0xEE; 4],
+            &[7; crate::token::IV_LEN],
+            0,
+        )
+        .unwrap();
+    assert!(sent(&started).is_some());
+    let watchdog = a.resource_deadline().expect("the advertisement waits");
+    assert_eq!(a.next_deadline(), Some(watchdog.min(keepalive)));
+
+    let mut wakes = 0;
+    while let Some(at) = a.next_deadline() {
+        let _ = a.poll(at, IFACE, None);
+        assert!(a.next_deadline().is_none_or(|next| next > at));
+        wakes += 1;
+        assert!(wakes < 64, "bounded");
+    }
+    assert_eq!(a.link_count(), 0, "unanswered, the link ran down");
+    assert!(!a.transfer_active(id));
+}

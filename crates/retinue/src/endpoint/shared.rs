@@ -28,6 +28,7 @@ use super::interface::{Iface, InterfaceId, QueueAdmission};
 use super::known_destinations::BookPersistence;
 use super::paths::PathEntry;
 use super::queue::TrafficClass;
+use super::rebroadcast::Rebroadcasting;
 use super::registration::{RatchetPersistence, Registered};
 use super::resource_session::RESOURCE_PROOF_CACHE_TTL;
 use super::routing::{RoutingPolicy, RoutingStats};
@@ -139,6 +140,10 @@ pub(super) struct Shared {
     /// Upper bound, in milliseconds, of the random delay before relaying an announce. See
     /// [`Endpoint::set_relay_jitter`].
     pub(super) relay_jitter_ms: AtomicU64,
+    /// Relayed announces awaiting transmission or retry, and the per-interface caps.
+    pub(super) rebroadcasts: Mutex<Rebroadcasting>,
+    /// Wakes the rebroadcast driver when an announce is scheduled.
+    pub(super) rebroadcast_wake: tokio::sync::Notify,
     /// First reliable-channel RTT estimate. Proofs adapt it after traffic starts.
     pub(super) reliable_initial_rtt_ms: AtomicU64,
     /// Maximum unproved reliable frames allowed in flight on subsequently opened links.

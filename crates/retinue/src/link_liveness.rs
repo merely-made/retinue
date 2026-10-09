@@ -208,6 +208,32 @@ impl Liveness {
         }
     }
 
+    /// When [`Self::poll`] next has something to do if nothing is heard or sent meanwhile:
+    /// the handshake deadline, a stale link's teardown, or for an active link the earlier of
+    /// its going stale and (on the initiator) its next keepalive. Polling at it always moves
+    /// the link on, so a shell can sleep until it.
+    pub fn next_due(&self) -> u64 {
+        match self.state {
+            State::Handshake { deadline, .. } => deadline,
+            State::Stale { close_at } => close_at,
+            State::Active => {
+                let interval = self.keepalive;
+                let stale = self
+                    .last_inbound
+                    .saturating_add(interval.saturating_mul(STALE_FACTOR));
+                if !self.initiator {
+                    return stale;
+                }
+                let quiet = self
+                    .last_inbound
+                    .min(self.last_outbound)
+                    .saturating_add(interval);
+                let keepalive = self.last_keepalive.saturating_add(interval).max(quiet);
+                keepalive.min(stale)
+            }
+        }
+    }
+
     /// Advance the timers to `now`. A [`Due::Keepalive`] is recorded as sent at `now`.
     pub fn poll(&mut self, now: u64) -> Option<Due> {
         match self.state {
@@ -301,6 +327,33 @@ mod tests {
         assert_eq!(l.teardown_at(), Some(2 * k + 5_400));
         assert_eq!(l.poll(2 * k + 5_399), None);
         assert_eq!(l.poll(2 * k + 5_400), Some(Due::Teardown));
+    }
+
+    #[test]
+    fn polling_at_next_due_always_moves_the_link_on() {
+        let mut initiator = Liveness::initiator(100, 0);
+        let k = initiator.keepalive();
+        assert_eq!(initiator.next_due(), k);
+        initiator.on_inbound(k / 2);
+        assert_eq!(initiator.next_due(), k, "outbound quiet still asks for one");
+        assert_eq!(initiator.poll(k), Some(Due::Keepalive));
+        assert_eq!(initiator.next_due(), 2 * k);
+        assert_eq!(initiator.poll(2 * k), Some(Due::Keepalive));
+        assert_eq!(
+            initiator.next_due(),
+            k / 2 + 2 * k,
+            "stale before the next keepalive"
+        );
+        assert_eq!(initiator.poll(k / 2 + 2 * k), None);
+        assert!(initiator.is_stale());
+        assert_eq!(initiator.next_due(), initiator.teardown_at().unwrap());
+
+        let mut responder = Liveness::responder(0, 0);
+        assert_eq!(responder.next_due(), handshake_timeout(0));
+        responder.on_rtt(0, 10);
+        assert_eq!(responder.next_due(), 10 + 2 * KEEPALIVE_MIN);
+        assert_eq!(responder.poll(10 + 2 * KEEPALIVE_MIN), None);
+        assert!(responder.is_stale());
     }
 
     #[test]

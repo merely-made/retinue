@@ -59,3 +59,30 @@ fn retry_attempt_mints_a_distinct_next_ordinal() {
     assert_eq!(retry.timebase(), 14);
     assert_ne!(first, retry);
 }
+
+#[test]
+fn only_the_boards_own_announce_counts_as_its_announce() {
+    use retinue::packet::{DestinationType, HeaderType, Propagation};
+    let own = AddressHash::from_bytes([1; 16]);
+    let announce = |destination| Packet {
+        ifac: false,
+        header_type: HeaderType::Type1,
+        context_flag: false,
+        propagation: Propagation::Broadcast,
+        destination_type: DestinationType::Single,
+        packet_type: PacketType::Announce,
+        hops: 0,
+        transport: None,
+        destination,
+        context: 0,
+        payload: alloc::vec::Vec::new(),
+    };
+    assert!(is_own_announce(own, &announce(own)));
+    assert!(!is_own_announce(
+        own,
+        &announce(AddressHash::from_bytes([2; 16]))
+    ));
+    let mut data = announce(own);
+    data.packet_type = PacketType::Data;
+    assert!(!is_own_announce(own, &data));
+}

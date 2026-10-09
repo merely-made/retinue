@@ -28,6 +28,7 @@ use crate::identity::PrivateIdentity;
 use crate::link::{Link, PendingLink};
 use crate::link_liveness::Liveness;
 use crate::packet::Packet;
+use crate::rebroadcast::{AnnounceCap, Rebroadcasts};
 use crate::resource_transfer::{SegmentedReceiver, SegmentedSender};
 
 mod action;
@@ -35,6 +36,7 @@ mod ingest;
 mod links;
 mod params;
 mod poll;
+mod rebroadcast;
 mod report;
 mod resources;
 mod routes;
@@ -48,6 +50,8 @@ mod transit;
 pub use action::{Action, Actions, InterfaceId};
 pub use params::*;
 pub use report::*;
+// The endpoint shares the Node's link dedup rule.
+#[cfg(feature = "tokio")]
 pub(crate) use tables::is_deduplicated_link_context;
 use tables::{HashGenerations, LinkBridge, ReverseEntry, Route};
 
@@ -87,6 +91,10 @@ pub struct Node<
     /// Return paths for the proofs of carried packets, consumed by the proof that uses them
     /// and forgotten after [`REVERSE_TIMEOUT`]. The oldest gives way at capacity.
     reverse: BoundedVec<ReverseEntry, ROUTES>,
+    /// Relayed announces awaiting their jittered transmission or retry (RNS's announce table).
+    rebroadcasts: Rebroadcasts,
+    /// Relayed-announce budgets of the interfaces whose airtime is known.
+    announce_caps: BoundedVec<(InterfaceId, AnnounceCap), FIRST_HOP_AIRTIME_INTERFACES>,
     /// Recently relayed packet hashes, so a shared radio hearing its own relay does not loop.
     transit_filter: HashGenerations<TRANSPORT_DEDUP_HASHES>,
     /// Path requests already seen, by target and tag, so each is answered once.

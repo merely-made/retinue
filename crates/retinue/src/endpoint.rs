@@ -20,6 +20,7 @@ mod known_destinations;
 mod link_setup;
 mod paths;
 mod queue;
+mod rebroadcast;
 mod registration;
 mod reliable_driver;
 mod resource_pace;

@@ -17,19 +17,29 @@ fn freshness_gates_effects_and_newer_route_replaces_regardless_of_hops() {
     let mut first = peer.announce(&blob([1, 0, 0, 0, 0, 0, 0, 0, 0, 10]), None);
     first.hops = 1;
     let accepted = relay.ingest(IFACE, &first, 0);
-    assert_eq!(accepted.len(), 2, "learn plus relay");
+    assert_eq!(accepted.len(), 1, "learned");
+    assert!(
+        relay.rebroadcasts.contains(peer.destination()),
+        "and relayed"
+    );
     assert_eq!(relay.route_to(peer.destination(), 0), Some((IFACE, 1)));
 
     let mut newer_equal = peer.announce(&blob([2, 0, 0, 0, 0, 0, 0, 0, 0, 11]), None);
     newer_equal.hops = 1;
     let accepted = relay.ingest(IFACE + 1, &newer_equal, 1);
-    assert_eq!(accepted.len(), 2, "newer equal-hop announce replaces");
+    assert_eq!(accepted.len(), 1, "newer equal-hop announce replaces");
     assert_eq!(relay.route_to(peer.destination(), 1), Some((IFACE + 1, 1)));
 
     let mut newer_worse = peer.announce(&blob([3, 0, 0, 0, 0, 0, 0, 0, 0, 12]), None);
     newer_worse.hops = 7;
     let accepted = relay.ingest(IFACE + 2, &newer_worse, 2);
-    assert_eq!(accepted.len(), 2, "newer announce still learns and relays");
+    assert_eq!(accepted.len(), 1, "newer announce still learns and relays");
+    assert_eq!(
+        relay
+            .next_rebroadcast()
+            .map(|due| due <= 2 + REBROADCAST_WINDOW),
+        Some(true)
+    );
     assert_eq!(relay.route_to(peer.destination(), 2), Some((IFACE + 2, 7)));
 
     let mut stale = peer.announce(&blob([4, 0, 0, 0, 0, 0, 0, 0, 0, 11]), None);
@@ -70,7 +80,8 @@ fn an_expired_route_admits_any_announce_as_a_first_sighting() {
     for peer in [&better_peer, &equal_peer, &worse_peer] {
         let mut first = peer.announce(&blob([1, 0, 0, 0, 0, 0, 0, 0, 0, 20]), None);
         first.hops = 2;
-        assert_eq!(relay.ingest(IFACE, &first, 0).len(), 2);
+        assert_eq!(relay.ingest(IFACE, &first, 0).len(), 1);
+        assert!(relay.rebroadcasts.contains(peer.destination()));
     }
     assert_eq!(relay.route_count(), 3);
     let _ = relay.poll(10, IFACE, Some(&blob([0; RAND_HASH_LEN])));
@@ -79,7 +90,8 @@ fn an_expired_route_admits_any_announce_as_a_first_sighting() {
     for (peer, hops) in [(&better_peer, 1), (&equal_peer, 2), (&worse_peer, 3)] {
         let mut older = peer.announce(&blob([2, 0, 0, 0, 0, 0, 0, 0, 0, 19]), None);
         older.hops = hops;
-        assert_eq!(relay.ingest(IFACE + 1, &older, 11).len(), 2);
+        assert_eq!(relay.ingest(IFACE + 1, &older, 11).len(), 1);
+        assert!(relay.rebroadcasts.contains(peer.destination()));
         assert_eq!(
             relay.route_to(peer.destination(), 11),
             Some((IFACE + 1, hops))
@@ -185,11 +197,7 @@ fn address_book_refusal_still_learns_and_relays_the_route() {
     assert_eq!(n.refused_peers(), 1);
     assert!(!actions.iter().any(|a| matches!(a, Action::Learned { .. })));
     assert!(
-        actions
-            .iter()
-            .any(|a| matches!(a, Action::Send { packet, .. }
-            if packet.packet_type == PacketType::Announce
-                && packet.destination == second_peer.destination())),
+        n.rebroadcasts.contains(second_peer.destination()),
         "the refused identity's announce is still relayed"
     );
     assert!(!n.peers().knows(second_peer.destination()));
@@ -220,13 +228,6 @@ fn a_full_book_evicts_a_peer_whose_route_expired() {
             DestinationName::new("retinue", ["peer"]).name_hash(),
         )
     });
-    let relayed = |actions: &Actions<8>, destination: AddressHash| {
-        actions.iter().any(|a| {
-            matches!(a, Action::Send { packet, .. }
-            if packet.packet_type == PacketType::Announce
-                && packet.destination == destination)
-        })
-    };
     let learned = |actions: &Actions<8>, destination: AddressHash| {
         actions
             .iter()
@@ -240,7 +241,7 @@ fn a_full_book_evicts_a_peer_whose_route_expired() {
             &peer.announce(&blob([i as u8; RAND_HASH_LEN]), None),
             at,
         );
-        assert!(relayed(&actions, peer.destination()));
+        assert!(n.rebroadcasts.contains(peer.destination()));
         assert_eq!(learned(&actions, peer.destination()), i < 2);
     }
     assert_eq!(
@@ -258,7 +259,7 @@ fn a_full_book_evicts_a_peer_whose_route_expired() {
         later,
     );
     assert!(learned(&actions, fourth), "admitted by eviction");
-    assert!(relayed(&actions, fourth));
+    assert!(n.rebroadcasts.contains(fourth));
     assert!(n.peers().knows(fourth));
     assert!(
         !n.peers().knows(peers[0].destination()),
@@ -292,6 +293,8 @@ fn a_path_response_is_learned_but_not_relayed() {
     );
     assert!(relay.peers().knows(peer.destination()));
     assert_eq!(relay.route_to(peer.destination(), 0), Some((IFACE, 2)));
+    assert_eq!(relay.next_rebroadcast(), None, "nothing scheduled either");
+    assert!(relay.poll(REBROADCAST_WINDOW, IFACE, None).is_empty());
     assert_eq!(relay.transport_counters().forwarded_announces, 0);
 }
 

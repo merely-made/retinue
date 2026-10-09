@@ -9,13 +9,15 @@
 //! Not a scheduler or an isolation boundary: channels are trusted safe Rust in the same
 //! address space.
 
-use embassy_time::{Duration, Instant, Ticker};
+use embassy_futures::select::{Either, select};
+use embassy_time::{Duration, Instant, Ticker, Timer};
 use lora_phy::mod_params::RadioError;
 use lora_phy::mod_traits::RadioKind;
 use lora_phy::{DelayNs, LoRa, RxMode};
 use radio_face::{HostSnapshot, LedSignal, LocalStatus};
 use selvage::PhyProfile;
 
+use crate::channel::Event;
 use crate::observation::owner::{CONTINUITY_RETUNE, CONTINUITY_SETTINGS, OwnerObservations};
 use crate::observation::{RefusalReason, RequestKind};
 use crate::region::Region;
@@ -388,14 +390,28 @@ impl Heartbeat {
         }
     }
 
-    /// Wait for the next beat.
+    /// Wait for the next beat, or for `wake` (a channel's [`ChannelInfo::wake_at`]) if that
+    /// comes first.
     ///
     /// A `Ticker` rather than a fresh timer each turn, so a busy host cannot starve the beat
-    /// by keeping the serve loop cycling faster than the interval.
-    pub async fn next(&mut self) {
-        match &mut self.ticker {
-            Some(ticker) => ticker.next().await,
-            None => core::future::pending().await,
+    /// by keeping the serve loop cycling faster than the interval. Abandoning its wait for a
+    /// wake leaves the beat's schedule untouched.
+    ///
+    /// [`ChannelInfo::wake_at`]: crate::channel::ChannelInfo::wake_at
+    pub async fn next(&mut self, wake: Option<Instant>) -> Event<'static> {
+        let beat = async {
+            match &mut self.ticker {
+                Some(ticker) => ticker.next().await,
+                None => core::future::pending().await,
+            }
+        };
+        let Some(at) = wake else {
+            beat.await;
+            return Event::Beat;
+        };
+        match select(beat, Timer::at(at)).await {
+            Either::First(()) => Event::Beat,
+            Either::Second(()) => Event::Wake,
         }
     }
 }
