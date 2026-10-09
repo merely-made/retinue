@@ -83,6 +83,7 @@ pub mod announce_admission;
 pub mod announce_freshness;
 #[cfg(feature = "alloc")]
 pub mod artifact;
+pub mod auto;
 pub mod capacity;
 #[cfg(feature = "alloc")]
 pub mod channel;
