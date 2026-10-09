@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use retinue::iface::beacon::Beacon;
 use retinue::iface::kiss::{KissTnc, TncConfig};
-use retinue::iface::serial::{self, Framing, SerialConfig};
+use retinue::iface::serial::{self, CarrierStatus, Framing, SerialConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), String> {
@@ -52,6 +52,7 @@ async fn main() -> Result<(), String> {
     let carrier = serial::attach(&endpoint, config, framing, script::ifac(ifac_bits)?)
         .map_err(|e| format!("attach: {e}"))?;
     println!("ATTACHED {}", carrier.id);
+    let mut online = carrier.status.clone();
     let mut status = carrier.status;
     tokio::spawn(async move {
         loop {
@@ -63,7 +64,11 @@ async fn main() -> Result<(), String> {
     });
     tokio::spawn(carrier.run);
     match burst {
-        Some(count) => script::burst(endpoint.clone(), count).await,
+        Some(count) => {
+            // Packets offered before the line is up are dropped, as RNS drops them.
+            let _ = online.wait_for(|s| *s == CarrierStatus::Online).await;
+            script::burst(endpoint.clone(), count).await
+        }
         None => script::serve(endpoint.clone(), publish).await,
     }
     endpoint.shutdown(Duration::from_secs(2)).await;

@@ -7,12 +7,12 @@
 //!
 //! ```text
 //! rnode_air --fd N [--fd N ...] --log PATH [--ready-flow MS]
-//!           [--mismatch-txp DEV] [--error-after DEV:COUNT] [--reset-after DEV:COUNT]
+//!           [--mismatch-txp DEV[,DEV]] [--error-after DEV:COUNT] [--reset-after DEV:COUNT]
 //! ```
 //!
 //! `--fd` names a pty master the harness passed down. `--ready-flow` answers each DATA
-//! with READY after MS milliseconds. `--mismatch-txp` echoes TX power one lower on that
-//! device. `--error-after` answers a device's COUNT-th DATA with `ERROR 0x02` (TX failed),
+//! with READY after MS milliseconds. `--mismatch-txp` echoes TX power one lower on those
+//! devices. `--error-after` answers a device's COUNT-th DATA with `ERROR 0x02` (TX failed),
 //! and `--reset-after` with `RESET 0xF8`, instead of transmitting it.
 
 use std::fs::File;
@@ -32,7 +32,7 @@ const TX_FAILED: u8 = 0x02;
 #[derive(Default)]
 struct Flags {
     ready_flow: Option<Duration>,
-    mismatch_txp: Option<usize>,
+    mismatch_txp: Vec<usize>,
     error_after: Option<(usize, u32)>,
     reset_after: Option<(usize, u32)>,
 }
@@ -94,7 +94,7 @@ impl Air {
             .pending
             .accept(&command);
         match command {
-            Command::TxPower(dbm) if self.flags.mismatch_txp == Some(dev) => {
+            Command::TxPower(dbm) if self.flags.mismatch_txp.contains(&dev) => {
                 self.reply(dev, cmd::TXPOWER, &[dbm.wrapping_sub(1)]);
             }
             Command::RadioState(true) => {
@@ -190,7 +190,11 @@ fn main() -> Result<(), String> {
                 flags.ready_flow = Some(Duration::from_millis(ms));
             }
             "--mismatch-txp" => {
-                flags.mismatch_txp = Some(value()?.parse().map_err(|e| format!("{e}"))?)
+                for dev in value()?.split(',') {
+                    flags
+                        .mismatch_txp
+                        .push(dev.parse().map_err(|e| format!("{e}"))?);
+                }
             }
             "--error-after" => flags.error_after = Some(device_count(&value()?)?),
             "--reset-after" => flags.reset_after = Some(device_count(&value()?)?),

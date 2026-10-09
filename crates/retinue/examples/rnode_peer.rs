@@ -9,6 +9,7 @@
 //! Runs the shared serve script and prints each pump status change. When stdin closes it
 //! shuts down, which turns the radio off and sends LEAVE.
 
+#[allow(dead_code, reason = "the burst mode belongs to serial_peer")]
 #[path = "serial_peer/script.rs"]
 mod script;
 

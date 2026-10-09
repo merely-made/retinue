@@ -196,11 +196,12 @@ def _wait(predicate, timeout: float) -> bool:
 
 
 def exercise_stock(retinue: Retinue, resource_len: int = 3000, publish_len: int | None = None,
-                   timeout: float = 120) -> dict[str, bool]:
+                   request_len: int = 64, timeout: float = 120) -> dict[str, bool]:
     """Drive the shared script from the stock side and judge by stock's own state.
 
     Path, link, request and a Resource from stock to Retinue; with `publish_len`, also a
-    Resource from Retinue into a stock sink.
+    Resource from Retinue into a stock sink. A `request_len` of 400 packs to the 431-byte
+    link MDU, so request and response each fill one 499-byte packet.
     """
     import RNS
 
@@ -242,7 +243,7 @@ def exercise_stock(retinue: Retinue, resource_len: int = 3000, publish_len: int 
     if not results["stock link ACTIVE"]:
         return results
 
-    question = payload(64, REQUEST_SEED)
+    question = payload(request_len, REQUEST_SEED)
     receipt = link.request("/echo", question, timeout=60)
     done = (RNS.RequestReceipt.READY, RNS.RequestReceipt.FAILED)
     _wait(lambda: receipt.get_status() in done, 60)

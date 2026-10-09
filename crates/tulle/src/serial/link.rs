@@ -53,7 +53,7 @@ impl RNodeSerialLink {
         config: SerialPumpConfig,
     ) -> Result<Self, PumpError> {
         check(&rnode, &config)?;
-        let mut port = Some(open_port(path.as_ref(), config.baud_rate)?);
+        let mut port = Some(super::port::open(path.as_ref(), config.baud_rate)?);
         let open = move || port.take().ok_or_else(|| io::ErrorKind::NotFound.into());
         Ok(Self::spawn(open, rnode, budget, config, false))
     }
@@ -71,7 +71,7 @@ impl RNodeSerialLink {
         let path = path.into();
         let baud = config.baud_rate;
         Ok(Self::spawn(
-            move || open_port(&path, baud),
+            move || super::port::open(&path, baud),
             rnode,
             budget,
             config,
@@ -152,6 +152,11 @@ impl RNodeSerialLink {
             task: Some(task),
             supervised,
         }
+    }
+
+    /// A receiver of every lifecycle change, for a caller that hands the link to a driver.
+    pub fn watch_status(&self) -> watch::Receiver<PumpStatus> {
+        self.status.clone()
     }
 
     /// Current lifecycle state without waiting.
@@ -252,20 +257,6 @@ fn check(rnode: &RNodeConfig, config: &SerialPumpConfig) -> Result<(), PumpError
         ));
     }
     rnode.validate().map_err(|error| invalid(error.to_string()))
-}
-
-fn open_port(path: &Path, baud: u32) -> io::Result<serial2_tokio::SerialPort> {
-    let port = serial2_tokio::SerialPort::open(path, baud)?;
-    // nRF USB CDC gates output on DTR. On ESP32, RTS is wired into reset/boot and must
-    // remain deasserted (asserting it wedged a board in a live harness). A pty has neither
-    // line, so ENOTTY and EINVAL are tolerated, as pyserial tolerates them.
-    for line in [port.set_dtr(true), port.set_rts(false)] {
-        line.or_else(|error| match error.raw_os_error() {
-            Some(22 | 25) => Ok(()),
-            _ => Err(error),
-        })?;
-    }
-    Ok(port)
 }
 
 /// Fail offered frames until `delay` passes. False if the link was shut down meanwhile.
