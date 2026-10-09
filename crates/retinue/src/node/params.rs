@@ -55,9 +55,10 @@ pub const MAX_RESOURCE_PARTS: usize = 32;
 ///
 /// The default is unbounded, for host callers; embedded callers choose finite values with
 /// [`Node::new_with_payload_limits`], and must still bound raw input before decoding a
-/// [`Packet`] and bound retained action queues. An inbound uncompressed resource is bounded by
-/// `max_resource_parts` times `max_ingress_bytes`. With `compression` on, a compressed one is
-/// also refused past [`DEFAULT_MAX_DECOMPRESSED_SIZE`](crate::resource::DEFAULT_MAX_DECOMPRESSED_SIZE).
+/// [`Packet`] and bound retained action queues. Each segment of an inbound uncompressed
+/// resource is bounded by `max_resource_parts` times `max_ingress_bytes`. With `compression`
+/// on, a compressed one is also refused past its advertised size. The whole resource is
+/// bounded by [`Node::set_max_inbound_resource`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PayloadLimits {
     pub max_ingress_bytes: usize,

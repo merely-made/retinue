@@ -11,6 +11,7 @@ use crate::token::IV_LEN;
 mod pipe;
 mod proof;
 mod refusal;
+mod segments;
 mod throughput;
 mod transfer;
 

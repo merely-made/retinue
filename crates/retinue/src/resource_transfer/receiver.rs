@@ -53,6 +53,9 @@ pub struct ResourceReceiver {
     retries_left: u8,
     /// An exhausted request is out and its hashmap update not yet in.
     waiting_for_hmu: bool,
+    /// Whether one segment of a split resource is accepted; see
+    /// [`SegmentedReceiver`](super::SegmentedReceiver).
+    segmented: bool,
 }
 
 impl ResourceReceiver {
@@ -93,6 +96,7 @@ impl ResourceReceiver {
             last_activity: 0,
             retries_left: MAX_RETRIES,
             waiting_for_hmu: false,
+            segmented: false,
         }
     }
 
@@ -131,14 +135,35 @@ impl ResourceReceiver {
         self
     }
 
+    /// Accept one segment of a split resource as a whole transfer: the caller accumulates
+    /// the segments.
+    pub(super) fn allow_segments(mut self) -> Self {
+        self.segmented = true;
+        self
+    }
+
+    /// Start the request window where `carry` left it, as for a segment that follows
+    /// another on the same link.
+    pub(super) fn with_carry(mut self, carry: super::WindowCarry) -> Self {
+        self.window = Window::new(self.request_window, Some(carry));
+        self
+    }
+
+    /// Lower the decompression bound to `max` bytes, keeping any lower one already set.
+    pub(super) fn cap_decompressed(mut self, max: usize) -> Self {
+        self.max_decompressed = self.max_decompressed.min(max);
+        self
+    }
+
     /// The part ceiling this receiver enforces.
     pub fn max_parts(&self) -> usize {
         self.max_parts
     }
 
     /// Why this receiver failed, if it has: [`Error::MultiSegmentResource`] for an offer
-    /// it cannot reassemble whole, [`Error::CapacityExceeded`] for one past its part or
-    /// size ceiling, [`Error::ResourceRejected`] for one its accept hook refused,
+    /// it cannot reassemble whole (see [`SegmentedReceiver`](super::SegmentedReceiver)),
+    /// [`Error::CapacityExceeded`] for one past its part or size ceiling,
+    /// [`Error::ResourceRejected`] for one its accept hook refused,
     /// [`Error::DecompressionLimit`] for a body that inflated past its limit,
     /// [`Error::ResourceCorrupt`] for one that failed to open or verify, and
     /// [`Error::ResourceTimedOut`] for a sender that went silent. The sender has been sent a
@@ -299,9 +324,9 @@ impl ResourceReceiver {
     /// receiver cancel.
     fn admit(&self, adv: &Advertisement) -> Result<Incoming, Error> {
         // A resource past RNS's segment size arrives as `l` advertisements, one per
-        // segment. This receiver reassembles a single segment, so accepting the first
-        // would hand back its data as if it were the whole resource.
-        if adv.l > 1 {
+        // segment. Alone, this receiver would hand back the first segment's data as if it
+        // were the whole resource.
+        if adv.l > 1 && !self.segmented {
             return Err(Error::MultiSegmentResource);
         }
         #[cfg(not(feature = "compression"))]

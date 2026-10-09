@@ -22,6 +22,7 @@ mod paths;
 mod queue;
 mod registration;
 mod reliable_driver;
+mod resource_pace;
 mod resource_requests;
 mod resource_session;
 mod router;

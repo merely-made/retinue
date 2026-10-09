@@ -41,6 +41,8 @@ GATES = (
     "interop_single_proof.py",
     "interop_ratchet_rotation.py",
     "interop_node_resource_metadata.py",
+    "interop_library_resource_segments.py",
+    "interop_library_request_resource.py",
 )
 
 

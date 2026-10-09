@@ -27,6 +27,10 @@
 //! (`Resource.cancel`, `Resource.reject`). A cancel is honoured only if it decrypts on the
 //! link and names the resource in progress.
 //!
+//! A resource past [`MAX_SEGMENT_SIZE`](crate::resource::MAX_SEGMENT_SIZE) travels as
+//! segments, each one transfer of its own; [`SegmentedSender`] and [`SegmentedReceiver`]
+//! sequence them over the per-segment halves.
+//!
 //! Both halves are sans-io and clock-free: [`ResourceSender::on_packet`] /
 //! [`ResourceReceiver::on_packet`] take a received packet and the caller's millisecond tick
 //! and return packets to send; `poll` runs RNS's watchdog at the tick, and `deadline` says
@@ -39,6 +43,8 @@ use crate::resource::Advertisement;
 
 mod cancel;
 mod receiver;
+mod segmented_receiver;
+mod segmented_sender;
 mod sender;
 #[cfg(test)]
 mod tests;
@@ -47,6 +53,8 @@ pub mod window;
 
 pub use cancel::reject;
 pub use receiver::ResourceReceiver;
+pub use segmented_receiver::{DEFAULT_MAX_RESOURCE_SIZE, SegmentedReceiver};
+pub use segmented_sender::{ResourceKind, SegmentedSender, segment_count};
 pub use sender::ResourceSender;
 pub use timing::{MAX_ADV_RETRIES, MAX_RETRIES, Timing};
 pub use window::WindowCarry;

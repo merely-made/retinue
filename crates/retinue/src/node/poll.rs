@@ -79,9 +79,9 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                 actions.push(Action::Send { interface, packet });
             }
             if receiver.failure().is_some() {
-                let carry = receiver.carry();
-                if let Some((link, _, _)) =
-                    self.links.iter_mut().find(|(l, _, _)| l.id() == link_id)
+                if let Some(carry) = receiver.carry()
+                    && let Some((link, _, _)) =
+                        self.links.iter_mut().find(|(l, _, _)| l.id() == link_id)
                 {
                     link.set_resource_carry(carry);
                 }

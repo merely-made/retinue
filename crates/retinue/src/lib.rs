@@ -196,8 +196,9 @@ pub enum Error {
     /// failed rather than inflated, so a peer cannot spend this node's memory with a small
     /// bz2 bomb.
     DecompressionLimit,
-    /// A resource advertisement named more than one segment. Segment accumulation is not
-    /// implemented, so the offer is refused rather than truncated to its first segment.
+    /// A resource advertisement named more than one segment to a receiver of single
+    /// segments, so the offer is refused rather than truncated to its first segment.
+    /// `resource_transfer::SegmentedReceiver` accepts it.
     MultiSegmentResource,
     /// A resource offer was refused by this side's accept policy, before any part of it
     /// was requested. The sender was told with a receiver cancel.
@@ -229,7 +230,9 @@ impl core::fmt::Display for Error {
             Self::Unsupported => "operation needs a disabled feature",
             Self::CapacityExceeded => "peer asked for more state than the capacity policy allows",
             Self::DecompressionLimit => "decompressed resource exceeds the size limit",
-            Self::MultiSegmentResource => "multi-segment resources are not supported",
+            Self::MultiSegmentResource => {
+                "multi-segment resource offered to a one-segment receiver"
+            }
             Self::ResourceRejected => "resource offer refused by the accept policy",
             Self::ResourceTimedOut => "resource transfer timed out",
         };

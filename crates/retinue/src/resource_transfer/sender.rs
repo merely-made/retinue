@@ -99,37 +99,7 @@ impl ResourceSender {
         request_id: Option<[u8; 16]>,
         has_metadata: bool,
     ) -> Self {
-        // `random_hash || body`, with room to seal it in place.
-        let content = |body_len: usize| {
-            let mut transfer = Vec::with_capacity(TOKEN_ROOM + RANDOM_HASH_LEN + body_len);
-            transfer.extend_from_slice(&random_hash);
-            transfer
-        };
-        #[cfg(feature = "compression")]
-        let (transfer, compressed) = {
-            let encoded = compress_after(content(data.len() / 2), data);
-            if encoded.len() - RANDOM_HASH_LEN < data.len() {
-                (encoded, true)
-            } else {
-                drop(encoded);
-                let mut transfer = content(data.len());
-                transfer.extend_from_slice(data);
-                (transfer, false)
-            }
-        };
-        #[cfg(not(feature = "compression"))]
-        let (transfer, compressed) = {
-            let mut transfer = content(data.len());
-            transfer.extend_from_slice(data);
-            (transfer, false)
-        };
-        let token = link.seal_owned(transfer, iv);
-        // The link MTU less `HEADER_MAXSIZE` and `IFAC_MIN_SIZE` (`Resource.py` 343-344), so a
-        // part still fits once a relay addresses it. Held to the SDU above MTU 500.
-        let part_size = (link.mtu() as usize)
-            .saturating_sub(crate::packet::HEADER_MAX_LEN + 1)
-            .clamp(1, SDU);
-        let mut out = Outgoing::from_token(data, token, random_hash, compressed, part_size);
+        let mut out = outgoing(&link, data, random_hash, iv, true);
         if let Some(request_id) = request_id {
             out = out.with_request_id(request_id);
         }
@@ -398,4 +368,50 @@ impl ResourceSender {
     pub fn resource_hash(&self) -> [u8; 32] {
         self.out.resource_hash()
     }
+}
+
+/// Seal `data` into an [`Outgoing`] whose parts fit `link`'s MTU, bz2-compressing it first
+/// when `try_compress` is set and that shrinks it.
+pub(super) fn outgoing(
+    link: &Link,
+    data: &[u8],
+    random_hash: [u8; RANDOM_HASH_LEN],
+    iv: &[u8; IV_LEN],
+    try_compress: bool,
+) -> Outgoing {
+    // `random_hash || body`, with room to seal it in place.
+    let content = |body_len: usize| {
+        let mut transfer = Vec::with_capacity(TOKEN_ROOM + RANDOM_HASH_LEN + body_len);
+        transfer.extend_from_slice(&random_hash);
+        transfer
+    };
+    let plain = || {
+        let mut transfer = content(data.len());
+        transfer.extend_from_slice(data);
+        transfer
+    };
+    #[cfg(feature = "compression")]
+    let (transfer, compressed) = if try_compress {
+        let encoded = compress_after(content(data.len() / 2), data);
+        if encoded.len() - RANDOM_HASH_LEN < data.len() {
+            (encoded, true)
+        } else {
+            drop(encoded);
+            (plain(), false)
+        }
+    } else {
+        (plain(), false)
+    };
+    #[cfg(not(feature = "compression"))]
+    let (transfer, compressed) = {
+        let _ = try_compress;
+        (plain(), false)
+    };
+    let token = link.seal_owned(transfer, iv);
+    // The link MTU less `HEADER_MAXSIZE` and `IFAC_MIN_SIZE` (`Resource.py` 343-344), so a
+    // part still fits once a relay addresses it. Held to the SDU above MTU 500.
+    let part_size = (link.mtu() as usize)
+        .saturating_sub(crate::packet::HEADER_MAX_LEN + 1)
+        .clamp(1, SDU);
+    Outgoing::from_token(data, token, random_hash, compressed, part_size)
 }
