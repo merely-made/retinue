@@ -176,6 +176,8 @@ fn normal_navigation_shows_two_board_timeline_and_uncertainty() {
             state,
             logic: root as Logic,
             sheet: SHEET.to_owned(),
+            fonts: Vec::new(),
+            images: Vec::new(),
         },
         inert_hooks(),
     );
@@ -226,6 +228,8 @@ fn focused_export_path_accepts_injected_text_before_export() {
             state,
             logic: root as Logic,
             sheet: SHEET.to_owned(),
+            fonts: Vec::new(),
+            images: Vec::new(),
         },
         hooks,
     );

@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use gaz::{Contact, ContactBook, ContactKey, Endpoint, EndpointKind, PersonaScope};
+use gaz::{Contact, ContactBook, Endpoint, EndpointKind, PersonaScope, TypedKey};
 use muniment::{Backend, Journal, JsonSlots, MemoryBackend, RedbBackend, StoreError};
 use signalman::message::{ApplyOutcome, MessageBook, MessageEvent, MessagePeer, MessageRecord};
 
@@ -99,9 +99,11 @@ impl MessageStore {
     }
 
     pub fn contact_name(&self, peer: MessagePeer) -> Option<&str> {
-        let key = ContactKey::from_bytes(peer.identity?);
+        // `by_key` ties its borrow to the local key, so match by hand.
+        let key = TypedKey::ed25519(peer.identity?);
         self.contacts
-            .by_key(&key)
+            .iter()
+            .find(|contact| contact.knows_key(&key))
             .map(|contact| contact.petname.as_str())
     }
 
@@ -114,14 +116,19 @@ impl MessageStore {
         now_ms: u64,
     ) -> Result<(), MessageStoreError> {
         let identity = peer.identity.ok_or(MessageStoreError::UnprovenContact)?;
-        let key = ContactKey::from_bytes(identity);
+        let key = TypedKey::ed25519(identity);
         let address = hex_bytes(&peer.destination);
-        let mut contact = self.contacts.by_key(&key).cloned().unwrap_or_else(|| {
-            Contact::new(petname, key).with_endpoint(Endpoint::new(
-                EndpointKind::Other("reticulum".into()),
-                address,
-            ))
-        });
+        let mut contact = self
+            .contacts
+            .by_key(&key)
+            .next()
+            .cloned()
+            .unwrap_or_else(|| {
+                Contact::new(petname, key).with_endpoint(Endpoint::new(
+                    EndpointKind::Other("reticulum".into()),
+                    address,
+                ))
+            });
         contact.mark_contacted(now_ms);
         let mut candidate = self.contacts.clone();
         candidate.insert(contact);

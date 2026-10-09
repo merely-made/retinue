@@ -53,10 +53,10 @@ pub fn focused_revision_field(
     let dom = runner.dom();
     let field = {
         let dom = dom.borrow();
-        if !dom
-            .element_name(node)
-            .is_some_and(|name| name.local.as_ref() == "input")
-        {
+        // `text_field` renders a `div` with `role="textbox"` since mere 3ee4c0ae.
+        if !dom.attributes(node).any(|attribute| {
+            attribute.name.local.as_ref() == "role" && attribute.value == "textbox"
+        }) {
             return None;
         }
         let mut cursor = Some(node);

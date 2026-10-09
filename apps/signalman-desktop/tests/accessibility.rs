@@ -38,6 +38,8 @@ fn harness() -> App {
             state,
             logic: root as Logic,
             sheet: SHEET.to_string(),
+            fonts: Vec::new(),
+            images: Vec::new(),
         },
         hooks,
     );
@@ -65,6 +67,8 @@ fn silent_harness() -> App {
             state,
             logic: root as Logic,
             sheet: SHEET.to_string(),
+            fonts: Vec::new(),
+            images: Vec::new(),
         },
         hooks,
     );
