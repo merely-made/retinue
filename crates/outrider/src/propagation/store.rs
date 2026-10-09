@@ -1,6 +1,6 @@
 //! The bounded, caller-persisted propagation store.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::time::Duration;
 
 use super::{
@@ -42,6 +42,31 @@ impl Default for PropagationStoreLimits {
             max_age: Duration::from_secs(30 * 24 * 60 * 60),
             max_per_fetch: 256,
         }
+    }
+}
+
+impl PropagationStoreLimits {
+    /// The largest packed single-entry submission (`[timebase, [entry]]`, the timebase a
+    /// float) whose entry this store admits. A node refuses a larger transfer at its
+    /// advertisement, so it never proves a message the store would drop.
+    pub fn max_submission_bytes(&self) -> usize {
+        let message = self
+            .max_message_bytes
+            .min(self.max_bytes.saturating_sub(STAMP_LEN));
+        let entry = message.saturating_add(STAMP_LEN);
+        let bin_header = match entry {
+            0..=0xff => 2,
+            0x100..=0xffff => 3,
+            _ => 5,
+        };
+        // fixarray(2), float64, fixarray(1), then the entry.
+        entry.saturating_add(1 + 9 + 1 + bin_header)
+    }
+
+    /// [`max_submission_bytes`](Self::max_submission_bytes) in the announce's kilobytes,
+    /// rounded up: the transfer and sync limits a node with this store announces.
+    pub fn announced_limit_kb(&self) -> u64 {
+        self.max_submission_bytes().div_ceil(1_000) as u64
     }
 }
 
@@ -103,16 +128,16 @@ impl ProcessedIds {
         }
     }
 
+    /// Forget ids past the TTL from the front of the arrival order.
     fn prune(&mut self, now: f64) {
         let ttl = PROCESSED_TRANSIENT_ID_TTL.as_secs_f64();
-        let at = &mut self.at;
-        self.order.retain(|id| {
-            let keep = at.get(id).is_some_and(|seen| now - seen <= ttl);
-            if !keep {
-                at.remove(id);
+        while let Some(oldest) = self.order.front() {
+            if self.at.get(oldest).is_some_and(|seen| now - seen <= ttl) {
+                break;
             }
-            keep
-        });
+            self.at.remove(oldest);
+            self.order.pop_front();
+        }
     }
 }
 
@@ -132,6 +157,8 @@ pub struct PropagationStore {
     pub(super) limits: PropagationStoreLimits,
     pub(super) entries: HashMap<[u8; 32], StoredPropagation>,
     by_destination: HashMap<[u8; 16], HashSet<[u8; 32]>>,
+    /// Entries by arrival time, oldest first, so expiry pops only what has expired.
+    by_age: BTreeMap<(u64, u64), [u8; 32]>,
     pub(super) processed: ProcessedIds,
     prioritised: HashSet<[u8; 16]>,
     bytes: usize,
@@ -144,6 +171,7 @@ impl PropagationStore {
             limits,
             entries: HashMap::new(),
             by_destination: HashMap::new(),
+            by_age: BTreeMap::new(),
             processed: ProcessedIds::default(),
             prioritised: HashSet::new(),
             bytes: 0,
@@ -220,9 +248,10 @@ impl PropagationStore {
                 receipt.duplicates += 1;
                 continue;
             }
-            self.processed.insert(id, now);
             match self.insert(entry.message, Some(entry.stamp), value, now, now) {
                 StoreInsert::Inserted { evicted } => {
+                    // Only a stored message is processed; a refused one may come again.
+                    self.processed.insert(id, now);
                     receipt.inserted += 1;
                     receipt.evicted += evicted;
                 }
@@ -234,19 +263,20 @@ impl PropagationStore {
     }
 
     /// Drop expired entries and expired processed ids. Returns the entries dropped.
+    /// Costs only what has expired, so a node may prune on every request.
     pub fn prune(&mut self, now: f64) -> usize {
         let max_age = self.limits.max_age.as_secs_f64();
-        let expired: Vec<[u8; 32]> = self
-            .entries
-            .iter()
-            .filter(|(_, entry)| now - entry.received_at > max_age)
-            .map(|(id, _)| *id)
-            .collect();
-        for id in &expired {
-            self.remove(id);
+        let mut expired = 0;
+        while let Some((_, id)) = self.by_age.first_key_value() {
+            let id = *id;
+            if now - self.entries[&id].received_at <= max_age {
+                break;
+            }
+            self.remove(&id);
+            expired += 1;
         }
         self.processed.prune(now);
-        expired.len()
+        expired
     }
 
     /// Delete `handled` ids held for `destination`.
@@ -317,6 +347,22 @@ impl PropagationStore {
         received_at: f64,
         now: f64,
     ) -> StoreInsert {
+        match self.insert_unbounded(message, stamp, stamp_value, received_at) {
+            StoreInsert::Inserted { .. } => StoreInsert::Inserted {
+                evicted: self.evict(now),
+            },
+            refused => refused,
+        }
+    }
+
+    /// Insert without evicting; restore inserts everything, then evicts once.
+    pub(super) fn insert_unbounded(
+        &mut self,
+        message: PropagationMessage,
+        stamp: Option<[u8; STAMP_LEN]>,
+        stamp_value: u16,
+        received_at: f64,
+    ) -> StoreInsert {
         let id = message.transient_id();
         if self.entries.contains_key(&id) {
             return StoreInsert::Duplicate;
@@ -330,6 +376,8 @@ impl PropagationStore {
             .entry(message.destination)
             .or_default()
             .insert(id);
+        self.by_age
+            .insert((age_key(received_at), self.next_seq), id);
         self.entries.insert(
             id,
             StoredPropagation {
@@ -343,16 +391,15 @@ impl PropagationStore {
         );
         self.next_seq += 1;
         self.bytes += bytes;
-        StoreInsert::Inserted {
-            evicted: self.evict(now),
-        }
+        StoreInsert::Inserted { evicted: 0 }
     }
 
     fn over_capacity(&self) -> bool {
         self.entries.len() > self.limits.max_entries || self.bytes > self.limits.max_bytes
     }
 
-    fn evict(&mut self, now: f64) -> usize {
+    /// Drop the heaviest entries until within capacity, ranking them once.
+    pub(super) fn evict(&mut self, now: f64) -> usize {
         if !self.over_capacity() {
             return 0;
         }
@@ -388,6 +435,7 @@ impl PropagationStore {
             return false;
         };
         self.bytes -= entry.bytes;
+        self.by_age.remove(&(age_key(entry.received_at), entry.seq));
         let destination = entry.message.destination;
         if let Some(ids) = self.by_destination.get_mut(&destination) {
             ids.remove(id);
@@ -396,5 +444,15 @@ impl PropagationStore {
             }
         }
         true
+    }
+}
+
+/// A time as a key that sorts as the time does (`f64::total_cmp`'s order).
+fn age_key(at: f64) -> u64 {
+    let bits = at.to_bits();
+    if bits >> 63 == 1 {
+        !bits
+    } else {
+        bits | 1 << 63
     }
 }

@@ -24,7 +24,8 @@ pub struct NodePolicy {
     /// admitted (`LXMRouter.py` 2311, 2483).
     pub costs: PropagationCosts,
     /// The largest submission, refused at its advertisement before any transfer
-    /// (`LXMRouter.py` 2289-2292).
+    /// (`LXMRouter.py` 2289-2292). A [`PropagationNode`] lowers it to what its store
+    /// admits.
     pub max_transfer_bytes: usize,
     /// When set, only these identity hashes may fetch; others get 0xf1
     /// (`LXMRouter.py` 465-484, 1480-1492).
@@ -36,6 +37,9 @@ pub struct NodePolicy {
 impl NodePolicy {
     /// The policy a node announcing `announce` enforces: its costs, and its sync limit
     /// as the transfer ceiling, as stock checks a submission against what it announced.
+    /// Announce [`PropagationStoreLimits::announced_limit_kb`] so the two agree.
+    ///
+    /// [`PropagationStoreLimits::announced_limit_kb`]: super::PropagationStoreLimits::announced_limit_kb
     pub fn from_announce(announce: &PropagationAnnounce) -> Self {
         Self {
             costs: announce.costs.clone(),
@@ -70,7 +74,12 @@ pub struct PropagationNode {
 }
 
 impl PropagationNode {
-    pub fn new(store: PropagationStore, policy: NodePolicy) -> Self {
+    /// A node whose transfer ceiling is at most what `store` admits, so a submission it
+    /// proves is one it stores.
+    pub fn new(store: PropagationStore, mut policy: NodePolicy) -> Self {
+        policy.max_transfer_bytes = policy
+            .max_transfer_bytes
+            .min(store.limits().max_submission_bytes());
         Self {
             policy,
             store: Mutex::new(store),
@@ -95,7 +104,8 @@ impl PropagationNode {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    /// Whether `identity_hash` sent a bad stamp within [`STAMP_THROTTLE`].
+    /// Whether `identity_hash` sent a bad stamp within [`STAMP_THROTTLE`]. Stock refuses
+    /// a throttled peer's sync offers (`LXMRouter.py` 2354-2358), not client submissions.
     pub fn is_throttled(&self, identity_hash: &[u8; 16], now: f64) -> bool {
         let mut throttled = self.throttled.lock().unwrap_or_else(|p| p.into_inner());
         throttled.retain(|_, until| *until > now);
@@ -132,9 +142,10 @@ impl PropagationNode {
             } => {
                 report.acknowledged += store.acknowledge(destination, &handled);
                 let messages = store.select(destination, &wanted, limit_kb.map(|kb| kb * 1_000.0));
-                report
-                    .served
-                    .extend(messages.iter().map(|message| message.transient_id()));
+                if !wanted.is_empty() {
+                    report.served = messages.iter().map(|m| m.transient_id()).collect();
+                    report.served_total += messages.len();
+                }
                 Value::Array(
                     messages
                         .iter()

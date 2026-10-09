@@ -2,6 +2,8 @@
 
 The stock sender mints a stamp under the node's floor (cost minus flexibility). The node
 must answer the link packet with 0xf5, which stock maps to REJECTED, and store nothing.
+Stock's packet timeout may then overwrite REJECTED with OUTBOUND (`LXMessage.py` 623-628),
+so the gate records every state stock assigns rather than sampling the last one.
 """
 
 from __future__ import annotations
@@ -9,7 +11,7 @@ from __future__ import annotations
 import LXMF
 import LXMF.LXStamper as LXStamper
 
-from stock_node_harness import StockNodeHarness, verdict, wait
+from stock_node_harness import StockNodeHarness, record_states, verdict, wait
 
 COST, FLEXIBILITY = 8, 3
 
@@ -28,6 +30,8 @@ def under_floor_stamp(self, target_cost, timeout=None):
 
 
 def main() -> int:
+    states: list[tuple[int, int]] = []
+    record_states(states)
     harness = StockNodeHarness({"OUTRIDER_PROPAGATION_COST": str(COST)})
     exit_code = 1
     try:
@@ -35,7 +39,7 @@ def main() -> int:
             return 1
         LXMF.LXMessage.get_propagation_stamp = under_floor_stamp
         message = harness.send(b"under-stamped body", b"under-stamped")
-        rejected = wait(lambda: message.state == LXMF.LXMessage.REJECTED, 60)
+        rejected = wait(lambda: (id(message), LXMF.LXMessage.REJECTED) in states, 60)
         closed = wait(lambda: any(line.startswith("LINK_CLOSED ") and " rejected=1 " in line for line in harness.lines), 10)
         empty = harness.store_entries() == 0
         ok = all(

@@ -75,12 +75,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok()
         .and_then(|cost| cost.parse().ok())
         .unwrap_or(13);
+    let mut limits = PropagationStoreLimits::default();
+    if large {
+        limits.max_message_bytes = 16 * 1024;
+        limits.max_bytes = 64 * 1024;
+    }
+    // Announce what the store admits, so nothing the node accepts is dropped.
     let announce = PropagationAnnounce {
         legacy: false,
         unix_time: now() as u64,
         active: true,
-        transfer_limit_kib: 256,
-        sync_limit_kib: 10_240,
+        transfer_limit_kib: limits.announced_limit_kb(),
+        sync_limit_kib: limits.announced_limit_kb(),
         costs: PropagationCosts {
             propagation: cost,
             flexibility: 3,
@@ -91,11 +97,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Value::Binary(b"Outrider Propagation Server".to_vec()),
         )],
     };
-    let mut limits = PropagationStoreLimits::default();
-    if large {
-        limits.max_message_bytes = 16 * 1024;
-        limits.max_bytes = 64 * 1024;
-    }
     let node = Arc::new(PropagationNode::new(
         load_store(store_path.as_deref(), limits)?,
         NodePolicy::from_announce(&announce),
@@ -154,7 +155,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     served.stored.duplicates,
                     served.rejected,
                     served.offered.len(),
-                    served.served.len(),
+                    served.served_total,
                     served.acknowledged
                 ),
                 Err(error) => println!("LINK_FAILED {error}"),

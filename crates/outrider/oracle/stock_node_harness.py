@@ -167,6 +167,21 @@ class StockNodeHarness:
         RNS.exit(exit_code)
 
 
+def record_states(states: list[tuple[int, int]]) -> None:
+    """Record every state stock assigns to any LXMessage as `(id(message), state)`.
+
+    Sampling `message.state` can miss a state stock overwrites at once.
+    """
+    assign = LXMF.LXMessage.__setattr__
+
+    def record(self, name, value):
+        if name == "state":
+            states.append((id(self), value))
+        assign(self, name, value)
+
+    LXMF.LXMessage.__setattr__ = record
+
+
 def wait(predicate, timeout: float) -> bool:
     deadline = time.time() + timeout
     while time.time() < deadline:

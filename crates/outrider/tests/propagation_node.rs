@@ -2,6 +2,7 @@
 //! error answers and submission policy.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use outrider::{
@@ -12,7 +13,7 @@ use outrider::{
 };
 use retinue::endpoint::{Endpoint, PeerAnnounce, ResourceSession, SessionInbound};
 use retinue::identity::PrivateIdentity;
-use retinue::lossy::{LossModel, connect};
+use retinue::packet::{DestinationType, PacketType};
 use rmpv::Value;
 
 const NOW: f64 = 1_753_603_210.0;
@@ -22,6 +23,37 @@ struct Pair {
     client: Arc<Endpoint>,
     client_identity: PrivateIdentity,
     announce: PeerAnnounce,
+    /// Proofs of link data packets the node sent the client.
+    packet_proofs: Arc<AtomicUsize>,
+}
+
+/// Wire `client` to `node`, counting the node's proofs of link data packets.
+fn wire(client: &Endpoint, node: &Endpoint) -> Arc<AtomicUsize> {
+    let (mut client_out, client_sink) = client.attach_interface().split();
+    let (mut node_out, node_sink) = node.attach_interface().split();
+    let proofs = Arc::new(AtomicUsize::new(0));
+    tokio::spawn(async move {
+        while let Some(packet) = client_out.recv().await {
+            if !node_sink.deliver(packet) {
+                break;
+            }
+        }
+    });
+    let counted = Arc::clone(&proofs);
+    tokio::spawn(async move {
+        while let Some(packet) = node_out.recv().await {
+            if packet.packet_type == PacketType::Proof
+                && packet.destination_type == DestinationType::Link
+                && packet.context == 0
+            {
+                counted.fetch_add(1, Ordering::AcqRel);
+            }
+            if !client_sink.deliver(packet) {
+                break;
+            }
+        }
+    });
+    proofs
 }
 
 async fn pair(seed: u8) -> Pair {
@@ -30,7 +62,7 @@ async fn pair(seed: u8) -> Pair {
         &[0x70; 64],
     )));
     let client = Arc::new(Endpoint::new(client_identity.clone()));
-    connect(&client, &node, LossModel::new(1), LossModel::new(2));
+    let packet_proofs = wire(&client, &node);
     let announce = PropagationAnnounce {
         legacy: false,
         unix_time: NOW as u64,
@@ -57,6 +89,7 @@ async fn pair(seed: u8) -> Pair {
         client,
         client_identity,
         announce,
+        packet_proofs,
     }
 }
 
@@ -205,52 +238,171 @@ async fn an_unidentified_or_disallowed_fetch_gets_the_stock_error() {
     assert_eq!(server.await.unwrap().unwrap().owner, None);
 }
 
-#[tokio::test]
-async fn a_bad_stamp_is_answered_0xf5_and_its_identified_sender_throttled() {
-    let pair = pair(0x63).await;
-    let node = state(policy());
-    let bad = entry(&pair.client_identity, 1, 0);
-    assert!(bad.stamp_value() < 8, "pick another seed");
-    let server = serve(&pair, &node);
-    let mut session = pair
-        .client
-        .open_resource(pair.announce.destination, pair.announce.identity)
-        .await
-        .unwrap();
-    session.identify();
-    let batch = PropagationBatch {
-        transfer_time: NOW,
-        entries: vec![bad],
-    };
-    session.send_data(&batch.encode().unwrap());
-    let SessionInbound::Data(signal) = session.next_inbound(Duration::from_secs(5)).await.unwrap()
-    else {
-        panic!("expected the rejection packet")
-    };
-    assert_eq!(signal.data, [0x91, 0xcc, 0xf5]);
-    let served = server.await.unwrap().unwrap();
-    assert_eq!((served.rejected, served.stored.inserted), (1, 0));
-    assert!(node.store().is_empty());
-    let sender = *pair.client_identity.public().hash().as_bytes();
-    assert!(node.is_throttled(&sender, NOW + 179.0));
-
-    // A good stamp from the throttled sender is refused too.
-    let server = serve(&pair, &node);
+async fn open(pair: &Pair) -> ResourceSession {
     let session = pair
         .client
         .open_resource(pair.announce.destination, pair.announce.identity)
         .await
         .unwrap();
     session.identify();
-    let good = PropagationBatch {
+    session
+}
+
+async fn rejection(session: &mut ResourceSession) -> Vec<u8> {
+    match session.next_inbound(Duration::from_secs(5)).await.unwrap() {
+        SessionInbound::Data(signal) => signal.data,
+        other => panic!("expected the rejection packet, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn a_bad_stamp_packet_is_answered_0xf5_and_its_sender_not_throttled() {
+    let pair = pair(0x63).await;
+    let node = state(policy());
+    let bad = entry(&pair.client_identity, 1, 0);
+    assert!(bad.stamp_value() < 8, "pick another seed");
+    let server = serve(&pair, &node);
+    let mut session = open(&pair).await;
+    let batch = PropagationBatch {
         transfer_time: NOW,
-        entries: vec![entry(&pair.client_identity, 2, 8)],
+        entries: vec![bad],
     };
-    session.send_data(&good.encode().unwrap());
-    assert!(matches!(
-        server.await.unwrap(),
-        Err(PropagationError::Throttled)
+    session.send_data(&batch.encode().unwrap());
+    assert_eq!(rejection(&mut session).await, [0x91, 0xcc, 0xf5]);
+    let served = server.await.unwrap().unwrap();
+    assert_eq!((served.rejected, served.stored.inserted), (1, 0));
+    assert!(node.store().is_empty());
+    // Stock's packet path throttles no one (`LXMRouter.py` 2303-2329).
+    let sender = *pair.client_identity.public().hash().as_bytes();
+    assert!(!node.is_throttled(&sender, NOW));
+}
+
+#[tokio::test]
+async fn a_bad_stamp_resource_throttles_its_identified_sender() {
+    let pair = pair(0x63).await;
+    let node = state(policy());
+    let server = serve(&pair, &node);
+    let mut session = open(&pair).await;
+    let batch = PropagationBatch {
+        transfer_time: NOW,
+        entries: vec![entry(&pair.client_identity, 1, 0)],
+    };
+    session.publish(&batch.encode().unwrap()).await.unwrap();
+    let served = server.await.unwrap().unwrap();
+    assert_eq!((served.rejected, served.stored.inserted), (1, 0));
+    let sender = *pair.client_identity.public().hash().as_bytes();
+    assert!(node.is_throttled(&sender, NOW + 179.0));
+    assert!(node.store().is_empty());
+}
+
+#[tokio::test]
+async fn a_packet_entry_too_short_for_a_stamp_is_rejected_and_the_rest_kept() {
+    let pair = pair(0x62).await;
+    let mut policy = policy();
+    policy.costs.propagation = 0;
+    let node = state(policy);
+    let good = entry(&pair.client_identity, 1, 0);
+    let server = serve(&pair, &node);
+    let mut session = open(&pair).await;
+    let mut packed = Vec::new();
+    rmpv::encode::write_value(
+        &mut packed,
+        &Value::Array(vec![
+            Value::F64(NOW),
+            Value::Array(vec![
+                Value::Binary(good.encode()),
+                Value::Binary(vec![0; 40]),
+            ]),
+        ]),
+    )
+    .unwrap();
+    session.send_data(&packed);
+    assert_eq!(rejection(&mut session).await, [0x91, 0xcc, 0xf5]);
+    let served = server.await.unwrap().unwrap();
+    assert_eq!((served.rejected, served.stored.inserted), (1, 1));
+    assert!(node.store().has_processed(&good.transient_id()));
+}
+
+#[tokio::test]
+async fn a_packet_the_store_refuses_as_too_large_goes_unproven() {
+    let pair = pair(0x62).await;
+    let mut policy = policy();
+    policy.costs.propagation = 0;
+    let node = Arc::new(PropagationNode::new(
+        PropagationStore::new(PropagationStoreLimits {
+            max_message_bytes: 100,
+            ..PropagationStoreLimits::default()
+        }),
+        policy,
     ));
+    let server = serve(&pair, &node);
+    let mut session = open(&pair).await;
+    let batch = PropagationBatch {
+        transfer_time: NOW,
+        entries: vec![entry(&pair.client_identity, 1, 0)],
+    };
+    session.send_data(&batch.encode().unwrap());
+    // The link goes on: the next request is answered.
+    let offer = get(&mut session, Value::Array(vec![Value::Nil, Value::Nil])).await;
+    assert_eq!(offer, Value::Array(Vec::new()));
+    drop(session);
+    let served = server.await.unwrap().unwrap();
+    assert_eq!(
+        (served.stored.rejected_too_large, served.stored.inserted),
+        (1, 0)
+    );
+    assert_eq!(pair.packet_proofs.load(Ordering::Acquire), 0);
+    assert!(!node.store().has_processed(&batch.entries[0].transient_id()));
+}
+
+#[tokio::test]
+async fn a_stored_packet_is_proven() {
+    let pair = pair(0x62).await;
+    let mut policy = policy();
+    policy.costs.propagation = 0;
+    let node = state(policy);
+    let server = serve(&pair, &node);
+    let mut session = open(&pair).await;
+    let batch = PropagationBatch {
+        transfer_time: NOW,
+        entries: vec![entry(&pair.client_identity, 1, 0)],
+    };
+    session.send_data(&batch.encode().unwrap());
+    let offer = get(&mut session, Value::Array(vec![Value::Nil, Value::Nil])).await;
+    assert_eq!(offer, ids(&[batch.entries[0].transient_id()]));
+    drop(session);
+    assert_eq!(server.await.unwrap().unwrap().stored.inserted, 1);
+    assert_eq!(pair.packet_proofs.load(Ordering::Acquire), 1);
+}
+
+#[tokio::test]
+async fn a_resource_past_what_the_store_admits_is_refused_at_advertisement() {
+    let pair = pair(0x62).await;
+    let mut policy = policy();
+    policy.max_transfer_bytes = 1 << 20;
+    let limits = PropagationStoreLimits {
+        max_message_bytes: 300,
+        ..PropagationStoreLimits::default()
+    };
+    let node = Arc::new(PropagationNode::new(
+        PropagationStore::new(limits.clone()),
+        policy,
+    ));
+    assert_eq!(
+        node.policy().max_transfer_bytes,
+        limits.max_submission_bytes()
+    );
+    let server = serve(&pair, &node);
+    let mut session = open(&pair).await;
+    let batch = PropagationBatch {
+        transfer_time: NOW,
+        entries: vec![entry(&pair.client_identity, 10, 8)],
+    };
+    assert!(batch.entries[0].message().encode().len() > 300);
+    assert!(session.publish(&batch.encode().unwrap()).await.is_err());
+    drop(session);
+    let served = server.await.unwrap().unwrap();
+    assert_eq!(served.stored, Default::default());
     assert!(node.store().is_empty());
 }
 

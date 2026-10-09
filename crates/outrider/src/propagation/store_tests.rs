@@ -255,3 +255,92 @@ fn the_allow_list_and_the_throttle_window() {
     assert!(node.is_throttled(&[2; 16], 279.0));
     assert!(!node.is_throttled(&[2; 16], 280.0));
 }
+
+#[test]
+fn the_submission_limit_is_exactly_what_the_store_admits() {
+    let fits = entry(0x62, 1, 300, 0);
+    let message_bytes = fits.message().encode().len();
+    let packed = |entry: &PropagationEntry| batch(&[entry]).encode().unwrap().len();
+    for max_message_bytes in [message_bytes, message_bytes - 1] {
+        let limits = PropagationStoreLimits {
+            max_message_bytes,
+            ..limits(8)
+        };
+        let admitted = PropagationStore::new(limits.clone())
+            .ingest(&batch(&[&fits]), 1.0)
+            .inserted
+            == 1;
+        assert_eq!(packed(&fits) <= limits.max_submission_bytes(), admitted);
+        assert_eq!(
+            limits.announced_limit_kb(),
+            limits.max_submission_bytes().div_ceil(1_000) as u64
+        );
+    }
+    // Total capacity bounds it too.
+    let tight = PropagationStoreLimits {
+        max_bytes: message_bytes + STAMP_LEN - 1,
+        ..limits(8)
+    };
+    assert!(packed(&fits) > tight.max_submission_bytes());
+}
+
+#[test]
+fn a_message_refused_as_too_large_is_not_remembered_as_processed() {
+    let large = entry(0x62, 1, 300, 0);
+    let mut store = PropagationStore::new(PropagationStoreLimits {
+        max_message_bytes: 100,
+        ..limits(8)
+    });
+    assert_eq!(store.ingest(&batch(&[&large]), 1.0).rejected_too_large, 1);
+    assert!(!store.has_processed(&large.transient_id()));
+}
+
+#[test]
+fn prune_drops_only_expired_entries_and_ids_oldest_first() {
+    let entries: Vec<_> = (0..3).map(|index| entry(0x62, index, 4, 0)).collect();
+    let mut store = PropagationStore::new(PropagationStoreLimits {
+        max_age: Duration::from_secs(25),
+        ..limits(8)
+    });
+    for (at, entry) in [0.0, 10.0, 20.0].into_iter().zip(&entries) {
+        store.ingest(&batch(&[entry]), at);
+    }
+    assert_eq!(store.prune(36.0), 2);
+    assert_eq!(store.offer(owner(0x62)), vec![entries[2].transient_id()]);
+    // Processed ids outlive the entries, then go oldest first.
+    let day = |days: f64| days * DAY;
+    store.prune(day(180.0) + 5.0);
+    assert!(!store.has_processed(&entries[0].transient_id()));
+    assert!(store.has_processed(&entries[1].transient_id()));
+}
+
+#[test]
+fn served_keeps_the_last_message_response_and_counts_them_all() {
+    let (first, second) = (entry(0x62, 1, 10, 0), entry(0x62, 2, 10, 0));
+    let node = PropagationNode::new(PropagationStore::new(limits(8)), node_policy(0, 0));
+    node.store().ingest(&batch(&[&first, &second]), 1.0);
+    let mut report = ServedFetch::default();
+    let fetch = |wanted: Vec<[u8; 32]>| GetRequest::Fetch {
+        wanted,
+        handled: Vec::new(),
+        limit_kb: None,
+    };
+    for _ in 0..3 {
+        node.answer_get(
+            owner(0x62),
+            fetch(vec![first.transient_id()]),
+            2.0,
+            &mut report,
+        );
+    }
+    node.answer_get(
+        owner(0x62),
+        fetch(vec![second.transient_id()]),
+        2.0,
+        &mut report,
+    );
+    // An acknowledgement-only request leaves the record alone.
+    node.answer_get(owner(0x62), fetch(Vec::new()), 2.0, &mut report);
+    assert_eq!(report.served, vec![second.transient_id()]);
+    assert_eq!(report.served_total, 4);
+}

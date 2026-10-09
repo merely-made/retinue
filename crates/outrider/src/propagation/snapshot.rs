@@ -93,21 +93,18 @@ impl PropagationStore {
                 let id = entry.message.transient_id();
                 store.processed.insert(id, entry.received_at);
             }
-            match store.insert(
+            match store.insert_unbounded(
                 entry.message,
                 entry.stamp,
                 entry.stamp_value,
                 entry.received_at,
-                now,
             ) {
-                StoreInsert::Inserted { evicted } => {
-                    receipt.loaded += 1;
-                    receipt.evicted += evicted;
-                }
+                StoreInsert::Inserted { .. } => receipt.loaded += 1,
                 StoreInsert::Duplicate => receipt.duplicates += 1,
                 StoreInsert::TooLarge => receipt.rejected_too_large += 1,
             }
         }
+        receipt.evicted = store.evict(now);
         store.prune(now);
         Ok((store, receipt))
     }

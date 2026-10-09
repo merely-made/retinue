@@ -11,11 +11,13 @@ use retinue::hash::AddressHash;
 use retinue::identity::Identity;
 use rmpv::Value;
 
-use super::msgpack::{GetRequest, decode_fetch_request, decode_get_request, encode_value};
+use super::msgpack::{
+    GetRequest, decode_fetch_request, decode_get_request, decode_one, encode_value,
+};
 use super::policy::score_stamps;
 use super::{
-    DEFAULT_MAX_PROPAGATION_ENTRIES, PropagationAnnounce, PropagationBatch, PropagationError,
-    PropagationNode, StoreReceipt,
+    DEFAULT_MAX_PROPAGATION_BATCH_BYTES, DEFAULT_MAX_PROPAGATION_ENTRIES, PropagationAnnounce,
+    PropagationBatch, PropagationEntry, PropagationError, PropagationNode, StoreReceipt,
 };
 use crate::announce::delivery_destination;
 
@@ -32,7 +34,7 @@ pub struct ReceivedPropagationBatch {
     pub mode: PayloadMode,
     pub interface: InterfaceId,
     pub packed_batch: Vec<u8>,
-    /// Entries refused for a stamp under the node's floor.
+    /// Entries refused for a stamp under the node's floor, or too short to hold one.
     pub rejected: usize,
     pub stored: StoreReceipt,
 }
@@ -44,8 +46,10 @@ pub struct ServedFetch {
     pub owner: Option<Identity>,
     /// The last offer.
     pub offered: Vec<[u8; 32]>,
-    /// Every message served, in order.
+    /// The messages the last response that was asked for any carried, in order.
     pub served: Vec<[u8; 32]>,
+    /// Messages served over the whole link.
+    pub served_total: usize,
     pub acknowledged: usize,
     /// How the last offer crossed the node's Retinue link.
     pub offer_mode: Option<PayloadMode>,
@@ -60,8 +64,9 @@ pub struct ServedFetch {
 /// Serve one client link as a stock node does (`LXMRouter.py` 1488-1560, 2303-2329): answer
 /// each `/get`, store submissions that arrive on the same link, until the link closes or
 /// stays silent for the policy's `link_idle`. A submission with a stamp under the floor
-/// ends the link: a packet is answered with 0xf5 first, and an identified sender is
-/// throttled.
+/// ends the link: a packet is answered with 0xf5 first, and the identified sender of a
+/// Resource is throttled. A packet whose message the store refuses as too large is not
+/// proven, so its sender retries rather than counting it sent.
 pub async fn serve_fetch(
     endpoint: &Endpoint,
     accepted: AcceptedResource,
@@ -112,10 +117,12 @@ async fn serve(
         let received = admit(session, node, mode, packed, clock).await?;
         report.rejected += received.rejected;
         add(&mut report.stored, &received.stored);
-        match (&data, received.rejected) {
-            (Some(data), 0) => session.prove(data),
-            (Some(_), _) => session.send_data(&INVALID_STAMP_SIGNAL),
-            (None, _) => {}
+        if let Some(data) = &data {
+            if received.rejected > 0 {
+                session.send_data(&INVALID_STAMP_SIGNAL);
+            } else if received.stored.rejected_too_large == 0 {
+                session.prove(data);
+            }
         }
         if first_submission {
             return Ok((report, Some(received)));
@@ -133,7 +140,10 @@ fn is_end(error: &io::Error) -> bool {
     )
 }
 
-/// Decode, police and store one submission (`LXMRouter.py` 2303-2329, 2451-2523).
+/// Decode, police and store one submission (`LXMRouter.py` 2303-2329, 2451-2523). Stock's
+/// packet path takes any number of entries and throttles no one; its Resource path takes
+/// one entry from a sender that is not a peer, and throttles an identified sender of a bad
+/// stamp.
 async fn admit(
     session: &ResourceSession,
     node: &PropagationNode,
@@ -141,32 +151,30 @@ async fn admit(
     packed_batch: Vec<u8>,
     clock: &(dyn Fn() -> f64 + Sync),
 ) -> Result<ReceivedPropagationBatch, PropagationError> {
-    let mut batch = PropagationBatch::decode(
-        &packed_batch,
-        node.policy().max_transfer_bytes,
-        DEFAULT_MAX_PROPAGATION_ENTRIES,
-    )?;
-    let sender = session
-        .identified_peer()
-        .map(|peer| *peer.hash().as_bytes());
-    if sender.is_some_and(|sender| node.is_throttled(&sender, clock())) {
-        return Err(PropagationError::Throttled);
-    }
-    // Only a peer that presented a peering key may send more than one; this node has no
-    // peers, so every sender is a client.
-    if batch.entries.len() > 1 {
+    let resource = mode == PayloadMode::Resource;
+    // A packet is bounded by the link; only a Resource is held to the transfer ceiling.
+    let max_bytes = if resource {
+        node.policy().max_transfer_bytes
+    } else {
+        DEFAULT_MAX_PROPAGATION_BATCH_BYTES
+    };
+    let (mut batch, undecodable) = decode_submission(&packed_batch, max_bytes)?;
+    // This node has no peers, so every sender is a client.
+    if resource && batch.entries.len() + undecodable > 1 {
         return Err(PropagationError::UnpeeredBatch);
     }
     let floor = node.policy().stamp_floor();
     let entries = std::mem::take(&mut batch.entries);
-    let (valid, rejected) = tokio::task::spawn_blocking(move || score_stamps(entries, floor))
+    let (valid, invalid) = tokio::task::spawn_blocking(move || score_stamps(entries, floor))
         .await
         .map_err(io::Error::other)?;
+    let rejected = invalid + undecodable;
     let now = clock();
-    if rejected > 0
-        && let Some(sender) = sender
+    if resource
+        && rejected > 0
+        && let Some(sender) = session.identified_peer()
     {
-        node.throttle(sender, now);
+        node.throttle(*sender.hash().as_bytes(), now);
     }
     batch.entries = valid.iter().map(|(entry, _)| entry.clone()).collect();
     let stored = node.store().ingest_scored(valid, now);
@@ -178,6 +186,46 @@ async fn admit(
         rejected,
         stored,
     })
+}
+
+/// Decode `[timebase, [entry, ...]]`, counting an entry too short to hold a message and
+/// its stamp as invalid, as stock's validator does (`LXStamper.py` 84-96), rather than
+/// failing the transfer.
+fn decode_submission(
+    packed: &[u8],
+    max_bytes: usize,
+) -> Result<(PropagationBatch, usize), PropagationError> {
+    if packed.len() > max_bytes.min(DEFAULT_MAX_PROPAGATION_BATCH_BYTES) {
+        return Err(PropagationError::BatchTooLarge);
+    }
+    let Value::Array(parts) = decode_one(packed)? else {
+        return Err(PropagationError::InvalidBatch);
+    };
+    let [Value::F64(transfer_time), Value::Array(packed_entries)] = parts.as_slice() else {
+        return Err(PropagationError::InvalidBatch);
+    };
+    if !transfer_time.is_finite() {
+        return Err(PropagationError::InvalidTransferTime);
+    }
+    if packed_entries.len() > DEFAULT_MAX_PROPAGATION_ENTRIES {
+        return Err(PropagationError::TooManyEntries);
+    }
+    let mut entries = Vec::with_capacity(packed_entries.len());
+    let mut undecodable = 0;
+    for entry in packed_entries {
+        let Value::Binary(entry) = entry else {
+            return Err(PropagationError::InvalidBatch);
+        };
+        match PropagationEntry::decode(entry, max_bytes) {
+            Ok(entry) => entries.push(entry),
+            Err(_) => undecodable += 1,
+        }
+    }
+    let batch = PropagationBatch {
+        transfer_time: *transfer_time,
+        entries,
+    };
+    Ok((batch, undecodable))
 }
 
 /// Answer one request. A request on another path goes unanswered, as RNS ignores a path
