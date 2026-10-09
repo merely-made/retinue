@@ -59,7 +59,7 @@ hardware guarantees. There is no packet-to-switch input.
 
 Luna first inspects the existing scheduler and board interruption contract,
 then reviews the proposed API. After the API is available, Luna owns
-`crates/tulle/tests/personality.rs` and uses two stateful fake adapters.
+`crates/tulle/tests/personality/` and uses two stateful fake adapters.
 
 **Done:** externally observable scenarios cover normal excursion/return,
 persistent local state, pin/unsupported refusal, bounded busy deferral,
@@ -130,7 +130,7 @@ is a separate measured gate. MC0–MC2 do not close LE/CM or compatibility gates
 ### MC0–MC2 result, 2026-09-10
 
 Terra implemented [`tulle::personality`](../crates/tulle/src/personality.rs);
-Luna authored [21 independent acceptance scenarios](../crates/tulle/tests/personality.rs).
+Luna authored [21 independent acceptance scenarios](../crates/tulle/tests/personality/main.rs).
 Parent review corrected the deadline and return-obligation findings above and
 consolidated the package documentation. The model preserves caller-owned state
 across fake-adapter pause/resume; it does not establish remote-session survival.

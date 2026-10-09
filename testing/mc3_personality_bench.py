@@ -105,11 +105,12 @@ def main():
             "baseline":{},"restoration":{},"transcript":[],"passed":False}
     report["harness_config"]={"deadline_text":a.deadline_text,"settle_ms":a.settle_ms,"fresh_dut_baseline":a.fresh_dut_baseline}
     probe=sorted(str(p) for p in Path("crates/retinue/examples/murmuration_probe").rglob("*.rs"))
+    tulle_split=[str(p) for d in ("personality_serial","direct_phy_serial") for p in sorted(Path("crates/tulle/src",d).rglob("*.rs"))]
     source_paths=["Cargo.lock", "crates/retinue/Cargo.toml", *probe, "crates/retinue/src/node.rs",
                   "crates/retinue/src/resource_transfer.rs", "crates/retinue/src/resource.rs",
                   "crates/selvage/src/personality.rs", "crates/selvage/src/lib.rs",
                   "crates/tulle/src/personality.rs", "crates/tulle/src/personality_serial.rs",
-                  "crates/tulle/src/direct_phy_serial.rs", "crates/tulle/src/lib.rs"]
+                  "crates/tulle/src/direct_phy_serial.rs", *tulle_split, "crates/tulle/src/lib.rs"]
     report["source_sha256"]={name:hashlib.sha256(Path(name).read_bytes()).hexdigest() for name in source_paths}
     report["base_revision"]=subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip()
     ports={p.device:(p.vid,p.pid,p.serial_number) for p in comports()}

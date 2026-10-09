@@ -56,8 +56,14 @@ review_by = "2027-09-09"
 
 [[exception]]
 path = "crates/radio-hand/src/control/runtime/tests/inbound.rs"
-expected_unsafe = 4
+expected_unsafe = 3
 reason = "Inbound-control tests invoke the reset-gated control runtime constructor only to model fresh board boots."
+review_by = "2027-09-09"
+
+[[exception]]
+path = "crates/radio-hand/src/control/runtime/tests/lifecycle.rs"
+expected_unsafe = 1
+reason = "The verified-command lifecycle test invokes the reset-gated control runtime constructor only to model a fresh board boot."
 review_by = "2027-09-09"
 
 [[exception]]
