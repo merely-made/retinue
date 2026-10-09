@@ -21,6 +21,7 @@ use crate::codec::{
     decode_bounded, prepare,
 };
 use crate::stamp::{MESSAGE_WORKBLOCK_ROUNDS, STAMP_LEN, find_streamed, valid_streamed};
+use crate::ticket::{StampFault, TICKET_LEN, check_stamp, is_ticket_stamp};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OpportunisticReceipt {
@@ -90,7 +91,8 @@ pub fn send_stamped(
     max_stamp_attempts: u64,
 ) -> Result<OpportunisticReceipt, OpportunisticError> {
     let announce = DeliveryAnnounce::decode(&peer.app_data)?;
-    let Some(target) = announce.stamp_cost else {
+    let ticketed = is_ticket_stamp(payload.stamp.as_deref());
+    let Some(target) = announce.stamp_cost.filter(|_| !ticketed) else {
         return send(endpoint, sender, peer, payload);
     };
     let source = delivery_destination(sender.public());
@@ -150,6 +152,21 @@ pub fn receive_with_stamp_cost(
     max_message_bytes: usize,
     stamp_cost: Option<u8>,
 ) -> Result<ReceivedOpportunistic, OpportunisticError> {
+    receive_with_tickets(endpoint, received, max_message_bytes, stamp_cost, |_| {
+        Vec::new()
+    })
+}
+
+/// As [`receive_with_stamp_cost`], also accepting a stamp made with one of the tickets
+/// `inbound_tickets` returns for the source, such as
+/// [`TicketBook::inbound`](crate::TicketBook::inbound).
+pub fn receive_with_tickets(
+    endpoint: &Endpoint,
+    received: ReceivedSingle,
+    max_message_bytes: usize,
+    stamp_cost: Option<u8>,
+    inbound_tickets: impl Fn(&AddressHash) -> Vec<[u8; TICKET_LEN]>,
+) -> Result<ReceivedOpportunistic, OpportunisticError> {
     let local_destination = delivery_destination(endpoint.identity());
     if received.destination != local_destination {
         return Err(OpportunisticError::WrongDestination);
@@ -174,7 +191,7 @@ pub fn receive_with_stamp_cost(
     if !message.verify_with(|bytes, signature| source_identity.verify(bytes, signature)) {
         return Err(OpportunisticError::BadSignature);
     }
-    enforce_received_stamp(&message, stamp_cost)?;
+    enforce_received_stamp(&message, stamp_cost, || inbound_tickets(&source))?;
 
     Ok(ReceivedOpportunistic {
         message,
@@ -193,6 +210,10 @@ fn enforce_stamp(
     let Some(target) = announce.stamp_cost else {
         return Ok(());
     };
+    // A ticket stamp only its receiver can check.
+    if is_ticket_stamp(payload.stamp.as_deref()) {
+        return Ok(());
+    }
     let stamp = payload
         .stamp
         .as_deref()
@@ -212,25 +233,22 @@ fn enforce_stamp(
 fn enforce_received_stamp(
     message: &DecodedLxmf,
     stamp_cost: Option<u8>,
+    tickets: impl FnOnce() -> Vec<[u8; TICKET_LEN]>,
 ) -> Result<(), OpportunisticError> {
     let Some(target) = stamp_cost else {
         return Ok(());
     };
-    let stamp = message
-        .payload
-        .stamp
-        .as_deref()
-        .and_then(|stamp| <&[u8; STAMP_LEN]>::try_from(stamp).ok())
-        .ok_or(OpportunisticError::StampRequired(target))?;
-    if !valid_streamed(
+    check_stamp(
         &message.message_id,
-        MESSAGE_WORKBLOCK_ROUNDS,
-        stamp,
-        u16::from(target),
-    ) {
-        return Err(OpportunisticError::InvalidStamp);
-    }
-    Ok(())
+        message.payload.stamp.as_deref(),
+        target,
+        &tickets(),
+    )
+    .map(|_| ())
+    .map_err(|fault| match fault {
+        StampFault::Missing => OpportunisticError::StampRequired(target),
+        StampFault::Invalid => OpportunisticError::InvalidStamp,
+    })
 }
 
 #[derive(Debug, thiserror::Error)]

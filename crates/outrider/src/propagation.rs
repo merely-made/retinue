@@ -6,6 +6,7 @@ mod client;
 mod error;
 mod msgpack;
 mod node;
+mod paper;
 mod store;
 #[cfg(test)]
 mod tests;
@@ -20,6 +21,7 @@ pub use node::{
     ReceivedPropagationBatch, ServedFetch, announce_propagation, propagation_destination,
     propagation_name, receive_submission, register_propagation, serve_fetch,
 };
+pub use paper::{PAPER_MDU, PreparedPaper, URI_SCHEMA, prepare_paper};
 pub use store::{PropagationStore, PropagationStoreLimits, StoreReceipt, StoreRestoreReceipt};
 pub use wire::{
     PropagationAnnounce, PropagationBatch, PropagationCosts, PropagationEntry, PropagationMessage,

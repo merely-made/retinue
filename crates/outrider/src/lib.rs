@@ -53,6 +53,8 @@ extern crate alloc;
 pub mod portable;
 /// Proof-of-work stamps. `no_std`, so a board can mint and check its own.
 pub mod stamp;
+/// Tickets: stamps a receiver issued, in place of proof of work. `no_std` but for the book.
+pub mod ticket;
 
 #[cfg(feature = "std")]
 pub mod announce;
@@ -82,6 +84,8 @@ pub use codec::{
     PreparedLxmf, SIGNATURE_LEN, SOURCE_LEN, decode, decode_bounded, prepare,
 };
 #[cfg(feature = "std")]
+pub use direct::receive_with_tickets as receive_direct_with_tickets;
+#[cfg(feature = "std")]
 pub use direct::{
     DirectError, DirectReceipt, ReceivedDirect, announce as announce_delivery,
     receive as receive_direct, receive_with_resource_config as receive_direct_with_resource_config,
@@ -91,6 +95,8 @@ pub use direct::{
     send_stamped_with_resource_config as send_direct_stamped_with_resource_config,
     send_with_resource_config as send_direct_with_resource_config,
 };
+#[cfg(feature = "std")]
+pub use opportunistic::receive_with_tickets as receive_opportunistic_with_tickets;
 #[cfg(feature = "std")]
 pub use opportunistic::{
     OpportunisticError, OpportunisticReceipt, ReceivedOpportunistic,
@@ -114,9 +120,17 @@ pub use propagation::{
     serve_fetch, submit as submit_propagation,
     submit_with_resource_config as submit_propagation_with_resource_config,
 };
+#[cfg(feature = "std")]
+pub use propagation::{PAPER_MDU, PreparedPaper, URI_SCHEMA, prepare_paper};
 pub use stamp::{
     Derivation as StampDerivation, MESSAGE_WORKBLOCK_ROUNDS, PROPAGATION_WORKBLOCK_ROUNDS,
     STAMP_LEN, WORKBLOCK_BYTES_PER_ROUND, find as find_stamp, find_streamed as find_stamp_streamed,
     propagation_valid, propagation_value, valid as stamp_valid, value as stamp_value,
     value_streamed as stamp_value_streamed, workblock,
 };
+pub use ticket::{
+    COST_TICKET, FIELD_TICKET, StampFault, StampOutcome, TICKET_LEN, Ticket, check_stamp,
+    ticket_stamp,
+};
+#[cfg(feature = "std")]
+pub use ticket::{TicketBook, TicketBookError};

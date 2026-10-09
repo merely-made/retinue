@@ -12,6 +12,7 @@ use crate::codec::{
     CodecError, DEFAULT_MAX_MESSAGE_BYTES, DecodedLxmf, LxmfPayload, decode_bounded, prepare,
 };
 use crate::stamp::{MESSAGE_WORKBLOCK_ROUNDS, STAMP_LEN, find_streamed, valid_streamed};
+use crate::ticket::{StampFault, TICKET_LEN, check_stamp, is_ticket_stamp};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DirectReceipt {
@@ -86,7 +87,10 @@ pub async fn send_with_resource_config(
 
     let source = delivery_destination(sender.public());
     let prepared = prepare(*peer.destination.as_bytes(), *source.as_bytes(), payload)?;
-    if let Some(target) = announce.stamp_cost {
+    // A ticket stamp only its receiver can check.
+    if let Some(target) = announce.stamp_cost
+        && !is_ticket_stamp(payload.stamp.as_deref())
+    {
         let Some(stamp) = payload
             .stamp
             .as_deref()
@@ -139,7 +143,8 @@ pub async fn send_stamped_with_resource_config(
     resource_config: ResourceTransferConfig,
 ) -> Result<DirectReceipt, DirectError> {
     let announce = DeliveryAnnounce::decode(&peer.app_data)?;
-    let Some(target) = announce.stamp_cost else {
+    let ticketed = is_ticket_stamp(payload.stamp.as_deref());
+    let Some(target) = announce.stamp_cost.filter(|_| !ticketed) else {
         return send_with_resource_config(endpoint, sender, peer, payload, resource_config).await;
     };
     let source = delivery_destination(sender.public());
@@ -237,9 +242,32 @@ pub async fn receive_with_stamp_cost(
 /// cost and applying explicit policy if the message arrives as a Resource.
 pub async fn receive_with_stamp_cost_and_resource_config(
     endpoint: &Endpoint,
+    accepted: AcceptedResource,
+    max_message_bytes: usize,
+    stamp_cost: Option<u8>,
+    resource_config: ResourceTransferConfig,
+) -> Result<ReceivedDirect, DirectError> {
+    let no_tickets = |_: &AddressHash| Vec::new();
+    receive_with_tickets(
+        endpoint,
+        accepted,
+        max_message_bytes,
+        stamp_cost,
+        no_tickets,
+        resource_config,
+    )
+    .await
+}
+
+/// As [`receive_with_stamp_cost_and_resource_config`], also accepting a stamp made with one
+/// of the tickets `inbound_tickets` returns for the source, such as
+/// [`TicketBook::inbound`](crate::TicketBook::inbound).
+pub async fn receive_with_tickets(
+    endpoint: &Endpoint,
     mut accepted: AcceptedResource,
     max_message_bytes: usize,
     stamp_cost: Option<u8>,
+    inbound_tickets: impl Fn(&AddressHash) -> Vec<[u8; TICKET_LEN]>,
     resource_config: ResourceTransferConfig,
 ) -> Result<ReceivedDirect, DirectError> {
     let local_destination = delivery_destination(endpoint.identity());
@@ -273,22 +301,16 @@ pub async fn receive_with_stamp_cost_and_resource_config(
         return Err(DirectError::BadSignature);
     }
     if let Some(target) = stamp_cost {
-        let Some(stamp) = message
-            .payload
-            .stamp
-            .as_deref()
-            .and_then(|stamp| <&[u8; STAMP_LEN]>::try_from(stamp).ok())
-        else {
-            return Err(DirectError::StampRequired(target));
-        };
-        if !valid_streamed(
+        check_stamp(
             &message.message_id,
-            MESSAGE_WORKBLOCK_ROUNDS,
-            stamp,
-            u16::from(target),
-        ) {
-            return Err(DirectError::InvalidStamp);
-        }
+            message.payload.stamp.as_deref(),
+            target,
+            &inbound_tickets(&source),
+        )
+        .map_err(|fault| match fault {
+            StampFault::Missing => DirectError::StampRequired(target),
+            StampFault::Invalid => DirectError::InvalidStamp,
+        })?;
     }
     Ok(ReceivedDirect {
         message,

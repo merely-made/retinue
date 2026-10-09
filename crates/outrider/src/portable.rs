@@ -18,7 +18,7 @@
 //! retinue's so a board links one SHA-256.
 
 mod message;
-mod msgpack;
+pub(crate) mod msgpack;
 #[cfg(test)]
 mod tests;
 
