@@ -198,6 +198,14 @@ name = "mode_transport"
 required-features = ["tokio"]
 
 [[example]]
+name = "tcp_reconnect"
+required-features = ["tokio"]
+
+[[example]]
+name = "listener_mode"
+required-features = ["tokio"]
+
+[[example]]
 name = "tulle_headed"
 required-features = ["tulle-radio"]
 

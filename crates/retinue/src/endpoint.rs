@@ -46,6 +46,7 @@ mod transit;
 mod watchdog;
 
 pub use announces::AnnounceFreshnessPolicy;
+pub use dial::TcpClient;
 pub use facts::{
     AnnounceFact, EndpointFacts, LinkDirection, LinkFact, LinkFactKind, LinkRemoteFact,
     PeerAnnounce, RouteFact,
@@ -54,6 +55,7 @@ pub use iface_policy::{AnnounceRate, IfacePolicy};
 pub use inbound::{Accepted, AcceptedResource, InboundLinkLimits};
 pub use interface::{Interface, InterfaceId, InterfaceSink};
 pub use link_receipt::{LinkDelivery, PayloadReceipt};
+pub use listen::{ListenPolicy, Listener};
 pub use queue::{
     ClassCounters, OutboundPackets, QueueCounters, QueueDepths, QueueWeights, TrafficClass,
 };

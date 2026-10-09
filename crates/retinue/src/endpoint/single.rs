@@ -122,6 +122,7 @@ pub(super) struct PendingReceipt {
 pub(super) struct SingleQueueResult {
     pub(super) queued: usize,
     frame_capable: bool,
+    offline: bool,
     frame_limit_rejection: Option<(usize, usize)>,
 }
 
@@ -134,6 +135,7 @@ impl SingleQueueResult {
             }
             QueueAdmission::Full => self.frame_capable = true,
             QueueAdmission::Refused => {}
+            QueueAdmission::Offline => self.offline = true,
             QueueAdmission::FrameLimit { actual, limit } => {
                 if self
                     .frame_limit_rejection
@@ -271,6 +273,9 @@ impl Endpoint {
     /// Success means the packet was encrypted to the latest validated announce and accepted
     /// by at least one local interface queue; the receipt's
     /// [`delivery`](SinglePacketReceipt::delivery) learns whether the destination proved it.
+    /// No queue accepting it fails with `WouldBlock` under queue pressure, or with
+    /// `NotConnected` when no candidate interface can transmit: offline (a dialed hub
+    /// reconnecting), receive-only, or detached.
     pub fn send_single(&self, dest: AddressHash, data: &[u8]) -> io::Result<SinglePacketReceipt> {
         if !self.shared.is_running() {
             return Err(endpoint_closed());
@@ -347,10 +352,12 @@ impl Endpoint {
                 ));
             }
             if !queued.frame_capable {
-                return Err(io::Error::new(
-                    io::ErrorKind::NotConnected,
-                    "no transmitting interface reaches the destination",
-                ));
+                let why = if queued.offline {
+                    "no interface on the route is online"
+                } else {
+                    "no transmitting interface reaches the destination"
+                };
+                return Err(io::Error::new(io::ErrorKind::NotConnected, why));
             }
             return Err(io::Error::new(
                 io::ErrorKind::WouldBlock,
