@@ -40,6 +40,8 @@ GATES = (
     "interop_reliable_vanish.py",
     "interop_single_proof.py",
     "interop_ratchet_rotation.py",
+    "interop_library_resource_segments.py",
+    "interop_library_request_resource.py",
 )
 
 

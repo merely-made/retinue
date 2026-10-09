@@ -24,12 +24,17 @@
 //! - `resource-cancel LEN SEED` (`interop_resource_cancel.py`): an accept hook rejects an
 //!   RNS offer; RNS cancels a transfer mid-way; RNS rejects a Retinue publish; and a
 //!   Retinue publish times out mid-way. Each side must stop promptly.
+//! - `resource-segments LEN SEED` (`interop_library_resource_segments.py`): as
+//!   `resource-recv` then `resource-send`, with a payload past one segment.
+//! - `request-resource LEN SEED` (`interop_library_request_resource.py`): a request of `LEN`
+//!   data bytes each way, too large for a packet, each answered with its echo.
 //!
 //! The endpoint listens behind a byte-for-byte TCP relay that tallies a deframed copy of
 //! each direction by packet type and context, printed as `TAP` lines when the mode ends.
 
 mod liveness;
 mod resource;
+mod segments;
 mod stream;
 mod support;
 mod tap;
@@ -43,6 +48,7 @@ use tokio::net::TcpListener;
 
 use liveness::liveness;
 use resource::{resource_cancel, resource_meta, resource_recv, resource_send};
+use segments::{request_resource, resource_segments};
 use stream::{stream_open, stream_respond};
 use tap::{Tally, print_tally, tap};
 
@@ -52,6 +58,7 @@ const IDENTITY_SEED: [u8; 64] = [0x47; 64];
 const RNS_SINK_SEED: [u8; 64] = [0x5a; 64];
 const RNS_STREAM_SEED: [u8; 64] = [0x5b; 64];
 const RNS_LIVENESS_SEED: [u8; 64] = [0x5c; 64];
+const RNS_BIG_REQUEST_SEED: [u8; 64] = [0x5d; 64];
 /// RNS's link MDU at MTU 500: the largest request that travels as one packet.
 const LINK_MDU: usize = 431;
 
@@ -105,6 +112,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "resource-meta" => resource_meta(Arc::clone(&endpoint), data).await,
         "resource-cancel" => resource_cancel(Arc::clone(&endpoint), data).await,
         "resource-send" => resource_send(Arc::clone(&endpoint), data).await,
+        "resource-segments" => resource_segments(Arc::clone(&endpoint), data).await,
+        "request-resource" => request_resource(Arc::clone(&endpoint), data).await,
         "stream-respond" => stream_respond(Arc::clone(&endpoint), data).await,
         "stream-open" => stream_open(Arc::clone(&endpoint), data).await,
         "liveness" => {

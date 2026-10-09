@@ -165,15 +165,15 @@ async fn a_431_byte_request_and_response_each_fit_one_packet() {
             .iter()
             .any(|p| one_packet(p, link::CTX_RESPONSE))
     );
-    // And one byte more does not fit.
-    assert_eq!(
-        session
-            .request_raw(&request_packing_to(432).pack())
-            .await
-            .unwrap_err()
-            .kind(),
-        std::io::ErrorKind::InvalidInput
-    );
+    // And one byte more goes as a Resource instead (`Link.py` 498-503).
+    let _ = tokio::time::timeout(
+        Duration::from_secs(2),
+        session.request_raw(&request_packing_to(432).pack()),
+    )
+    .await;
+    let sent = drain(&mut w.from_a);
+    assert!(sent.iter().any(|p| p.context == link::CTX_RESOURCE_ADV));
+    assert!(!sent.iter().any(|p| p.context == link::CTX_REQUEST));
 }
 
 /// An idle link stays up for as long as both peers are there: the initiator asks every

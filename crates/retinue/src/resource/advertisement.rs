@@ -42,10 +42,7 @@ pub fn advertise(
     (adv, parts)
 }
 
-/// A resource transfer advertisement.
-///
-/// Fields that retinue does not yet interpret (`i`, `l`, `q`) are preserved so an
-/// advertisement round-trips exactly, which keeps hashing and signatures over it stable.
+/// A resource transfer advertisement. Every field round-trips exactly.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Advertisement {
     /// `t`: size on the wire after compression.
@@ -64,11 +61,11 @@ pub struct Advertisement {
     pub flags: u64,
     /// `m`: the hashmap, `MAPHASH_LEN` bytes per part.
     pub hashmap: Vec<u8>,
-    /// `i`, carried opaque.
+    /// `i`: this segment's 1-based index.
     pub i: i64,
-    /// `l`, carried opaque.
+    /// `l`: the resource's segment count.
     pub l: i64,
-    /// `q`: request id for a response Resource, or nil for a generic Resource.
+    /// `q`: the request id a request or response Resource carries, or nil.
     pub q: Option<Vec<u8>>,
 }
 
