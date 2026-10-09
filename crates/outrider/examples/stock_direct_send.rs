@@ -70,6 +70,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("SENT {}", receipt.packed.len());
     println!("TRANSPORT {:?}", receipt.mode);
+    println!("DELIVERED {}", receipt.delivered);
     println!("PACKED {}", hex::encode(&receipt.packed));
     println!("MESSAGE_ID {}", hex::encode(receipt.message_id));
     println!("SOURCE {source}");

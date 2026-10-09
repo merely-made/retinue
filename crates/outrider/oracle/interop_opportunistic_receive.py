@@ -138,10 +138,12 @@ def main() -> int:
             and received.get("hash") == sent_id
             and any(line.startswith("RATCHET ") for line in lines)
             and "QUEUED 1" in lines
+            and any(line.startswith("DELIVERED ") for line in lines)
         )
         print(f"stock delivery callback fired: {'PASS' if complete.is_set() else 'FAIL'}")
         print(f"stock decoded title/body: {'PASS' if received.get('title') == TITLE and received.get('content') == CONTENT else 'FAIL'}")
         print(f"stock agreed on message id: {'PASS' if received.get('hash') == sent_id else 'FAIL'}")
+        print(f"Outrider receipt reached DELIVERED: {'PASS' if any(line.startswith('DELIVERED ') for line in lines) else 'FAIL'}")
         print(f"OUTRIDER_TO_STOCK_OPPORTUNISTIC: {'PASS' if ok else 'FAIL'}")
         exit_code = 0 if ok else 1
         return exit_code
