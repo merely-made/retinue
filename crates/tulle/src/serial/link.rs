@@ -46,7 +46,7 @@ impl RNodeSerialLink {
 
         let port = serial2_tokio::SerialPort::open(path, config.baud_rate)?;
         // nRF USB CDC gates output on DTR. On ESP32, RTS is wired into reset/boot and must
-        // remain deasserted.
+        // remain deasserted (asserting it wedged a board in a live harness).
         port.set_dtr(true)?;
         port.set_rts(false)?;
         Ok(Self::spawn_io(port, params, budget, config))
@@ -158,8 +158,9 @@ impl RNodeSerialLink {
 
     /// Take the next `ERROR` frame the device reported, if any is waiting.
     ///
-    /// Non-blocking, so a caller can check it beside ordinary traffic. Unread, a
-    /// radio that silently declines to transmit looks healthy from the host
+    /// Non-blocking, so a caller can check it beside ordinary traffic. The device
+    /// latches these when it refuses something; unread, a radio that silently
+    /// declines to transmit looks healthy from the host
     /// (`design_docs/2026-07-26_rnode_bulk_frame_loss.md`).
     pub fn take_device_error(&mut self) -> Option<Vec<u8>> {
         self.errors.try_recv().ok()
