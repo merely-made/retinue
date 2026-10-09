@@ -359,3 +359,7 @@ required-features = ["tulle-radio"]
 [[example]]
 name = "node_jam"
 required-features = ["tulle-radio"]
+
+[[example]]
+name = "udp_interop"
+required-features = ["tokio"]
