@@ -3,10 +3,9 @@
 use std::io;
 use std::time::Duration;
 
-use outrider::propagation::Verification;
 use outrider::{
-    Acknowledgement, DeliveryAnnounce, FetchPolicy, PropagationAnnounce, announce_delivery,
-    fetch_propagation, propagation_destination, register_opportunistic,
+    Acknowledgement, DeliveryAnnounce, FetchPolicy, PropagationAnnounce, Verification,
+    announce_delivery, fetch_propagation, propagation_destination, register_opportunistic,
 };
 use retinue::endpoint::Endpoint;
 use retinue::identity::PrivateIdentity;
@@ -58,7 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("RATCHET_ID {ratchet}");
         println!(
             "VERIFIED {}",
-            matches!(fetched.verification, Verification::Verified(_))
+            fetched.verification == Verification::Verified
         );
         if std::env::var("OUTRIDER_SUMMARY").is_ok_and(|value| value == "1") {
             println!("CONTENT_LEN {}", fetched.message.payload.content.len());

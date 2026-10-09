@@ -13,9 +13,9 @@ use crate::ticket::{self, StampFault, StampOutcome, TICKET_LEN};
 
 /// How a received message's signature stands (`LXMessage.py` 814-827).
 ///
-/// The lanes refuse [`SignatureInvalid`](Self::SignatureInvalid) and hand over the other two.
-/// A [`SourceUnknown`](Self::SourceUnknown) message is the host's to hold: once the sender's
-/// announce arrives, [`reverify`] settles it.
+/// The delivery lanes and propagation fetch refuse [`SignatureInvalid`](Self::SignatureInvalid)
+/// and hand over the other two. A [`SourceUnknown`](Self::SourceUnknown) message is the
+/// host's to hold: once the sender's announce arrives, [`reverify`] settles it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Verification {
     Verified,

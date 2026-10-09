@@ -1,7 +1,6 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use outrider::propagation::Verification;
 use outrider::{
     DeliveryAnnounce, FetchPolicy, NodePolicy, PropagationAnnounce, PropagationBatch,
     PropagationCosts, PropagationNode, PropagationStamps, PropagationStore, PropagationStoreLimits,
@@ -312,10 +311,10 @@ async fn file_backed_voice_crosses_a_propagation_node_once_and_retains_receipts(
         &fetched.message.payload,
         MessagePeer::new(
             fetched.message.source,
-            match &fetched.verification {
-                Verification::Verified(identity) => Some(*identity.ed25519_bytes()),
-                Verification::SourceUnknown => None,
-            },
+            fetched
+                .source_identity
+                .as_ref()
+                .map(|identity| *identity.ed25519_bytes()),
         ),
         recipient_peer,
         fetched.message.message_id,

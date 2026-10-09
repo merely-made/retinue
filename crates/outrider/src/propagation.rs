@@ -24,7 +24,7 @@ pub use client::{
 pub use error::PropagationError;
 pub use fetch::{
     Acknowledgement, FetchPolicy, FetchedPropagation, PropagationFetchReceipt, RejectedPropagation,
-    Verification, delivery_stamp_valid, fetch,
+    delivery_stamp_valid, fetch,
 };
 pub use node::{
     ReceivedPropagationBatch, ServedFetch, announce_propagation, propagation_destination,

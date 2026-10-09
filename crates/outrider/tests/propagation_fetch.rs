@@ -2,12 +2,11 @@ use std::io::Cursor;
 use std::sync::Arc;
 use std::time::Duration;
 
-use outrider::propagation::Verification;
 use outrider::{
     Acknowledgement, DeliveryAnnounce, FetchPolicy, LxmfPayload, NodePolicy,
     PROPAGATION_METADATA_NAME, PropagationAnnounce, PropagationBatch, PropagationCosts,
     PropagationError, PropagationNode, PropagationStamps, PropagationStore, PropagationStoreLimits,
-    delivery_name, fetch_propagation, prepare_propagation, prepare_propagation_with,
+    Verification, delivery_name, fetch_propagation, prepare_propagation, prepare_propagation_with,
     register_delivery, register_opportunistic, register_propagation, serve_fetch,
 };
 use retinue::endpoint::{Endpoint, PeerAnnounce, ResourceTransferConfig};
@@ -173,10 +172,8 @@ async fn large_ratcheted_fetch_response_uses_a_resource_and_authenticates() {
     let fetched = &receipt.messages[0];
     assert_eq!(fetched.message.payload.content, content);
     assert_eq!(fetched.ratchet_id, current);
-    assert_eq!(
-        fetched.verification,
-        Verification::Verified(*pair.node_identity.public())
-    );
+    assert_eq!(fetched.verification, Verification::Verified);
+    assert_eq!(fetched.source_identity, Some(*pair.node_identity.public()));
     assert_eq!(served.served, receipt.offered);
 }
 
@@ -310,7 +307,8 @@ async fn fetch_splits_haves_opens_each_entry_and_acknowledges_everything_receive
         .map(|fetched| {
             (
                 fetched.message.payload.title.clone(),
-                fetched.verification.clone(),
+                fetched.verification,
+                fetched.source_identity,
             )
         })
         .collect();
@@ -319,9 +317,10 @@ async fn fetch_splits_haves_opens_each_entry_and_acknowledges_everything_receive
         vec![
             (
                 b"good".to_vec(),
-                Verification::Verified(*pair.node_identity.public())
+                Verification::Verified,
+                Some(*pair.node_identity.public())
             ),
-            (b"unknown".to_vec(), Verification::SourceUnknown),
+            (b"unknown".to_vec(), Verification::SourceUnknown, None),
         ]
     );
     let rejected: Vec<_> = receipt

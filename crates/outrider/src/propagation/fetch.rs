@@ -12,7 +12,8 @@ use super::{
 };
 use crate::announce::{delivery_destination, delivery_name, resolve_source};
 use crate::codec::{DEFAULT_MAX_MESSAGE_BYTES, DecodedLxmf};
-use crate::stamp::{MESSAGE_WORKBLOCK_ROUNDS, STAMP_LEN, valid_streamed};
+use crate::inbound::{Verification, check_stamp, verify};
+use crate::ticket::StampOutcome;
 
 /// How much one fetch asks for and what it leaves on the node.
 #[derive(Clone, Debug)]
@@ -44,24 +45,18 @@ impl Default for FetchPolicy {
     }
 }
 
-/// Whether a message's signature could be checked (LXMessage `signature_validated`).
-// Identities travel by value throughout; boxing one here would only add an allocation.
-#[allow(clippy::large_enum_variant)]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Verification {
-    /// The source's announced identity verified the signature.
-    Verified(Identity),
-    /// No validated announce names the source, so the signature is unchecked
-    /// (`SOURCE_UNKNOWN`). A path request for the source has been sent.
-    SourceUnknown,
-}
-
 #[derive(Clone, Debug)]
 pub struct FetchedPropagation {
     pub transient_id: [u8; 32],
     pub entry: PropagationMessage,
     pub message: DecodedLxmf,
+    /// [`Verification::Verified`] or [`Verification::SourceUnknown`], as for direct delivery;
+    /// a path request for an unknown source has been sent.
     pub verification: Verification,
+    /// The source's identity once it verified.
+    pub source_identity: Option<Identity>,
+    /// What the delivery stamp was worth, when [`FetchPolicy::stamp_cost`] asks for one.
+    pub stamp: Option<StampOutcome>,
     /// The local ratchet that decrypted the message, `None` for the identity key.
     pub ratchet_id: Option<NameHash>,
 }
@@ -201,27 +196,20 @@ fn open(
         .decrypt_for(&delivery_name(), &entry.encrypted)
         .map_err(PropagationError::Decrypt)?;
     let message = entry.open(&remainder, policy.max_message_bytes)?;
-    let source = AddressHash::from_bytes(message.source);
-    let verification = match resolve_source(endpoint, source) {
-        Some(identity)
-            if delivery_destination(&identity) == source
-                && message.verify_with(|bytes, signature| identity.verify(bytes, signature)) =>
-        {
-            Verification::Verified(identity)
-        }
-        Some(_) => return Err(PropagationError::BadSignature),
-        None => Verification::SourceUnknown,
-    };
-    if let Some(cost) = policy.stamp_cost
-        && !delivery_stamp_valid(&message, cost)
-    {
-        return Err(PropagationError::InvalidDeliveryStamp);
+    let source_identity = resolve_source(endpoint, AddressHash::from_bytes(message.source));
+    let verification = verify(&message, source_identity.as_ref());
+    if verification == Verification::SignatureInvalid {
+        return Err(PropagationError::BadSignature);
     }
+    let stamp = check_stamp(&message, policy.stamp_cost, &[])
+        .map_err(|_| PropagationError::InvalidDeliveryStamp)?;
     Ok(FetchedPropagation {
         transient_id,
         entry,
         message,
         verification,
+        source_identity,
+        stamp,
         ratchet_id,
     })
 }
@@ -229,19 +217,7 @@ fn open(
 /// Whether a message carries a delivery stamp worth `cost` on its message id
 /// (`LXMRouter.py` 1930-1946).
 pub fn delivery_stamp_valid(message: &DecodedLxmf, cost: u8) -> bool {
-    message
-        .payload
-        .stamp
-        .as_deref()
-        .and_then(|stamp| <&[u8; STAMP_LEN]>::try_from(stamp).ok())
-        .is_some_and(|stamp| {
-            valid_streamed(
-                &message.message_id,
-                MESSAGE_WORKBLOCK_ROUNDS,
-                stamp,
-                u16::from(cost),
-            )
-        })
+    check_stamp(message, Some(cost), &[]).is_ok()
 }
 
 fn id_list(ids: &[[u8; 32]]) -> Value {

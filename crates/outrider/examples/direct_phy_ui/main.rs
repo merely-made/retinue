@@ -10,7 +10,6 @@ use std::io;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
-use outrider::propagation::Verification;
 use outrider::{
     DEFAULT_MAX_MESSAGE_BYTES, DeliveryAnnounce, FetchPolicy, LxmfPayload, NodePolicy,
     PROPAGATION_METADATA_NAME, PropagationAnnounce, PropagationBatch, PropagationCosts,
@@ -562,7 +561,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         || fetched.offered.len() != 1
         || fetched.messages.len() != 1
         || fetched.messages[0].transient_id != prepared.transient_id
-        || fetched.messages[0].verification != Verification::Verified(*right_identity.public())
+        || fetched.messages[0].source_identity != Some(*right_identity.public())
         || fetched.messages[0].message.payload.title != b"U4 PROPAGATION"
         || fetched.messages[0].message.payload.content != propagation_content
     {
