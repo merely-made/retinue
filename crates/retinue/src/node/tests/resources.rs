@@ -359,6 +359,9 @@ fn a_proof_type_resource_proof_completes_a_node_sender() {
     assert_eq!(proof.packet_type, PacketType::Proof);
     assert!(a.transfer_active(id), "a is still waiting for the receipt");
 
+    // Heard on another interface than the link's, it is refused (`Link.py` 938-941).
+    assert!(a.ingest(IFACE + 1, &proof, 0).is_empty());
+    assert!(a.transfer_active(id));
     assert!(a.ingest(IFACE, &proof, 0).is_empty());
     assert!(
         !a.transfer_active(id),

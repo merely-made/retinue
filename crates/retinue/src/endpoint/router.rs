@@ -354,34 +354,28 @@ pub(super) fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
             } else {
                 // A link-data proof, for the reliable or resource driver. Best-effort links
                 // never request proofs.
-                // RNS hands a resource proof to the link, which holds it to the link's
-                // interface (`Link.py` 938-941); other proofs conclude receipts wherever
-                // they arrive.
-                if pkt.context == link::CTX_RESOURCE_PRF
-                    && shared
-                        .links
-                        .lock()
-                        .unwrap()
-                        .get(&pkt.destination)
-                        .is_some_and(|e| e.iface != iface)
-                {
-                    shared
-                        .routing_stats
-                        .filtered_packets
-                        .fetch_add(1, Ordering::Relaxed);
-                    return;
-                }
-                let packets = shared
-                    .links
-                    .lock()
-                    .unwrap()
-                    .get(&pkt.destination)
-                    .and_then(|e| match &e.kind {
+                let packets = {
+                    let links = shared.links.lock().unwrap();
+                    let entry = links.get(&pkt.destination);
+                    // RNS hands a resource proof to the link, which holds it to the link's
+                    // interface (`Link.py` 938-941); other proofs conclude receipts
+                    // wherever they arrive.
+                    if pkt.context == link::CTX_RESOURCE_PRF
+                        && entry.is_some_and(|e| e.iface != iface)
+                    {
+                        shared
+                            .routing_stats
+                            .filtered_packets
+                            .fetch_add(1, Ordering::Relaxed);
+                        return;
+                    }
+                    entry.and_then(|e| match &e.kind {
                         LinkKind::Reliable { packets } | LinkKind::Resource { packets } => {
                             Some(packets.clone())
                         }
                         LinkKind::BestEffort { .. } => None,
-                    });
+                    })
+                };
                 note_link_inbound(shared, &pkt);
                 if let Some(packets) = packets {
                     shared.queue_link_packet(&packets, pkt);

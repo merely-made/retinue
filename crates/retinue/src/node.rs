@@ -109,6 +109,9 @@ pub struct Node<
     /// The proof is kept so a retransmitted request gets the *same* proof: answering afresh
     /// would leave the two sides with different keys for one link.
     links: BoundedVec<(Link, Packet, Liveness), LINKS>,
+    /// The interface each link was established on, which its packets must arrive by
+    /// (`Link.py` 938-941). Entries for links since dropped are pruned on the next bind.
+    link_interfaces: BoundedVec<(AddressHash, InterfaceId), LINKS>,
     /// Links we opened, awaiting the peer's proof, each with the time it expires unanswered
     /// and the time it was sent, from which the proof's arrival measures the link RTT.
     pending: BoundedVec<(PendingLink, u64, u64), LINKS>,

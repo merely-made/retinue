@@ -47,6 +47,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             announce_interval: DEFAULT_ANNOUNCE_INTERVAL,
             announced_blob: None,
             links: BoundedVec::new(),
+            link_interfaces: BoundedVec::new(),
             pending: BoundedVec::new(),
             first_hop_airtime: BoundedVec::new(),
             interface_modes: BoundedVec::new(),

@@ -181,6 +181,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             let _ = self
                 .links
                 .push((link, proof.clone(), Liveness::responder(now, packet.hops)));
+            self.bind_link_interface(link_id, interface);
             actions.push(Action::Send {
                 interface,
                 packet: proof,
@@ -202,7 +203,8 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         // than handed to a receiver it could only confuse.
         if packet.context == link::CTX_RESOURCE_PRF {
             let link_id = packet.destination;
-            if self.senders.iter().any(|(id, _, _)| *id == link_id)
+            if self.on_link_interface(link_id, interface)
+                && self.senders.iter().any(|(id, _, _)| *id == link_id)
                 && let Some(index) = self
                     .links
                     .iter()
@@ -242,6 +244,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         let _ = self
             .links
             .push((link, packet.clone(), Liveness::initiator(rtt, now)));
+        self.bind_link_interface(link_id, interface);
         actions.push(Action::LinkUp { link_id });
         actions.push(Action::Send {
             interface,
@@ -265,6 +268,9 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         else {
             return;
         };
+        if !self.on_link_interface(link_id, interface) {
+            return;
+        }
 
         // Our own packet, heard back from a relay. Not the far end's data, and not evidence
         // that the far end is alive.
@@ -380,6 +386,28 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             // `drop_link` swaps the last link into `index`, which is examined next.
             self.drop_link(index, actions);
         }
+    }
+
+    /// Record the interface a link came up on, forgetting links since dropped.
+    fn bind_link_interface(&mut self, link_id: AddressHash, interface: InterfaceId) {
+        let links = &self.links;
+        self.link_interfaces
+            .retain(|(id, _)| *id != link_id && links.iter().any(|(link, _, _)| link.id() == *id));
+        let _ = self.link_interfaces.push((link_id, interface));
+    }
+
+    /// Whether a link's packet came by the link's interface. RNS drops one that did not
+    /// (`Link.py` 938-941, `Transport.py` 2573-2574) before the duplicate memory records it,
+    /// so the copy on the right path still counts (`Transport.py` 2585-2593).
+    fn on_link_interface(&mut self, link_id: AddressHash, interface: InterfaceId) -> bool {
+        let bound = self
+            .link_interfaces
+            .iter()
+            .all(|(id, at)| *id != link_id || *at == interface);
+        if !bound {
+            self.count_filtered();
+        }
+        bound
     }
 
     /// Drop a link and everything riding on it.
