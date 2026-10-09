@@ -122,6 +122,10 @@ name = "interop_ifac"
 required-features = ["tokio"]
 
 [[example]]
+name = "ifac_resource"
+required-features = ["tokio"]
+
+[[example]]
 name = "link_interop"
 required-features = ["tokio"]
 
