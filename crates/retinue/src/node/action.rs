@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 use heapless::Vec as BoundedVec;
 
 #[cfg(doc)]
-use super::{Node, link_request_timeout};
+use super::link_request_timeout;
 use crate::hash::AddressHash;
 use crate::packet::Packet;
 
@@ -48,10 +48,13 @@ pub enum Action {
     },
     /// A resource arrived whole, reassembled and verified against its advertised hash.
     ///
-    /// Only the data is carried. Metadata the sender attached (RNS's
-    /// `Resource(data, metadata=...)`) is split off and not delivered; each such drop is
-    /// counted by [`Node::dropped_metadata`].
-    Resource { link_id: AddressHash, data: Vec<u8> },
+    /// `metadata` is the packed (msgpack) value the sender attached, as RNS's
+    /// `Resource(data, metadata=...)` delivers it (`Resource.py` 707-749).
+    Resource {
+        link_id: AddressHash,
+        data: Vec<u8>,
+        metadata: Option<Vec<u8>>,
+    },
 }
 
 /// What one `ingest` or `poll` produced.

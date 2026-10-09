@@ -130,7 +130,7 @@ fn pump_resource(
                         assert_eq!(interface, IFACE);
                         next.push((!to_b, packet));
                     }
-                    Action::Resource { link_id, data } => {
+                    Action::Resource { link_id, data, .. } => {
                         assert!(to_b, "only the receiver may deliver this resource");
                         assert_eq!(link_id, id);
                         received.push(data);

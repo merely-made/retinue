@@ -84,7 +84,7 @@ impl<'a, const P: usize, const A: usize, const L: usize, const R: usize> Sim<'a,
                         deliveries.push((m, frame));
                     }
                 }
-                Action::Resource { link_id, data } => effects.push(Effect::Resource {
+                Action::Resource { link_id, data, .. } => effects.push(Effect::Resource {
                     link: link_id.to_string(),
                     len: data.len() as u32,
                 }),

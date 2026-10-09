@@ -68,6 +68,7 @@ pub const ACTION_LINK_DOWN: u8 = 0x04;
 pub const ACTION_DATA: u8 = 0x05;
 pub const ACTION_RESOURCE: u8 = 0x06;
 pub const ACTION_LINK_REQUEST_TIMED_OUT: u8 = 0x07;
+pub const ACTION_RESOURCE_WITH_METADATA: u8 = 0x08;
 
 /// Encode a set of actions.
 ///
@@ -81,10 +82,12 @@ pub const ACTION_LINK_REQUEST_TIMED_OUT: u8 = 0x07;
 /// Data      0x05 | link [16] | len u16le | payload
 /// Resource  0x06 | link [16] | len u16le | data
 /// LinkRequestTimedOut  0x07 | link [16]
+/// ResourceWithMetadata 0x08 | link [16] | len u16le | data | len u16le | metadata
 /// ```
 ///
-/// `0x07` was added without a version bump: no earlier tag or layout changed, so every
-/// committed expectation still holds, and a board too old to know it disagrees visibly.
+/// `0x07` and `0x08` were added without a version bump: no earlier tag or layout changed, so
+/// every committed expectation still holds, and a board too old to know them disagrees
+/// visibly. A resource without metadata keeps the `0x06` form.
 ///
 /// Order is preserved, because the order a shell is asked to do things in is part of what
 /// the two sides must agree on: a proof emitted before its data is not the same behaviour as
@@ -126,11 +129,22 @@ pub fn encode_actions<const N: usize>(actions: &Actions<N>) -> Vec<u8> {
                 out.extend_from_slice(&(payload.len() as u16).to_le_bytes());
                 out.extend_from_slice(payload);
             }
-            Action::Resource { link_id, data } => {
-                out.push(ACTION_RESOURCE);
+            Action::Resource {
+                link_id,
+                data,
+                metadata,
+            } => {
+                out.push(match metadata {
+                    Some(_) => ACTION_RESOURCE_WITH_METADATA,
+                    None => ACTION_RESOURCE,
+                });
                 push_hash(&mut out, link_id);
                 out.extend_from_slice(&(data.len() as u16).to_le_bytes());
                 out.extend_from_slice(data);
+                if let Some(metadata) = metadata {
+                    out.extend_from_slice(&(metadata.len() as u16).to_le_bytes());
+                    out.extend_from_slice(metadata);
+                }
             }
         }
     }

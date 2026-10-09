@@ -211,9 +211,13 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
                 Action::Send { packet, .. } => {
                     self.transmit(exec, packet).await;
                 }
-                // The loopback service: what arrives whole goes back whole, on the same
-                // link. N5's byte-exact both-directions receipt drives this.
-                Action::Resource { link_id, data } => {
+                // The loopback service: what arrives whole goes back whole, metadata and
+                // all, on the same link. N5's byte-exact both-directions receipt drives this.
+                Action::Resource {
+                    link_id,
+                    data,
+                    metadata,
+                } => {
                     let mut random_hash = [0_u8; retinue::resource::RANDOM_HASH_LEN];
                     let mut iv = [0_u8; retinue::token::IV_LEN];
                     if exec.random(&mut random_hash).is_err() || exec.random(&mut iv).is_err() {
@@ -222,10 +226,22 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
                     }
                     let mut label = Text::<24>::empty();
                     let _ = write!(&mut label, "echo {}b", data.len());
-                    match self
-                        .node
-                        .publish(link_id, RADIO, &data, random_hash, &iv, Self::now())
-                    {
+                    let now = Self::now();
+                    let started = match &metadata {
+                        Some(metadata) => self.node.publish_with_metadata(
+                            link_id,
+                            RADIO,
+                            &data,
+                            metadata,
+                            random_hash,
+                            &iv,
+                            now,
+                        ),
+                        None => self
+                            .node
+                            .publish(link_id, RADIO, &data, random_hash, &iv, now),
+                    };
+                    match started {
                         Some(actions) => {
                             self.echoes = self.echoes.saturating_add(1);
                             self.note_event(EventKind::Delivered, label.as_str());
