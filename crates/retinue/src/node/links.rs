@@ -165,9 +165,6 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             return;
         }
 
-        // The responder's ephemeral seed is derived rather than random, because this layer
-        // holds no RNG. It is bound to the link id and our identity, so it differs per
-        // request and cannot be predicted without our private key.
         let seed = self.responder_seed(&id);
         // No more than was asked for, and as in RNS a signalled 0 means the 500-byte default.
         // A request below the smallest workable budget is held to that floor.
@@ -339,9 +336,8 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                     self.links[index].2.on_rtt(rtt, now);
                 }
             }
-            // Requests and responses are not this gate's work. They are dropped rather than
-            // mishandled, and the boundary is pinned by a test so the next gate's work shows
-            // up as a change.
+            // Requests and responses are not handled yet: dropped, not mishandled, and pinned
+            // by a test.
             _ => {}
         }
     }
@@ -390,8 +386,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
     fn drop_link(&mut self, index: usize, actions: &mut Actions<ACTIONS>) {
         let link_id = self.links[index].0.id();
         self.links.swap_remove(index);
-        // A transfer without its link is state nobody can finish, so it goes too. Leaving
-        // it would hold reassembly memory for a peer that is no longer there.
+        // A transfer without its link can never finish, so it goes too.
         self.receivers.retain(|(id, _, _)| *id != link_id);
         self.senders.retain(|(id, _, _)| *id != link_id);
         self.resource_proofs.retain(|(id, _, _, _)| *id != link_id);
@@ -400,11 +395,9 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
 
     /// A responder ephemeral seed, derived from our identity and the link id.
     ///
-    /// This layer has no RNG, and an initiator supplies its own seed from the shell. A
-    /// responder answers packets it did not ask for, so it cannot be handed one per
-    /// request without threading entropy through every ingest. Deriving it keeps the
-    /// forward secrecy that matters (the seed is unpredictable without our private key)
-    /// and makes a retransmitted request reproduce the same proof.
+    /// This layer has no RNG, and a responder answers requests it did not ask for, so its seed
+    /// is derived. It stays unpredictable without our private key, and a retransmitted request
+    /// reproduces the same proof.
     fn responder_seed(&self, link_id: &AddressHash) -> [u8; 64] {
         let secret = self.identity.to_secret_bytes();
         let half = |tag: &[u8]| {

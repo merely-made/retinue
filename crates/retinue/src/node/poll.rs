@@ -66,10 +66,8 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             }
         }
 
-        // Loss recovery. A transfer that has heard nothing for a retry interval is
-        // redriven: a receiver re-requests exactly what it is missing, a sender re-offers
-        // an advertisement nobody answered. This is the mechanism behind N5's survive-loss
-        // condition; without it, one lost frame was a dead transfer.
+        // Loss recovery: a transfer silent for a retry interval is redriven. A receiver
+        // re-requests what it is missing, a sender re-offers an unanswered advertisement.
         let seed = self.identity.to_secret_bytes();
         let mut counter = self.iv_counter;
         for index in 0..self.receivers.len() {
@@ -125,12 +123,9 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
 
     /// Forget that we announced, so the next [`Node::poll`] announces again.
     ///
-    /// `poll` stamps the announce when it *decides* to send one, because it cannot know
-    /// whether the shell got it onto the air. When the shell could not — a busy channel, a
-    /// radio fault — the stamp would otherwise swallow the failure and the node would go
-    /// quiet for a whole interval believing it had spoken. A shell that knows its send
-    /// failed calls this; the shell is also responsible for bounding how often, since a
-    /// permanently unusable radio must not turn into an announce loop.
+    /// `poll` stamps the announce when it decides to send one, since it cannot know whether
+    /// the shell got it on air. A shell whose send failed calls this, and bounds how often, so
+    /// a dead radio does not become an announce loop.
     pub fn retry_announce(&mut self) {
         self.last_announce = None;
     }

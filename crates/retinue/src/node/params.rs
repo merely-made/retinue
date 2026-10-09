@@ -47,20 +47,17 @@ impl core::error::Error for LogicalMtuError {}
 
 /// The most parts this node will accept for one inbound resource.
 ///
-/// A sender chooses the advertised part count, so this is where a peer's ambition stops
-/// being the board's problem. Thirty-two parts is roughly 13 KB of reassembly at the
-/// default part size, which a 256 KB board can hold while a desktop's 4096-part ceiling
-/// (about 1.7 MB) it plainly cannot.
+/// The sender picks the part count. Thirty-two parts is about 13 KB of reassembly at the
+/// default part size, which a 256 KB board can hold; the desktop's 4096 (1.7 MB) it cannot.
 pub const MAX_RESOURCE_PARTS: usize = 32;
 
 /// Payload budgets for one Node. Table counts remain its const parameters.
 ///
-/// The default preserves existing host callers. Embedded callers should choose
-/// finite values with [`Node::new_with_payload_limits`]. The caller must also
-/// bound raw input before decoding a [`Packet`] and bound retained action queues.
-/// Inbound uncompressed resources are bounded by `max_resource_parts` times
-/// `max_ingress_bytes`. With `compression` on, a compressed resource is also refused once
-/// it inflates past [`DEFAULT_MAX_DECOMPRESSED_SIZE`](crate::resource::DEFAULT_MAX_DECOMPRESSED_SIZE).
+/// The default is unbounded, for host callers; embedded callers choose finite values with
+/// [`Node::new_with_payload_limits`], and must still bound raw input before decoding a
+/// [`Packet`] and bound retained action queues. An inbound uncompressed resource is bounded by
+/// `max_resource_parts` times `max_ingress_bytes`. With `compression` on, a compressed one is
+/// also refused past [`DEFAULT_MAX_DECOMPRESSED_SIZE`](crate::resource::DEFAULT_MAX_DECOMPRESSED_SIZE).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PayloadLimits {
     pub max_ingress_bytes: usize,
@@ -101,11 +98,9 @@ pub const RESOURCE_REQUEST_WINDOW: usize = 4;
 /// How long a transfer may sit silent before [`Node::poll`] redrives it, in the caller's
 /// tick unit (milliseconds on the boards).
 ///
-/// This is the loss-recovery clock: a receiver re-requests what it is missing, a sender
-/// re-advertises an offer nobody answered. Without it, one lost frame is a dead transfer —
-/// which is exactly how N5's first hardware run failed. It must clear a request-plus-part
-/// round trip at the slowest profile (about 3 s at SF11/250 kHz); deriving it from the
-/// profile's airtime is the same recorded follow-up as the desktop's retry floors.
+/// The loss-recovery clock: a receiver re-requests what it is missing, a sender re-offers an
+/// unanswered advertisement. It must clear a request-plus-part round trip at the slowest
+/// profile (about 3 s at SF11/250 kHz); deriving it from airtime is a recorded follow-up.
 pub const RESOURCE_RETRY_INTERVAL: u64 = 12_000;
 
 /// How long a link keeps the last resource proof this node sent, to answer a sender's cache
@@ -117,15 +112,9 @@ pub const RESOURCE_PROOF_CACHE_TTL: u64 = 120_000;
 
 /// How long a link may go unheard before its slot is reclaimed, in milliseconds.
 ///
-/// A board holds four link slots. Without expiry, four peers that establish a link and then
-/// go quiet -- moved out of range, lost power, crashed -- hold every slot until one of them
-/// politely closes or the board reboots, and a peer that vanished will not be doing the
-/// former. That is a node bricked as a router by four absences, and on a pilot site nobody
-/// is there to power-cycle it.
-///
-/// Fifteen minutes is long enough that an idle but live peer is not evicted (RNS keepalives
-/// run far tighter than this), and short enough that a slot lost to a vanished peer comes
-/// back within one visit.
+/// A vanished peer sends no close, so without expiry four of them would hold a board's four
+/// slots for good. Fifteen minutes is far longer than RNS keepalives, so a live idle peer is
+/// never evicted.
 pub const LINK_IDLE_TIMEOUT: u64 = 900_000;
 
 /// How long a link request waits for its proof, per hop to the destination, in milliseconds.
@@ -144,10 +133,8 @@ pub const LINK_ESTABLISHMENT_TIMEOUT_PER_HOP: u64 = 6_000;
 ///
 /// RNS 1.5.4 was observed to wait 12.001, 18.001, 24.001 and 30.001 s at zero to three
 /// relays on an unbounded TCP interface, sending the request once and never retrying
-/// (`testing/receipts/rns-1.5.4-link-echo-corroboration`, Q1).
-///
-/// Without a deadline, requests nobody answers hold their pending slots for good: at the
-/// board's four, four lost requests refuse every later `open_link`.
+/// (`testing/receipts/rns-1.5.4-link-echo-corroboration`, Q1). Without a deadline, unanswered
+/// requests would hold their pending slots for good.
 pub const fn link_request_timeout(relays: u8) -> u64 {
     LINK_ESTABLISHMENT_TIMEOUT_PER_HOP * (relays as u64 + 2)
 }
@@ -194,10 +181,8 @@ impl core::error::Error for AirtimeTableFull {}
 /// 126, 155).
 ///
 /// A route's announce freshness lives exactly as long as the route, so a shorter lifetime
-/// would let an older emission back in once the route lapsed. A route is refreshed whenever
-/// it carries traffic, and a disappeared peer's route is still replaced by the next accepted
-/// announce. On a board, `ROUTES` bounds the table: the quietest route is evicted to admit a
-/// new destination, whatever its age.
+/// would let an older emission back in once it lapsed. Traffic refreshes a route, and
+/// `ROUTES` bounds the table: the quietest route is evicted to admit a new destination.
 pub const DEFAULT_ROUTE_TTL: u64 = 604_800_000;
 
 /// Route lifetime on an [`InterfaceMode::AccessPoint`] interface: one day, RNS's
@@ -254,11 +239,10 @@ impl core::error::Error for InterfaceModeTableFull {}
 
 /// Bounds for the receive-side announce freshness table.
 ///
-/// The table is runtime state rather than a const-generic part of [`Node`], so firmware can
-/// choose a smaller footprint and a desktop caller can choose a larger one without making a
-/// second node type. The defaults are intentionally aligned with the node's peer budget and
-/// keep eight accepted blobs per destination. A destination's freshness lives exactly as long
-/// as its route, as RNS keeps announce blobs on the path-table row.
+/// Runtime state rather than a const parameter of [`Node`], so callers size it without a
+/// second node type. Defaults follow the peer budget, with eight blobs per destination. A
+/// destination's freshness lives exactly as long as its route, as RNS keeps announce blobs on
+/// the path-table row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FreshnessPolicy {
     /// Maximum destination rows retained by the freshness table. Evicting a row drops its
@@ -269,19 +253,17 @@ pub struct FreshnessPolicy {
 }
 
 impl FreshnessPolicy {
-    /// Freshness belongs to routes, and evicting a row drops its route, so the table must
-    /// never be the tighter bound: it covers every route (and every known peer). The route
-    /// table's own eviction then decides which route goes. A row left behind for an evicted
-    /// route is harmless, because without a live route an announce is a first sighting.
+    /// Evicting a row drops its route, so the table must never be the tighter bound: it
+    /// covers every route and every known peer. A row left behind for an evicted route is
+    /// harmless, because without a live route an announce is a first sighting.
     pub const fn for_node(peers: usize, routes: usize) -> Self {
         Self::for_peers(if peers > routes { peers } else { routes })
     }
 
     pub const fn for_peers(peers: usize) -> Self {
         Self {
-            // `AddressBook` can be instantiated with PEERS == 0 for a deliberately
-            // non-learning node. Keep Node::new infallible while retaining a valid internal
-            // freshness table; the zero-capacity address book still refuses every announce.
+            // PEERS == 0 is a deliberately non-learning node. Keep Node::new infallible with a
+            // valid freshness table; the empty address book still refuses every announce.
             max_destinations: if peers == 0 { 1 } else { peers },
             max_blobs_per_destination: 8,
         }
@@ -290,8 +272,8 @@ impl FreshnessPolicy {
 
 /// How long a carried link remains bridgeable after it last carries traffic.
 ///
-/// A link's own keepalives are considerably more frequent than this. The longer interval
-/// avoids discarding a quiet but live remote link while still bounding stale transport state.
+/// Far longer than a link's keepalives, so a quiet but live link is kept while stale
+/// transport state stays bounded.
 pub const LINK_TRANSPORT_TIMEOUT: u64 = 3_600_000;
 
 /// How long a validated carried link may go unheard before a new link request may take its
@@ -305,10 +287,9 @@ pub const LINK_TRANSPORT_IDLE: u64 = 900_000;
 
 /// How long this node remembers a forwarded packet hash on a shared radio.
 ///
-/// A single-radio transport retransmits on the carrier it heard. Remembering a packet briefly
-/// prevents its own relay from becoming a flood loop while still allowing a normal retry later.
-/// The transit filter starts a new generation at least this often, so a hash is forgotten
-/// between one and two of these after it was last recorded.
+/// A single-radio transport hears its own relays, so a packet is remembered briefly to stop a
+/// flood loop while still allowing a later retry. The filter starts a new generation at least
+/// this often, so a hash is forgotten one to two of these after it was recorded.
 pub const TRANSPORT_DEDUP_TIMEOUT: u64 = 60_000;
 
 /// Transit packet hashes held per generation. The filter keeps two generations, as RNS keeps
@@ -329,9 +310,7 @@ pub const REVERSE_TIMEOUT: u64 = 480_000;
 
 /// What this node agrees to carry for other destinations.
 ///
-/// Transport is explicit because many boards are endpoints, not routers. The firmware can opt
-/// in to transit without changing the behaviour of a desk fixture or an application node that
-/// only answers for itself.
+/// Explicit, because many boards are endpoints, not routers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TransportConfig {
     /// Re-broadcast verified announces with this node as their next transport hop.

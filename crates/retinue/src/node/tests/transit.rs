@@ -1,3 +1,5 @@
+//! Relaying announces and packets, the reverse table and the packet filter.
+
 use super::*;
 
 /// A transport node relays both sides of a link setup: the announce makes the route
@@ -183,7 +185,7 @@ fn reverse_table_is_bounded_by_routes() {
 }
 
 /// Two transit packets that are different are both new; the same one heard again is a
-/// loop. The window is its own two generations, no longer the route table's four slots.
+/// loop. The window is its own two generations, not the route table's slots.
 #[test]
 fn the_transit_filter_outlasts_the_route_table() {
     let mut relay = node().with_transport_config(TransportConfig::transit());

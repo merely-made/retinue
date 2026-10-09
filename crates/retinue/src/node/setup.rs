@@ -241,8 +241,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
     /// Link slots reclaimed from peers that stopped answering.
     ///
     /// Read alongside [`Node::refused_links`]: refusals with no expiries is a node with more
-    /// demand than slots, while expiries climbing is a node whose peers keep vanishing. The
-    /// two want different answers, and before expiry existed they were the same silence.
+    /// demand than slots, while expiries climbing is a node whose peers keep vanishing.
     pub fn expired_links(&self) -> u16 {
         self.expired_links
     }

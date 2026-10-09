@@ -1,3 +1,5 @@
+//! Announce freshness, replay protection and the address-book bound.
+
 use super::*;
 
 #[test]

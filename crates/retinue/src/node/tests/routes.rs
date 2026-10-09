@@ -1,3 +1,5 @@
+//! Route lifetime, eviction, interface modes and next-hop addressing.
+
 use super::*;
 
 /// The transport table is a fixed board resource: expired paths go first, then the
@@ -143,8 +145,7 @@ fn source_via_relay() -> (Node<32, 8, 4>, Node<32, 8, 4, 4>, Node<32, 8, 4>) {
     (source, relay, destination)
 }
 
-/// RNS keeps a path for a week (`PATHFINDER_E`). Thirty minutes let an older emission
-/// back in once the route lapsed; the route now outlives a day of quiet.
+/// RNS keeps a path for a week (`PATHFINDER_E`), so a route outlives a day of quiet.
 #[test]
 fn routes_live_for_a_week_by_default() {
     assert_eq!(DEFAULT_ROUTE_TTL, 7 * 24 * 60 * 60 * 1_000);

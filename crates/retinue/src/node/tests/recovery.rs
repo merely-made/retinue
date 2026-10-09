@@ -1,9 +1,9 @@
+//! Resource loss recovery, derived IVs and transfers dying with their link.
+
 use super::*;
 
-/// One lost part no longer kills a transfer: the receiver's poll re-requests exactly
-/// what is missing, and the sender serves it. This is the mechanism N5's first hardware
-/// run proved was absent, when one dropped frame at SF11 stalled a five-part transfer
-/// forever on a clean link.
+/// One lost part does not kill a transfer: the receiver's poll re-requests exactly what is
+/// missing, and the sender serves it.
 #[test]
 fn a_lost_part_is_re_requested_on_poll() {
     let (mut a, mut b, id) = linked();
@@ -226,6 +226,7 @@ fn closing_a_link_discards_its_transfer() {
     assert_eq!(b.link_count(), 0);
 }
 
+/// One transfer per link at a time: a board cannot hold two.
 #[test]
 fn a_second_publish_on_a_busy_link_is_refused() {
     let (mut a, _b, id) = linked();

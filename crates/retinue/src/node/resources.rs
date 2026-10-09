@@ -61,11 +61,8 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         now: u64,
         actions: &mut Actions<ACTIONS>,
     ) {
-        // The IV feeds the transfer's own sealing. Derived rather than random for the same
-        // reason the responder seed is: this layer holds no RNG, and a transfer answers
-        // packets it did not ask for. The counter is node state, never reset, because an IV
-        // must not repeat under a link key and a counter local to this call would replay
-        // the whole sequence on the next call.
+        // Derived IVs, as this layer holds no RNG. The counter is written back to node state
+        // so the sequence never restarts under a link key.
         let seed = self.identity.to_secret_bytes();
         let mut counter = self.iv_counter;
         let mut iv = || derived_iv(&seed, link_id, &mut counter);
@@ -94,10 +91,9 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         let pos = match existing {
             Some(pos) => pos,
             None => {
-                // A re-advertisement of a resource this node already proved: the sender
-                // lost the proof and, being an older retinue, offers again rather than
-                // asking with a cache request. Answer with the kept proof instead of
-                // receiving (and delivering) the whole resource a second time.
+                // A re-advertisement of a resource already proved: an older retinue sender
+                // lost the proof and offers again instead of a cache request. Answer with the
+                // kept proof rather than receiving and delivering it twice.
                 if packet.context == link::CTX_RESOURCE_ADV
                     && self
                         .resource_proofs
@@ -154,9 +150,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         self.receivers[pos].2 = now;
 
         // A receiver created for this packet that then said nothing did not accept the
-        // transfer: an advertisement past the part ceiling is refused this way. Keeping it
-        // would hold a slot, and on a board with a handful of slots that is the difference
-        // between refusing one oversized offer and refusing every peer afterwards.
+        // transfer (an advertisement past the part ceiling). Keeping it would hold a slot.
         if is_new && replies.is_empty() && self.receivers[pos].1.data().is_none() {
             self.receivers.swap_remove(pos);
             self.refused_offers = self.refused_offers.saturating_add(1);

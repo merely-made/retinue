@@ -1,11 +1,11 @@
+//! Resource transfer, refusal and the receiver's proof cache.
+
 use super::*;
 
 /// Drive every packet between two nodes until neither has anything more to say.
 ///
-/// This is the desk stand-in for a radio: it carries whatever each side wants sent to
-/// the other, in order, with no loss. What it proves is that the two halves of a
-/// transfer agree; loss and retransmission are the medium's business and are measured
-/// on real hardware at the gates.
+/// A lossless, in-order desk stand-in for a radio: it proves the two halves of a transfer
+/// agree, not loss recovery.
 fn pump(
     a: &mut Node<32, 8, 4>,
     b: &mut Node<32, 8, 4>,
@@ -89,8 +89,7 @@ fn a_resource_crosses_a_link_whole() {
 fn an_oversized_resource_is_refused_without_holding_state() {
     let (mut a, mut b, id) = linked();
 
-    // Comfortably past MAX_RESOURCE_PARTS even when compression is enabled.
-    // The old repeating-byte fixture compressed below the advertised ceiling.
+    // Incompressible, so comfortably past MAX_RESOURCE_PARTS even with compression on.
     let huge: Vec<u8> = (0..2_500u32)
         .flat_map(|i| crate::hash::full_hash(&i.to_le_bytes()))
         .collect();
@@ -352,8 +351,7 @@ fn dropped_metadata_is_counted() {
 }
 
 /// A Node proves a resource with the PROOF-type packet RNS accepts, and a Node sender
-/// completes on one. Before, a PROOF-type packet only ever reached link setup, so a
-/// Node publishing to RNS never saw its receipt and held the sender until it expired.
+/// completes on one.
 #[test]
 fn a_proof_type_resource_proof_completes_a_node_sender() {
     let (mut a, mut b, id) = linked();

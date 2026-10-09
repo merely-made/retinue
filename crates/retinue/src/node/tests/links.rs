@@ -1,3 +1,5 @@
+//! Link establishment, data, own-echo and duplicate filtering, and closing.
+
 use super::*;
 
 /// Two nodes establish a link in the shape a radio carries it: announce, learn, open,

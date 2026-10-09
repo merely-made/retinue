@@ -1,9 +1,8 @@
+//! Link idle expiry, RTT reporting, keepalives and stale teardown.
+
 use super::*;
 
-/// One transfer per link at a time: a board cannot hold two.
-/// A peer that establishes a link and then vanishes used to hold its slot forever: a
-/// board that lost power sends no close, and nothing else freed one. Four such absences
-/// bricked a node as a router until somebody rebooted it.
+/// A peer that vanishes sends no close; its slot still comes back after the idle timeout.
 #[test]
 fn a_silent_peer_releases_its_link_slot() {
     let (mut a, _b, _id) = linked();
@@ -57,7 +56,7 @@ fn sends(actions: Actions<8>) -> Vec<Packet> {
 }
 
 /// The initiator reports the RTT it measured from request to proof, and that is what
-/// moves an RNS responder out of its handshake. It used to send nothing.
+/// moves an RNS responder out of its handshake.
 #[test]
 fn the_initiator_reports_its_measured_rtt_on_link_up() {
     let (mut a, mut b) = pair();

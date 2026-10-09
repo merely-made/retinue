@@ -79,8 +79,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                     return actions;
                 }
                 // `Announce::decode` verifies the signature and that the destination hash
-                // matches the announced identity, so an entry can only come from an
-                // announce whose maths checked out. The invalid fixtures are the proof.
+                // matches the announced identity.
                 if let Ok(announce) = Announce::decode(packet) {
                     // A known destination announced under another key is rejected outright,
                     // before freshness, routes or relaying (RNS `Identity.validate_announce`).

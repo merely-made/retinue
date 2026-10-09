@@ -1,3 +1,5 @@
+//! Logical MTU, payload limits, pause assessment and action bounds.
+
 use super::*;
 
 #[test]

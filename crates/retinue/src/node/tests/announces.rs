@@ -1,3 +1,5 @@
+//! Learning peers from announces, announcing, and answering path requests.
+
 use super::*;
 
 /// A real RNS announce teaches the node a peer it can then reach.
@@ -154,10 +156,6 @@ fn packets_this_gate_does_not_handle_are_dropped() {
 
 /// A shell that could not send the announce can say so, and the next poll announces
 /// again instead of waiting out the whole interval.
-///
-/// Found on hardware: a jammed channel made listen-before-talk refuse the announce,
-/// and the board then believed it had announced — invisible for ten minutes after a
-/// ten-second jam.
 #[test]
 fn a_failed_announce_can_be_retried_before_the_interval() {
     let (mut a, _b) = pair();
@@ -228,9 +226,7 @@ fn path_requests_for_this_node_are_answered_once_on_their_interface() {
 }
 
 /// A relay rebroadcasts a node's own announce, so the node hears itself. The echo must not
-/// make the node its own peer: a five-node mesh reported five peers per node instead of four,
-/// and that count reaches the device's PEERS and STATUS pages. Genuine peers still learn the
-/// announce, and the relay still rebroadcasts it for them.
+/// make the node its own peer, while genuine peers still learn it through the relay.
 #[test]
 fn own_announce_echoed_by_a_relay_is_not_a_peer() {
     let (mut a, mut b) = pair();

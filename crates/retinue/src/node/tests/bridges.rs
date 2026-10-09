@@ -1,3 +1,5 @@
+//! Carried links: MTU clamping, proof validation and bridge-slot pressure.
+
 use super::*;
 
 /// Where a set of actions sends its first packet, and what.
