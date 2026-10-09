@@ -20,7 +20,7 @@ use crate::packet::Packet;
 use crate::resource::Advertisement;
 use crate::resource_transfer::PROOF_CACHE_ANSWERS;
 
-use super::announces::{AnnounceFreshnessState, HeldAnnounce};
+use super::announces::{AnnounceFreshnessState, HeldAnnounces};
 use super::dedup::{HashList, LinkPacketMemory, VERIFIED_ANNOUNCES};
 use super::facts::{LinkDirection, LinkFactKind, LinkRemoteFact, PeerAnnounce};
 use super::iface_policy::IfacePolicy;
@@ -189,7 +189,7 @@ pub(super) struct Shared {
     pub(super) announce_admission: Mutex<AnnounceAdmission>,
     pub(super) announce_admission_started: tokio::time::Instant,
     /// Verified unknown-route announces held until their ingress burst has subsided.
-    pub(super) held_announces: Mutex<VecDeque<HeldAnnounce>>,
+    pub(super) held_announces: Mutex<HeldAnnounces>,
     /// At most one release task runs for each interface, however many announces it is holding.
     pub(super) held_release_tasks: Mutex<HashSet<InterfaceId>>,
     /// Wakes release tasks when a carrier is detached or the policy changes.

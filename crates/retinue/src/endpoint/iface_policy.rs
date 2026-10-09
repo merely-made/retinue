@@ -42,7 +42,7 @@ impl Default for AnnounceRate {
 pub struct IfacePolicy {
     /// Ingress control override; `None` defers to the endpoint-wide policy.
     pub ingress: Option<AnnounceIngressPolicy>,
-    /// Destination announce-rate rule; `None` applies none on this interface.
+    /// Destination announce-rate rule; `None` defers to the endpoint-wide one.
     pub announce_rate: Option<AnnounceRate>,
     /// Share of the bitrate announces may use, in percent (`Reticulum.py` 114, 948-951).
     pub cap_percent: u8,
@@ -76,7 +76,6 @@ impl Default for IfacePolicy {
 
 impl Shared {
     /// The policy of interface `id`; the default if it is unset or not attached.
-    #[allow(dead_code, reason = "read by the router and carriers as they land")]
     pub(super) fn iface_policy(&self, id: InterfaceId) -> IfacePolicy {
         let policies = self.iface_policies.lock().unwrap();
         policies.get(&id).copied().unwrap_or_default()

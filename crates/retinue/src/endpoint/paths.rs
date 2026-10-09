@@ -4,6 +4,8 @@ use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
+use crate::announce::AnnounceBlob;
+use crate::announce_freshness::{AnnounceFreshness, AnnounceFreshnessCandidate};
 use crate::hash::AddressHash;
 use crate::node::InterfaceMode;
 use crate::packet::Packet;
@@ -38,6 +40,10 @@ pub(super) const PATH_REQUEST_MIN_INTERVAL: Duration = Duration::from_millis(60)
 /// unique ones would never meet the per-destination floor. A refused request records nothing,
 /// so this also bounds the budget table.
 pub(super) const PATH_REQUEST_GLOBAL_MAX: usize = 8;
+
+/// How long a path request we sent exempts its destination's announces from ingress holds
+/// (RNS `PATH_REQUEST_GATE_TIMEOUT`, `Transport.py` 135, 980-986, 1815-1821).
+pub(super) const PATH_REQUEST_GATE: Duration = Duration::from_secs(45);
 
 /// A learned route to a destination.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -121,12 +127,43 @@ impl Shared {
 
     /// Whether `dest` has an unexpired route, without evicting anything.
     pub(super) fn has_live_route(&self, dest: AddressHash) -> bool {
+        self.live_route(dest).is_some()
+    }
+
+    fn live_route(&self, dest: AddressHash) -> Option<PathEntry> {
         let route_ttl = self.route_ttl();
-        self.path_table
-            .lock()
-            .unwrap()
+        let paths = self.path_table.lock().unwrap();
+        paths
             .get(&dest)
-            .is_some_and(|entry| entry.live_at(Instant::now(), route_ttl))
+            .filter(|entry| entry.live_at(Instant::now(), route_ttl))
+            .copied()
+    }
+
+    /// Whether a copy that `table` refused should still move the route to `iface`: the same
+    /// emission as the route's, with no more hops, heard on an interface of higher gravity
+    /// (`Transport.py` 2229-2251). Only the route moves; the emission was already published
+    /// and relayed when it first arrived.
+    pub(super) fn gravity_repoints(
+        &self,
+        table: &AnnounceFreshness,
+        candidate: AnnounceFreshnessCandidate,
+        iface: InterfaceId,
+        hops: u8,
+    ) -> bool {
+        let Some(route) = self.live_route(candidate.destination) else {
+            return false;
+        };
+        if hops > route.hops
+            || self.iface_policy(iface).gravity <= self.iface_policy(route.iface).gravity
+        {
+            return false;
+        }
+        // The refusal means the route's timebase is not older than this one; accepting the
+        // next second means it is not newer either, so it is the same emission.
+        AnnounceBlob::mint(candidate.blob.nonce(), candidate.timebase() + 1).is_ok_and(|blob| {
+            let next = AnnounceFreshnessCandidate { blob, ..candidate };
+            table.evaluate(next, true).is_accepted()
+        })
     }
 
     /// Drop `dest`'s route, if any.
@@ -254,11 +291,18 @@ impl Shared {
             return false;
         }
         if budget.len() > SEEN_ANNOUNCES {
-            budget.retain(|_, t| now.duration_since(*t) < PATH_REQUEST_MIN_INTERVAL);
+            let keep = PATH_REQUEST_MIN_INTERVAL.max(PATH_REQUEST_GATE);
+            budget.retain(|_, t| now.duration_since(*t) < keep);
         }
         budget.insert(dest, now);
         stamps.push_back(now);
         true
+    }
+
+    /// Whether we sent a path request for `dest` within `window`.
+    pub(super) fn path_requested_within(&self, dest: AddressHash, window: Duration) -> bool {
+        let budget = self.path_request_budget.lock().unwrap();
+        budget.get(&dest).is_some_and(|at| at.elapsed() < window)
     }
 }
 

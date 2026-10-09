@@ -1,5 +1,8 @@
 //! Announce ingress: admission, held release, freshness, and relay.
 
+use alloc::vec::Vec;
+
+use std::collections::HashMap;
 use std::io;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -7,7 +10,7 @@ use std::time::Duration;
 
 use crate::announce::{Announce, AnnounceBlob};
 use crate::announce_admission::{
-    AnnounceIngressCounters, AnnounceIngressPolicy, DestinationVerdict,
+    AnnounceIngressCounters, AnnounceIngressPolicy, DestinationVerdict, InterfaceVerdict,
 };
 use crate::announce_freshness::{
     AnnounceFreshness, AnnounceFreshnessCandidate, AnnounceFreshnessConfig,
@@ -17,6 +20,8 @@ use crate::packet::Packet;
 
 use super::facts::PeerAnnounce;
 use super::interface::InterfaceId;
+use super::paths::PATH_REQUEST_GATE;
+use super::routing::MAX_HOPS;
 use super::runtime::{Endpoint, recv_until_closed, track};
 use super::shared::Shared;
 
@@ -71,6 +76,70 @@ pub(super) struct HeldAnnounce {
     pub(super) announce: Announce,
 }
 
+/// The endpoint holds at most this many interfaces' worth of the endpoint `held_capacity`,
+/// so many noisy interfaces (a listener's clients) cannot each fill a full share.
+const HELD_SHARES: usize = 8;
+
+/// Held announces by ingress interface (`Interface.py` 72, 270-297). No interface keeps an
+/// empty queue, and `total` is the sum of the queue lengths.
+#[derive(Default)]
+pub(super) struct HeldAnnounces {
+    by_iface: HashMap<InterfaceId, Vec<HeldAnnounce>>,
+    total: usize,
+}
+
+impl HeldAnnounces {
+    /// Hold `held`, replacing one held for its destination in place (`Interface.py`
+    /// 270-276). False when its interface holds `capacity` or the endpoint `ceiling`.
+    pub(super) fn hold(&mut self, held: HeldAnnounce, capacity: usize, ceiling: usize) -> bool {
+        let iface = held.interface;
+        let queue = self.by_iface.entry(iface).or_default();
+        let destination = held.announce.destination;
+        if let Some(existing) = queue
+            .iter_mut()
+            .find(|existing| existing.announce.destination == destination)
+        {
+            *existing = held;
+            return true;
+        }
+        if queue.len() < capacity && self.total < ceiling {
+            queue.push(held);
+            self.total += 1;
+            return true;
+        }
+        if queue.is_empty() {
+            self.by_iface.remove(&iface);
+        }
+        false
+    }
+
+    pub(super) fn holds(&self, iface: InterfaceId) -> bool {
+        self.by_iface.contains_key(&iface)
+    }
+
+    /// The fewest-hops announce `iface` holds, the oldest among equals (`Interface.py` 285).
+    pub(super) fn take_nearest(&mut self, iface: InterfaceId) -> Option<HeldAnnounce> {
+        let queue = self.by_iface.get_mut(&iface)?;
+        let (index, _) = queue
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, held)| held.packet.hops)?;
+        let held = queue.remove(index);
+        if queue.is_empty() {
+            self.by_iface.remove(&iface);
+        }
+        self.total -= 1;
+        Some(held)
+    }
+
+    /// Drop everything `iface` holds: it was detached, or its admission row evicted.
+    pub(super) fn purge(&mut self, iface: InterfaceId) {
+        if let Some(queue) = self.by_iface.remove(&iface) {
+            self.total -= queue.len();
+        }
+    }
+}
+
 /// The freshness ledger and its host policy share one lock. Keeping this guard across address
 /// admission, freshness commit, route replacement, observation publication, and relay
 /// scheduling makes a held-release task indistinguishable from direct router ingress.
@@ -98,44 +167,44 @@ impl Shared {
             .min(u128::from(u64::MAX)) as u64
     }
 
-    pub(super) fn hold_announce(&self, held: HeldAnnounce) -> bool {
-        let capacity = self
-            .announce_admission
-            .lock()
-            .unwrap()
-            .policy()
-            .held_capacity;
-        let mut queue = self.held_announces.lock().unwrap();
-        if let Some(existing) = queue.iter_mut().find(|existing| {
-            existing.interface == held.interface
-                && existing.announce.destination == held.announce.destination
-        }) {
-            *existing = held;
-            return true;
-        }
-        if queue.len() >= capacity {
+    /// Hold `held` until its interface calms, under that interface's `ingress` policy.
+    pub(super) fn hold_announce(
+        &self,
+        held: HeldAnnounce,
+        ingress: Option<AnnounceIngressPolicy>,
+    ) -> bool {
+        // RNS counts the receiving hop, so this is its `hops >= PATHFINDER_M - 1`: an
+        // announce that could not be relayed on is not worth a slot.
+        if held.packet.hops >= MAX_HOPS - 2 {
             return false;
         }
-        queue.push_back(held);
-        true
+        let endpoint = self.announce_admission.lock().unwrap().policy();
+        let capacity = ingress.unwrap_or(endpoint).held_capacity;
+        let ceiling = endpoint.held_capacity.saturating_mul(HELD_SHARES);
+        self.held_announces
+            .lock()
+            .unwrap()
+            .hold(held, capacity, ceiling)
     }
 
     /// Whether freshness rejects `pkt` before it is verified, counting the rejection. The
     /// verified announce would carry the same destination and blob, so it would be rejected
     /// all the same; an acceptance is decided again, under the lock, once it verifies.
-    pub(super) fn announce_is_stale_unverified(&self, pkt: &Packet) -> bool {
+    /// A copy that may move its route to a higher-gravity interface is verified first, a
+    /// cost only an interface with configured gravity pays.
+    pub(super) fn announce_is_stale_unverified(&self, iface: InterfaceId, pkt: &Packet) -> bool {
         let Some(candidate) = crate::announce::unverified_candidate(pkt) else {
             return false;
         };
         let route_live = self.has_live_route(candidate.destination);
-        let decision = self
-            .announce_freshness
-            .lock()
-            .unwrap()
-            .table
-            .evaluate(candidate, route_live);
-        let counter = match decision {
+        let freshness = self.announce_freshness.lock().unwrap();
+        let counter = match freshness.table.evaluate(candidate, route_live) {
             AnnounceFreshnessDecision::Accept(_) => return false,
+            AnnounceFreshnessDecision::Reject(_)
+                if self.gravity_repoints(&freshness.table, candidate, iface, pkt.hops) =>
+            {
+                return false;
+            }
             AnnounceFreshnessDecision::Reject(AnnounceFreshnessReject::Replay) => {
                 &self.routing_stats.freshness_replays_rejected
             }
@@ -153,11 +222,15 @@ impl Endpoint {
     /// Rate debt resets; retained interface counters and in-flight cooldowns survive.
     /// Rows are trimmed to capacity and release tasks are woken to reconsider deadlines.
     pub fn set_announce_ingress_policy(&self, policy: AnnounceIngressPolicy) {
-        self.shared
+        let evicted = self
+            .shared
             .announce_admission
             .lock()
             .unwrap()
             .set_policy(policy);
+        let mut held = self.shared.held_announces.lock().unwrap();
+        evicted.into_iter().for_each(|iface| held.purge(iface));
+        drop(held);
         self.shared.held_release_wake.notify_waiters();
     }
 
@@ -214,9 +287,52 @@ impl Endpoint {
     }
 }
 
+/// Interface admission for a verified announce (`Transport.py` 1807-1825): one for an
+/// unknown destination waits while its interface bursts, unless we asked for its path in the
+/// last [`PATH_REQUEST_GATE`], so a path response is never stuck behind a flood.
+pub(super) fn admit_verified_announce(
+    shared: &Arc<Shared>,
+    iface: InterfaceId,
+    pkt: Packet,
+    announce: Announce,
+) {
+    let destination = announce.destination;
+    let known = shared.path_table.lock().unwrap().contains_key(&destination)
+        || shared.path_requested_within(destination, PATH_REQUEST_GATE);
+    let ingress = shared.iface_policy(iface).ingress;
+    let now = shared.announce_admission_now_ms();
+    let (verdict, evicted) = shared
+        .announce_admission
+        .lock()
+        .unwrap()
+        .observe_interface(iface, known, now, ingress);
+    if let Some(evicted) = evicted {
+        shared.held_announces.lock().unwrap().purge(evicted);
+    }
+    let InterfaceVerdict::Hold { release_at_ms } = verdict else {
+        return process_verified_announce(shared, iface, pkt, announce);
+    };
+    let held = HeldAnnounce {
+        interface: iface,
+        packet: pkt,
+        announce,
+    };
+    let stats = &shared.routing_stats;
+    if shared.hold_announce(held, ingress) {
+        shared.announce_admission.lock().unwrap().note_held(iface);
+        stats.held_announces.fetch_add(1, Ordering::Relaxed);
+        start_held_announce_release(shared, iface, release_at_ms);
+    } else {
+        let mut admission = shared.announce_admission.lock().unwrap();
+        admission.note_held_dropped(iface);
+        stats.held_announces_dropped.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
 /// Release verified unknown-route announces one at a time after their ingress interface has
-/// calmed. The task is per interface, not per packet, so a burst cannot turn into a timer
-/// storm. It is tracked with the endpoint's other tasks and is aborted on close.
+/// calmed, fewest hops first (`Interface.py` 278-297). The task is per interface, not per
+/// packet, so a burst cannot turn into a timer storm. It is tracked with the endpoint's other
+/// tasks and is aborted on close.
 pub(super) fn start_held_announce_release(
     shared: &Arc<Shared>,
     iface: InterfaceId,
@@ -241,28 +357,19 @@ pub(super) fn start_held_announce_release(
             }
 
             let now_ms = owner.announce_admission_now_ms();
-            let has_held = owner
-                .held_announces
-                .lock()
-                .unwrap()
-                .iter()
-                .any(|announce| announce.interface == iface);
-            if !has_held {
+            if !owner.held_announces.lock().unwrap().holds(iface) {
                 break;
             }
+            let ingress = owner.iface_policy(iface).ingress;
             let Some(next_due_ms) = owner
                 .announce_admission
                 .lock()
                 .unwrap()
-                .release_due(iface, now_ms)
+                .release_due(iface, now_ms, ingress)
             else {
                 // The bounded ledger evicted this interface (or policy cleared it).
                 // Retire its deferred work; otherwise task restart would spin forever.
-                owner
-                    .held_announces
-                    .lock()
-                    .unwrap()
-                    .retain(|held| held.interface != iface);
+                owner.held_announces.lock().unwrap().purge(iface);
                 break;
             };
             if next_due_ms > now_ms {
@@ -270,13 +377,7 @@ pub(super) fn start_held_announce_release(
                 continue;
             }
 
-            let held = {
-                let mut queue = owner.held_announces.lock().unwrap();
-                queue
-                    .iter()
-                    .position(|announce| announce.interface == iface)
-                    .and_then(|index| queue.remove(index))
-            };
+            let held = owner.held_announces.lock().unwrap().take_nearest(iface);
             let Some(held) = held else {
                 due_ms = next_due_ms;
                 continue;
@@ -292,13 +393,7 @@ pub(super) fn start_held_announce_release(
 
         owner.held_release_tasks.lock().unwrap().remove(&iface);
         let next_due_ms = owner.announce_admission_now_ms();
-        if owner
-            .held_announces
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|announce| announce.interface == iface)
-        {
+        if owner.held_announces.lock().unwrap().holds(iface) {
             start_held_announce_release(&owner, iface, next_due_ms);
         }
     }) {
@@ -335,6 +430,12 @@ pub(super) fn process_verified_announce(
     let route_live = shared.has_live_route(announce.destination);
     let accepted = match freshness.table.evaluate(candidate, route_live) {
         AnnounceFreshnessDecision::Accept(accepted) => accepted,
+        AnnounceFreshnessDecision::Reject(_)
+            if shared.gravity_repoints(&freshness.table, candidate, iface, pkt.hops) =>
+        {
+            shared.learn_path(announce.destination, iface, pkt.hops, pkt.transport);
+            return;
+        }
         AnnounceFreshnessDecision::Reject(AnnounceFreshnessReject::Replay) => {
             shared
                 .routing_stats
@@ -414,19 +515,30 @@ pub(super) fn process_verified_announce(
         return;
     }
 
+    // RNS rate-counts every path-updating announce arriving on an interface with a rate rule,
+    // relayed or not (`Transport.py` 2299-2333). An interface's own rule applies always; the
+    // endpoint's only to a transport, as RNS sets `default_ar_*` (`Reticulum.py` 968-971).
+    let policy = shared.routing.lock().unwrap().clone();
+    let now = shared.announce_admission_now_ms();
+    let rate_override = shared.iface_policy(iface).announce_rate;
+    let mut admission = shared.announce_admission.lock().unwrap();
+    let rate = rate_override.or_else(|| {
+        policy
+            .forward_announces
+            .then(|| admission.policy().destination_rate())
+            .flatten()
+    });
+    let blocked = rate.is_some_and(|rate| {
+        admission.observe_destination(destination, rate, now) == DestinationVerdict::BlockRelay
+    });
+    drop(admission);
+
     // Relay as a transport node: hops+1, stamped with our identity so downstream peers
     // address replies through us, from the rebroadcast table.
-    let policy = shared.routing.lock().unwrap().clone();
     if !policy.relays_announce_from(iface) || !shared.announce_is_new(pkt.hash()) {
         return;
     }
-    if shared
-        .announce_admission
-        .lock()
-        .unwrap()
-        .observe_destination(destination, shared.announce_admission_now_ms())
-        == DestinationVerdict::BlockRelay
-    {
+    if blocked {
         shared
             .routing_stats
             .relay_rate_limited_announces

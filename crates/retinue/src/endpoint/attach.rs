@@ -30,10 +30,14 @@ impl Shared {
         let id = iface.id;
         self.write_diagnostic(|| {
             self.interfaces.lock().unwrap().push(iface);
-            self.announce_admission
+            let evicted = self
+                .announce_admission
                 .lock()
                 .unwrap()
                 .attach_interface(id, self.announce_admission_now_ms());
+            if let Some(evicted) = evicted {
+                self.held_announces.lock().unwrap().purge(evicted);
+            }
             (true, true)
         })
     }
@@ -66,10 +70,7 @@ impl Shared {
                 .unwrap()
                 .retain(|_, bridge| bridge.from != id && bridge.out != id);
             self.announce_admission.lock().unwrap().forget_interface(id);
-            self.held_announces
-                .lock()
-                .unwrap()
-                .retain(|announce| announce.interface != id);
+            self.held_announces.lock().unwrap().purge(id);
             self.held_release_wake.notify_waiters();
             ((), removed || routes_removed)
         });
