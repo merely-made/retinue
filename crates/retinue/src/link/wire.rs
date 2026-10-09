@@ -130,6 +130,7 @@ pub fn link_id(request: &Packet) -> Result<AddressHash> {
     let mut buf = Vec::with_capacity(1 + 16 + 1 + LINK_KEYS_LEN);
     // The high flag nibble changes in transit, so it is masked out. Both captures had
     // flags == 0x02, so the mask rests on the manual and Beechat, not on the capture.
+    // Revisit if a two-hop link ever fails.
     buf.push(request.encode()[0] & 0x0F);
     buf.extend_from_slice(request.destination.as_slice());
     buf.push(request.context);

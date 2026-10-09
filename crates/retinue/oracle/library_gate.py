@@ -1,4 +1,4 @@
-"""Shared plumbing for the library-path live gates (examples/library_oracle.rs).
+"""Shared plumbing for the library-path live gates (examples/library_oracle/).
 
 Each gate runs stock RNS in a child process (RNS owns process-global state and may
 hard-exit during teardown); the parent owns the disposable RNS config directory and
@@ -32,7 +32,7 @@ RESOURCE_STATUS = {
 
 
 def payload(length: int, seed: int) -> bytes:
-    """The xorshift32 stream library_oracle.rs generates: one low byte per step."""
+    """The xorshift32 stream examples/library_oracle/main.rs generates: one low byte per step."""
     x = seed or 1
     out = bytearray(length)
     for i in range(length):

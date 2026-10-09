@@ -31,8 +31,8 @@ from library_gate import Retinue, payload, start_rns, supervise, verdict
 TITLE = "LINK LIVENESS INTEROP"
 HOLD = 90
 SEED = 0x7C4
-LIVENESS_SEED = bytes([0x5C] * 64)  # RNS_LIVENESS_SEED in library_oracle.rs
-RETINUE_SEED = bytes([0x47] * 64)  # IDENTITY_SEED in library_oracle.rs
+LIVENESS_SEED = bytes([0x5C] * 64)  # RNS_LIVENESS_SEED in examples/library_oracle/main.rs
+RETINUE_SEED = bytes([0x47] * 64)  # IDENTITY_SEED in examples/library_oracle/main.rs
 LINK_MDU = 431
 # fixarray(3) + float64 time (9) + bin8 path hash (18) + bin16 header (3) = 31 bytes.
 RNS_DATA = payload(LINK_MDU - 31, SEED ^ 0x55)

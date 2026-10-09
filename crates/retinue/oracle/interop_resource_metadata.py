@@ -23,10 +23,10 @@ from library_gate import RESOURCE_STATUS, Retinue, payload, start_rns, supervise
 TITLE = "RESOURCE METADATA INTEROP"
 LENGTH = 120_000
 SEED = 0x3E7A
-SINK_SEED = bytes([0x5A] * 64)  # RNS_SINK_SEED in library_oracle.rs
+SINK_SEED = bytes([0x5A] * 64)  # RNS_SINK_SEED in examples/library_oracle/main.rs
 PAYLOAD = payload(LENGTH, SEED)
 RNS_METADATA = {"name": "rns.bin", "size": LENGTH, "tags": ["a", "b"]}
-RETINUE_METADATA = {"name": "retinue.bin", "n": 7}  # RETINUE_METADATA in library_oracle.rs
+RETINUE_METADATA = {"name": "retinue.bin", "n": 7}  # RETINUE_METADATA in examples/library_oracle/resource.rs
 
 
 def main() -> int:
