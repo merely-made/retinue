@@ -30,7 +30,7 @@ MESSAGES = 10
 CHUNK = 400
 LENGTH = MESSAGES * CHUNK
 SEED = 0x7B3
-STREAM_SEED = bytes([0x5B] * 64)  # RNS_STREAM_SEED in library_oracle.rs
+STREAM_SEED = bytes([0x5B] * 64)  # RNS_STREAM_SEED in examples/library_oracle/main.rs
 PAYLOAD = payload(LENGTH, SEED)
 
 

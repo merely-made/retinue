@@ -24,7 +24,7 @@ from library_gate import RESOURCE_STATUS, Retinue, payload, start_rns, supervise
 TITLE = "LIBRARY RESOURCE SEND INTEROP"
 LENGTH = 300_000
 SEED = 0x5E2D
-SINK_SEED = bytes([0x5A] * 64)  # RNS_SINK_SEED in library_oracle.rs
+SINK_SEED = bytes([0x5A] * 64)  # RNS_SINK_SEED in examples/library_oracle/main.rs
 PAYLOAD = payload(LENGTH, SEED)
 
 

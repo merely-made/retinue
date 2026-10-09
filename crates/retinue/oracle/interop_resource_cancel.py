@@ -28,7 +28,7 @@ from library_gate import RESOURCE_STATUS, Retinue, payload, start_rns, supervise
 TITLE = "RESOURCE REJECT AND CANCEL INTEROP"
 LENGTH = 600_000
 SEED = 0xCA2CE1
-SINK_SEED = bytes([0x5A] * 64)  # RNS_SINK_SEED in library_oracle.rs
+SINK_SEED = bytes([0x5A] * 64)  # RNS_SINK_SEED in examples/library_oracle/main.rs
 PAYLOAD = payload(LENGTH, SEED)
 PROMPT = 5.0  # seconds; every timeout in play is 60 s
 STALL = 1.5  # seconds RNS holds its first part request in phase 4; Retinue gives up at 0.4

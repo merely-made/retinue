@@ -1,0 +1,232 @@
+//! Completion proofs: lost, recovered by cache request, and never arriving.
+
+use super::*;
+
+/// A receiver that drops its session as soon as it has the data takes the link, and the
+/// proof it kept, with it. The copies of its proof queued at completion still reach a
+/// publisher that lost the first, as LXMF direct delivery needs.
+#[tokio::test]
+async fn endpoint_publish_survives_a_lost_completion_proof() {
+    let server_id = PrivateIdentity::from_secret_bytes(&[0x24; 64]);
+    let client_id = PrivateIdentity::from_secret_bytes(&[0x13; 64]);
+    let server = Arc::new(Endpoint::new(server_id.clone()));
+    let client = Endpoint::new(client_id);
+
+    let name = DestinationName::new("retinue", ["resource-proof-replay"]);
+    let destination = name.destination_hash(server_id.public());
+    server.register_resource(name, b"");
+    let (proofs_dropped, _) = connect_dropping_resource_proofs(&client, &server, false);
+
+    let payload: Vec<u8> = (0..2_000_u32)
+        .map(|n| n.wrapping_mul(29).wrapping_add(5) as u8)
+        .collect();
+    let expected = payload.clone();
+    // The session, and with it the link, is dropped the moment the data is in hand.
+    let receiver = tokio::spawn({
+        let server = Arc::clone(&server);
+        async move {
+            let mut accepted = server.accept_resource().await.unwrap();
+            accepted.session.receive().await.unwrap()
+        }
+    });
+
+    let sent = client
+        .send_payload_with_config(
+            destination,
+            *server_id.public(),
+            &payload,
+            ResourceTransferConfig {
+                timeout: Duration::from_secs(2),
+                retry_interval: Duration::from_millis(20),
+                request_window: 1,
+            },
+        )
+        .await
+        .expect("a queued copy of the completion proof reaches the publisher");
+
+    assert_eq!(sent, PayloadMode::Resource);
+    assert_eq!(
+        proofs_dropped.load(Ordering::Acquire),
+        1,
+        "the test must remove the receiver's first completion proof"
+    );
+    assert_eq!(receiver.await.unwrap(), ReceivedPayload::Resource(expected));
+}
+
+/// A publisher that hears none of the proofs sent at completion asks for one with a cache
+/// request, and the receiver, still holding the link, answers from the proof it kept.
+#[tokio::test]
+async fn endpoint_publish_recovers_a_lost_proof_with_a_cache_request() {
+    let server_id = PrivateIdentity::from_secret_bytes(&[0x25; 64]);
+    let client_id = PrivateIdentity::from_secret_bytes(&[0x14; 64]);
+    let server = Arc::new(Endpoint::new(server_id.clone()));
+    let client = Endpoint::new(client_id);
+
+    let name = DestinationName::new("retinue", ["resource-proof-cache"]);
+    let destination = name.destination_hash(server_id.public());
+    server.register_resource(name, b"");
+    let (proofs_dropped, cache_requests) = connect_dropping_resource_proofs(&client, &server, true);
+
+    let payload: Vec<u8> = (0..2_000_u32)
+        .map(|n| n.wrapping_mul(31).wrapping_add(7) as u8)
+        .collect();
+    let expected = payload.clone();
+    // The receiver keeps its session (and so the link and its kept proof) until the
+    // publisher is done: a proof can only be asked for again while the link lives.
+    let receiver = tokio::spawn({
+        let server = Arc::clone(&server);
+        async move {
+            let mut accepted = server.accept_resource().await.unwrap();
+            let payload = accepted.session.receive().await.unwrap();
+            (payload, accepted)
+        }
+    });
+
+    let sent = client
+        .send_payload_with_config(
+            destination,
+            *server_id.public(),
+            &payload,
+            ResourceTransferConfig {
+                timeout: Duration::from_secs(2),
+                retry_interval: Duration::from_millis(20),
+                request_window: 1,
+            },
+        )
+        .await
+        .expect("the publisher's cache request recovers the lost completion proof");
+
+    assert_eq!(sent, PayloadMode::Resource);
+    assert!(
+        proofs_dropped.load(Ordering::Acquire) >= 3,
+        "every proof sent at completion was removed"
+    );
+    assert!(
+        cache_requests.load(Ordering::Acquire) > 0,
+        "the publisher asked for its proof with a cache request"
+    );
+    let (received, _session) = receiver.await.unwrap();
+    assert_eq!(received, ReceivedPayload::Resource(expected));
+}
+
+/// The receiver's completion proof crosses the wire as a PROOF-type packet, the only form
+/// RNS accepts, and the publishing Endpoint completes on it.
+#[tokio::test]
+async fn endpoint_resource_proof_is_proof_typed_and_completes_the_publisher() {
+    let server_id = PrivateIdentity::from_secret_bytes(&[0x26; 64]);
+    let client_id = PrivateIdentity::from_secret_bytes(&[0x15; 64]);
+    let server = Arc::new(Endpoint::new(server_id.clone()));
+    let client = Endpoint::new(client_id);
+
+    let name = DestinationName::new("retinue", ["resource-proof-type"]);
+    let destination = name.destination_hash(server_id.public());
+    server.register_resource(name, b"");
+
+    let (mut a_out, a_sink) = client.attach_interface().split();
+    let (mut b_out, b_sink) = server.attach_interface().split();
+    tokio::spawn(async move {
+        while let Some(packet) = a_out.recv().await {
+            if !b_sink.deliver(packet) {
+                break;
+            }
+        }
+    });
+    let proof_types = Arc::new(std::sync::Mutex::new(Vec::new()));
+    tokio::spawn({
+        let proof_types = Arc::clone(&proof_types);
+        async move {
+            while let Some(packet) = b_out.recv().await {
+                if packet.context == CTX_RESOURCE_PRF {
+                    proof_types.lock().unwrap().push(packet.packet_type);
+                }
+                if !a_sink.deliver(packet) {
+                    break;
+                }
+            }
+        }
+    });
+
+    let payload: Vec<u8> = (0..3_000_u32).map(|n| n.wrapping_mul(17) as u8).collect();
+    let receiver = tokio::spawn({
+        let server = Arc::clone(&server);
+        async move {
+            let mut accepted = server.accept_resource().await.unwrap();
+            accepted.session.receive().await.unwrap()
+        }
+    });
+    let sent = client
+        .send_payload_with_config(
+            destination,
+            *server_id.public(),
+            &payload,
+            ResourceTransferConfig {
+                timeout: Duration::from_secs(5),
+                retry_interval: Duration::from_millis(100),
+                request_window: 4,
+            },
+        )
+        .await
+        .expect("the publisher completes on the PROOF-type receipt");
+    assert_eq!(sent, PayloadMode::Resource);
+    assert_eq!(receiver.await.unwrap(), ReceivedPayload::Resource(payload));
+
+    let proof_types = proof_types.lock().unwrap();
+    assert!(!proof_types.is_empty());
+    assert!(proof_types.iter().all(|t| *t == PacketType::Proof));
+}
+
+/// A publisher that never hears a proof asks for it three times, then cancels and fails,
+/// as RNS's sender does, rather than waiting out its whole timeout. The receiver answers
+/// each request, and no more than its cap however often it is asked.
+#[tokio::test]
+async fn a_publish_whose_proof_never_arrives_gives_up_after_its_cache_requests() {
+    let server_id = PrivateIdentity::from_secret_bytes(&[0x37; 64]);
+    let server = Arc::new(Endpoint::new(server_id.clone()));
+    let client = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x38; 64]));
+    let name = DestinationName::new("retinue", ["resource-proof-never"]);
+    let destination = name.destination_hash(server_id.public());
+    server.register_resource(name, b"");
+    let proofs = Arc::new(AtomicUsize::new(0));
+    let counted = Arc::clone(&proofs);
+    // No proof ever reaches the publisher.
+    connect_filtered(
+        &client,
+        &server,
+        |_| true,
+        move |packet| {
+            if packet.context == CTX_RESOURCE_PRF {
+                counted.fetch_add(1, Ordering::AcqRel);
+                return false;
+            }
+            true
+        },
+    );
+
+    let receiver = tokio::spawn({
+        let server = Arc::clone(&server);
+        async move {
+            let mut accepted = server.accept_resource().await.unwrap();
+            let payload = accepted.session.receive().await.unwrap();
+            (payload, accepted)
+        }
+    });
+    let started = std::time::Instant::now();
+    let error = client
+        .send_payload_with_config(
+            destination,
+            *server_id.public(),
+            &incompressible(2_000),
+            quick(Duration::from_secs(20)),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "{:?}",
+        started.elapsed()
+    );
+    let (_, _session) = receiver.await.unwrap();
+    // Three sent at completion, then one answer to each of three cache requests.
+    assert_eq!(proofs.load(Ordering::Acquire), 3 + 3);
+}
