@@ -30,11 +30,8 @@ pub use types::{
 
 /// The hardware every channel shares, and the only way a channel reaches it.
 ///
-/// A borrowed view rather than an owner. A board that holds one for the whole of `main` gets
-/// the full boundary — its own `lora` is unreachable for as long as the executive lives — and
-/// a board still carrying a bespoke radio path can construct one per call and adopt the seam
-/// incrementally. The V4 does the latter while its low-power receive keeps its own hand on
-/// the radio; the T114 does the former.
+/// A borrowed view rather than an owner: the T114 holds one for the whole of `main`, while
+/// the V4 builds one per call because its low-power receive keeps its own hand on the radio.
 pub struct Executive<'r, RK: RadioKind, DLY: DelayNs> {
     lora: &'r mut LoRa<RK, DLY>,
     radio: &'r mut RadioState,
@@ -226,10 +223,8 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
 
     /// Put the radio back into continuous receive if anything has disturbed it.
     ///
-    /// Idempotent and cheap when nothing is owed, so a serve loop can call it every turn
-    /// without thinking about whether it needs to. Returns whether the radio was actually
-    /// re-prepared, because a caller that reports "online" on the face should say so when
-    /// something changed rather than on every turn of the loop.
+    /// Idempotent and cheap when nothing is owed. Returns whether the radio was actually
+    /// re-prepared, so a caller reports "online" only when something changed.
     pub async fn ensure_rx(&mut self) -> Result<bool, RadioFault> {
         if !self.radio.prepare_rx {
             return Ok(false);
@@ -269,14 +264,9 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
     /// Wait until the radio has something to say. **This is the only radio future that is
     /// safe to race**, and racing it is the whole point.
     ///
-    /// A loop that selects a whole receive against host input cancels that receive wherever
-    /// it happens to be. Almost always that is inside this wait, where abandoning costs
-    /// nothing. But once the interrupt fires, a receive opens SPI transactions to read the
-    /// cause and pull the payload out of the chip; cancelling *there* consumes the interrupt,
-    /// leaves the bytes in a FIFO the next packet overwrites, and reports nothing. Rare per
-    /// event, certain over a week, and silent.
-    ///
-    /// So: race this, and when it returns, call [`Self::collect`] without racing it.
+    /// Once the interrupt fires, a receive opens SPI transactions; cancelling there consumes
+    /// the interrupt and silently loses the frame. So race this, and when it returns, call
+    /// [`Self::collect`] without racing it.
     pub async fn wait_rx_irq(&mut self) -> Result<(), RadioFault> {
         self.lora.wait_for_irq().await.map_err(|_| {
             self.diag.rx_err = self.diag.rx_err.saturating_add(1);
@@ -353,15 +343,10 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
                         snr: status.snr,
                     });
                 }
-                // A packet that did not survive the air. Counted and dropped here rather
-                // than reported upward, because the two are genuinely different events and
-                // the difference is visible from nowhere else: the radio is fine, so a board
-                // that answered this with its "radio rx failed" line would be lying to its
-                // host — and on a channel speaking somebody else's binary protocol, it would
-                // be injecting text into their stream.
-                //
-                // The radio is still in continuous receive (the driver leaves the mode alone
-                // on an error there), so listening again is the whole recovery.
+                // A packet that did not survive the air: counted and dropped, not reported
+                // as a radio fault, which would also inject text into a binary channel's
+                // stream. The radio is still in continuous receive, so listening again is
+                // the whole recovery.
                 Err(RadioError::PayloadCrcError | RadioError::HeaderError) => {
                     self.diag.rx_damaged = self.diag.rx_damaged.saturating_add(1);
                     if let Some(observations) = self.observations.as_deref_mut() {
@@ -389,10 +374,8 @@ impl<'r, RK: RadioKind, DLY: DelayNs> Executive<'r, RK, DLY> {
 
 /// A channel's own clock.
 ///
-/// Most channels have nothing to do on a timer, and a periodic wake that exists only to be
-/// ignored is a real cost on a battery board. So the absent case is a future that never
-/// completes rather than a fast tick with an empty body: the modem channel's serve loop waits
-/// on exactly the two things it did before this existed.
+/// The absent case is a future that never completes rather than a fast empty tick, which
+/// would cost a battery board a periodic wake for nothing.
 pub struct Heartbeat {
     ticker: Option<Ticker>,
 }

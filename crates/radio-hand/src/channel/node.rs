@@ -70,9 +70,8 @@ pub struct NodeChannel<const PEERS: usize = 32, const ACTIONS: usize = 8, const 
     /// The node a replay runs against: a fixed test identity, never the board's own, built
     /// on demand so a board that is never asked to replay pays nothing for the facility.
     replay: Option<alloc::boxed::Box<Node<PEERS, ACTIONS, LINKS>>>,
-    /// Frames the node asked for that never reached the air. Counted rather than queued: a
-    /// retransmit is the protocol's decision, not the shell's, and a shell that silently
-    /// buffers would be lying to it about what happened.
+    /// Frames the node asked for that never reached the air. Counted, not queued: a
+    /// retransmit is the protocol's decision, not the shell's.
     pub(super) unsent: u16,
     /// Announces skipped because the board could not produce entropy.
     unseeded: u16,
@@ -89,9 +88,8 @@ pub struct NodeChannel<const PEERS: usize = 32, const ACTIONS: usize = 8, const 
     echoes: u16,
     /// Echoes refused because the link was gone or a transfer still held it.
     echo_refused: u16,
-    /// When each recently-heard peer last announced, most recent last. The address book
-    /// holds identity and keys; this holds the one thing it deliberately does not, a clock,
-    /// so the Peers panel can show genuine ages instead of a projected guess.
+    /// When each recently-heard peer last announced, most recent last: the clock the
+    /// address book lacks, so the Peers panel shows genuine ages.
     pub(super) heard: heapless::Vec<(AddressHash, u64), 8>,
     /// The face's event line: the last thing worth telling a passer-by.
     pub(super) last_event: Option<UiEvent>,
@@ -191,11 +189,8 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
 
     /// Carry out what the node decided.
     ///
-    /// Sends go on the air through the executive, so they pass whatever the executive
-    /// enforces. A completed inbound resource is echoed back on its link — the loopback
-    /// service, this node's first and so far only application. Everything else is a report:
-    /// the node has already recorded it, and a shell that has no face for it yet may simply
-    /// let it by.
+    /// Sends pass through the executive. A completed inbound resource is echoed back on its
+    /// link (the loopback service); everything else is a report the node already recorded.
     async fn perform<L, RK, DLY>(
         &mut self,
         exec: &mut Executive<'_, RK, DLY>,
@@ -217,8 +212,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
                     self.transmit(exec, packet).await;
                 }
                 // The loopback service: what arrives whole goes back whole, on the same
-                // link. This is what N5's byte-exact both-directions receipt drives, and
-                // until the panels land it is the one way a peer can make the board speak.
+                // link. N5's byte-exact both-directions receipt drives this.
                 Action::Resource { link_id, data } => {
                     let mut random_hash = [0_u8; retinue::resource::RANDOM_HASH_LEN];
                     let mut iv = [0_u8; retinue::token::IV_LEN];
@@ -299,9 +293,8 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize>
 impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> ChannelInfo
     for NodeChannel<PEERS, ACTIONS, LINKS>
 {
-    /// Only where no host line is half-read. A replay line is several hundred bytes and
-    /// arrives across many host reads, so a fragment of one must never be mistaken for a
-    /// board probe — which is exactly what this trait method exists for.
+    /// Only where no host line is half-read, so a fragment of a replay line is never
+    /// mistaken for a board probe.
     fn at_boundary(&self) -> bool {
         self.line.is_empty()
     }
@@ -310,9 +303,8 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize> ChannelInfo
         Some(BEAT)
     }
 
-    /// Yes. A node with no host attached is still a node: it announces, it answers links, and
-    /// it keeps its own timers. Gating any of that on a USB cable would make the board a
-    /// peripheral of a computer, which is the opposite of what this personality is for.
+    /// Yes. A node with no host attached still announces, answers links, and keeps its own
+    /// timers.
     fn without_host(&self) -> bool {
         true
     }
@@ -410,10 +402,9 @@ where
                 let unsent_before = self.unsent;
                 let flow = self.perform(exec, link, actions).await;
 
-                // Something the node's own timers asked for did not reach the air. Resource
-                // retransmits carry their own stamps and will come round again; the
-                // announce is the one whose stamp would otherwise swallow the failure, so
-                // it is the one scheduled to try again.
+                // Something the node's timers asked for did not reach the air. Resource
+                // retransmits come round again on their own; the announce's stamp would
+                // swallow the failure, so it is the one rescheduled.
                 if self.unsent != unsent_before {
                     self.announce_retry_wait = self
                         .announce_retry_wait
@@ -427,9 +418,8 @@ where
                 }
                 flow
             }
-            // A host is an observer of this channel: it may ask what the node has seen and
-            // done (`node`, `face`), and it may drive a replay. The panels need none of
-            // this — they publish from local state on the beat.
+            // A host only observes (`node`, `face`) or drives a replay; the panels publish
+            // from local state on the beat.
             Event::HostBytes(bytes) => {
                 for &byte in bytes {
                     if byte != b'\n' {

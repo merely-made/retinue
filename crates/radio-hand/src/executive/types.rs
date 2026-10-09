@@ -20,9 +20,8 @@ pub struct RadioState {
     pub prepare_rx: bool,
 }
 
-/// The board's local face. Function pointers rather than a trait: both images already expose
-/// exactly these two signatures as free functions, so this costs nothing and needs no borrow
-/// of the board's UI state.
+/// The board's local face. Function pointers, since both images expose these as free
+/// functions and no borrow of UI state is needed.
 pub struct Face {
     pub publish: fn(LocalStatus, LedSignal),
     pub publish_host: fn(HostSnapshot),
@@ -30,9 +29,8 @@ pub struct Face {
 
 /// A board's ability to read its radio chip's diagnostic registers.
 ///
-/// Chip-specific: `sx126x_diagnostics` lives on the SX126x kind, not on `LoRa`, so this
-/// cannot be called generically. It takes a `lora` borrow rather than holding one, which is
-/// what lets the executive lend out its own radio for the length of the call.
+/// Chip-specific (`sx126x_diagnostics` lives on the SX126x kind), so it borrows the
+/// executive's `lora` for the length of the call.
 ///
 /// Ordering is load-bearing: the host attaches the most recent diagnostic to a failed
 /// transmit, so one emitted after its `EVENT_TX` reply would be misattributed.
@@ -46,28 +44,19 @@ pub trait ChipDiagnostics<RK: RadioKind, DLY: DelayNs> {
 
 /// The board's own persistent facts and its entropy.
 ///
-/// One trait rather than two because one object holds both on real hardware: the T114's
-/// `SettingsStore` owns the NVMC pages *and* the hardware RNG, so a pair of traits would
-/// need two mutable borrows of the same thing.
-///
-/// It lives on the executive for the reason structural decision 4 gives — the executive owns
-/// the flash, so a channel cannot reach past it to the store — and because it is the seam a
-/// channel switch goes through: the switch is a persisted field plus a reboot.
+/// One trait because one object holds both on the T114 (NVMC pages and hardware RNG). It
+/// lives on the executive per structural decision 4, so a channel cannot reach the store.
 pub trait BoardStore {
     /// Fill `out` with random bytes.
     ///
-    /// Fallible on purpose. A board can genuinely have no entropy source, and the heltec
-    /// doc's adversarial set asks for a bounded outcome when entropy fails, which is only
-    /// expressible if failing is representable. Filling with zeros would be silently worse
-    /// than refusing.
+    /// Fallible on purpose: a board may have no entropy source, and filling with zeros would
+    /// be silently worse than refusing.
     fn random(&mut self, out: &mut [u8]) -> Result<(), StoreFault>;
 
     /// Persist new settings, keeping the identity already stored.
     ///
-    /// Erase stalls the CPU for tens of milliseconds and blanks receive, so a caller either
-    /// runs before the radio starts or resets the board immediately after. Pressure point 3
-    /// holds by that contract rather than by a staged-commit window; a caller that can do
-    /// neither has to build one.
+    /// Erase stalls the CPU and blanks receive, so a caller either runs before the radio
+    /// starts or resets immediately after (pressure point 3).
     fn save(&mut self, settings: &crate::settings::Settings) -> Result<(), StoreFault>;
 }
 
@@ -82,9 +71,8 @@ pub enum StoreFault {
 
 /// A board with neither persistence nor entropy.
 ///
-/// The V4's honest state: gate N0 gave the T114 a store and left this board without one. It
-/// refuses rather than pretending, so a channel that needs entropy fails loudly here instead
-/// of announcing itself with zeros.
+/// The V4's state. It refuses rather than pretending, so a channel that needs entropy fails
+/// loudly instead of announcing itself with zeros.
 pub struct NoStore;
 
 impl BoardStore for NoStore {
@@ -131,9 +119,8 @@ pub struct CaptureArm {
 
 /// What the executive has actually done with the radio, counted.
 ///
-/// Diagnostics assert presence, not just cost: when a path is silently dead — a receive that
-/// never completes, an ensure that always fails — these counters are what says so, loudly and
-/// attributably, on a board with no console. The `air` probe prints them.
+/// These counters expose a silently dead path on a board with no console; the `air` probe
+/// prints them.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct AirDiag {
     /// Times `ensure_rx` re-armed the receiver.
