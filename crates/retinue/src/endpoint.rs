@@ -23,6 +23,7 @@ mod queue;
 mod rebroadcast;
 mod registration;
 mod reliable_driver;
+mod resource_inbound;
 mod resource_pace;
 mod resource_requests;
 mod resource_session;
@@ -47,6 +48,7 @@ pub use interface::{Interface, InterfaceId, InterfaceSink};
 pub use queue::{
     ClassCounters, OutboundPackets, QueueCounters, QueueDepths, QueueWeights, TrafficClass,
 };
+pub use resource_inbound::{ReceivedLinkData, SessionInbound};
 pub use resource_requests::{ReceivedRawRequest, ReceivedRawResponse, ReceivedRequest};
 pub use resource_session::{PayloadMode, ReceivedPayload, ResourceSession, ResourceTransferConfig};
 pub use routing::{InterfaceSelector, RoutingCounters, RoutingPolicy};

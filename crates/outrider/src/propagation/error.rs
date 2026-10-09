@@ -68,4 +68,8 @@ pub enum PropagationError {
     InvalidStoreSnapshot,
     #[error("unsupported propagation-store snapshot version {0}")]
     UnsupportedStoreSnapshotVersion(u64),
+    #[error("the submitting identity is throttled for an invalid stamp")]
+    Throttled,
+    #[error("a client may submit only one propagation entry per transfer")]
+    UnpeeredBatch,
 }

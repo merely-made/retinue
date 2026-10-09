@@ -11,9 +11,10 @@ use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use outrider::{
-    DEFAULT_MAX_MESSAGE_BYTES, DeliveryAnnounce, LxmfPayload, PROPAGATION_METADATA_NAME,
-    PropagationAnnounce, PropagationBatch, PropagationCosts, PropagationStore,
-    PropagationStoreLimits, fetch_propagation_with_resource_config, prepare_propagation,
+    DEFAULT_MAX_MESSAGE_BYTES, DeliveryAnnounce, LxmfPayload, NodePolicy,
+    PROPAGATION_METADATA_NAME, PropagationAnnounce, PropagationBatch, PropagationCosts,
+    PropagationNode, PropagationStore, PropagationStoreLimits,
+    fetch_propagation_with_resource_config, prepare_propagation,
     receive_direct_with_stamp_cost_and_resource_config, receive_submission, register_delivery,
     register_propagation, send_direct_stamped_with_resource_config, serve_fetch,
     submit_propagation_with_resource_config,
@@ -394,6 +395,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         entries: vec![prepared.entry],
     };
     println!("propagation batch: {} packed bytes", batch.encode()?.len());
+    // A close lost on air would otherwise hold the node's link for the stock 180 s.
+    let propagation_state = PropagationNode::new(
+        PropagationStore::new(PropagationStoreLimits {
+            max_entries: 4,
+            max_bytes: 16 * 1024,
+            max_message_bytes: 4_096,
+            max_age: Duration::from_secs(60),
+            max_per_fetch: 1,
+        }),
+        NodePolicy {
+            costs: PropagationCosts {
+                propagation: STAMP_COST,
+                flexibility: 0,
+                peering: STAMP_COST,
+            },
+            max_transfer_bytes: 4_096,
+            allowed: None,
+            link_idle: operation_timeout,
+        },
+    );
     let receive_submission = async {
         let mut accepted =
             tokio::time::timeout(operation_timeout, pair.right.accept_resource()).await??;
@@ -402,8 +423,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             accepted.interface
         );
         accepted.session.set_config(resource_config);
-        let received =
-            receive_submission(&pair.right, accepted, u16::from(STAMP_COST), 4_096, 1).await?;
+        let received = receive_submission(&pair.right, accepted, &propagation_state, || {
+            TIMESTAMP + 1.0
+        })
+        .await?;
         println!(
             "propagation submit: payload received as {:?}",
             received.mode
@@ -451,15 +474,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         return Err("propagation submission changed the transient id".into());
     }
-    let mut store = PropagationStore::new(PropagationStoreLimits {
-        max_entries: 4,
-        max_bytes: 16 * 1024,
-        max_message_bytes: 4_096,
-        max_age: Duration::from_secs(60),
-        max_per_fetch: 1,
-    });
-    let stored = store.ingest(&received_batch.batch, TIMESTAMP + 1.0);
-    if stored.inserted != 1 || store.len() != 1 {
+    if received_batch.stored.inserted != 1 || propagation_state.store().len() != 1 {
         return Err("propagation node did not store exactly one message".into());
     }
     publish(
@@ -481,9 +496,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await?;
     println!(
         "propagation storage: inserted={} entries={} bytes={}",
-        stored.inserted,
-        store.len(),
-        store.bytes()
+        received_batch.stored.inserted,
+        propagation_state.store().len(),
+        propagation_state.store().bytes()
     );
     tokio::time::sleep(Duration::from_secs(2)).await;
 
@@ -508,7 +523,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ),
         )
         .await?;
-        let served = serve_fetch(&pair.right, &mut accepted, &mut store, TIMESTAMP + 2.0).await?;
+        let served = serve_fetch(&pair.right, accepted, &propagation_state, || {
+            TIMESTAMP + 2.0
+        })
+        .await?;
         Ok::<_, Box<dyn std::error::Error>>(served)
     };
     let fetch = async {

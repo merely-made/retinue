@@ -8,8 +8,6 @@ use super::{
     DEFAULT_MAX_PROPAGATION_ENTRIES, FETCH_PATH_HASH, PropagationError, PropagationMessage,
 };
 
-type FetchSelection = (Vec<[u8; 32]>, Vec<[u8; 32]>, u64);
-
 pub(super) fn encode_value(value: &Value) -> Result<Vec<u8>, PropagationError> {
     let mut encoded = Vec::new();
     rmpv::encode::write_value(&mut encoded, value).map_err(|_| PropagationError::Encode)?;
@@ -70,31 +68,44 @@ pub(super) fn decode_entry_response(
         .collect()
 }
 
-pub(super) fn decode_offer_request(bytes: &[u8]) -> Result<(), PropagationError> {
-    let data = decode_fetch_request(bytes)?;
-    match data {
-        Value::Array(parts) if parts == vec![Value::Nil, Value::Nil] => Ok(()),
-        _ => Err(PropagationError::InvalidFetchRequest),
-    }
+/// A `/get` request: an offer of what is held, or a fetch that may also acknowledge.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) enum GetRequest {
+    Offer,
+    Fetch {
+        wanted: Vec<[u8; 32]>,
+        handled: Vec<[u8; 32]>,
+        /// The client's response budget in KB, integer or float (`LXMRouter.py` 1532-1537).
+        limit_kb: Option<f64>,
+    },
 }
 
-pub(super) fn decode_fetch_selection(bytes: &[u8]) -> Result<FetchSelection, PropagationError> {
-    let Value::Array(parts) = decode_fetch_request(bytes)? else {
+/// Read `[nil|ids, nil|ids, limit?]`. Both nil asks for an offer; anything that is not
+/// a 32-byte id is skipped, as stock's membership test skips it (`LXMRouter.py` 1499-1560).
+pub(super) fn decode_get_request(data: &Value) -> Result<GetRequest, PropagationError> {
+    let Value::Array(parts) = data else {
         return Err(PropagationError::InvalidFetchRequest);
     };
-    if parts.len() != 3 {
+    if parts.len() < 2 {
         return Err(PropagationError::InvalidFetchRequest);
     }
-    let Value::Array(wanted) = &parts[0] else {
-        return Err(PropagationError::InvalidFetchRequest);
+    let ids = |value: &Value| match value {
+        Value::Nil => Ok(None),
+        Value::Array(ids) => Ok(Some(
+            ids.iter()
+                .filter_map(|id| id.as_slice()?.try_into().ok())
+                .collect::<Vec<[u8; 32]>>(),
+        )),
+        _ => Err(PropagationError::InvalidFetchRequest),
     };
-    let Value::Array(handled) = &parts[1] else {
-        return Err(PropagationError::InvalidFetchRequest);
-    };
-    let limit = parts[2]
-        .as_u64()
-        .ok_or(PropagationError::InvalidFetchRequest)?;
-    Ok((decode_ids(wanted)?, decode_ids(handled)?, limit))
+    Ok(match (ids(&parts[0])?, ids(&parts[1])?) {
+        (None, None) => GetRequest::Offer,
+        (wanted, handled) => GetRequest::Fetch {
+            wanted: wanted.unwrap_or_default(),
+            handled: handled.unwrap_or_default(),
+            limit_kb: parts.get(2).and_then(Value::as_f64),
+        },
+    })
 }
 
 pub(super) fn decode_fetch_request(bytes: &[u8]) -> Result<Value, PropagationError> {
@@ -108,19 +119,6 @@ pub(super) fn decode_fetch_request(bytes: &[u8]) -> Result<Value, PropagationErr
         return Err(PropagationError::InvalidFetchRequest);
     }
     Ok(parts.pop().expect("three-item request"))
-}
-
-pub(super) fn decode_ids(values: &[Value]) -> Result<Vec<[u8; 32]>, PropagationError> {
-    values
-        .iter()
-        .map(|value| match value {
-            Value::Binary(id) if id.len() == 32 => Ok(id
-                .as_slice()
-                .try_into()
-                .expect("checked transient id length")),
-            _ => Err(PropagationError::InvalidFetchRequest),
-        })
-        .collect()
 }
 
 pub(super) fn decode_one(bytes: &[u8]) -> Result<Value, PropagationError> {

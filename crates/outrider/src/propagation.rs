@@ -6,7 +6,11 @@ mod client;
 mod error;
 mod msgpack;
 mod node;
+mod policy;
+mod snapshot;
 mod store;
+#[cfg(test)]
+mod store_tests;
 #[cfg(test)]
 mod tests;
 mod wire;
@@ -20,7 +24,11 @@ pub use node::{
     ReceivedPropagationBatch, ServedFetch, announce_propagation, propagation_destination,
     propagation_name, receive_submission, register_propagation, serve_fetch,
 };
-pub use store::{PropagationStore, PropagationStoreLimits, StoreReceipt, StoreRestoreReceipt};
+pub use policy::{LINK_MAX_INACTIVITY, NodePolicy, PropagationNode, STAMP_THROTTLE};
+pub use store::{
+    MAX_PROCESSED_TRANSIENT_IDS, PROCESSED_TRANSIENT_ID_TTL, PropagationStore,
+    PropagationStoreLimits, StoreReceipt, StoreRestoreReceipt,
+};
 pub use wire::{
     PropagationAnnounce, PropagationBatch, PropagationCosts, PropagationEntry, PropagationMessage,
 };

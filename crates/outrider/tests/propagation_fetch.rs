@@ -2,8 +2,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use outrider::{
-    DeliveryAnnounce, LxmfPayload, PROPAGATION_METADATA_NAME, PropagationAnnounce,
-    PropagationBatch, PropagationCosts, PropagationStore, PropagationStoreLimits,
+    DeliveryAnnounce, LxmfPayload, NodePolicy, PROPAGATION_METADATA_NAME, PropagationAnnounce,
+    PropagationBatch, PropagationCosts, PropagationNode, PropagationStore, PropagationStoreLimits,
     fetch_propagation_with_resource_config, prepare_propagation, register_delivery,
     register_propagation, serve_fetch,
 };
@@ -88,6 +88,7 @@ async fn large_fetch_response_uses_a_resource_and_authenticates() {
         1
     );
 
+    let store = PropagationNode::new(store, NodePolicy::from_announce(&announce));
     let server = tokio::spawn({
         let node = Arc::clone(&node);
         async move {
@@ -97,7 +98,7 @@ async fn large_fetch_response_uses_a_resource_and_authenticates() {
                 retry_interval: Duration::from_millis(50),
                 request_window: 1,
             });
-            serve_fetch(&node, &mut accepted, &mut store, 1_753_603_206.0)
+            serve_fetch(&node, accepted, &store, || 1_753_603_206.0)
                 .await
                 .unwrap()
         }

@@ -163,6 +163,10 @@ impl ResourceSession {
         self.metadata.take()
     }
 
+    pub(super) fn set_metadata(&mut self, metadata: Option<Vec<u8>>) {
+        self.metadata = metadata;
+    }
+
     /// Receivers for inbound Resources under this session's policy: its window, timing and
     /// size cap, `max_data_size` for each segment's advertised total, and, for application
     /// Resources but not requests or responses (`Link.py` 1035-1076), its accept hook.
