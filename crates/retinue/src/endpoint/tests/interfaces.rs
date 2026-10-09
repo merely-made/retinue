@@ -378,7 +378,7 @@ async fn a_stalled_writer_or_a_closed_reader_ends_the_pump() {
 #[tokio::test]
 async fn an_unencodable_packet_is_counted_and_skipped() {
     let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x65; 64]));
-    let ifac = Ifac::with_default_size(Some("pump"), None).unwrap();
+    let ifac = Ifac::for_stream(Some("pump"), None).unwrap();
     let iface = ep.attach_interface_with_ifac(600, ifac.clone()).unwrap();
     let id = iface.id();
     let (mut out, _sink) = iface.split();
