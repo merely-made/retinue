@@ -6,9 +6,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use outrider::{
-    DeliveredCache, DeliveryAnnounce, DirectError, LxmfPayload, TicketBook, check_stamp,
-};
+use outrider::{DeliveredCache, DeliveryAnnounce, LxmfPayload, TicketBook, check_stamp};
 use retinue::endpoint::{Endpoint, PeerAnnounce};
 use retinue::hash::AddressHash;
 use retinue::identity::PrivateIdentity;
@@ -107,32 +105,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         issued
     };
     let receipt = outrider::send_direct(&endpoint, &identity, &peer, &reply).await?;
-    // Proof of delivery is not awaited here, so the issuance interval starts at the send.
+    // The issuance interval starts at the proven delivery (`LXMRouter.py` 2765-2768).
+    if !receipt.delivered {
+        return Err("stock did not prove the reply".into());
+    }
     book.lock().unwrap().delivered(peer.destination, now());
     println!("ISSUED {}", hex::encode(issued.ticket));
     println!("REPLY_ID {}", hex::encode(receipt.message_id));
 
-    // 3. Stock's next message spends our ticket in place of proof of work. Until direct
-    // deliveries are proved, stock also resends the first message, which is skipped.
-    let second = loop {
-        let accepted = tokio::time::timeout(Duration::from_secs(60), endpoint.accept_resource())
-            .await
-            .map_err(|_| "timed out waiting for stock's ticketed message")??;
-        let received = outrider::receive_direct_with_tickets(
-            &endpoint,
-            accepted,
-            &delivered,
-            outrider::DEFAULT_MAX_MESSAGE_BYTES,
-            Some(COST),
-            inbound,
-            Default::default(),
-        )
-        .await;
-        match received {
-            Err(DirectError::Duplicate(id)) => println!("RESENT {}", hex::encode(id)),
-            received => break received?,
-        }
-    };
+    // 3. Stock's next message spends our ticket in place of proof of work.
+    let accepted = tokio::time::timeout(Duration::from_secs(60), endpoint.accept_resource())
+        .await
+        .map_err(|_| "timed out waiting for stock's ticketed message")??;
+    let second = outrider::receive_direct_with_tickets(
+        &endpoint,
+        accepted,
+        &delivered,
+        outrider::DEFAULT_MAX_MESSAGE_BYTES,
+        Some(COST),
+        inbound,
+        Default::default(),
+    )
+    .await?;
     let outcome = check_stamp(
         &second.message.message_id,
         second.message.payload.stamp.as_deref(),

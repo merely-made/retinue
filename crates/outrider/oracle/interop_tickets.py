@@ -4,11 +4,8 @@ Stock (enforcing stamps at cost 8) sends with include_ticket=True. Outrider lear
 the ticket, and its reply carries the ticket stamp instead of proof of work plus a
 ticket of its own. The gate requires stock to accept that reply as a ticket stamp,
 to hold Outrider's ticket as its outbound ticket, and to spend it on its next
-message, which Outrider must accept at cost 8.
-
-Stock's messages are sized to travel as Resources: Outrider does not yet prove a
-direct Data packet, and stock would resend it on the link that carries the next.
-Both must reach DELIVERED on stock's side.
+message, which Outrider must accept at cost 8. Both of stock's messages are
+single direct Data packets and must reach DELIVERED on stock's side.
 """
 
 from __future__ import annotations
@@ -30,7 +27,6 @@ from LXMF import LXMessage
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
 SEED = bytes([0x79] * 64)
-BULK = "x" * 1000
 
 
 def main() -> int:
@@ -109,12 +105,12 @@ def main() -> int:
         while time.time() < deadline and not outbound and process.poll() is None:
             time.sleep(0.1)
         if outbound:
-            first = LXMessage(outbound[0], source, BULK, title="TICKET OFFER", include_ticket=True)
+            first = LXMessage(outbound[0], source, "have a ticket", title="TICKET OFFER", include_ticket=True)
             router.handle_outbound(first)
             sent["first"] = first
             replied.wait(timeout=60)
         if replies:
-            second = LXMessage(outbound[0], source, BULK, title="TICKET SPEND")
+            second = LXMessage(outbound[0], source, "spending it", title="TICKET SPEND")
             router.handle_outbound(second)
             sent["second"] = second
 
