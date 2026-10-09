@@ -343,6 +343,18 @@ impl OutboundPackets {
         }
     }
 
+    /// Drop everything queued, counted as dropped: an offline carrier sends nothing
+    /// (`Transport.py` 1449), and a stale backlog must not flush on reconnect.
+    pub(super) fn discard(&mut self) {
+        self.complete_delivery();
+        let mut state = self.queues.state.lock().unwrap();
+        let state = &mut *state;
+        for (queue, dropped) in state.queues.iter_mut().zip(&mut state.dropped) {
+            *dropped += queue.len() as u64;
+            queue.clear();
+        }
+    }
+
     fn complete_delivery(&mut self) {
         if self.delivery_in_flight {
             self.queues.delivery_complete();

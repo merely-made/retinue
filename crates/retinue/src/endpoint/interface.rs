@@ -1,7 +1,7 @@
 //! The raw packet interface seam, and the endpoint's record of an attached interface.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
 use tokio::sync::mpsc;
 
@@ -11,7 +11,7 @@ use crate::packet::Packet;
 
 use super::queue::{OutboundPackets, OutboundQueues, TrafficClass};
 
-/// Identifies one attached interface (one TCP connection).
+/// Identifies one attached interface. A dialed TCP interface keeps its id across reconnects.
 pub type InterfaceId = u32;
 
 /// A raw packet interface: the seam every transport plugs into.
@@ -149,6 +149,11 @@ pub(super) struct Iface {
     pub(super) wire_overhead: usize,
     /// Sets the lifetime of routes learned on this interface.
     pub(super) mode: InterfaceMode,
+    /// Whether the carrier is up. A dialed interface outlives its connection, keeping its
+    /// routes, and admits nothing while down (`TCPInterface.py` 127-128; `Transport.py` 1449).
+    pub(super) online: Arc<AtomicBool>,
+    /// Queued packets the carrier could not encode, dropped rather than ending the carrier.
+    pub(super) unsendable: AtomicU64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -160,6 +165,9 @@ pub(super) enum QueueAdmission {
 
 impl Iface {
     pub(super) fn push(&self, packet: Packet, class: TrafficClass) -> QueueAdmission {
+        if !self.online.load(Ordering::Acquire) {
+            return QueueAdmission::Full;
+        }
         let actual = packet.encoded_len() + self.wire_overhead;
         let limit = self.frame_limit.load(Ordering::Acquire);
         if actual > limit {
