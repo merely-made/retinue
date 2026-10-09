@@ -2,6 +2,7 @@
 //! 97-180, 231-303, 415-446).
 
 use alloc::string::{String, ToString};
+use alloc::vec::Vec;
 
 use std::io;
 use std::net::SocketAddr;
@@ -165,7 +166,7 @@ impl Endpoint {
 /// the preferred family wins, else the first (`BackboneInterface.py` 959-971).
 async fn dial(client: &TcpClient) -> io::Result<TcpStream> {
     let attempt = async {
-        let addrs: alloc::vec::Vec<SocketAddr> = lookup_host((client.host.as_str(), client.port))
+        let addrs: Vec<SocketAddr> = lookup_host((client.host.as_str(), client.port))
             .await?
             .collect();
         let addr = addrs
