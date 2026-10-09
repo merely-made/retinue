@@ -13,7 +13,8 @@
 //! `--fd` names a pty master the harness passed down. `--ready-flow` answers each DATA
 //! with READY after MS milliseconds. `--mismatch-txp` echoes TX power one lower on those
 //! devices. `--error-after` answers a device's COUNT-th DATA with `ERROR 0x02` (TX failed),
-//! and `--reset-after` with `RESET 0xF8`, instead of transmitting it.
+//! and `--reset-after` with `RESET 0xF8`, instead of transmitting it. Airtime limits are
+//! echoed as a device that stores them lossily might: one hundredth low, and 100% as 0.
 
 use std::fs::File;
 use std::io::{Read, Write};
@@ -110,6 +111,15 @@ impl Air {
             Command::RadioState(false) => {
                 self.devices[dev].radio.lock().unwrap().tuned = None;
                 self.reply(dev, cmd::RADIO_STATE, &[0]);
+            }
+            Command::AirtimeLock { long, centi } => {
+                let echoed = if centi >= 10_000 {
+                    0
+                } else {
+                    centi.saturating_sub(1)
+                };
+                let marker = if long { cmd::LT_ALOCK } else { cmd::ST_ALOCK };
+                self.reply(dev, marker, &echoed.to_be_bytes());
             }
             Command::Leave => self.devices[dev].radio.lock().unwrap().tuned = None,
             Command::Data(packet) => self.on_data(dev, packet),

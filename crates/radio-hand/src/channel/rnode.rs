@@ -46,7 +46,7 @@ struct State {
     /// Frames the host asked to send that were longer than the radio carries. The 255/500
     /// fork, counted rather than truncated.
     over_air_mtu: u16,
-    /// Transmits the executive refused, for any reason: no region, spent duty, radio fault.
+    /// Transmits refused for any reason: radio off, no region, spent duty, radio fault.
     refused: u16,
     /// Commands this device does not implement.
     unhandled: u16,
@@ -193,23 +193,28 @@ where
             reply(link, out, cmd::RADIO_STATE, &[0]).await
         }
 
+        // Refusals are counted for the `rnode` probe and reach the host as an `ERROR` only
+        // when RNS should restart the interface over them (`rnode::tx_error`).
         Command::Data(packet) => {
             if !state.radio_on {
                 state.refused = state.refused.saturating_add(1);
-                return reply(link, out, cmd::ERROR, &[selvage::TX_RADIO_FAULT]).await;
+                return Flow::Continue;
             }
             if packet.len() > rnode::MAX_AIR_FRAME {
-                // The 255/500 fork, told rather than hidden. Truncating would put a corrupt
-                // packet on the air and report success, which is the worse of the two.
+                // The 255/500 fork, counted rather than truncated: truncating would put a
+                // corrupt packet on the air and report success.
                 state.over_air_mtu = state.over_air_mtu.saturating_add(1);
-                return reply(link, out, cmd::ERROR, &[selvage::TX_TOO_LONG]).await;
+                return Flow::Continue;
             }
             let code = exec.transmit(packet).await;
             if code == selvage::TX_ACCEPTED {
                 return Flow::Continue;
             }
             state.refused = state.refused.saturating_add(1);
-            reply(link, out, cmd::ERROR, &[code]).await
+            match rnode::tx_error(code) {
+                Some(error) => reply(link, out, cmd::ERROR, &[error]).await,
+                None => Flow::Continue,
+            }
         }
 
         Command::Unhandled(marker) => {

@@ -36,8 +36,11 @@
 //! What it does buy is the thing that was missing: Sideband, MeshChat and NomadNet drive an
 //! RNode, so they drive this board, with no host-side shim in between.
 
-use selvage::PhyProfile;
 use selvage::kiss;
+
+mod pending;
+
+pub use pending::{PREAMBLE_SYMBOLS, Pending, SYNC_WORD};
 
 /// Command bytes, named per the public constant table and observed on the wire.
 pub mod cmd {
@@ -91,30 +94,9 @@ pub const MAX_FRAME: usize = 508;
 
 /// The largest frame this radio can actually put on the air.
 ///
-/// The 255/500 fork the plan names. Carrying longer packets needs the fragmentation lane,
-/// which is real work and not smuggled in here; until it exists, an over-long transmit is
-/// refused with an `ERROR` frame rather than truncated.
+/// The 255/500 fork the plan names. Carrying longer packets needs the fragmentation lane;
+/// until it exists, an over-long transmit is dropped and counted rather than truncated.
 pub const MAX_AIR_FRAME: usize = selvage::MAX_RADIO_FRAME_LEN;
-
-/// The standard LoRa private-network sync word.
-///
-/// The same value every direct-PHY profile in this project uses, which is the point: the
-/// host protocol has no sync-word command, so this is the device's own choice, and boards
-/// that agree on it hear each other.
-pub const SYNC_WORD: u8 = 0x12;
-
-/// Preamble length, in symbols.
-///
-/// Eight, matching what stock RNode transmits, since this channel exists to be
-/// interchangeable with one. The rest of this firmware's direct-PHY profiles use sixteen.
-///
-/// Changed from sixteen while chasing a one-byte frame shift, on the theory that a receiver
-/// expecting a longer preamble locks late. **That theory was wrong** and is recorded here so
-/// nobody re-derives it: with eight on both boards the shift was unchanged, and a
-/// board-to-board control proved this receive path byte-exact, escapes included. The shift
-/// is in what the peer transmits. Eight is kept because matching the thing we imitate is
-/// right on its own, not because it fixed anything.
-pub const PREAMBLE_SYMBOLS: u16 = 8;
 
 /// Bytes of buffer a deframer needs: the largest frame plus its command byte.
 pub const DEFRAME_BUF: usize = MAX_FRAME + 1;
@@ -214,8 +196,9 @@ pub type Payload = heapless::Vec<u8, 4>;
 
 /// The device's answer to a command that needs no radio.
 ///
-/// The probes, and the echo of each setting, airtime limits included, since RNS records
-/// those echoes (`RNodeInterface.py` 896-925). `None` for the two commands that touch
+/// The probes, and the echo of each setting. Airtime limits are echoed as 0 (none), since
+/// this device leaves duty to the region profile and does not enforce them; RNS only
+/// records the echo (`RNodeInterface.py` 896-925). `None` for the two commands that touch
 /// hardware, which the channel owns: `RADIO_STATE` commits a profile and `DATA` puts a frame
 /// on the air. `LEAVE` and `READY` take no answer: the host that sent LEAVE has gone, and
 /// READY is the device's own word.
@@ -240,9 +223,9 @@ pub fn answer(command: &Command<'_>) -> Option<(u8, Payload)> {
         Command::TxPower(dbm) => (cmd::TXPOWER, one(dbm)),
         Command::SpreadingFactor(sf) => (cmd::SF, one(sf)),
         Command::CodingRate(cr) => (cmd::CR, one(cr)),
-        Command::AirtimeLock { long, centi } => (
+        Command::AirtimeLock { long, .. } => (
             if long { cmd::LT_ALOCK } else { cmd::ST_ALOCK },
-            Payload::from_slice(&centi.to_be_bytes()).unwrap_or_default(),
+            Payload::from_slice(&[0, 0]).unwrap_or_default(),
         ),
         Command::RadioState(_)
         | Command::Data(_)
@@ -250,6 +233,28 @@ pub fn answer(command: &Command<'_>) -> Option<(u8, Payload)> {
         | Command::Ready
         | Command::Unhandled(_) => return None,
     })
+}
+
+/// RNS's `ERROR` codes this device reports (`RNodeInterface.py` 89-95).
+pub mod error {
+    /// A transmit failed in the radio: RNS restarts the interface.
+    pub const TX_FAILED: u8 = 0x02;
+    /// The radio did not finish in time: RNS records it and carries on.
+    pub const MODEM_TIMEOUT: u8 = 0x06;
+}
+
+/// The `ERROR` code a refused transmit reports, if any.
+///
+/// RNS restarts the interface on every code but memory-low and modem-timeout
+/// (`RNodeInterface.py` 1076-1090), so only a radio failure is reported. Per-frame refusals
+/// (no region, spent duty, a busy channel) are dropped and counted: a lost frame is cheaper
+/// than a lost link.
+pub fn tx_error(code: u8) -> Option<u8> {
+    match code {
+        selvage::TX_RADIO_FAULT => Some(error::TX_FAILED),
+        selvage::TX_TIMEOUT => Some(error::MODEM_TIMEOUT),
+        _ => None,
+    }
 }
 
 /// Encode one device-to-host frame: a command byte and its payload, KISS-framed.
@@ -260,68 +265,6 @@ pub fn encode(command: u8, payload: &[u8], out: &mut [u8]) -> Option<usize> {
 /// Bytes an [`encode`] of `payload` can need, worst case: every byte escaped.
 pub const fn encoded_max(payload_len: usize) -> usize {
     2 * (payload_len + 1) + 2
-}
-
-/// The radio settings the host has asked for, accumulated until it says to apply them.
-///
-/// RNS sets five knobs as five separate commands and only then turns the radio on. Applying
-/// each as it arrives would reconfigure the radio five times and spend four of those on a
-/// channel nobody asked for; worse, the regulatory floor would reject a half-built profile
-/// whose frequency had arrived but whose power had not. So they land here, and
-/// `RADIO_STATE` is what commits them.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct Pending {
-    frequency_hz: Option<u32>,
-    bandwidth_hz: Option<u32>,
-    tx_power_dbm: Option<u8>,
-    spreading_factor: Option<u8>,
-    coding_rate: Option<u8>,
-}
-
-impl Pending {
-    pub const fn new() -> Self {
-        Self {
-            frequency_hz: None,
-            bandwidth_hz: None,
-            tx_power_dbm: None,
-            spreading_factor: None,
-            coding_rate: None,
-        }
-    }
-
-    /// Record a settings command. `true` if this command was one.
-    pub fn accept(&mut self, command: &Command<'_>) -> bool {
-        match *command {
-            Command::Frequency(hz) => self.frequency_hz = Some(hz),
-            Command::Bandwidth(hz) => self.bandwidth_hz = Some(hz),
-            Command::TxPower(dbm) => self.tx_power_dbm = Some(dbm),
-            Command::SpreadingFactor(sf) => self.spreading_factor = Some(sf),
-            Command::CodingRate(cr) => self.coding_rate = Some(cr),
-            _ => return false,
-        }
-        true
-    }
-
-    /// The profile to apply, once every field the host controls has arrived.
-    ///
-    /// `None` while anything is still missing, which is the honest answer: a radio brought up
-    /// on defaults the host never chose is a radio on the wrong channel.
-    pub fn profile(&self) -> Option<PhyProfile> {
-        Some(PhyProfile {
-            frequency_hz: self.frequency_hz?,
-            bandwidth_hz: self.bandwidth_hz?,
-            spreading_factor: self.spreading_factor?,
-            coding_rate_denominator: self.coding_rate?,
-            preamble_symbols: PREAMBLE_SYMBOLS,
-            sync_word: SYNC_WORD,
-            explicit_header: true,
-            crc: true,
-            invert_iq: false,
-            // The host sends dBm as an unsigned byte; the executive clamps it to the region
-            // and the hardware, so what arrives here is a request, never a setting.
-            tx_power_dbm: i8::try_from(self.tx_power_dbm?).unwrap_or(i8::MAX),
-        })
-    }
 }
 
 /// The wire value for a received frame's RSSI.
@@ -335,139 +278,4 @@ pub fn snr_wire(db: i16) -> u8 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_captured_init_commands_decode() {
-        assert_eq!(
-            decode(&[cmd::DETECT, DETECT_REQ]),
-            Some(Command::Detect(0x73))
-        );
-        assert_eq!(
-            decode(&[cmd::FW_VERSION, 0x00]),
-            Some(Command::FirmwareVersion)
-        );
-        assert_eq!(decode(&[cmd::PLATFORM, 0x00]), Some(Command::Platform));
-        assert_eq!(decode(&[cmd::MCU, 0x00]), Some(Command::Mcu));
-        // 0x3689cac0 = 915 MHz, 0x0001e848 = 125 kHz, both big-endian on the wire.
-        assert_eq!(
-            decode(&[cmd::FREQUENCY, 0x36, 0x89, 0xca, 0xc0]),
-            Some(Command::Frequency(915_000_000))
-        );
-        assert_eq!(
-            decode(&[cmd::BANDWIDTH, 0x00, 0x01, 0xe8, 0x48]),
-            Some(Command::Bandwidth(125_000))
-        );
-        assert_eq!(decode(&[cmd::TXPOWER, 0x07]), Some(Command::TxPower(7)));
-        assert_eq!(decode(&[cmd::SF, 0x08]), Some(Command::SpreadingFactor(8)));
-        assert_eq!(decode(&[cmd::CR, 0x05]), Some(Command::CodingRate(5)));
-        assert_eq!(
-            decode(&[cmd::RADIO_STATE, 0x01]),
-            Some(Command::RadioState(true))
-        );
-    }
-
-    #[test]
-    fn airtime_locks_are_echoed_and_leave_is_known() {
-        let lock = decode(&[cmd::ST_ALOCK, 0x0D, 0x16]).unwrap();
-        assert_eq!(
-            lock,
-            Command::AirtimeLock {
-                long: false,
-                centi: 3_350
-            }
-        );
-        let (marker, payload) = answer(&lock).unwrap();
-        assert_eq!(
-            (marker, payload.as_slice()),
-            (cmd::ST_ALOCK, &[0x0D, 0x16][..])
-        );
-        assert_eq!(decode(&[cmd::LEAVE, 0xFF]), Some(Command::Leave));
-        assert_eq!(decode(&[cmd::READY, 0x01]), Some(Command::Ready));
-        assert_eq!(answer(&Command::Leave), None);
-        assert_eq!(
-            decode(&[cmd::LT_ALOCK, 0x01]),
-            Some(Command::Unhandled(cmd::LT_ALOCK))
-        );
-    }
-
-    #[test]
-    fn a_truncated_setting_is_unhandled_rather_than_guessed() {
-        assert_eq!(
-            decode(&[cmd::FREQUENCY, 0x36, 0x89]),
-            Some(Command::Unhandled(cmd::FREQUENCY))
-        );
-        assert_eq!(decode(&[]), None);
-    }
-
-    /// An empty DATA frame is a command with an empty payload, not a missing one: the caller
-    /// decides what to do with it, and refusing it here would hide it.
-    #[test]
-    fn data_carries_its_payload_verbatim() {
-        assert_eq!(
-            decode(&[cmd::DATA, 1, 2, 3]),
-            Some(Command::Data(&[1, 2, 3]))
-        );
-        assert_eq!(decode(&[cmd::DATA]), Some(Command::Data(&[])));
-    }
-
-    #[test]
-    fn a_profile_is_withheld_until_every_field_the_host_controls_has_arrived() {
-        let mut pending = Pending::new();
-        for command in [
-            Command::Frequency(915_000_000),
-            Command::Bandwidth(125_000),
-            Command::TxPower(7),
-            Command::SpreadingFactor(8),
-        ] {
-            assert!(pending.accept(&command));
-            assert!(pending.profile().is_none(), "still incomplete");
-        }
-        assert!(pending.accept(&Command::CodingRate(5)));
-
-        let profile = pending.profile().expect("complete");
-        assert_eq!(profile.frequency_hz, 915_000_000);
-        assert_eq!(profile.bandwidth_hz, 125_000);
-        assert_eq!(profile.spreading_factor, 8);
-        assert_eq!(profile.coding_rate_denominator, 5);
-        assert_eq!(profile.tx_power_dbm, 7);
-        assert_eq!(profile.sync_word, SYNC_WORD);
-    }
-
-    #[test]
-    fn non_settings_commands_are_not_accepted_as_settings() {
-        let mut pending = Pending::new();
-        assert!(!pending.accept(&Command::Detect(DETECT_REQ)));
-        assert!(!pending.accept(&Command::Data(&[1])));
-        assert!(pending.profile().is_none());
-    }
-
-    /// The stat triplet's encodings, against the values the RX capture carried: raw 0x61 is
-    /// -60 dBm and raw 0x3b is 14.75 dB.
-    #[test]
-    fn signal_reports_encode_as_the_capture_did() {
-        assert_eq!(rssi_wire(-60), 0x61);
-        assert_eq!(snr_wire(14), 56);
-        assert_eq!(rssi_wire(-200), 0, "clamped rather than wrapped");
-        assert_eq!(snr_wire(100), 127);
-    }
-
-    #[test]
-    fn frames_encode_with_their_command_byte() {
-        let mut out = [0_u8; 16];
-        let len = encode(cmd::DETECT, &[DETECT_RESP], &mut out).unwrap();
-        assert_eq!(
-            &out[..len],
-            &[kiss::FEND, cmd::DETECT, DETECT_RESP, kiss::FEND]
-        );
-    }
-
-    #[test]
-    fn the_worst_case_encoding_bound_holds() {
-        let payload = [kiss::FEND; 8];
-        let mut out = [0_u8; encoded_max(8)];
-        let len = encode(kiss::FESC, &payload, &mut out).unwrap();
-        assert_eq!(len, out.len(), "every byte escaped is the worst case");
-    }
-}
+mod tests;
