@@ -167,7 +167,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         actions
     }
 
-    fn count_filtered(&mut self) {
+    pub(super) fn count_filtered(&mut self) {
         self.transport_counters.filtered_packets =
             self.transport_counters.filtered_packets.saturating_add(1);
     }

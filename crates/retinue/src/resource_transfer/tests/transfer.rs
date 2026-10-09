@@ -236,3 +236,39 @@ fn serving_a_repeated_part_counts_every_slot_it_fills() {
     assert_eq!(sender.on_packet(&request, &mut ivg).len(), 2);
     assert!(sender.awaiting_proof(), "all three slots were served");
 }
+
+/// A request heard twice is served once (`Link.py` 1088-1093).
+#[test]
+fn a_replayed_request_is_not_served_again() {
+    let (send_link, recv_link) = link_pair();
+    let mut ivg = iv_gen();
+    let data = sha256_counter_payload(2000);
+    let mut sender = ResourceSender::publish(send_link, &data, [1, 2, 3, 4], &ivg());
+    let mut receiver = ResourceReceiver::new(recv_link);
+    let requests = receiver.on_packet(&sender.advertisement(&ivg()), &mut ivg);
+    let request = requests
+        .iter()
+        .find(|packet| packet.context == CTX_RESOURCE_REQ)
+        .unwrap();
+    let parts = sender.on_packet(request, &mut ivg).len();
+    assert!(parts > 0);
+    assert!(sender.on_packet(request, &mut ivg).is_empty());
+    assert_eq!(sender.served_parts(), parts);
+}
+
+/// Parts are sized as RNS sizes them: the link MTU less the largest header and the
+/// smallest IFAC (`Resource.py` 343-344), so a part still fits after a relay addresses it.
+#[test]
+fn parts_leave_room_for_a_transport_header() {
+    let (send_link, recv_link) = link_pair_with_mtu(300);
+    let mut ivg = iv_gen();
+    let data = sha256_counter_payload(2000);
+    let mut sender = ResourceSender::publish(send_link, &data, [1, 2, 3, 4], &ivg());
+    let mut receiver = ResourceReceiver::new(recv_link);
+    let requests = receiver.on_packet(&sender.advertisement(&ivg()), &mut ivg);
+    let part = deliver(requests, |packet| sender.on_packet(packet, &mut ivg))
+        .into_iter()
+        .find(|packet| packet.context == crate::link::CTX_RESOURCE)
+        .unwrap();
+    assert_eq!(part.payload.len(), 300 - crate::packet::HEADER_MAX_LEN - 1);
+}

@@ -156,6 +156,8 @@ pub enum Error {
     /// A packet is larger than the wire MTU. RNS drops such packets; we reject them at the
     /// decoder so a peer cannot hand us an over-sized buffer.
     Oversize,
+    /// A packet arrived with 128 hops or more (RNS `PATHFINDER_M`). RNS drops it as malformed.
+    HopLimit,
     /// A public key is not a valid point on its curve.
     BadKey,
     /// The Ed25519 signature did not verify. For an announce this means the peer does not
@@ -207,6 +209,7 @@ impl core::fmt::Display for Error {
         let s = match self {
             Self::Truncated => "input ended mid-field",
             Self::Oversize => "packet exceeds the wire MTU",
+            Self::HopLimit => "packet exceeds the hop ceiling",
             Self::BadKey => "invalid public key",
             Self::BadSignature => "signature did not verify",
             Self::BadIfac => "interface access code did not verify",

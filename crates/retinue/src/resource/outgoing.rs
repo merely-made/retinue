@@ -3,7 +3,7 @@
 use alloc::vec::Vec;
 
 use super::{
-    Advertisement, FLAG_COMPRESSED, FLAG_ENCRYPTED, FLAG_METADATA, FLAG_RESPONSE,
+    Advertisement, FLAG_COMPRESSED, FLAG_ENCRYPTED, FLAG_METADATA, FLAG_RESPONSE, FLAG_SPLIT,
     HASHMAP_MAX_PARTS, MAPHASH_LEN, RANDOM_HASH_LEN, Request, SDU, build_hmu, map_hash, proof,
     resource_hash,
 };
@@ -181,6 +181,9 @@ impl Outgoing {
         }
         if self.has_metadata {
             flags |= FLAG_METADATA;
+        }
+        if self.total_segments > 1 {
+            flags |= FLAG_SPLIT;
         }
         Advertisement {
             transfer_size: self.token.len() as u64,

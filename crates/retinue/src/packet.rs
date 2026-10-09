@@ -1,15 +1,15 @@
 //! The packet header and its codec.
 //!
 //! A packet is a two-byte header, one or two address fields, a context byte, and a
-//! payload:
+//! non-empty payload:
 //!
 //! ```text
 //! byte 0   flags
 //! byte 1   hops
-//! 2..18    destination address hash (16)
-//! [18..34] transport address hash (16), only when header_type == Type2]
+//! 2..18    Type1: destination hash (16)   Type2: transport id (16)
+//! 18..34   Type2 only: destination hash (16)
 //! next     context byte
-//! rest     payload
+//! rest     payload, at least one byte (RNS `Packet.py` 275)
 //! ```
 //!
 //! Flag byte 0, most significant bit first:
@@ -46,6 +46,12 @@ pub const HEADER_MIN_LEN: usize = 2 + ADDRESS_HASH_LEN + 1;
 
 /// Largest possible header: as above, with a second address field.
 pub const HEADER_MAX_LEN: usize = 2 + ADDRESS_HASH_LEN * 2 + 1;
+
+/// The hop ceiling, RNS `Transport.PATHFINDER_M`. A packet arriving with this many hops or
+/// more is malformed (`Packet.py` 250). RNS rebroadcasts an announce only below it
+/// (`Transport.py` 1356, 2211); it forwards other packets regardless and the next hop
+/// refuses them, so retinue drops those one hop earlier with the same outcome.
+pub const MAX_HOPS: u8 = 128;
 
 /// Maximum size of a whole packet on the wire. `RNS.Reticulum.MTU`.
 pub const MTU: usize = 500;
@@ -188,6 +194,9 @@ impl Packet {
         let destination_type = DestinationType::from_bits(flags >> 2);
         let packet_type = PacketType::from_bits(flags);
         let hops = bytes[1];
+        if hops >= MAX_HOPS {
+            return Err(Error::HopLimit);
+        }
 
         let mut off = 2;
         let transport = match header_type {
@@ -204,6 +213,9 @@ impl Packet {
 
         let context = *bytes.get(off).ok_or(Error::Truncated)?;
         off += 1;
+        if off == bytes.len() {
+            return Err(Error::Truncated);
+        }
 
         Ok(Self {
             ifac,
@@ -339,7 +351,7 @@ mod tests {
     fn context_flag_is_bit_five() {
         let mut v = vec![0x21, 0x00];
         v.extend_from_slice(&[0xAA; 16]);
-        v.push(0x00);
+        v.extend_from_slice(&[0x00, 0x01]);
         let p = Packet::decode(&v).unwrap();
         assert!(p.context_flag);
         assert_eq!(p.packet_type, PacketType::Announce);
@@ -352,7 +364,7 @@ mod tests {
         // leaves with bit 7 clear; only `Ifac::seal` sets it.
         let mut v = vec![0x80 | 0x21, 0x03];
         v.extend_from_slice(&[0xAA; 16]);
-        v.push(0x00);
+        v.extend_from_slice(&[0x00, 0x01]);
         let p = Packet::decode(&v).unwrap();
         assert!(p.ifac);
         let wire = p.encode();
@@ -364,6 +376,46 @@ mod tests {
     #[test]
     fn truncated_input_is_an_error() {
         assert!(Packet::decode(&[0x01, 0x00]).is_err());
+    }
+
+    /// RNS drops a packet whose data field is empty (`Packet.py` 275), for either header type.
+    #[test]
+    fn an_empty_data_field_is_rejected() {
+        let mut v = vec![0x00, 0x00];
+        v.extend_from_slice(&[0xAA; 16]);
+        v.push(0x00);
+        assert_eq!(Packet::decode(&v), Err(Error::Truncated));
+        v.push(0x01);
+        assert_eq!(Packet::decode(&v).unwrap().payload, [0x01]);
+
+        let mut v = vec![0x40, 0x00];
+        v.extend_from_slice(&[0xAA; 32]);
+        v.push(0x00);
+        assert_eq!(Packet::decode(&v), Err(Error::Truncated));
+    }
+
+    /// Header type 2 carries the transport id first, then the destination.
+    #[test]
+    fn header_two_puts_the_transport_id_first() {
+        let mut v = vec![0x40, 0x00];
+        v.extend_from_slice(&[0x11; 16]);
+        v.extend_from_slice(&[0x22; 16]);
+        v.extend_from_slice(&[0x00, 0x01]);
+        let p = Packet::decode(&v).unwrap();
+        assert_eq!(p.transport.unwrap().as_slice(), &[0x11; 16]);
+        assert_eq!(p.destination.as_slice(), &[0x22; 16]);
+        assert_eq!(p.encode(), v);
+    }
+
+    /// RNS refuses a packet arriving with `PATHFINDER_M` hops or more (`Packet.py` 250).
+    #[test]
+    fn hops_at_the_ceiling_are_rejected() {
+        let mut v = vec![0x00, MAX_HOPS - 1];
+        v.extend_from_slice(&[0xAA; 16]);
+        v.extend_from_slice(&[0x00, 0x01]);
+        assert!(Packet::decode(&v).is_ok());
+        v[1] = MAX_HOPS;
+        assert_eq!(Packet::decode(&v), Err(Error::HopLimit));
     }
 
     #[test]
@@ -383,7 +435,7 @@ mod tests {
         let mut p = Packet::decode(&{
             let mut v = vec![0x00, 0x00];
             v.extend_from_slice(&[0xAA; 16]);
-            v.push(0x00);
+            v.extend_from_slice(&[0x00, 0x01]);
             v
         })
         .unwrap();

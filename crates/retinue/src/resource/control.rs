@@ -3,7 +3,7 @@
 use alloc::vec::Vec;
 
 use super::MAPHASH_LEN;
-use super::map_codec::MapReader;
+use super::map_codec::{MapReader, MapWriter};
 use crate::{Error, Result};
 
 /// A parsed part request (context `RESOURCE_REQ`).
@@ -51,10 +51,14 @@ pub fn build_exhausted_request(
 }
 
 /// Parse a part request. The sender uses this to learn which parts to send and whether to
-/// emit an [`Hmu`].
+/// emit an [`Hmu`]. The first byte is `0x00` or `0xff` (RNS `HASHMAP_IS_NOT_EXHAUSTED`,
+/// `HASHMAP_IS_EXHAUSTED`); anything else is malformed.
 pub fn parse_request(payload: &[u8]) -> Result<Request> {
-    let flag = *payload.first().ok_or(Error::BadRequest)?;
-    let exhausted = flag == 0xff;
+    let exhausted = match payload.first() {
+        Some(0x00) => false,
+        Some(0xff) => true,
+        _ => return Err(Error::BadRequest),
+    };
     let mut off = 1;
     let last_map_hash = if exhausted {
         let m: [u8; MAPHASH_LEN] = payload
@@ -94,25 +98,13 @@ pub struct Hmu {
 
 /// Build an HMU payload.
 pub fn build_hmu(resource_hash: &[u8; 32], segment: i64, hashes: &[[u8; MAPHASH_LEN]]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(32 + 4 + hashes.len() * MAPHASH_LEN);
+    let mut w = MapWriter::array(2);
+    w.int(segment);
+    w.bin(&hashes.concat());
+    let body = w.finish();
+    let mut out = Vec::with_capacity(32 + body.len());
     out.extend_from_slice(resource_hash);
-    out.push(0x92); // fixarray, 2
-    // Positive fixint covers the small segment counters RNS uses.
-    if (0..0x80).contains(&segment) {
-        out.push(segment as u8);
-    } else {
-        out.push(0xd3);
-        out.extend_from_slice(&segment.to_be_bytes());
-    }
-    let bin: Vec<u8> = hashes.iter().flat_map(|h| h.iter().copied()).collect();
-    if bin.len() <= u8::MAX as usize {
-        out.push(0xc4);
-        out.push(bin.len() as u8);
-    } else {
-        out.push(0xc5);
-        out.extend_from_slice(&(bin.len() as u16).to_be_bytes());
-    }
-    out.extend_from_slice(&bin);
+    out.extend_from_slice(&body);
     out
 }
 

@@ -65,7 +65,9 @@ pub enum Event {
         to: String,
         /// The first relay the request is addressed to, or `None` when sent direct.
         via: Option<String>,
-        /// The route's hop count, when the sender has a route.
+        /// The route's hop count, when the sender has a route: the relays between sender
+        /// and destination, as `Node::next_hop` reports it (the announce's wire hops on
+        /// arrival). RNS's path table counts links, one more: 2 here is RNS's 3.
         hops: Option<u8>,
     },
     /// The sender's node would not open a link.
@@ -158,6 +160,7 @@ pub struct PacketSummary {
     pub packet_type: PacketKind,
     /// 1 or 2: whether the frame names a transport node.
     pub header: u8,
+    /// The wire hop count: relays the frame has crossed so far.
     pub hops: u8,
     pub destination: String,
     /// The node whose destination hash this is, if any. A link id names no node.
@@ -228,6 +231,7 @@ pub struct RouteState {
     pub to: String,
     /// The first relay, or `None` when the destination is heard directly.
     pub via: Option<String>,
+    /// Relays between this node and `to`; RNS's path table would hold one more.
     pub hops: u8,
 }
 

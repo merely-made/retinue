@@ -8,9 +8,8 @@ use super::interface::InterfaceId;
 use super::queue::{ClassCounters, QueueCounters, QueueDepths, QueueWeights};
 use super::runtime::Endpoint;
 
-/// Maximum hops an announce or packet may travel before a transport node drops it. RNS's
-/// default `m` (`PATHFINDER_M`).
-pub(super) const MAX_HOPS: u8 = 128;
+/// The default hop ceiling, RNS's `PATHFINDER_M`.
+pub(super) const MAX_HOPS: u8 = crate::packet::MAX_HOPS;
 
 /// Which interfaces a routing rule applies to.
 ///
@@ -53,7 +52,8 @@ pub struct RoutingPolicy {
     pub allowed_ingress: InterfaceSelector,
     /// Interfaces this endpoint will emit transit *on*.
     pub allowed_egress: InterfaceSelector,
-    /// Hop ceiling for forwarded traffic: a packet at or above it is dropped, not relayed.
+    /// Hop ceiling for forwarded traffic: a packet is relayed only while its forwarded hop
+    /// count stays below it. See [`crate::packet::MAX_HOPS`] for how this meets RNS.
     pub max_hops: u8,
     /// Each class's share of a contended interface, which bounds transit against local
     /// traffic.

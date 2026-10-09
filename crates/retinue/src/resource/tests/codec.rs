@@ -116,6 +116,55 @@ fn hmu_codec_round_trips() {
     assert_eq!(h.hashes, hashes);
 }
 
+/// Integers go out in the shortest form Python's msgpack would use, and any width a peer
+/// chose reads back.
+#[test]
+fn integers_are_shortest_form_and_read_in_any_width() {
+    let rh = [0x22u8; 32];
+    let hmu = build_hmu(&rh, 200, &[[1; 4]]);
+    assert_eq!(hmu[32..35], [0x92, 0xcc, 200]);
+    assert_eq!(parse_hmu(&hmu).unwrap().segment, 200);
+    for (segment, wide) in [
+        (300, vec![0xcd, 0x01, 0x2c]),
+        (70_000, vec![0xce, 0, 1, 0x11, 0x70]),
+        (5, vec![0xd0, 5]),
+        (-40, vec![0xd0, 0xd8]),
+        (-300, vec![0xd1, 0xfe, 0xd4]),
+    ] {
+        let mut hmu = rh.to_vec();
+        hmu.push(0x92);
+        hmu.extend_from_slice(&wide);
+        hmu.extend_from_slice(&[0xc4, 0]);
+        assert_eq!(parse_hmu(&hmu).unwrap().segment, segment, "{wide:02x?}");
+    }
+
+    let mut a = Advertisement::parse(&adv_bytes()).unwrap();
+    a.i = 300;
+    a.l = 70_000;
+    let packed = a.pack();
+    assert!(packed.windows(4).any(|w| w == [0xa1, b'i', 0xcd, 0x01]));
+    assert!(packed.windows(4).any(|w| w == [0xa1, b'l', 0xce, 0x00]));
+    assert_eq!(Advertisement::parse(&packed).unwrap(), a);
+}
+
+/// A part request starts with `0x00` or `0xff`; any other first byte is malformed.
+#[test]
+fn a_request_with_an_unknown_flag_is_refused() {
+    let mut request = build_request(&[0x11; 32], &[[1; 4]]);
+    request[0] = 0x01;
+    assert_eq!(parse_request(&request), Err(Error::BadRequest));
+    assert_eq!(parse_request(&[]), Err(Error::BadRequest));
+}
+
+/// A segment of a multi-segment resource advertises the split flag (`Resource.py` 1318).
+#[test]
+fn a_multi_segment_advertisement_sets_the_split_flag() {
+    let single = Outgoing::new(b"data", b"token", [1, 2, 3, 4], false);
+    assert_eq!(single.advertisement().flags & FLAG_SPLIT, 0);
+    let split = single.with_segment(1, 2, 8, [0; 32]);
+    assert_ne!(split.advertisement().flags & FLAG_SPLIT, 0);
+}
+
 /// The captured RNS HMU decodes to the known structure.
 #[test]
 fn hmu_matches_captured_rns() {

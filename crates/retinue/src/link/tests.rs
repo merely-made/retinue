@@ -2,6 +2,7 @@ use alloc::string::ToString;
 
 use super::proof::identify_signed_message;
 use super::*;
+use crate::Error;
 use crate::destination::DestinationName;
 use crate::hash::AddressHash;
 use crate::identity::{IDENTITY_LEN, Identity, KEY_LEN, PrivateIdentity};
@@ -462,4 +463,90 @@ fn a_transport_hop_checks_the_proof_signature() {
     let mut data = proof;
     data.context = 0;
     assert!(!proof_is_signed_by(&data, &peer));
+}
+
+/// A request is exactly 64 or 67 bytes (`Link.py` 187) and signals an enabled mode that the
+/// proof echoes (`Link.py` 149, 225-227, 367).
+#[test]
+fn a_responder_refuses_malformed_requests_and_disabled_modes() {
+    let dest_identity = PrivateIdentity::from_secret_bytes(&[0x11; 64]);
+    let peer = *dest_identity.public();
+    let dest_hash = DestinationName::new("retinue", ["test"]).destination_hash(&peer);
+    let trailer = LinkTrailer {
+        mode: LinkMode::Aes256Cbc,
+        mtu: 500,
+    };
+    let (_, request) = PendingLink::open(dest_hash, peer, &[0x33; 64], trailer);
+    let respond = |request: &Packet, offered: LinkTrailer| {
+        accept(request, &dest_identity, &[0x99; 64], offered).map(|_| ())
+    };
+    assert_eq!(respond(&request, trailer), Ok(()));
+
+    let mut bare = request.clone();
+    bare.payload.truncate(LINK_KEYS_LEN);
+    assert_eq!(respond(&bare, trailer), Ok(()), "no trailer means AES-256");
+    for (len, error) in [
+        (LINK_KEYS_LEN - 1, Error::Truncated),
+        (LINK_KEYS_LEN + 1, Error::NotALinkRequest),
+        (LINK_REQUEST_LEN + 1, Error::NotALinkRequest),
+    ] {
+        let mut odd = request.clone();
+        odd.payload.resize(len, 0);
+        assert_eq!(respond(&odd, trailer), Err(error), "{len} bytes");
+    }
+
+    let aes128 = LinkTrailer {
+        mode: LinkMode::Aes128Cbc,
+        ..trailer
+    };
+    let mut disabled = request.clone();
+    disabled.payload[LINK_KEYS_LEN..].copy_from_slice(&aes128.encode());
+    assert_eq!(respond(&disabled, aes128), Err(Error::BadLinkMode));
+    assert_eq!(respond(&request, aes128), Err(Error::BadLinkMode));
+}
+
+/// A proof is exactly 96 or 99 bytes and signals the mode that was requested
+/// (`Link.py` 396-405).
+#[test]
+fn an_initiator_refuses_malformed_proofs_and_other_modes() {
+    let dest_identity = PrivateIdentity::from_secret_bytes(&[0x11; 64]);
+    let peer = *dest_identity.public();
+    let dest_hash = DestinationName::new("retinue", ["test"]).destination_hash(&peer);
+    let trailer = LinkTrailer {
+        mode: LinkMode::Aes256Cbc,
+        mtu: 8192,
+    };
+    let (pending, request) = PendingLink::open(dest_hash, peer, &[0x33; 64], trailer);
+    let (_, proof) = accept(&request, &dest_identity, &[0x99; 64], trailer).unwrap();
+    assert!(pending.prove(&proof).is_ok());
+
+    // Without a trailer the proof signs the keys alone, signals the default mode, and leaves
+    // the link at `Reticulum.MTU` (`Link.py` 422).
+    let mut bare = proof.clone();
+    bare.payload.truncate(LINK_PROOF_LEN - TRAILER_LEN);
+    let mut signed = pending.link_id().as_slice().to_vec();
+    signed.extend_from_slice(&bare.payload[64..]);
+    signed.extend_from_slice(peer.ed25519_bytes());
+    bare.payload[..64].copy_from_slice(&dest_identity.sign(&signed));
+    assert_eq!(pending.prove(&bare).unwrap().mtu(), 500);
+
+    for (len, error) in [
+        (LINK_PROOF_LEN - TRAILER_LEN - 1, Error::Truncated),
+        (LINK_PROOF_LEN - 1, Error::NotAProof),
+        (LINK_PROOF_LEN + 1, Error::NotAProof),
+    ] {
+        let mut odd = proof.clone();
+        odd.payload.resize(len, 0);
+        assert_eq!(pending.prove(&odd).err(), Some(error), "{len} bytes");
+    }
+
+    let mut other_mode = proof;
+    other_mode.payload[LINK_PROOF_LEN - TRAILER_LEN..].copy_from_slice(
+        &LinkTrailer {
+            mode: LinkMode::Aes128Cbc,
+            ..trailer
+        }
+        .encode(),
+    );
+    assert_eq!(pending.prove(&other_mode).err(), Some(Error::BadLinkMode));
 }

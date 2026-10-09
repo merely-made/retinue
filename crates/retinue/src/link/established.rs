@@ -188,9 +188,12 @@ impl Link {
     }
 
     /// Validate an inbound IDENTIFY packet on this link, returning the peer [`Identity`] it
-    /// proves, or `None` if it does not decrypt, is malformed, or the signature does not
-    /// verify. The inverse of [`identify_packet`](Self::identify_packet).
+    /// proves, or `None` if it is not an IDENTIFY, does not decrypt, is malformed, or the
+    /// signature does not verify. The inverse of [`identify_packet`](Self::identify_packet).
     pub fn read_identify(&self, packet: &Packet) -> Option<Identity> {
+        if packet.context != CTX_LINKIDENTIFY {
+            return None;
+        }
         let plaintext = self.decrypt(packet).ok()?;
         if plaintext.len() != LINK_IDENTIFY_LEN {
             return None;
