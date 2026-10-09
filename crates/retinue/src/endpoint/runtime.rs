@@ -135,6 +135,7 @@ impl Endpoint {
             reliable_decoded_frame_limit: AtomicUsize::new(DEFAULT_DECODED_FRAME_LIMIT),
             link_setup_retry_ms: AtomicU64::new(DEFAULT_LINK_SETUP_RETRY_MS),
             first_hop_airtime_ms: Mutex::new(HashMap::new()),
+            iface_policies: Mutex::new(HashMap::new()),
             link_mtu: AtomicU32::new(DEFAULT_LINK_MTU),
             inbound_link_proofs: Mutex::new(HashMap::new()),
             inbound: Mutex::new(InboundLinks::default()),

@@ -52,6 +52,7 @@ impl Shared {
             };
             drop(interfaces);
             self.first_hop_airtime_ms.lock().unwrap().remove(&id);
+            self.iface_policies.lock().unwrap().remove(&id);
             // RNS culls routes and bridges with their interface (`Transport.py` 880-881,
             // 975-978); a destination without a route is then reached by broadcast.
             let routes_removed = {

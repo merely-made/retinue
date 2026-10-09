@@ -2127,6 +2127,7 @@ dependencies = [
  "serde_json",
  "serial2-tokio",
  "sha2 0.11.0",
+ "socket2",
  "tokio",
  "tucket",
  "tulle",

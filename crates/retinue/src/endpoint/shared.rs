@@ -23,6 +23,7 @@ use crate::resource_transfer::PROOF_CACHE_ANSWERS;
 use super::announces::{AnnounceFreshnessState, HeldAnnounce};
 use super::dedup::{HashList, LinkPacketMemory, VERIFIED_ANNOUNCES};
 use super::facts::{LinkDirection, LinkFactKind, LinkRemoteFact, PeerAnnounce};
+use super::iface_policy::IfacePolicy;
 use super::inbound::{Accepted, AcceptedResource, InboundLinks};
 use super::interface::{Iface, InterfaceId, QueueAdmission};
 use super::known_destinations::BookPersistence;
@@ -154,6 +155,8 @@ pub(super) struct Shared {
     pub(super) link_setup_retry_ms: AtomicU64,
     /// Per-interface first-hop airtime allowances, in milliseconds, for link setup deadlines.
     pub(super) first_hop_airtime_ms: Mutex<HashMap<InterfaceId, u64>>,
+    /// Per-interface announce and transmit policy, removed with its interface.
+    pub(super) iface_policies: Mutex<HashMap<InterfaceId, IfacePolicy>>,
     /// MTU requested and offered by subsequently established links.
     pub(super) link_mtu: AtomicU32,
     /// Proofs for recently accepted link requests, keyed by link id, replayed when only the

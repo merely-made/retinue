@@ -12,14 +12,18 @@ mod announces;
 mod attach;
 mod config;
 mod dedup;
+mod dial;
 mod entropy;
 mod facts;
+mod iface_policy;
 mod inbound;
 mod interface;
 mod known_destinations;
 mod link_receipt;
 mod link_setup;
+mod listen;
 mod paths;
+mod pump;
 mod queue;
 mod rebroadcast;
 mod registration;
@@ -34,6 +38,7 @@ mod runtime;
 mod sealing;
 mod shared;
 mod single;
+mod sockopt;
 mod stream;
 #[cfg(test)]
 mod tests;
@@ -45,6 +50,7 @@ pub use facts::{
     AnnounceFact, EndpointFacts, LinkDirection, LinkFact, LinkFactKind, LinkRemoteFact,
     PeerAnnounce, RouteFact,
 };
+pub use iface_policy::{AnnounceRate, IfacePolicy};
 pub use inbound::{Accepted, AcceptedResource, InboundLinkLimits};
 pub use interface::{Interface, InterfaceId, InterfaceSink};
 pub use link_receipt::{LinkDelivery, PayloadReceipt};

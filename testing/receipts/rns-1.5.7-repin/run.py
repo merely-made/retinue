@@ -19,10 +19,13 @@ ORACLE = REPO / "crates/retinue/oracle"
 sys.path.insert(0, str(ORACLE))
 from run_live import GATES
 
+# Serial-carrier gates over ptys; registered by the merge captain as units land.
+SERIAL_GATES = ()
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("lane", choices=("live", "outrider", "resource", "routing"))
+    parser.add_argument("lane", choices=("live", "outrider", "resource", "routing", "serial"))
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--raw-output", type=Path,
                         default=REPO / "validation/results/rns-1.5.7-repin")
@@ -39,6 +42,8 @@ def main():
         gates = [(f"round-{i}-{name}", ORACLE / name, []) for i in range(1, 4)
                  for name in ("interop_resource_recv.py", "interop_resource_send.py",
                               "interop_send_large.py", "interop_send_multiseg.py")]
+    elif args.lane == "serial":
+        gates = [(name, ORACLE / name, []) for name in SERIAL_GATES]
     else:
         raw = args.raw_output.resolve()
         gates = [
@@ -48,7 +53,7 @@ def main():
         ]
     result = {"baseline_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip(),
               "rns": version("rns"), "lxmf": version("lxmf"), "lane": args.lane,
-              "started_utc": datetime.now(timezone.utc).isoformat(), "gates": []}
+              "started_utc": datetime.now(timezone.utc).isoformat(), "gates": [], "all_passed": False}
     for name, script, extra in gates:
         print(f"START {args.lane}/{name}", flush=True)
         started = time.monotonic()
