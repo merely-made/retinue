@@ -402,3 +402,65 @@ fn open_link_expiries_precede_the_send_that_freed_them() {
         [(205_000, Some(4)), (220_000, Some(5))]
     );
 }
+
+/// Relays send each announce after a jitter of at most RNS's half second and retry once, 5.5 s
+/// on, unless they hear it passed on first (`Transport.py` 765-829, 2180-2203). Each relayed
+/// announce names the frame that brought it.
+#[test]
+fn relays_rebroadcast_after_a_jitter_and_retry_at_most_once() {
+    use retinue::node::{REBROADCAST_GRACE, REBROADCAST_WINDOW};
+    use std::collections::BTreeMap;
+
+    for scenario in [scenarios::cold(), scenarios::warm()] {
+        let trace = run(&scenario).unwrap();
+        let mut sends: BTreeMap<(String, String), Vec<(u64, u64)>> = BTreeMap::new();
+        for event in &trace.events {
+            let Event::Transmit {
+                t,
+                node,
+                origin: Origin::Forward,
+                cause,
+                packet,
+                ..
+            } = event
+            else {
+                continue;
+            };
+            if packet.packet_type != PacketKind::Announce {
+                continue;
+            }
+            let cause = cause.expect("a relayed announce names its cause");
+            let heard_at = trace
+                .events
+                .iter()
+                .find_map(|event| match event {
+                    Event::Receive {
+                        t, frame, node: by, ..
+                    } if *frame == cause && by == node => Some(*t),
+                    _ => None,
+                })
+                .expect("the cause was heard here");
+            sends
+                .entry((node.clone(), packet.hash.clone()))
+                .or_default()
+                .push((*t, heard_at));
+        }
+        let mut suppressed = 0;
+        for ((node, _), times) in &sends {
+            let (first, heard_at) = times[0];
+            assert!(first - heard_at <= REBROADCAST_WINDOW, "{node} jitters");
+            let retry_at = first + REBROADCAST_GRACE + REBROADCAST_WINDOW;
+            match times.as_slice() {
+                [_] if retry_at <= trace.timing.end => suppressed += 1,
+                [_] => {}
+                [_, (retry, _)] => assert_eq!(*retry, retry_at, "{node} retries once"),
+                more => panic!("{node} relayed one announce {} times", more.len()),
+            }
+        }
+        assert!(
+            suppressed > 0,
+            "{}: some retry is heard passed on",
+            scenario.name
+        );
+    }
+}

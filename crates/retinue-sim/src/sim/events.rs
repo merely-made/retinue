@@ -2,7 +2,7 @@
 
 use retinue::announce::{ANNOUNCE_NONCE_LEN, AnnounceBlob};
 use retinue::node::Action;
-use retinue::packet::Packet;
+use retinue::packet::{Packet, PacketType};
 
 use super::state::{Scheduled, Sim, derive64, ordered};
 use super::{RADIO, SimError};
@@ -15,7 +15,11 @@ impl<'a, const P: usize, const A: usize, const L: usize, const R: usize> Sim<'a,
                 Scheduled::Cut(i) => self.on_cut(t, i),
                 Scheduled::Send(i) => self.on_send(t, i)?,
                 Scheduled::Poll(n) => self.on_poll(t, n)?,
+                Scheduled::Wake(n) => self.on_wake(t, n)?,
                 Scheduled::Deliver { frame, node } => self.on_deliver(t, frame, node)?,
+            }
+            for n in 0..self.nodes.len() {
+                self.arm_wake(t, n);
             }
         }
         Ok(self.finish())
@@ -47,6 +51,28 @@ impl<'a, const P: usize, const A: usize, const L: usize, const R: usize> Sim<'a,
         self.perform(t, n, actions, None)?;
         self.schedule(t + self.scenario.timing.poll_interval, Scheduled::Poll(n));
         Ok(())
+    }
+
+    /// Poll a node at its next rebroadcast, as a shell does between regular polls.
+    fn arm_wake(&mut self, t: u64, n: usize) {
+        let Some(at) = self.nodes[n].node.next_rebroadcast() else {
+            return;
+        };
+        let at = at.max(t);
+        if self.nodes[n].wake != Some(at) {
+            self.nodes[n].wake = Some(at);
+            self.schedule(at, Scheduled::Wake(n));
+        }
+    }
+
+    fn on_wake(&mut self, t: u64, n: usize) -> Result<(), SimError> {
+        // A wake superseded by an earlier one is spent.
+        if self.nodes[n].wake != Some(t) {
+            return Ok(());
+        }
+        self.nodes[n].wake = None;
+        let actions = self.nodes[n].node.poll(t, RADIO, None);
+        self.perform(t, n, actions, None)
     }
 
     fn on_send(&mut self, t: u64, i: usize) -> Result<(), SimError> {
@@ -112,6 +138,9 @@ impl<'a, const P: usize, const A: usize, const L: usize, const R: usize> Sim<'a,
         let node = &mut self.nodes[n];
         node.face.rx_frames = node.face.rx_frames.saturating_add(1);
         node.face.last_rx_len = Some(bytes.len() as u16);
+        if packet.packet_type == PacketType::Announce {
+            node.heard_announces.entry(packet.hash()).or_insert(frame);
+        }
         let actions = node.node.ingest(RADIO, &packet, t);
         self.perform(t, n, actions, Some((frame, packet.hash())))
     }
