@@ -38,10 +38,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         assert!(ep.set_interface_mode(id, mode(name)?));
     }
     let name = DestinationName::new("retinue", ["modes"]);
-    println!(
-        "MODE_TRANSPORT_UP {}",
-        name.destination_hash(ep.identity())
-    );
+    println!("MODE_TRANSPORT_UP {}", name.destination_hash(ep.identity()));
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     std::thread::spawn(move || {
