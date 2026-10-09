@@ -12,8 +12,17 @@ use crate::packet::Packet;
 /// started.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct TransportCounters {
-    /// Verified announces re-broadcast for another destination.
+    /// Relayed announce transmissions for another destination, retries included.
     pub forwarded_announces: u16,
+    /// Relayed announces whose retry was dropped because neighbours were heard relaying them
+    /// or passing ours on.
+    pub suppressed_rebroadcasts: u16,
+    /// Announces not relayed because every rebroadcast slot held one not yet sent.
+    pub refused_rebroadcasts: u16,
+    /// Relayed announces queued behind an interface's announce cap.
+    pub capped_announces: u16,
+    /// Relayed announces dropped because a capped interface's queue was full.
+    pub dropped_announces: u16,
     /// Data, link, and proof packets carried for another destination.
     pub forwarded_packets: u16,
     /// Routes removed after their announce freshness expired.

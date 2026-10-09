@@ -62,7 +62,7 @@ fn open_link_addresses_the_first_relay() {
     let mut relay = transit(0x47, "relay");
 
     let announce = destination.announce(&blob([0x78; RAND_HASH_LEN]), None);
-    let relayed = sent(&relay.ingest(IFACE, &announce, 0)).unwrap();
+    let relayed = relayed(&mut relay, IFACE, &announce, 0).unwrap();
     source.ingest(IFACE, &relayed, 1);
     let hop = source.next_hop(destination.destination(), 1).unwrap();
     assert_eq!(hop.via, Some(relay.identity.hash()));
@@ -109,7 +109,7 @@ fn open_link_does_not_address_via_an_expired_unevicted_route() {
     let learned = 1;
     source.ingest(
         IFACE,
-        &sent(&relay.ingest(IFACE, &announce, 0)).unwrap(),
+        &relayed(&mut relay, IFACE, &announce, 0).unwrap(),
         learned,
     );
     let expiry = learned + DEFAULT_ROUTE_TTL;
@@ -141,7 +141,7 @@ fn source_via_relay() -> (Node<32, 8, 4>, Node<32, 8, 4, 4>, Node<32, 8, 4>) {
     )
     .with_transport_config(TransportConfig::transit());
     let announce = destination.announce(&blob([0x7B; RAND_HASH_LEN]), None);
-    source.ingest(IFACE, &sent(&relay.ingest(IFACE, &announce, 0)).unwrap(), 0);
+    source.ingest(IFACE, &relayed(&mut relay, IFACE, &announce, 0).unwrap(), 0);
     (source, relay, destination)
 }
 
@@ -308,12 +308,17 @@ fn transport_flood_keeps_retained_state_bounded() {
             PrivateIdentity::from_secret_bytes(&[seed; 64]),
             DestinationName::new("retinue", ["flood"]).name_hash(),
         );
+        let at = u64::from(seed) * 10_000;
         let actions = relay.ingest(
             IFACE,
             &peer.announce(&blob([seed; RAND_HASH_LEN]), None),
-            seed.into(),
+            at,
         );
-        assert!(actions.len() <= 2, "one learn and one relay at most");
+        assert!(actions.len() <= 1, "one learn at most");
+        assert_eq!(relay.poll(at + REBROADCAST_WINDOW, IFACE, None).len(), 1);
+        let retry = at + 2 * REBROADCAST_WINDOW + REBROADCAST_GRACE;
+        assert_eq!(relay.poll(retry, IFACE, None).len(), 1, "and one retry");
+        assert_eq!(relay.rebroadcasts.len(), 0);
         assert_eq!(
             relay.route_count(),
             usize::from(seed).min(4),
@@ -321,7 +326,7 @@ fn transport_flood_keeps_retained_state_bounded() {
         );
     }
     let counters = relay.transport_counters();
-    assert_eq!(counters.forwarded_announces, 32);
+    assert_eq!(counters.forwarded_announces, 64);
     assert_eq!(counters.evicted_routes, 28);
     assert_eq!(relay.route_count(), 4);
 }

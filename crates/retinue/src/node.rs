@@ -28,13 +28,15 @@ use crate::identity::PrivateIdentity;
 use crate::link::{Link, PendingLink};
 use crate::link_liveness::Liveness;
 use crate::packet::Packet;
-use crate::resource_transfer::{ResourceReceiver, ResourceSender};
+use crate::rebroadcast::{AnnounceCap, Rebroadcasts};
+use crate::resource_transfer::{SegmentedReceiver, SegmentedSender};
 
 mod action;
 mod ingest;
 mod links;
 mod params;
 mod poll;
+mod rebroadcast;
 mod report;
 mod resources;
 mod routes;
@@ -48,6 +50,8 @@ mod transit;
 pub use action::{Action, Actions, InterfaceId};
 pub use params::*;
 pub use report::*;
+// The endpoint shares the Node's link dedup rule.
+#[cfg(feature = "tokio")]
 pub(crate) use tables::is_deduplicated_link_context;
 use tables::{HashGenerations, LinkBridge, ReverseEntry, Route};
 
@@ -87,6 +91,10 @@ pub struct Node<
     /// Return paths for the proofs of carried packets, consumed by the proof that uses them
     /// and forgotten after [`REVERSE_TIMEOUT`]. The oldest gives way at capacity.
     reverse: BoundedVec<ReverseEntry, ROUTES>,
+    /// Relayed announces awaiting their jittered transmission or retry (RNS's announce table).
+    rebroadcasts: Rebroadcasts,
+    /// Relayed-announce budgets of the interfaces whose airtime is known.
+    announce_caps: BoundedVec<(InterfaceId, AnnounceCap), FIRST_HOP_AIRTIME_INTERFACES>,
     /// Recently relayed packet hashes, so a shared radio hearing its own relay does not loop.
     transit_filter: HashGenerations<TRANSPORT_DEDUP_HASHES>,
     /// Path requests already seen, by target and tag, so each is answered once.
@@ -109,6 +117,9 @@ pub struct Node<
     /// The proof is kept so a retransmitted request gets the *same* proof: answering afresh
     /// would leave the two sides with different keys for one link.
     links: BoundedVec<(Link, Packet, Liveness), LINKS>,
+    /// The interface each link was established on, which its packets must arrive by
+    /// (`Link.py` 938-941). Entries for links since dropped are pruned on the next bind.
+    link_interfaces: BoundedVec<(AddressHash, InterfaceId), LINKS>,
     /// Links we opened, awaiting the peer's proof, each with the time it expires unanswered
     /// and the time it was sent, from which the proof's arrival measures the link RTT.
     pending: BoundedVec<(PendingLink, u64, u64), LINKS>,
@@ -118,9 +129,11 @@ pub struct Node<
     /// Interfaces whose mode is not [`InterfaceMode::Full`].
     interface_modes: BoundedVec<(InterfaceId, InterfaceMode), INTERFACE_MODE_INTERFACES>,
     /// Inbound resource transfers, at most one per link.
-    receivers: BoundedVec<(AddressHash, ResourceReceiver, u64), LINKS>,
+    receivers: BoundedVec<(AddressHash, SegmentedReceiver, u64), LINKS>,
+    /// The largest inbound resource accepted, in all; see [`Node::set_max_inbound_resource`].
+    max_inbound_resource: usize,
     /// Outbound resource transfers, at most one per link.
-    senders: BoundedVec<(AddressHash, ResourceSender, u64), LINKS>,
+    senders: BoundedVec<(AddressHash, SegmentedSender<Vec<u8>>, u64), LINKS>,
     /// The last resource proof sent on each link, with when and how many times it has been
     /// re-sent, kept for [`RESOURCE_PROOF_CACHE_TTL`] to answer the sender's cache request
     /// (or a re-advertisement) if it was lost.
@@ -139,8 +152,5 @@ pub struct Node<
     /// Resource offers refused: past the part ceiling, multi-segment, past the decompression
     /// limit, or with every receiver slot held.
     refused_offers: u16,
-    /// Received resources whose attached metadata was dropped, because
-    /// [`Action::Resource`] carries only the data.
-    dropped_metadata: u16,
     transport_counters: TransportCounters,
 }

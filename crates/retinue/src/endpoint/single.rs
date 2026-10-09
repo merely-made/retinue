@@ -289,7 +289,8 @@ impl Endpoint {
             ));
         }
         let (peer, ratchet) = {
-            let address_book = self.shared.address_book.lock().unwrap();
+            let mut address_book = self.shared.address_book.lock().unwrap();
+            address_book.mark_used(dest, super::known_destinations::book_clock_ms());
             let peer = address_book.resolve(dest).ok_or_else(|| {
                 io::Error::new(io::ErrorKind::NotFound, "destination has not announced")
             })?;
@@ -390,7 +391,13 @@ impl Endpoint {
     }
 }
 
-pub(super) fn deliver_single(shared: &Arc<Shared>, iface: InterfaceId, pkt: &Packet) {
+/// Decrypt and hand over a single packet whose full hash the packet filter already took.
+pub(super) fn deliver_single(
+    shared: &Arc<Shared>,
+    iface: InterfaceId,
+    pkt: &Packet,
+    packet_hash: [u8; 32],
+) {
     if !shared.is_running() {
         return;
     }
@@ -426,7 +433,6 @@ pub(super) fn deliver_single(shared: &Arc<Shared>, iface: InterfaceId, pkt: &Pac
     let Some((data, ratchet_id)) = decrypted else {
         return;
     };
-    let packet_hash = pkt.full_hash();
     let _ = shared.single_tx.send(ReceivedSingle {
         destination: pkt.destination,
         interface: iface,

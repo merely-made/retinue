@@ -24,7 +24,6 @@ use radio_hand::channel::rnode::RNodeChannel;
 use radio_hand::channel::{Channel, ChannelInfo, Event, Personality};
 use radio_hand::executive::{Executive, Face, Heartbeat, RadioState};
 use radio_hand::link::{Flow, HostLink};
-use radio_hand::region::Region;
 use radio_hand::settings::Channel as BootChannel;
 use selvage::{MESHTASTIC_SYNC_WORD, PhyProfile};
 use static_cell::StaticCell;
@@ -55,8 +54,7 @@ const TX_POWER_DBM: i32 = board::DEFAULT_TX_POWER_DBM as i32;
 const MAX_RADIO_FRAME: usize = 255;
 const USB_PACKET: usize = 64;
 
-/// A boot line naming the node and what it costs, so the heap figure is a receipt rather
-/// than an assertion. The destination is public by construction; no key material is shown.
+/// Boot line naming the node and its heap cost. Shows only the public destination.
 fn describe_node(node: Option<&retinue::node::Node<32, 8, 4>>, out: &mut [u8; 64]) -> usize {
     let mut text = radio_face::Text::<64>::empty();
     match node {
@@ -83,51 +81,6 @@ fn describe_node(node: Option<&retinue::node::Node<32, 8, 4>>, out: &mut [u8; 64
     let len = source.len().min(out.len());
     out[..len].copy_from_slice(&source[..len]);
     len
-}
-
-/// What a `channel` line asked for.
-enum ChannelProbe {
-    /// `channel` — say which personality boots.
-    Report,
-    /// `channel modem` or `channel node` — persist a choice and reboot into it.
-    Set(BootChannel),
-}
-
-/// Read a host line as a channel probe, tolerating either line ending.
-fn channel_probe(packet: &[u8]) -> Option<ChannelProbe> {
-    let line = packet
-        .strip_suffix(b"\r\n")
-        .or_else(|| packet.strip_suffix(b"\n"))?;
-    match line {
-        b"channel" => Some(ChannelProbe::Report),
-        b"channel modem" => Some(ChannelProbe::Set(BootChannel::Modem)),
-        b"channel node" => Some(ChannelProbe::Set(BootChannel::Node)),
-        b"channel rnode" => Some(ChannelProbe::Set(BootChannel::Rnode)),
-        _ => None,
-    }
-}
-
-/// What a `region` line asked for.
-enum RegionProbe {
-    /// `region` — say which compliance profile the board operates under.
-    Report,
-    /// `region us915` and friends — persist a choice and reboot into it.
-    Set(Region),
-}
-
-/// Read a host line as a region probe. Names match the table case-insensitively, so the
-/// probe vocabulary grows when the table does, not when this function does.
-fn region_probe(packet: &[u8]) -> Option<RegionProbe> {
-    let line = packet
-        .strip_suffix(b"\r\n")
-        .or_else(|| packet.strip_suffix(b"\n"))?;
-    if line == b"region" {
-        return Some(RegionProbe::Report);
-    }
-    let name = line.strip_prefix(b"region ")?;
-    Region::choices()
-        .find(|region| region.name().as_bytes().eq_ignore_ascii_case(name))
-        .map(RegionProbe::Set)
 }
 
 fn publish_fault(status: &mut radio_face::LocalStatus, code: u8, message: &'static str) {
@@ -157,17 +110,15 @@ async fn main(spawner: Spawner) {
     // SAFETY: called once, before any allocation.
     unsafe { heap::init() };
 
-    // The crash residue, before anything else can crash: reset reason, consecutive-crash
-    // count, and whether this boot should distrust the persisted channel.
+    // Crash residue first: reset reason, crash count, and whether to distrust the channel.
     let boot_crash = crash::on_boot();
 
     let mut nrf_config = embassy_nrf::config::Config::default();
     nrf_config.hfclk_source = HfclkSource::ExternalXtal;
     let p = embassy_nrf::init(nrf_config);
 
-    // The watchdog, armed as early as possible: 8 s of silence from the executor resets
-    // the chip. Petting is a task, so what it proves is that the executor still breathes —
-    // panics and hard faults reboot themselves through the crash handler without it.
+    // Watchdog: 8 s without executor progress resets the chip. Panics and hard faults
+    // reboot through the crash handler instead.
     let watchdog_config = {
         let mut config = embassy_nrf::wdt::Config::default();
         config.timeout_ticks = 8 * 32768;
@@ -183,12 +134,9 @@ async fn main(spawner: Spawner) {
         spawner.spawn(task);
     }
 
-    // Resolve the board's settings before anything else starts. A first boot
-    // erases and writes a flash page, which stalls the CPU for tens of
-    // milliseconds, so it belongs here rather than anywhere near live traffic.
-    // The identity stays on the board; the channel says what to boot into.
-    // The store stays alive for the whole run rather than being read and dropped: the
-    // executive owns the board's flash and entropy, and both live here.
+    // Settings first: a first boot erases and writes a flash page, stalling the CPU for
+    // tens of milliseconds, which must stay clear of live traffic. The store lives for the
+    // whole run because the executive owns its flash and entropy.
     let mut store = store::SettingsStore::new(p.NVMC, p.RNG);
     let mut identity_line = [0_u8; 48];
     let (mut settings, identity_line_len) = match store.load_or_create() {
@@ -201,9 +149,8 @@ async fn main(spawner: Spawner) {
     };
 
     // Byte 1 is the native-node choice shipped before durable announce leases. Arm the new
-    // channel guard in the settings A/B pair before reserving or initializing the radio. If
-    // that verified write fails, this boot stays in modem recovery: running the node would
-    // leave an ordinary downgrade able to resume the old random-blob emitter.
+    // channel guard before reserving or initializing the radio; if that write fails, stay in
+    // modem recovery, or a downgrade could resume the old random-blob emitter.
     let mut native_guard_fault = false;
     if let Some(current) = settings
         && current.channel == BootChannel::LegacyNode
@@ -218,21 +165,17 @@ async fn main(spawner: Spawner) {
         }
     }
 
-    // The node this board answers as, built from the persisted identity.
     let node = settings
         .map(|settings| {
             retinue::node::Node::<32, 8, 4>::new(
                 retinue::identity::PrivateIdentity::from_secret_bytes(&settings.identity),
                 retinue::destination::DestinationName::new("retinue", ["node"]).name_hash(),
             )
-            // The native-node personality is this board's standalone mesh participant, so it
-            // carries its bounded transport policy. Modem and RNode remain host-driven and do
-            // not acquire routing state.
+            // Only the native node routes; modem and RNode stay host-driven.
             .with_transport_config(retinue::node::TransportConfig::transit())
         })
         .map(|mut node| {
-            // A link request's deadline covers this radio's own slowness (Ruling 50): the first
-            // hop's airtime allowance, from the modulation the node channel runs on.
+            // Link request deadline includes the first hop's airtime (Ruling 50).
             let allowance = radio_hand::phy::nominal_bits_ms(
                 board::DEFAULT_SPREADING_FACTOR,
                 board::DEFAULT_BANDWIDTH_HZ,
@@ -246,10 +189,8 @@ async fn main(spawner: Spawner) {
     let mut node_line = [0_u8; 64];
     let node_line_len = describe_node(node.as_ref(), &mut node_line);
 
-    // Native-node emission gets one durable lease per boot, before any radio
-    // initialization. The reservation lives apart from identity settings: a
-    // damaged lease must select the recovery modem without ever replacing the
-    // identity peers know. Ordinary operation never touches flash again.
+    // One durable announce lease per boot, before radio init. It lives apart from the
+    // identity: a damaged lease selects the recovery modem without replacing the identity.
     let native_node_requested = settings
         .map(|settings| settings.channel.requests_native_node())
         .unwrap_or(false)
@@ -311,8 +252,6 @@ async fn main(spawner: Spawner) {
         &mut MSOS_DESC.init([0; 128])[..],
         &mut CONTROL_BUF.init([0; 128])[..],
     );
-    // Moved whole into either `serve_status_only` or the host link below, so it is never
-    // mutated here.
     let class = CdcAcmClass::new(&mut builder, STATE.init(State::new()), 64);
     let usb = builder.build();
     match usb_task(usb) {
@@ -370,17 +309,14 @@ async fn main(spawner: Spawner) {
         }
     };
 
-    // The boot carrier comes from the persisted region: each region entry names the
-    // trunk's default frequency inside its band. A board with no region still tunes (to the
-    // US default) so RECEIVING works — receiving is unregulated — but the executive refuses
-    // every transmit until a region is chosen.
+    // Boot carrier from the persisted region. With no region the board still tunes to the
+    // US default for receiving, but the executive refuses every transmit.
     let region = settings.map(|s| s.region).unwrap_or_default();
     let boot_frequency = region
         .profile()
         .map(|p| p.default_frequency_hz)
         .unwrap_or(board::DEFAULT_FREQUENCY_HZ);
-    // One source for the modulation: the same board defaults the link deadline's airtime
-    // allowance is computed from (Ruling 70), so the two cannot drift.
+    // Same board defaults as the link deadline's airtime allowance (Ruling 70).
     let params = match (
         radio_hand::phy::spreading_factor(board::DEFAULT_SPREADING_FACTOR),
         radio_hand::phy::bandwidth(board::DEFAULT_BANDWIDTH_HZ),
@@ -422,8 +358,6 @@ async fn main(spawner: Spawner) {
         }
     };
 
-    // The banner names the region, the carrier, the reset reason, and any crash residue —
-    // the facts a bench or a user needs before trusting the boot.
     let mut online_line = radio_face::Text::<320>::empty();
     let _ = write!(
         &mut online_line,
@@ -452,14 +386,10 @@ async fn main(spawner: Spawner) {
     );
     publish_online(&mut local_status);
     if timebase_fault {
-        // The modem stays available for repair, but native-node announces are
-        // denied for this boot. The banner carries the same fact for a host
-        // that attaches after the face has redrawn.
+        // Modem stays up for repair; native-node announces are denied this boot.
         publish_fault(&mut local_status, 7, "TIMEBASE");
     }
 
-    // Past every path that hands `class` to `serve_status_only`, so the CDC endpoint can
-    // become the host link and the radio can pass to the executive that owns it.
     let mut host = host::UsbHost::new(class);
     let mut radio = RadioState {
         profile: PhyProfile::meshtastic_long_fast(boot_frequency),
@@ -473,9 +403,7 @@ async fn main(spawner: Spawner) {
         publish: ui::publish,
         publish_host: ui::publish_host,
     };
-    // Held for the rest of `main`, which is what makes the boundary real on this board:
-    // nothing below can reach `lora`, the flash, or the RNG again, because the executive
-    // has all three.
+    // The executive owns `lora`, the flash and the RNG for the rest of `main`.
     let mut exec = Executive::new(
         &mut lora,
         &mut radio,
@@ -484,8 +412,7 @@ async fn main(spawner: Spawner) {
         &mut store,
         region,
     );
-    // Fresh per-boot token from the board RNG, without durable reservation or
-    // journal writes. Entropy failure disables observation visibly via discovery.
+    // Per-boot token from the RNG, no flash writes. Entropy failure disables observation.
     let mut observation_boot = [0; 8];
     let observation_boot = if exec.random(&mut observation_boot).is_ok() {
         u64::from_be_bytes(observation_boot)
@@ -498,18 +425,10 @@ async fn main(spawner: Spawner) {
         exec.attach_observations(observations);
     }
 
-    // This implementation chooses a personality from persisted settings for the life of
-    // the boot; switching currently requires a reboot. The listener-executive plan
-    // supersedes structural decision 4, but its resident-adapter handover and scheduler
-    // consumer are not wired into this loop yet.
-    //
-    // A board with no readable identity gets the modem regardless of what the settings ask
-    // for. That is the recovery posture rather than a fallback of convenience: the modem
-    // needs nothing but a radio and a host, so it is the one personality that cannot be
-    // denied by a bad store.
-    // A crash loop distrusts the persisted personality: three consecutive crash boots and
-    // the board takes the channel that needs nothing, and says so on the banner. The count
-    // clears after a clean minute, so the fallback is a refuge, not a trap.
+    // Personality is fixed per boot; switching requires a reboot. The listener-executive
+    // plan supersedes structural decision 4, but is not wired into this loop yet.
+    // No readable identity, or three consecutive crash boots, selects the modem: it needs
+    // only a radio and a host. The crash count clears after a clean minute.
     let mut channel = match (
         settings.map(|s| s.channel),
         native_channel,
@@ -518,16 +437,12 @@ async fn main(spawner: Spawner) {
         (Some(channel), Some(node), false) if channel.requests_native_node() => {
             Personality::Node(node)
         }
-        // The RNode channel needs no identity of its own: the host holds one, which is the
-        // point of it. So it is offered on the settings alone, and only a crash loop takes
-        // it away.
+        // RNode needs no board identity; the host holds one.
         (Some(BootChannel::Rnode), _, false) => Personality::Rnode(RNodeChannel::new()),
         _ => Personality::Modem(ModemChannel::new(Sx126xDiagnostics)),
     };
 
-    // Outside the session loop on purpose. A channel that runs without a host keeps its
-    // clock across every attach and detach, so its announce cadence is the board's own and
-    // not a function of when somebody plugged in a cable.
+    // Outside the session loop so announce cadence survives attach and detach.
     let mut heartbeat = Heartbeat::new(channel.heartbeat());
 
     loop {
@@ -541,9 +456,7 @@ async fn main(spawner: Spawner) {
         .await;
         exec.status_mut().host = radio_face::HostState::Attached;
         exec.publish(radio_face::LedSignal::Idle);
-        // The board introduces itself in plain text, unless the channel speaks somebody
-        // else's protocol from the first byte: a host opening with a binary frame is not
-        // reading a greeting, and what it does with one is nobody's guess worth taking.
+        // Plain-text greeting, unless the channel speaks a binary protocol from byte one.
         let greeted = !channel.banner()
             || (host
                 .write_all(online_line.as_str().as_bytes())
@@ -576,17 +489,13 @@ async fn main(spawner: Spawner) {
 
             let mut usb_packet = [0_u8; USB_PACKET];
             let mut radio_frame = [0_u8; MAX_RADIO_FRAME];
-            // Bound rather than matched in place, so the borrows the three futures hold end
-            // here and an arm is free to take the executive again.
-            // Only the interrupt wait is raced. A whole receive raced here would be
-            // cancelled wherever it stood, and once its interrupt has fired it is midway
-            // through pulling a frame out of the chip: abandoning there consumes the
-            // interrupt, leaves the bytes for the next packet to overwrite, and reports
-            // nothing. `wait_rx_irq` is the half that costs nothing to abandon.
+            // Bound, not matched in place, so the futures' borrows end before an arm takes
+            // the executive. Only `wait_rx_irq` is raced: cancelling a whole receive after
+            // its interrupt fired would consume the IRQ and lose the frame.
             let woken = select3(
                 host.read(&mut usb_packet),
                 exec.wait_rx_irq(),
-                heartbeat.next(),
+                heartbeat.next(channel.wake_at()),
             )
             .await;
             match woken {
@@ -594,8 +503,7 @@ async fn main(spawner: Spawner) {
                     // Deliberately not raced: the frame is in the radio until it is read.
                     let collected = exec.collect(&mut radio_frame).await;
                     let received = match collected {
-                        // A frame that failed its CRC is the air being the air. Counted in
-                        // `rx_damaged`, and the next frame is the whole recovery.
+                        // CRC failure: counted in `rx_damaged`; wait for the next frame.
                         Ok(None) => continue,
                         Ok(Some(received)) => received,
                         Err(_) => {
@@ -627,8 +535,8 @@ async fn main(spawner: Spawner) {
                         break;
                     }
                 }
-                Either3::Third(()) => {
-                    if channel.serve(&mut exec, &mut host, Event::Beat).await == Flow::Detach {
+                Either3::Third(tick) => {
+                    if channel.serve(&mut exec, &mut host, tick).await == Flow::Detach {
                         break;
                     }
                 }
@@ -665,11 +573,9 @@ async fn main(spawner: Spawner) {
             }
         }
         channel.stop(&mut exec, &mut host).await;
-        // The CDC control line falls slightly after the failed read or write that ended the
-        // session. Wait for that edge before the outer loop considers another attach, or a
-        // still-latched DTR can make the next banner write wait forever on a vanished host.
-        // The next unattached loop keeps servicing the radio while waiting for
-        // an actual DTR drop; do not block here behind a stalled USB reader.
+        // DTR drops slightly after the failed I/O that ended the session. Require that edge
+        // before the next attach, or a latched DTR can hang the banner write on a vanished
+        // host. The unattached loop keeps servicing the radio meanwhile; never block here.
         host.require_detach();
         exec.status_mut().host = radio_face::HostState::Detached;
         exec.publish(radio_face::LedSignal::Idle);

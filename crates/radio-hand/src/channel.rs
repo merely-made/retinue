@@ -53,6 +53,8 @@ pub enum Event<'a> {
     },
     /// The channel's own heartbeat came due. Only delivered to channels that asked for one.
     Beat,
+    /// The deadline the channel named in [`ChannelInfo::wake_at`] came due.
+    Wake,
 }
 
 /// What a channel reports about itself.
@@ -77,6 +79,12 @@ pub trait ChannelInfo {
     /// turns it into a future that never completes, so a channel with no timer costs no
     /// periodic wake at all.
     fn heartbeat(&self) -> Option<Duration> {
+        None
+    }
+
+    /// When the channel next wants an [`Event::Wake`] between beats, if at all. Asked again
+    /// before every wait, so a channel re-arms it simply by changing its answer.
+    fn wake_at(&self) -> Option<embassy_time::Instant> {
         None
     }
 
@@ -178,6 +186,14 @@ impl<D, const PEERS: usize, const ACTIONS: usize, const LINKS: usize> ChannelInf
             Personality::Modem(c) => c.heartbeat(),
             Personality::Node(c) => c.heartbeat(),
             Personality::Rnode(c) => c.heartbeat(),
+        }
+    }
+
+    fn wake_at(&self) -> Option<embassy_time::Instant> {
+        match self {
+            Personality::Modem(c) => c.wake_at(),
+            Personality::Node(c) => c.wake_at(),
+            Personality::Rnode(c) => c.wake_at(),
         }
     }
 
@@ -298,7 +314,7 @@ pub async fn await_host_with_listening<C, L, RK, DLY>(
         let woken = select3(
             Timer::after_millis(50),
             exec.wait_rx_irq(),
-            heartbeat.next(),
+            heartbeat.next(channel.wake_at()),
         )
         .await;
         match woken {
@@ -333,10 +349,10 @@ pub async fn await_host_with_listening<C, L, RK, DLY>(
             // A radio fault with no host to tell. `receive` has already asked for a
             // re-prepare, so the next turn of this loop repairs it.
             Either3::Second(Err(_)) => {}
-            Either3::Third(()) => {
+            Either3::Third(tick) => {
                 exec.note_wait(false);
                 if channel.without_host() {
-                    channel.serve(exec, host, Event::Beat).await;
+                    channel.serve(exec, host, tick).await;
                 }
             }
         }

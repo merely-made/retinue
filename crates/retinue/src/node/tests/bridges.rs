@@ -28,7 +28,7 @@ fn relayed_request(
     .with_transport_config(TransportConfig::transit());
     relay.set_logical_mtu(relay_mtu).unwrap();
     let announce = destination.announce(&blob([0x77; RAND_HASH_LEN]), None);
-    let relayed = sent(&relay.ingest(DESTINATION_SIDE, &announce, 0)).unwrap();
+    let relayed = relayed(&mut relay, DESTINATION_SIDE, &announce, 0).unwrap();
     source.ingest(IFACE, &relayed, 1);
     let mut request = sent(
         &source
@@ -293,6 +293,21 @@ fn a_proof_validates_its_bridge_only_once_carried() {
     assert!(relay.ingest(DESTINATION_SIDE, &proof, 4).is_empty());
     assert_eq!(relay.transport_counters().hop_limit_dropped, 1);
     assert!(relay.bridges[0].proof_deadline.is_some());
+}
+
+/// A packet forwarded with `PATHFINDER_M` hops is refused by the next hop (`Packet.py` 250),
+/// so a relay forwards only while its incremented hop count stays below the ceiling.
+#[test]
+fn a_relay_never_transmits_at_the_hop_ceiling() {
+    let (mut source, mut destination) = pair();
+    let (mut relay, forwarded) = relayed_request(LINK_MTU, &mut source, &destination);
+    let mut proof = sent(&destination.ingest(IFACE, &forwarded, 3)).unwrap();
+    proof.hops = relay.transport.max_hops - 1;
+    assert!(relay.ingest(DESTINATION_SIDE, &proof, 4).is_empty());
+    assert_eq!(relay.transport_counters().hop_limit_dropped, 1);
+    proof.hops = relay.transport.max_hops - 2;
+    let (_, carried) = sent_on(&relay.ingest(DESTINATION_SIDE, &proof, 5)).unwrap();
+    assert_eq!(carried.hops, relay.transport.max_hops - 1);
 }
 
 /// A destination treats a signalled MTU of 0 as RNS's 500-byte default, and holds a

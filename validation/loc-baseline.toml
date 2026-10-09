@@ -8,5 +8,3 @@
 "firmware/heltec-v4-phy/src/radio_owner.rs" = 881
 "firmware/heltec-v4-phy/src/resident.rs" = 651
 "firmware/heltec-v4-phy/src/store.rs" = 601
-"firmware/t114-phy/src/main.rs" = 677
-"firmware/t114-phy/src/probes.rs" = 610

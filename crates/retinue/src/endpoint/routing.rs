@@ -8,9 +8,8 @@ use super::interface::InterfaceId;
 use super::queue::{ClassCounters, QueueCounters, QueueDepths, QueueWeights};
 use super::runtime::Endpoint;
 
-/// Maximum hops an announce or packet may travel before a transport node drops it. RNS's
-/// default `m` (`PATHFINDER_M`).
-pub(super) const MAX_HOPS: u8 = 128;
+/// The default hop ceiling, RNS's `PATHFINDER_M`.
+pub(super) const MAX_HOPS: u8 = crate::packet::MAX_HOPS;
 
 /// Which interfaces a routing rule applies to.
 ///
@@ -44,8 +43,9 @@ impl InterfaceSelector {
 /// one interface only, or cap its hops. The default ([`RoutingPolicy::none`]) carries nothing.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RoutingPolicy {
-    /// Re-broadcast others' announces (hops+1, de-duplicated, never back the way they came),
-    /// which is what makes destinations behind this node discoverable.
+    /// Re-broadcast others' announces (hops+1, de-duplicated, jittered, retried once, on every
+    /// permitted interface including the ingress one, as RNS does), which is what makes
+    /// destinations behind this node discoverable.
     pub forward_announces: bool,
     /// Forward others' data, link, and proof packets toward their destinations.
     pub forward_packets: bool,
@@ -53,7 +53,8 @@ pub struct RoutingPolicy {
     pub allowed_ingress: InterfaceSelector,
     /// Interfaces this endpoint will emit transit *on*.
     pub allowed_egress: InterfaceSelector,
-    /// Hop ceiling for forwarded traffic: a packet at or above it is dropped, not relayed.
+    /// Hop ceiling for forwarded traffic: a packet is relayed only while its forwarded hop
+    /// count stays below it. See [`crate::packet::MAX_HOPS`] for how this meets RNS.
     pub max_hops: u8,
     /// Each class's share of a contended interface, which bounds transit against local
     /// traffic.
@@ -112,8 +113,17 @@ impl RoutingPolicy {
 pub struct RoutingCounters {
     /// Data, link, and proof packets forwarded on behalf of others.
     pub forwarded_packets: u64,
-    /// Announces re-broadcast on behalf of others.
+    /// Relayed announce transmissions on behalf of others, retries included.
     pub forwarded_announces: u64,
+    /// Relayed announces whose retry was dropped because neighbours were heard relaying them
+    /// or passing ours on.
+    pub suppressed_rebroadcasts: u64,
+    /// Announces not relayed because every rebroadcast slot held one not yet sent.
+    pub refused_rebroadcasts: u64,
+    /// Relayed announces queued behind an interface's announce cap.
+    pub capped_announces: u64,
+    /// Relayed announces dropped because a capped interface's queue was full.
+    pub dropped_announces: u64,
     /// Packets a policy refused: transit disabled, or the ingress/egress interface not
     /// permitted.
     pub policy_rejected: u64,
@@ -171,6 +181,10 @@ pub struct RoutingCounters {
 pub(super) struct RoutingStats {
     pub(super) forwarded_packets: AtomicU64,
     pub(super) forwarded_announces: AtomicU64,
+    pub(super) suppressed_rebroadcasts: AtomicU64,
+    pub(super) refused_rebroadcasts: AtomicU64,
+    pub(super) capped_announces: AtomicU64,
+    pub(super) dropped_announces: AtomicU64,
     pub(super) policy_rejected: AtomicU64,
     pub(super) hop_limit_dropped: AtomicU64,
     pub(super) ifac_flag_rejected: AtomicU64,
@@ -197,6 +211,10 @@ impl RoutingStats {
         RoutingCounters {
             forwarded_packets: self.forwarded_packets.load(Ordering::Relaxed),
             forwarded_announces: self.forwarded_announces.load(Ordering::Relaxed),
+            suppressed_rebroadcasts: self.suppressed_rebroadcasts.load(Ordering::Relaxed),
+            refused_rebroadcasts: self.refused_rebroadcasts.load(Ordering::Relaxed),
+            capped_announces: self.capped_announces.load(Ordering::Relaxed),
+            dropped_announces: self.dropped_announces.load(Ordering::Relaxed),
             policy_rejected: self.policy_rejected.load(Ordering::Relaxed),
             hop_limit_dropped: self.hop_limit_dropped.load(Ordering::Relaxed),
             ifac_flag_rejected: self.ifac_flag_rejected.load(Ordering::Relaxed),

@@ -55,9 +55,10 @@ pub const MAX_RESOURCE_PARTS: usize = 32;
 ///
 /// The default is unbounded, for host callers; embedded callers choose finite values with
 /// [`Node::new_with_payload_limits`], and must still bound raw input before decoding a
-/// [`Packet`] and bound retained action queues. An inbound uncompressed resource is bounded by
-/// `max_resource_parts` times `max_ingress_bytes`. With `compression` on, a compressed one is
-/// also refused past [`DEFAULT_MAX_DECOMPRESSED_SIZE`](crate::resource::DEFAULT_MAX_DECOMPRESSED_SIZE).
+/// [`Packet`] and bound retained action queues. Each segment of an inbound uncompressed
+/// resource is bounded by `max_resource_parts` times `max_ingress_bytes`. With `compression`
+/// on, a compressed one is also refused past its advertised size. The whole resource is
+/// bounded by [`Node::set_max_inbound_resource`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PayloadLimits {
     pub max_ingress_bytes: usize,
@@ -91,21 +92,14 @@ impl core::fmt::Display for AppDataTooLarge {
 
 impl core::error::Error for AppDataTooLarge {}
 
-/// Parts requested per turn. Small, because a half-duplex radio should not be asked for a
-/// burst it cannot answer before the next request arrives.
-pub const RESOURCE_REQUEST_WINDOW: usize = 4;
-
-/// How long a transfer may sit silent before [`Node::poll`] redrives it, in the caller's
-/// tick unit (milliseconds on the boards).
-///
-/// The loss-recovery clock: a receiver re-requests what it is missing, a sender re-offers an
-/// unanswered advertisement. It must clear a request-plus-part round trip at the slowest
-/// profile (about 3 s at SF11/250 kHz); deriving it from airtime is a recorded follow-up.
-pub const RESOURCE_RETRY_INTERVAL: u64 = 12_000;
+/// The round trip a resource's watchdog assumes on a link whose RTT is not yet measured,
+/// in the caller's tick unit (milliseconds on the boards): about a request-plus-part round
+/// trip at the slowest profile, SF11/250 kHz.
+pub const RESOURCE_FALLBACK_RTT: u64 = 3_000;
 
 /// How long a link keeps the last resource proof this node sent, to answer a sender's cache
 /// request for it, in milliseconds. A sender asks [`PROOF_CACHE_REQUESTS`] times, each
-/// after a retry interval of silence, so this covers them with room for slow airtime.
+/// after RTT × 3 + 10 s of silence, so this covers them with room for slow airtime.
 ///
 /// [`PROOF_CACHE_REQUESTS`]: crate::resource_transfer::PROOF_CACHE_REQUESTS
 pub const RESOURCE_PROOF_CACHE_TTL: u64 = 120_000;
@@ -301,8 +295,35 @@ pub const TRANSPORT_DEDUP_HASHES: usize = 32;
 /// (`Transport.py` 1847-1856).
 pub const PATH_REQUEST_TAGS: usize = 8;
 
-/// The Reticulum transport hop ceiling.
-pub const DEFAULT_TRANSPORT_MAX_HOPS: u8 = 128;
+/// The random window before a relayed announce's first transmission, in milliseconds: RNS's
+/// `PATHFINDER_RW` (`Transport.py` 125, 2338).
+pub const REBROADCAST_WINDOW: u64 = 500;
+
+/// The grace before a relayed announce's one retry, in milliseconds, after which the window is
+/// added again: RNS's `PATHFINDER_G` (`Transport.py` 124, 780).
+pub const REBROADCAST_GRACE: u64 = 5_000;
+
+/// Neighbour rebroadcasts heard at our hop count that end our retry: RNS's
+/// `LOCAL_REBROADCASTS_MAX` (`Transport.py` 132).
+pub const LOCAL_REBROADCASTS_MAX: u8 = 2;
+
+/// The share of an interface's bitrate relayed announces may use, in percent: RNS's
+/// `ANNOUNCE_CAP` (`Reticulum.py` 114). Applied where the interface's airtime is known.
+pub const ANNOUNCE_CAP_PERCENT: u64 = 2;
+
+/// How long an announce may wait for its interface's cap before it is dropped, in
+/// milliseconds: RNS's `QUEUED_ANNOUNCE_LIFE`, three hours (`Reticulum.py` 112).
+pub const QUEUED_ANNOUNCE_LIFE: u64 = 3 * 60 * 60 * 1_000;
+
+/// Relayed announces awaiting transmission or retry at once. At capacity one already sent
+/// makes room; with none, a new announce is not relayed.
+pub const REBROADCAST_SLOTS: usize = 8;
+
+/// Relayed announces one capped interface queues for airtime. Overflow is dropped.
+pub const QUEUED_ANNOUNCES: usize = 8;
+
+/// The Reticulum transport hop ceiling, RNS's `PATHFINDER_M`.
+pub const DEFAULT_TRANSPORT_MAX_HOPS: u8 = crate::packet::MAX_HOPS;
 
 /// How long a carried packet's return path is kept for its delivery proof (RNS
 /// `Transport.REVERSE_TIMEOUT`, eight minutes).
@@ -313,11 +334,13 @@ pub const REVERSE_TIMEOUT: u64 = 480_000;
 /// Explicit, because many boards are endpoints, not routers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TransportConfig {
-    /// Re-broadcast verified announces with this node as their next transport hop.
+    /// Re-broadcast verified announces with this node as their next transport hop, from
+    /// [`Node::poll`] after a jitter, as RNS does: see [`Node::next_rebroadcast`].
     pub relay_announces: bool,
     /// Carry header-type-2 packets addressed to this node, and packets on remembered links.
     pub relay_packets: bool,
-    /// Packets at or above this hop count are dropped instead of relayed.
+    /// A packet is relayed only while its forwarded hop count stays below this. See
+    /// [`crate::packet::MAX_HOPS`] for how this meets RNS.
     pub max_hops: u8,
     /// Lifetime of a route learned from a verified announce.
     pub route_ttl: u64,

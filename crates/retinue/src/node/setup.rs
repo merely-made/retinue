@@ -4,17 +4,16 @@ use alloc::vec::Vec;
 
 use heapless::Vec as BoundedVec;
 
-#[cfg(doc)]
-use super::Action;
 use super::tables::HashGenerations;
 use super::{
     AppDataTooLarge, DEFAULT_ANNOUNCE_INTERVAL, FreshnessPolicy, LINK_MTU, LogicalMtuError,
-    MIN_LOGICAL_MTU, Node, PayloadLimits, TransportConfig, TransportCounters,
+    MIN_LOGICAL_MTU, Node, PayloadLimits, REBROADCAST_SLOTS, TransportConfig, TransportCounters,
 };
 use crate::address_book::AddressBook;
 use crate::announce_freshness::{AnnounceFreshness, AnnounceFreshnessConfig};
 use crate::hash::{AddressHash, NameHash};
 use crate::identity::PrivateIdentity;
+use crate::rebroadcast::Rebroadcasts;
 
 impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES: usize>
     Node<PEERS, ACTIONS, LINKS, ROUTES>
@@ -41,16 +40,20 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             transit_filter: HashGenerations::new(),
             path_request_tags: HashGenerations::new(),
             reverse: BoundedVec::new(),
+            rebroadcasts: Rebroadcasts::new(REBROADCAST_SLOTS),
+            announce_caps: BoundedVec::new(),
             sent_link_data: BoundedVec::new(),
             received_link_data: BoundedVec::new(),
             last_announce: None,
             announce_interval: DEFAULT_ANNOUNCE_INTERVAL,
             announced_blob: None,
             links: BoundedVec::new(),
+            link_interfaces: BoundedVec::new(),
             pending: BoundedVec::new(),
             first_hop_airtime: BoundedVec::new(),
             interface_modes: BoundedVec::new(),
             receivers: BoundedVec::new(),
+            max_inbound_resource: crate::resource_transfer::DEFAULT_MAX_RESOURCE_SIZE,
             senders: BoundedVec::new(),
             resource_proofs: BoundedVec::new(),
             iv_counter: 0,
@@ -59,7 +62,6 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             expired_link_requests: 0,
             refused_peers: 0,
             refused_offers: 0,
-            dropped_metadata: 0,
             transport_counters: TransportCounters::default(),
         }
     }
@@ -263,12 +265,5 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
     /// Resource offers turned away, by the part ceiling or by full receiver slots.
     pub fn refused_offers(&self) -> u16 {
         self.refused_offers
-    }
-
-    /// Resources delivered without the metadata their sender attached. A Node delivers
-    /// only a resource's data ([`Action::Resource`]), so a climbing count means a peer is
-    /// sending metadata this application never sees.
-    pub fn dropped_metadata(&self) -> u16 {
-        self.dropped_metadata
     }
 }

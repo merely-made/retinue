@@ -14,6 +14,7 @@ use retinue::request::Request;
 
 mod cancel;
 mod proofs;
+mod segments;
 mod transfer;
 
 /// Connect `a` to `b`, dropping `b`'s resource proofs and counting `a`'s cache requests.

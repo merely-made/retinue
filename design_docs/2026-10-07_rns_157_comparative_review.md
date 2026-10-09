@@ -9,9 +9,13 @@ items partial:
 - item 31: address-book persistence is deferred.
 
 On 2026-10-08 the route TTL also moved from 30 minutes to RNS's one week, with
-access-point and roaming caps and refresh on use. The rest of Priority 2 is open,
-together with item 23 (requests sent as Resources) and full multi-segment
-transfers. Each adaptation is
+access-point and roaming caps and refresh on use. Priority 2 landed on
+2026-10-09: items 32-34, 37-39, full multi-segment transfers (11), requests as
+Resources (23), Node metadata (24) and address-book persistence (31), together
+with the minor items.
+
+A note on hop counts: retinue's `hops` counts relays crossed, and RNS's path
+table holds one more. retinue's timeouts compensate, and match the V1 receipts. Each adaptation is
 listed in the crate's `NOTICE`, per the
 [Reticulum License adoption](2026-10-05_reticulum_license_adoption.md).
 

@@ -15,12 +15,10 @@ use crate::announce_freshness::{
 };
 use crate::packet::Packet;
 
-use super::entropy::fill_random;
 use super::facts::PeerAnnounce;
 use super::interface::InterfaceId;
 use super::runtime::{Endpoint, recv_until_closed, track};
 use super::shared::Shared;
-use super::transit::relay_announce;
 
 /// Host-owned policy for receive-side announce freshness: whether a verified announce may
 /// change peer, path, publication, or relay state. Independent of the packet-loop cache, and
@@ -122,15 +120,31 @@ impl Shared {
         true
     }
 
-    /// A fresh random delay in `0..=relay_jitter_ms`, or zero when jitter is off.
-    fn relay_jitter(&self) -> Duration {
-        let max = self.relay_jitter_ms.load(Ordering::Relaxed);
-        if max == 0 {
-            return Duration::ZERO;
-        }
-        let mut b = [0u8; 8];
-        fill_random(&mut b);
-        Duration::from_millis(u64::from_le_bytes(b) % (max + 1))
+    /// Whether freshness rejects `pkt` before it is verified, counting the rejection. The
+    /// verified announce would carry the same destination and blob, so it would be rejected
+    /// all the same; an acceptance is decided again, under the lock, once it verifies.
+    pub(super) fn announce_is_stale_unverified(&self, pkt: &Packet) -> bool {
+        let Some(candidate) = crate::announce::unverified_candidate(pkt) else {
+            return false;
+        };
+        let route_live = self.has_live_route(candidate.destination);
+        let decision = self
+            .announce_freshness
+            .lock()
+            .unwrap()
+            .table
+            .evaluate(candidate, route_live);
+        let counter = match decision {
+            AnnounceFreshnessDecision::Accept(_) => return false,
+            AnnounceFreshnessDecision::Reject(AnnounceFreshnessReject::Replay) => {
+                &self.routing_stats.freshness_replays_rejected
+            }
+            AnnounceFreshnessDecision::Reject(AnnounceFreshnessReject::StaleTimebase) => {
+                &self.routing_stats.freshness_stale_rejected
+            }
+        };
+        counter.fetch_add(1, Ordering::Relaxed);
+        true
     }
 }
 
@@ -340,7 +354,7 @@ pub(super) fn process_verified_announce(
     // A full book evicts the least recently heard peer with no live path or link. A refusal
     // only keeps the identity out of the book (no `PeerAnnounce`): the path is still learned
     // and the announce still relayed, as RNS relays from its path table.
-    let now = shared.announce_admission_now_ms();
+    let now = super::known_destinations::book_clock_ms();
     let in_use = {
         let book = shared.address_book.lock().unwrap();
         book.is_full() && !book.knows(announce.destination)
@@ -401,7 +415,7 @@ pub(super) fn process_verified_announce(
     }
 
     // Relay as a transport node: hops+1, stamped with our identity so downstream peers
-    // address replies through us, out every permitted interface but the ingress one.
+    // address replies through us, from the rebroadcast table.
     let policy = shared.routing.lock().unwrap().clone();
     if !policy.relays_announce_from(iface) || !shared.announce_is_new(pkt.hash()) {
         return;
@@ -419,7 +433,7 @@ pub(super) fn process_verified_announce(
             .fetch_add(1, Ordering::Relaxed);
         return;
     }
-    if pkt.hops >= policy.max_hops {
+    if pkt.hops.saturating_add(1) >= policy.max_hops {
         shared
             .routing_stats
             .hop_limit_dropped
@@ -430,17 +444,5 @@ pub(super) fn process_verified_announce(
     fwd.hops += 1;
     fwd.header_type = crate::packet::HeaderType::Type2;
     fwd.transport = Some(shared.identity.public().hash());
-    // Every neighbour that heard this announce relays it too; jitter keeps them from
-    // transmitting on top of each other.
-    let jitter = shared.relay_jitter();
-    if jitter.is_zero() {
-        relay_announce(shared, iface, fwd, &policy.allowed_egress);
-    } else {
-        let shared = Arc::clone(shared);
-        let egress = policy.allowed_egress.clone();
-        track(&Arc::clone(&shared), async move {
-            tokio::time::sleep(jitter).await;
-            relay_announce(&shared, iface, fwd, &egress);
-        });
-    }
+    shared.schedule_rebroadcast(iface, fwd, candidate.blob.timebase());
 }

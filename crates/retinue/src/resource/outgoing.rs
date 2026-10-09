@@ -3,9 +3,9 @@
 use alloc::vec::Vec;
 
 use super::{
-    Advertisement, FLAG_COMPRESSED, FLAG_ENCRYPTED, FLAG_METADATA, FLAG_RESPONSE,
-    HASHMAP_MAX_PARTS, MAPHASH_LEN, RANDOM_HASH_LEN, Request, SDU, build_hmu, map_hash, proof,
-    resource_hash,
+    Advertisement, FLAG_COMPRESSED, FLAG_ENCRYPTED, FLAG_METADATA, FLAG_REQUEST, FLAG_RESPONSE,
+    FLAG_SPLIT, HASHMAP_MAX_PARTS, MAPHASH_LEN, RANDOM_HASH_LEN, Request, SDU, build_hmu, map_hash,
+    proof, resource_hash,
 };
 use crate::hash::full_hash;
 
@@ -34,6 +34,9 @@ pub struct Outgoing {
     /// The full resource's data size, carried in every segment's advertisement `d` field.
     total_data_size: u64,
     request_id: Option<[u8; 16]>,
+    /// Whether `request_id` names the request this Resource carries (`u`) rather than the
+    /// one it answers (`p`).
+    is_request: bool,
     /// The sealed token, held once; part `i` is its `i`th `part_size` slice.
     token: Vec<u8>,
     part_size: usize,
@@ -115,6 +118,7 @@ impl Outgoing {
             total_segments: 1,
             total_data_size: data.len() as u64,
             request_id: None,
+            is_request: false,
             expected_proof: proof(data, &hash),
             token,
             part_size,
@@ -150,6 +154,14 @@ impl Outgoing {
         self
     }
 
+    /// Mark this Resource as carrying a request too large for one packet, `request_id`
+    /// being the request's truncated hash (`Link.py` 503-506).
+    pub fn with_request(mut self, request_id: [u8; 16]) -> Self {
+        self.request_id = Some(request_id);
+        self.is_request = true;
+        self
+    }
+
     /// Mark the data as starting with metadata framed by [`pack_metadata`](super::pack_metadata), which sets
     /// [`FLAG_METADATA`] on the advertisement.
     pub fn with_metadata(mut self) -> Self {
@@ -177,10 +189,17 @@ impl Outgoing {
             flags |= FLAG_COMPRESSED;
         }
         if self.request_id.is_some() {
-            flags |= FLAG_RESPONSE;
+            flags |= if self.is_request {
+                FLAG_REQUEST
+            } else {
+                FLAG_RESPONSE
+            };
         }
         if self.has_metadata {
             flags |= FLAG_METADATA;
+        }
+        if self.total_segments > 1 {
+            flags |= FLAG_SPLIT;
         }
         Advertisement {
             transfer_size: self.token.len() as u64,

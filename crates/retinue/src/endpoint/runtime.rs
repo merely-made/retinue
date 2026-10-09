@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::{Mutex as AsyncMutex, mpsc};
 
 use crate::address_book::AddressBook;
+use crate::announce::VerifiedAnnounces;
 use crate::announce_admission::{AnnounceAdmission, AnnounceIngressPolicy};
 use crate::announce_freshness::AnnounceFreshnessConfigError;
 use crate::channel::DEFAULT_DECODED_FRAME_LIMIT;
@@ -27,6 +28,8 @@ use super::dedup::{HashList, LinkPacketMemory, PACKET_HASHES, PATH_REQUEST_TAGS}
 use super::facts::PeerAnnounce;
 use super::inbound::{Accepted, AcceptedResource, InboundLinks};
 use super::interface::InterfaceId;
+use super::known_destinations::KNOWN_DESTINATIONS_INTERVAL;
+use super::rebroadcast::{Rebroadcasting, start_rebroadcast_driver};
 use super::router::route;
 use super::routing::{RoutingPolicy, RoutingStats};
 use super::shared::{Lifecycle, Quiesce, Shared};
@@ -104,6 +107,7 @@ impl Endpoint {
             closed_notify: tokio::sync::Notify::new(),
             identity,
             address_book: Mutex::new(AddressBook::new()),
+            book_persistence: Mutex::new(None),
             links: Arc::new(Mutex::new(HashMap::new())),
             registered: Mutex::new(Vec::new()),
             ratchet_persistence: Mutex::new(None),
@@ -123,7 +127,9 @@ impl Endpoint {
             routing_stats: RoutingStats::default(),
             diagnostic_generation: AtomicU64::new(0),
             diagnostic_barrier: RwLock::new(()),
-            relay_jitter_ms: AtomicU64::new(0),
+            relay_jitter_ms: AtomicU64::new(crate::node::REBROADCAST_WINDOW),
+            rebroadcasts: Mutex::new(Rebroadcasting::new()),
+            rebroadcast_wake: tokio::sync::Notify::new(),
             reliable_initial_rtt_ms: AtomicU64::new(DEFAULT_RELIABLE_INITIAL_RTT_MS),
             reliable_max_window: AtomicU32::new(DEFAULT_RELIABLE_MAX_WINDOW),
             reliable_decoded_frame_limit: AtomicUsize::new(DEFAULT_DECODED_FRAME_LIMIT),
@@ -135,6 +141,7 @@ impl Endpoint {
             resource_proofs: Mutex::new(HashMap::new()),
             path_table: Mutex::new(HashMap::new()),
             seen_announces: Mutex::new((HashSet::new(), VecDeque::new())),
+            verified_announces: Mutex::new(VerifiedAnnounces::new()),
             link_packets: Mutex::new(LinkPacketMemory::new()),
             packet_filter: Mutex::new(HashList::new(PACKET_HASHES)),
             path_request_tags: Mutex::new(HashList::new(PATH_REQUEST_TAGS)),
@@ -174,6 +181,7 @@ impl Endpoint {
                 route(&router, iface, pkt);
             }
         });
+        start_rebroadcast_driver(&shared);
         let watchdog = Arc::clone(&shared);
         track(&shared, async move {
             let mut tick = tokio::time::interval(LINK_WATCHDOG_TICK);
@@ -181,6 +189,17 @@ impl Endpoint {
             loop {
                 tick.tick().await;
                 watch_links(&watchdog);
+            }
+        });
+        let cleaner = Arc::clone(&shared);
+        track(&shared, async move {
+            let mut tick = tokio::time::interval(KNOWN_DESTINATIONS_INTERVAL);
+            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            tick.tick().await;
+            loop {
+                tick.tick().await;
+                // A failed write is retried at the next interval, as RNS's next clean does.
+                let _ = cleaner.clean_and_persist_book();
             }
         });
 
@@ -199,8 +218,10 @@ impl Endpoint {
         self.shared.identity.public()
     }
 
-    /// The address book, for resolving learned peers.
+    /// The address book, for resolving learned peers. A resolve counts as a use, as RNS's
+    /// `Identity.recall` does, so the peer is kept through cleaning.
     pub fn resolve(&self, dest: AddressHash) -> Option<Identity> {
+        self.shared.mark_destination_used(dest);
         self.shared
             .address_book
             .lock()

@@ -18,6 +18,8 @@ const RADIO: InterfaceId = 0;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SimError {
     DuplicateNode(String),
+    /// A node name with a dot, which a destination aspect cannot carry.
+    BadNodeName(String),
     UnknownNode(String),
     /// A cut names two nodes with no edge between them.
     NoSuchEdge(String, String),

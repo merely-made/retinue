@@ -17,8 +17,8 @@ use crate::{Error, Result};
 /// Requests parts, solicits more hashmap via [`Hmu`] when the known hashes run out, then
 /// reassembles, decompresses, verifies, and proves. One segment is up to ~1 MB.
 ///
-/// Parts are stored by index, as RNS stores them, and matched only within the window after
-/// the first missing part, so a map hash repeated elsewhere cannot misplace one.
+/// Parts are placed by index straight into the token, and matched only within the window
+/// after the first missing part, so a map hash repeated elsewhere cannot misplace one.
 pub struct Incoming {
     hash: [u8; 32],
     random_hash: Vec<u8>,
@@ -33,11 +33,18 @@ pub struct Incoming {
     /// RNS fixes this at [`HASHMAP_MAX_PARTS`]; a sender on a narrow link advertises fewer,
     /// and the advertisement's own count is the segment length it then uses.
     segment_len: usize,
-    /// Collected parts by index. Never longer than the advertised count, which `max_parts`
-    /// caps.
-    parts: Vec<Option<Vec<u8>>>,
-    /// How many entries of `parts` are filled.
+    /// The advertised token length, which the parts fill.
+    transfer_size: usize,
+    /// Which parts have arrived, by index.
+    have: Vec<bool>,
+    /// How many entries of `have` are set.
     received: usize,
+    /// The token, assembled in place. Allocated at its advertised size once a part's length
+    /// confirms it: every part but the last is `part_size` bytes.
+    token: Vec<u8>,
+    part_size: Option<usize>,
+    /// The last part, held aside if it arrives before any other fixes `part_size`.
+    tail: Option<Vec<u8>>,
     /// The index of the first missing part: every part before it has arrived.
     consecutive: usize,
     /// How many parts past `consecutive` are requested and matched.
@@ -68,10 +75,12 @@ impl Incoming {
         // The initial hashmap is peer input too: it may not exceed the advertised count, and
         // a partial map must name at least one part, or there is no segment length.
         let advertised = adv.hashmap.len() / MAPHASH_LEN;
+        let transfer_size = usize::try_from(adv.transfer_size).map_err(|_| Error::BadRequest)?;
         if !adv.hashmap.len().is_multiple_of(MAPHASH_LEN)
             || advertised > total_parts
             || (advertised == 0 && total_parts > 0)
             || adv.random_hash.len() != RANDOM_HASH_LEN
+            || transfer_size < total_parts
         {
             return Err(Error::BadRequest);
         }
@@ -88,7 +97,8 @@ impl Incoming {
             hash,
             random_hash: adv.random_hash.clone(),
             compressed: adv.flags & FLAG_COMPRESSED != 0,
-            has_metadata: adv.has_metadata(),
+            // Later segments carry the flag, but only the first carries the metadata.
+            has_metadata: adv.has_metadata() && adv.i <= 1,
             total_parts,
             hashmap,
             hashmap_height: advertised,
@@ -97,8 +107,12 @@ impl Incoming {
             } else {
                 HASHMAP_MAX_PARTS
             },
-            parts: vec![None; total_parts],
+            transfer_size,
+            have: vec![false; total_parts],
             received: 0,
+            token: Vec::new(),
+            part_size: None,
+            tail: None,
             consecutive: 0,
             window: HASHMAP_MAX_PARTS,
             max_parts,
@@ -108,8 +122,13 @@ impl Incoming {
     /// Request and match at most `window` parts past the first missing one (clamped to
     /// `1..=`[`WINDOW_MAX`]). The default is [`HASHMAP_MAX_PARTS`].
     pub fn with_window(mut self, window: usize) -> Self {
-        self.window = window.clamp(1, WINDOW_MAX);
+        self.set_window(window);
         self
+    }
+
+    /// Resize the window, as an adaptive receiver does between requests.
+    pub fn set_window(&mut self, window: usize) {
+        self.window = window.clamp(1, WINDOW_MAX);
     }
 
     /// Whether the advertisement said the payload is bz2-compressed.
@@ -143,9 +162,32 @@ impl Incoming {
     pub fn missing_known(&self) -> Vec<[u8; MAPHASH_LEN]> {
         self.window_range()
             .map_while(|i| self.hashmap[i].map(|m| (i, m)))
-            .filter(|&(i, _)| self.parts[i].is_none())
+            .filter(|&(i, _)| !self.have[i])
             .map(|(_, m)| m)
             .collect()
+    }
+
+    /// The next request: every missing part in the window whose map hash is known, and
+    /// whether the window reaches a part whose hash is not, so the request must also solicit
+    /// more hashmap (`Resource.py` 942-976).
+    pub fn next_request(&self) -> (Vec<[u8; MAPHASH_LEN]>, bool) {
+        let mut wanted = Vec::new();
+        for i in self.window_range().filter(|&i| !self.have[i]) {
+            match self.hashmap[i] {
+                Some(m) => wanted.push(m),
+                None => return (wanted, true),
+            }
+        }
+        (wanted, false)
+    }
+
+    /// The request for `wanted`, soliciting more hashmap too when `exhausted`.
+    pub fn request_with(&self, wanted: &[[u8; MAPHASH_LEN]], exhausted: bool) -> Vec<u8> {
+        if exhausted {
+            build_exhausted_request(&self.last_known_hash(), &self.hash, wanted)
+        } else {
+            build_request(&self.hash, wanted)
+        }
     }
 
     /// Whether every known map hash has been collected (but more may remain via HMU).
@@ -173,12 +215,14 @@ impl Incoming {
 
     /// An exhausted request soliciting more hashmap, referencing the last known map hash.
     pub fn solicit_hmu(&self) -> Vec<u8> {
-        let last = self
-            .hashmap_height
+        self.request_with(&[], true)
+    }
+
+    fn last_known_hash(&self) -> [u8; MAPHASH_LEN] {
+        self.hashmap_height
             .checked_sub(1)
             .and_then(|i| self.hashmap[i])
-            .unwrap_or([0u8; MAPHASH_LEN]);
-        build_exhausted_request(&last, &self.hash, &[])
+            .unwrap_or([0u8; MAPHASH_LEN])
     }
 
     /// Ingest an HMU's hashes at their place in the map: segment `s` starts at part
@@ -210,56 +254,96 @@ impl Incoming {
     }
 
     /// Take a received part (a raw token slice). Returns true only when it fills a missing
-    /// part in the current window; unknown, out-of-window and duplicate parts return false.
+    /// part in the current window; unknown, out-of-window, duplicate and misshapen parts
+    /// return false.
     pub fn accept_part(&mut self, part: &[u8]) -> bool {
         let m = map_hash(part, &self.random_hash);
         let Some(i) = self
             .window_range()
-            .find(|&i| self.parts[i].is_none() && self.hashmap[i] == Some(m))
+            .find(|&i| !self.have[i] && self.hashmap[i] == Some(m))
         else {
             return false;
         };
-        self.parts[i] = Some(part.to_vec());
+        if !self.place(i, part) {
+            return false;
+        }
+        self.have[i] = true;
         self.received += 1;
-        while self
-            .parts
-            .get(self.consecutive)
-            .is_some_and(Option::is_some)
-        {
+        while self.have.get(self.consecutive).is_some_and(|&have| have) {
             self.consecutive += 1;
         }
         true
     }
 
+    /// Copy part `i` into the token. The first part that is not the last fixes the part size,
+    /// which must account for the advertised length; until then a last part is held aside.
+    fn place(&mut self, i: usize, part: &[u8]) -> bool {
+        let last = self.total_parts - 1;
+        let part_size = match self.part_size {
+            Some(size) => size,
+            None if i == last && last > 0 => {
+                self.tail = Some(part.to_vec());
+                return true;
+            }
+            None => {
+                let size = part.len();
+                let fits = if i == last {
+                    size == self.transfer_size
+                } else {
+                    size > 0
+                        && size * last < self.transfer_size
+                        && self.transfer_size <= size * self.total_parts
+                };
+                if !fits {
+                    return false;
+                }
+                self.part_size = Some(size);
+                self.token = vec![0; self.transfer_size];
+                if let Some(tail) = self.tail.take()
+                    && !self.write(last, size, &tail)
+                {
+                    // The held last part does not fit the size the others fix: ask again.
+                    self.have[last] = false;
+                    self.received -= 1;
+                }
+                size
+            }
+        };
+        self.write(i, part_size, part)
+    }
+
+    fn write(&mut self, i: usize, part_size: usize, part: &[u8]) -> bool {
+        let start = i * part_size;
+        let end = (start + part_size).min(self.transfer_size);
+        if part.len() != end - start {
+            return false;
+        }
+        self.token[start..end].copy_from_slice(part);
+        true
+    }
+
     /// Whether every part of the segment has arrived.
     pub fn is_complete(&self) -> bool {
-        self.received == self.total_parts
+        self.received == self.total_parts && self.tail.is_none()
     }
 
-    /// Reassemble the token in transfer order. Verifies nothing; call [`recover`](Self::recover).
+    /// The reassembled token. Verifies nothing; call [`recover`](Self::recover).
     pub fn assemble_token(&self) -> Result<Vec<u8>> {
-        let mut token = Vec::with_capacity(self.token_len()?);
-        for part in self.parts.iter().flatten() {
-            token.extend_from_slice(part);
-        }
-        Ok(token)
+        self.complete_token().map(<[u8]>::to_vec)
     }
 
-    /// [`assemble_token`](Self::assemble_token), releasing each part as it is copied, so the
-    /// parts and the token are not both held whole. The parts are gone afterwards.
+    /// Take the reassembled token out without copying it. The parts are gone afterwards.
     pub fn take_token(&mut self) -> Result<Vec<u8>> {
-        let mut token = Vec::with_capacity(self.token_len()?);
-        for part in self.parts.iter_mut().filter_map(Option::take) {
-            token.extend_from_slice(&part);
-        }
-        Ok(token)
+        self.complete_token()?;
+        Ok(core::mem::take(&mut self.token))
     }
 
-    /// The reassembled token's length, or [`Error::Truncated`] while any part is missing.
-    fn token_len(&self) -> Result<usize> {
-        self.parts.iter().try_fold(0, |len, part| {
-            Ok(len + part.as_ref().ok_or(Error::Truncated)?.len())
-        })
+    fn complete_token(&self) -> Result<&[u8]> {
+        if self.is_complete() && self.token.len() == self.transfer_size {
+            Ok(&self.token)
+        } else {
+            Err(Error::Truncated)
+        }
     }
 
     /// Recover the payload from the decrypted transfer blob: decompress if the
@@ -284,25 +368,51 @@ impl Incoming {
         // strip it first, then decompress.
         let body = data_from_content(decrypted)?;
         let data = if self.compressed {
-            #[cfg(feature = "compression")]
-            {
-                decompress_bounded(body, max_decompressed).map_err(|e| match e {
-                    BoundedDecompressError::InvalidData => Error::BadPadding,
-                    BoundedDecompressError::LimitExceeded => Error::DecompressionLimit,
-                })?
-            }
-            #[cfg(not(feature = "compression"))]
-            {
-                let _ = max_decompressed;
-                return Err(Error::Unsupported);
-            }
+            self.inflate(body, max_decompressed)?
         } else {
             body.to_vec()
         };
-        if !self.verify(&data) {
-            return Err(Error::ResourceCorrupt);
+        self.verified(data)
+    }
+
+    /// [`recover_with_limit`](Self::recover_with_limit), taking the decrypted blob by value:
+    /// an uncompressed payload is recovered in place, without a copy.
+    pub fn recover_owned(
+        &self,
+        mut decrypted: Vec<u8>,
+        max_decompressed: usize,
+    ) -> Result<Vec<u8>> {
+        let data = if self.compressed {
+            self.inflate(data_from_content(&decrypted)?, max_decompressed)?
+        } else {
+            data_from_content(&decrypted)?;
+            decrypted.drain(..RANDOM_HASH_LEN);
+            decrypted
+        };
+        self.verified(data)
+    }
+
+    fn inflate(&self, body: &[u8], max_decompressed: usize) -> Result<Vec<u8>> {
+        #[cfg(feature = "compression")]
+        {
+            decompress_bounded(body, max_decompressed).map_err(|e| match e {
+                BoundedDecompressError::InvalidData => Error::BadPadding,
+                BoundedDecompressError::LimitExceeded => Error::DecompressionLimit,
+            })
         }
-        Ok(data)
+        #[cfg(not(feature = "compression"))]
+        {
+            let _ = (body, max_decompressed);
+            Err(Error::Unsupported)
+        }
+    }
+
+    fn verified(&self, data: Vec<u8>) -> Result<Vec<u8>> {
+        if self.verify(&data) {
+            Ok(data)
+        } else {
+            Err(Error::ResourceCorrupt)
+        }
     }
 
     /// Check that decrypted (and decompressed) `data` matches the advertised resource hash.

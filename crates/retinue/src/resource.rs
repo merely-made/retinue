@@ -6,16 +6,16 @@
 //!
 //! ```text
 //! t  transfer size   (bytes on the wire, after compression)
-//! d  data size       (uncompressed)
-//! n  parts           (number of segments)
+//! d  data size       (uncompressed, the whole resource with any metadata framing)
+//! n  parts           (in this segment)
 //! h  resource hash   (32)
-//! o  original hash   (32, of the uncompressed data)
+//! o  original hash   (32, the first segment's hash, shared by every segment)
 //! r  random hash     (4)
 //! f  flags
 //! m  hashmap         (MAPHASH_LEN = 4 bytes per part)
 //! i  segment index
 //! l  total segments
-//! q  binary request id for a response Resource, nil otherwise
+//! q  binary request id for a request or response Resource, nil otherwise
 //! ```
 
 mod advertisement;
@@ -32,7 +32,7 @@ mod tests;
 
 pub use advertisement::{Advertisement, advertise};
 #[cfg(feature = "compression")]
-pub(crate) use compression::{BoundedDecompressError, decompress_bounded};
+pub(crate) use compression::{BoundedDecompressError, compress_after, decompress_bounded};
 #[cfg(feature = "compression")]
 pub use compression::{compress, decompress};
 pub use control::{

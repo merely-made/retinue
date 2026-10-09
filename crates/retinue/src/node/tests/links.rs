@@ -112,7 +112,7 @@ fn a_senders_own_data_overheard_from_a_relay_is_not_received() {
     .with_transport_config(TransportConfig::transit());
 
     let announce = destination.announce(&blob([0x77; RAND_HASH_LEN]), None);
-    let relayed_announce = sent(&relay.ingest(IFACE, &announce, 0)).unwrap();
+    let relayed_announce = relayed(&mut relay, IFACE, &announce, 0).unwrap();
     source.ingest(IFACE, &relayed_announce, 1);
     let mut request = sent(
         &source
@@ -441,4 +441,34 @@ fn unhandled_link_traffic_is_dropped() {
         .unwrap();
     assert!(a.ingest(IFACE, &keepalive, 0).is_empty());
     assert!(a.has_link(id), "and the link survives being spoken to");
+}
+
+/// A link's packets count only on the interface it came up on (`Link.py` 938-941), and a
+/// copy refused elsewhere does not shadow the genuine one in the duplicate memory.
+#[test]
+fn link_data_counts_only_on_the_links_interface() {
+    let (mut a, mut b, id) = linked();
+    let data_from = |actions: &Actions<8>| {
+        actions.iter().find_map(|action| match action {
+            Action::Data { payload, .. } => Some(payload.clone()),
+            _ => None,
+        })
+    };
+
+    let theirs = sent(&b.send(id, IFACE, b"from b", &[0x71; 16]).unwrap()).unwrap();
+    assert_eq!(data_from(&a.ingest(IFACE + 1, &theirs, 1)), None);
+    assert_eq!(a.transport_counters().filtered_packets, 1);
+    assert_eq!(a.pause_assessment().latest_link_activity, Some(0));
+    assert_eq!(
+        data_from(&a.ingest(IFACE, &theirs, 2)),
+        Some(b"from b".to_vec())
+    );
+
+    // The responder holds its side to the interface the request came in on.
+    let ours = sent(&a.send(id, IFACE, b"from a", &[0x72; 16]).unwrap()).unwrap();
+    assert_eq!(data_from(&b.ingest(IFACE + 1, &ours, 3)), None);
+    assert_eq!(
+        data_from(&b.ingest(IFACE, &ours, 4)),
+        Some(b"from a".to_vec())
+    );
 }

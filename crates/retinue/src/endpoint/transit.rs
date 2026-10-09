@@ -10,9 +10,9 @@ use crate::hash::AddressHash;
 use crate::link;
 use crate::packet::{Packet, PacketType};
 
-use super::interface::{InterfaceId, QueueAdmission};
+use super::interface::InterfaceId;
 use super::queue::TrafficClass;
-use super::routing::{InterfaceSelector, RoutingPolicy};
+use super::routing::RoutingPolicy;
 use super::shared::Shared;
 
 /// How long a validated bridge is remembered after its last packet: far longer than a live
@@ -118,30 +118,6 @@ pub(super) fn make_room<V, A: Ord>(
 }
 
 impl Shared {
-    /// Relay a packet out every permitted interface but the one it arrived on. Returns how
-    /// many it went out on.
-    fn broadcast_transit(
-        &self,
-        except: InterfaceId,
-        pkt: Packet,
-        egress: &InterfaceSelector,
-    ) -> usize {
-        let mut sent = 0;
-        for i in self.interfaces.lock().unwrap().iter() {
-            // Others' announces queue as transit, behind this node's own traffic.
-            if i.id != except
-                && egress.allows(i.id)
-                && matches!(
-                    i.push(pkt.clone(), TrafficClass::Transit),
-                    QueueAdmission::Queued
-                )
-            {
-                sent += 1;
-            }
-        }
-        sent
-    }
-
     /// Remember the way back for a carried packet's proof (RNS `Transport.py` 2104-2110).
     pub(super) fn remember_reverse(
         &self,
@@ -191,7 +167,7 @@ pub(super) fn forward(
     pkt: Packet,
     policy: &RoutingPolicy,
 ) {
-    if pkt.hops >= policy.max_hops {
+    if pkt.hops.saturating_add(1) >= policy.max_hops {
         shared
             .routing_stats
             .hop_limit_dropped
@@ -199,7 +175,9 @@ pub(super) fn forward(
         return;
     }
     // A copy already carried is a loop or a second path, never new work.
-    if !shared.packet_is_new(&pkt) {
+    // One hash serves the packet filter and the reverse entry.
+    let hash = pkt.hash();
+    if !shared.packet_is_new(pkt.context, hash) {
         return;
     }
     let dest = pkt.destination;
@@ -234,7 +212,7 @@ pub(super) fn forward(
         } else if pkt.packet_type != PacketType::LinkRequest {
             // RNS records a reverse entry for every other carried packet, so its proof can
             // come back the same way (`Transport.py` 2104-2110).
-            shared.remember_reverse(pkt.hash(), from, out);
+            shared.remember_reverse(hash, from, out);
         }
         // A route carrying transit is in use, and RNS refreshes it (`Transport.py` 2113).
         shared.touch_path(dest);
@@ -322,21 +300,6 @@ fn admit_link_request(
     BridgeAdmission::New
 }
 
-/// Put a relayed announce on every permitted interface, counting it if it went anywhere.
-pub(super) fn relay_announce(
-    shared: &Arc<Shared>,
-    from: InterfaceId,
-    pkt: Packet,
-    egress: &InterfaceSelector,
-) {
-    if shared.broadcast_transit(from, pkt, egress) > 0 {
-        shared
-            .routing_stats
-            .forwarded_announces
-            .fetch_add(1, Ordering::Relaxed);
-    }
-}
-
 /// Re-address a forwarded packet for the interface it leaves on (stripping our transport
 /// stamp, so `send_on` re-adds the next hop's), bump hops, and send. Transit's single egress
 /// point, where egress permission and the forwarded count are enforced.
@@ -353,7 +316,7 @@ pub(super) fn forward_on(
             .fetch_add(1, Ordering::Relaxed);
         return false;
     }
-    if pkt.hops >= policy.max_hops {
+    if pkt.hops.saturating_add(1) >= policy.max_hops {
         shared
             .routing_stats
             .hop_limit_dropped

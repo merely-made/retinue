@@ -16,10 +16,15 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
     /// legitimately repeat their hash, so they are never filtered, as RNS exempts them
     /// (`Transport.py` 1635-1640). Channel is filtered here, unlike RNS: see N10.
     pub(super) fn transit_is_new(&mut self, packet: &Packet, now: u64) -> bool {
-        !is_deduplicated_link_context(packet.context)
+        self.transit_hash_is_new(packet.context, packet.hash(), now)
+    }
+
+    /// [`Self::transit_is_new`] for a packet whose hash is already in hand.
+    fn transit_hash_is_new(&mut self, context: u8, hash: AddressHash, now: u64) -> bool {
+        !is_deduplicated_link_context(context)
             || self
                 .transit_filter
-                .insert(packet.hash(), now, TRANSPORT_DEDUP_TIMEOUT)
+                .insert(hash, now, TRANSPORT_DEDUP_TIMEOUT)
     }
 
     /// Record a link request this node is about to carry, unvalidated until `proof_deadline`.
@@ -139,7 +144,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                 .saturating_add(1);
             return true;
         }
-        if packet.hops >= self.transport.max_hops {
+        if packet.hops.saturating_add(1) >= self.transport.max_hops {
             self.transport_counters.hop_limit_dropped =
                 self.transport_counters.hop_limit_dropped.saturating_add(1);
             return true;
@@ -184,7 +189,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         {
             return false;
         }
-        if packet.hops >= self.transport.max_hops {
+        if packet.hops.saturating_add(1) >= self.transport.max_hops {
             self.transport_counters.hop_limit_dropped =
                 self.transport_counters.hop_limit_dropped.saturating_add(1);
             return true;
@@ -199,7 +204,9 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                 self.transport_counters.unroutable_packets.saturating_add(1);
             return true;
         };
-        if !self.transit_is_new(packet, now) {
+        // One hash serves the transit filter and the reverse entry.
+        let hash = packet.hash();
+        if !self.transit_hash_is_new(packet.context, hash, now) {
             return true;
         }
         let mut forwarded = packet.clone();
@@ -253,7 +260,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             if packet.packet_type != PacketType::LinkRequest {
                 // RNS's reverse entry, so the packet's proof can come back (`Transport.py`
                 // 2104-2110). A link request's bridge was admitted before forwarding.
-                self.remember_reverse(packet.hash(), interface, route.interface, now);
+                self.remember_reverse(hash, interface, route.interface, now);
             }
             self.transport_counters.forwarded_packets =
                 self.transport_counters.forwarded_packets.saturating_add(1);
@@ -329,24 +336,24 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         true
     }
 
-    /// Re-broadcast a verified announce with this node recorded as the transport hop.
+    /// Schedule a verified announce for rebroadcast with this node recorded as the transport
+    /// hop. It leaves from [`Node::poll`], back out the interface it was heard on.
     pub(super) fn relay_announce(
         &mut self,
         interface: InterfaceId,
         packet: &Packet,
-        destination: AddressHash,
+        emitted: u64,
         now: u64,
-        actions: &mut Actions<ACTIONS>,
     ) {
         // A path response answers one requester. RNS learns from it but never queues it for
         // rebroadcast, so one path request cannot flood the mesh.
         if !self.transport.relay_announces
-            || destination == self.destination()
+            || packet.destination == self.destination()
             || packet.context == crate::path::CTX_PATH_RESPONSE
         {
             return;
         }
-        if packet.hops >= self.transport.max_hops {
+        if packet.hops.saturating_add(1) >= self.transport.max_hops {
             self.transport_counters.hop_limit_dropped =
                 self.transport_counters.hop_limit_dropped.saturating_add(1);
             return;
@@ -362,14 +369,6 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             self.refused_payloads = self.refused_payloads.saturating_add(1);
             return;
         }
-        if actions.push(Action::Send {
-            interface,
-            packet: forwarded,
-        }) {
-            self.transport_counters.forwarded_announces = self
-                .transport_counters
-                .forwarded_announces
-                .saturating_add(1);
-        }
+        self.schedule_rebroadcast(interface, forwarded, emitted, now);
     }
 }

@@ -255,7 +255,9 @@ async fn a_proof_validates_its_bridge_only_once_carried() {
     b.outbound.queues.delivery_complete();
     let trailer = link::request_trailer(&carried).unwrap().unwrap();
     let (_, mut proof) = link::accept(&carried, &responder, &[0x99; 64], trailer).unwrap();
-    proof.hops = MAX_HOPS;
+    // Forwarded, it would carry `PATHFINDER_M` hops, which the next hop refuses
+    // (`Packet.py` 250).
+    proof.hops = MAX_HOPS - 1;
     route(&endpoint.shared, b.id(), proof);
     assert!(a.outbound.queues.pop().is_none());
     assert_eq!(endpoint.routing_counters().hop_limit_dropped, 1);

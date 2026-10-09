@@ -102,6 +102,10 @@ name = "path_request_oracle"
 required-features = ["tokio"]
 
 [[example]]
+name = "node_resource_oracle"
+required-features = ["tokio"]
+
+[[example]]
 name = "gemini_over_reticulum"
 required-features = ["tokio"]
 

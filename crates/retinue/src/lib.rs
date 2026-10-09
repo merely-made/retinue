@@ -114,10 +114,14 @@ pub mod nomadnet;
 pub mod packet;
 #[cfg(feature = "alloc")]
 pub mod path;
+#[cfg(all(test, feature = "alloc"))]
+mod probe;
 #[cfg(feature = "alloc")]
 pub mod proof;
 #[cfg(feature = "alloc")]
 pub mod ratchet;
+#[cfg(feature = "alloc")]
+mod rebroadcast;
 #[cfg(feature = "alloc")]
 pub mod reliable;
 #[cfg(feature = "alloc")]
@@ -154,6 +158,8 @@ pub enum Error {
     /// A packet is larger than the wire MTU. RNS drops such packets; we reject them at the
     /// decoder so a peer cannot hand us an over-sized buffer.
     Oversize,
+    /// A packet arrived with 128 hops or more (RNS `PATHFINDER_M`). RNS drops it as malformed.
+    HopLimit,
     /// A public key is not a valid point on its curve.
     BadKey,
     /// The Ed25519 signature did not verify. For an announce this means the peer does not
@@ -192,12 +198,16 @@ pub enum Error {
     /// failed rather than inflated, so a peer cannot spend this node's memory with a small
     /// bz2 bomb.
     DecompressionLimit,
-    /// A resource advertisement named more than one segment. Segment accumulation is not
-    /// implemented, so the offer is refused rather than truncated to its first segment.
+    /// A resource advertisement named more than one segment to a receiver of single
+    /// segments, so the offer is refused rather than truncated to its first segment.
+    /// `resource_transfer::SegmentedReceiver` accepts it.
     MultiSegmentResource,
     /// A resource offer was refused by this side's accept policy, before any part of it
     /// was requested. The sender was told with a receiver cancel.
     ResourceRejected,
+    /// A resource transfer's peer stopped answering through every retry. The other side
+    /// was told with a cancel.
+    ResourceTimedOut,
 }
 
 impl core::fmt::Display for Error {
@@ -205,6 +215,7 @@ impl core::fmt::Display for Error {
         let s = match self {
             Self::Truncated => "input ended mid-field",
             Self::Oversize => "packet exceeds the wire MTU",
+            Self::HopLimit => "packet exceeds the hop ceiling",
             Self::BadKey => "invalid public key",
             Self::BadSignature => "signature did not verify",
             Self::BadIfac => "interface access code did not verify",
@@ -221,8 +232,11 @@ impl core::fmt::Display for Error {
             Self::Unsupported => "operation needs a disabled feature",
             Self::CapacityExceeded => "peer asked for more state than the capacity policy allows",
             Self::DecompressionLimit => "decompressed resource exceeds the size limit",
-            Self::MultiSegmentResource => "multi-segment resources are not supported",
+            Self::MultiSegmentResource => {
+                "multi-segment resource offered to a one-segment receiver"
+            }
             Self::ResourceRejected => "resource offer refused by the accept policy",
+            Self::ResourceTimedOut => "resource transfer timed out",
         };
         f.write_str(s)
     }

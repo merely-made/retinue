@@ -313,8 +313,8 @@ where
                 reply(link, &mut self.out, cmd::DATA, frame).await
             }
 
-            // Never delivered: this channel asks for no heartbeat.
-            Event::Beat => Flow::Continue,
+            // Never delivered: this channel asks for no heartbeat or wake.
+            Event::Beat | Event::Wake => Flow::Continue,
         }
     }
 }

@@ -10,7 +10,7 @@ use std::time::Instant;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::address_book::AddressBook;
-use crate::announce::TimebaseGenerator;
+use crate::announce::{TimebaseGenerator, VerifiedAnnounces};
 use crate::announce_admission::AnnounceAdmission;
 use crate::hash::AddressHash;
 use crate::identity::PrivateIdentity;
@@ -21,12 +21,14 @@ use crate::resource::Advertisement;
 use crate::resource_transfer::PROOF_CACHE_ANSWERS;
 
 use super::announces::{AnnounceFreshnessState, HeldAnnounce};
-use super::dedup::{HashList, LinkPacketMemory};
+use super::dedup::{HashList, LinkPacketMemory, VERIFIED_ANNOUNCES};
 use super::facts::{LinkDirection, LinkFactKind, LinkRemoteFact, PeerAnnounce};
 use super::inbound::{Accepted, AcceptedResource, InboundLinks};
 use super::interface::{Iface, InterfaceId, QueueAdmission};
+use super::known_destinations::BookPersistence;
 use super::paths::PathEntry;
 use super::queue::TrafficClass;
+use super::rebroadcast::Rebroadcasting;
 use super::registration::{RatchetPersistence, Registered};
 use super::resource_session::RESOURCE_PROOF_CACHE_TTL;
 use super::routing::{RoutingPolicy, RoutingStats};
@@ -96,6 +98,8 @@ pub(super) struct Shared {
     pub(super) closed_notify: tokio::sync::Notify,
     pub(super) identity: PrivateIdentity,
     pub(super) address_book: Mutex<AddressBook>,
+    /// The host's address-book persistence hook.
+    pub(super) book_persistence: Mutex<Option<BookPersistence>>,
     pub(super) links: Links,
     pub(super) registered: Mutex<Vec<Registered>>,
     /// The host's ratchet persistence hook. Its lock also serializes ratchet rotation, so
@@ -136,6 +140,10 @@ pub(super) struct Shared {
     /// Upper bound, in milliseconds, of the random delay before relaying an announce. See
     /// [`Endpoint::set_relay_jitter`].
     pub(super) relay_jitter_ms: AtomicU64,
+    /// Relayed announces awaiting transmission or retry, and the per-interface caps.
+    pub(super) rebroadcasts: Mutex<Rebroadcasting>,
+    /// Wakes the rebroadcast driver when an announce is scheduled.
+    pub(super) rebroadcast_wake: tokio::sync::Notify,
     /// First reliable-channel RTT estimate. Proofs adapt it after traffic starts.
     pub(super) reliable_initial_rtt_ms: AtomicU64,
     /// Maximum unproved reliable frames allowed in flight on subsequently opened links.
@@ -161,6 +169,8 @@ pub(super) struct Shared {
     pub(super) path_table: Mutex<HashMap<AddressHash, PathEntry>>,
     /// The last [`SEEN_ANNOUNCES`] announce packet hashes, for de-duplication.
     pub(super) seen_announces: Mutex<(HashSet<AddressHash>, VecDeque<AddressHash>)>,
+    /// Announces that verified recently, so a copy skips its signature check.
+    pub(super) verified_announces: Mutex<VerifiedAnnounces<VERIFIED_ANNOUNCES>>,
     /// Our own link packets heard back, and the far end's heard twice. See [`LinkPacketMemory`].
     pub(super) link_packets: Mutex<LinkPacketMemory>,
     /// Transit and single packets already seen, so a loop or a second copy is dropped.

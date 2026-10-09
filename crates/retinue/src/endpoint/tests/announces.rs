@@ -199,3 +199,61 @@ fn destination_admission_preserves_the_one_second_default_floor() {
         DestinationVerdict::Relay
     );
 }
+
+/// A copy of a verified announce costs no second signature check: with a live route it is a
+/// freshness replay, refused unverified; without one it is a first sighting again, decoded
+/// from the verified-announce cache.
+#[tokio::test]
+async fn a_copy_of_a_verified_announce_is_not_verified_again() {
+    use crate::probe::{Probe, take};
+
+    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x5C; 64]));
+    let a = ep.attach_interface();
+    let (packet, announce) = peer_announce(0x5D, "copies");
+    take(Probe::AnnounceVerify);
+    route(&ep.shared, a.id(), packet.clone());
+    assert_eq!(take(Probe::AnnounceVerify), 1);
+    assert!(ep.route_to(announce.destination).is_some());
+
+    let mut relayed = packet;
+    relayed.hops = 2;
+    relayed.header_type = crate::packet::HeaderType::Type2;
+    relayed.transport = Some(AddressHash::from_bytes([0x7E; 16]));
+    route(&ep.shared, a.id(), relayed.clone());
+    assert_eq!(take(Probe::AnnounceVerify), 0);
+    assert_eq!(ep.routing_counters().freshness_replays_rejected, 1);
+
+    ep.shared.forget_path(announce.destination);
+    route(&ep.shared, a.id(), relayed);
+    assert_eq!(take(Probe::AnnounceVerify), 0);
+    assert!(ep.route_to(announce.destination).is_some());
+}
+
+/// RNS learns an announce heard with up to 127 wire hops (`Transport.py` 2211) but
+/// rebroadcasts only below `PATHFINDER_M` (`Transport.py` 1356): 126 goes on as 127, and 127
+/// is learned and kept.
+#[tokio::test(start_paused = true)]
+async fn an_announce_is_relayed_only_below_the_hop_ceiling() {
+    for (hops, relayed) in [(MAX_HOPS - 2, true), (MAX_HOPS - 1, false)] {
+        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x4F; 64]));
+        let a = ep.attach_interface();
+        let mut b = ep.attach_interface();
+        ep.enable_routing();
+        let peer = PrivateIdentity::from_secret_bytes(&[0x50; 64]);
+        let (packet, announcement) = freshness_announce(&peer, "ceiling", 0, 1, 10, hops);
+        process_verified_announce(&ep.shared, a.id(), packet, announcement.clone());
+
+        assert_eq!(ep.route_to(announcement.destination), Some((a.id(), hops)));
+        // Relays leave from the rebroadcast table, within its jitter window.
+        let out = tokio::time::timeout(Duration::from_secs(1), b.next_outbound())
+            .await
+            .ok()
+            .flatten();
+        assert_eq!(
+            out.map(|p| p.hops),
+            relayed.then_some(MAX_HOPS - 1),
+            "{hops}"
+        );
+        assert_eq!(ep.routing_counters().hop_limit_dropped, u64::from(!relayed));
+    }
+}

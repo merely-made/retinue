@@ -8,8 +8,11 @@ use crate::link::{CTX_RESOURCE_PRF, Link, LinkMode, LinkTrailer, PendingLink, ac
 use crate::packet::Packet;
 use crate::token::IV_LEN;
 
+mod pipe;
 mod proof;
 mod refusal;
+mod segments;
+mod throughput;
 mod transfer;
 
 /// An established link between a sender side and a receiver side.
@@ -75,13 +78,13 @@ fn transfer_until_proof(
     for _ in 0..100 {
         let mut to_sender = Vec::new();
         for packet in core::mem::take(&mut to_receiver) {
-            to_sender.extend(receiver.on_packet(&packet, &mut *ivg));
+            to_sender.extend(receiver.on_packet(&packet, 0, &mut *ivg));
         }
         if let Some(index) = to_sender.iter().position(|p| p.context == CTX_RESOURCE_PRF) {
             return (sender, receiver, to_sender.swap_remove(index));
         }
         for packet in to_sender {
-            to_receiver.extend(sender.on_packet(&packet, &mut *ivg));
+            to_receiver.extend(sender.on_packet(&packet, 0, &mut *ivg));
         }
     }
     panic!("the receiver never proved");

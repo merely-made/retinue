@@ -3,9 +3,11 @@
 mod announces;
 mod freshness;
 mod interfaces;
+mod known_destinations;
 mod packets;
 mod path_requests;
 mod ratchets;
+mod rebroadcast;
 mod reliable;
 mod routes;
 mod transit;

@@ -178,7 +178,8 @@ fn a_lost_resource_proof_is_recovered_from_the_receivers_cache() {
         "b delivered and released its receiver"
     );
 
-    let polled = a.poll(RESOURCE_RETRY_INTERVAL, IFACE, None);
+    let now = a.resource_deadline().expect("the proof wait runs");
+    let polled = a.poll(now, IFACE, None);
     let [request] = sent_with(&polled, link::CTX_CACHE_REQUEST)
         .try_into()
         .expect("one cache request");
@@ -189,22 +190,18 @@ fn a_lost_resource_proof_is_recovered_from_the_receivers_cache() {
     assert_eq!(request.payload, proof.full_hash());
 
     for _ in 0..2 {
-        let answer = b.ingest(IFACE, &request, RESOURCE_RETRY_INTERVAL);
+        let answer = b.ingest(IFACE, &request, now);
         assert_eq!(
             sent(&answer),
             Some(proof.clone()),
             "the kept proof, byte for byte"
         );
     }
-    assert!(a.ingest(IFACE, &proof, RESOURCE_RETRY_INTERVAL).is_empty());
+    assert!(a.ingest(IFACE, &proof, now).is_empty());
     assert!(!a.transfer_active(id), "the proof completed a's publish");
 
     // The kept proof expires.
-    b.poll(
-        RESOURCE_RETRY_INTERVAL + RESOURCE_PROOF_CACHE_TTL,
-        IFACE,
-        None,
-    );
+    b.poll(now + RESOURCE_PROOF_CACHE_TTL, IFACE, None);
     assert!(
         b.ingest(IFACE, &request, RESOURCE_PROOF_CACHE_TTL * 2)
             .is_empty()
@@ -226,9 +223,9 @@ fn a_sender_without_a_proof_cancels_after_three_cache_requests() {
         .unwrap()
         .0
         .clone();
-    let mut now = 0;
+    let mut now;
     for _ in 0..crate::resource_transfer::PROOF_CACHE_REQUESTS {
-        now += RESOURCE_RETRY_INTERVAL;
+        now = a.resource_deadline().unwrap();
         a.ingest(
             IFACE,
             &peer_link.keepalive_packet(link::KEEPALIVE_RESPONSE),
@@ -237,7 +234,7 @@ fn a_sender_without_a_proof_cancels_after_three_cache_requests() {
         let polled = a.poll(now, IFACE, None);
         assert_eq!(sent_with(&polled, link::CTX_CACHE_REQUEST).len(), 1);
     }
-    now += RESOURCE_RETRY_INTERVAL;
+    now = a.resource_deadline().unwrap();
     a.ingest(
         IFACE,
         &peer_link.keepalive_packet(link::KEEPALIVE_RESPONSE),
@@ -265,16 +262,12 @@ fn a_sender_without_a_proof_cancels_after_three_cache_requests() {
 fn cache_request_answers_are_capped() {
     let (mut a, mut b, id) = linked();
     let proof = transfer_until_proof(&mut a, &mut b, id);
-    let request = sent_with(
-        &a.poll(RESOURCE_RETRY_INTERVAL, IFACE, None),
-        link::CTX_CACHE_REQUEST,
-    )
-    .pop()
-    .expect("a cache request");
+    let now = a.resource_deadline().unwrap();
+    let request = sent_with(&a.poll(now, IFACE, None), link::CTX_CACHE_REQUEST)
+        .pop()
+        .expect("a cache request");
     let answered = (0..20)
-        .filter(|_| {
-            sent(&b.ingest(IFACE, &request, RESOURCE_RETRY_INTERVAL)) == Some(proof.clone())
-        })
+        .filter(|_| sent(&b.ingest(IFACE, &request, now)) == Some(proof.clone()))
         .count();
     assert_eq!(
         answered,
@@ -305,49 +298,72 @@ fn a_re_advertisement_of_a_proved_resource_is_answered_from_the_kept_proof() {
     assert!(!b.transfer_active(id), "and no transfer started");
 }
 
-/// A resource sent with metadata is delivered as its data alone, and the dropped
-/// metadata is counted rather than lost silently.
+/// Metadata a Node attaches reaches the receiving Node beside the data, and a resource sent
+/// without any arrives with none (RNS `Resource.py` 261-272, 707-749).
 #[test]
-fn dropped_metadata_is_counted() {
-    let (a, mut b, id) = linked();
-    let link = a
-        .links
-        .iter()
-        .find(|(link, _, _)| link.id() == id)
-        .unwrap()
-        .0
-        .clone();
+fn metadata_round_trips_between_nodes() {
+    let (mut a, mut b, id) = linked();
     let data = b"the data".to_vec();
-    let mut sender = ResourceSender::publish_with_metadata(
-        link,
-        &data,
-        &[0xA1, b'x'],
-        [0x5B; 4],
-        &[9; crate::token::IV_LEN],
-    )
-    .unwrap();
-    let mut counter = 0;
-    let seed = [0x43; 64];
-    let mut to_b = vec![sender.advertisement(&derived_iv(&seed, id, &mut counter))];
-    let mut delivered = None;
+    let metadata = vec![0xA1, b'x'];
+    let started = a
+        .publish_with_metadata(id, IFACE, &data, &metadata, [0x5B; 4], &[9; 16], 0)
+        .expect("a holds the link");
+    let mut to_b: Vec<Packet> = started
+        .into_iter()
+        .filter_map(|action| match action {
+            Action::Send { packet, .. } => Some(packet),
+            _ => None,
+        })
+        .collect();
+    let mut delivered = Vec::new();
     for _ in 0..16 {
         let mut to_a = Vec::new();
         for packet in to_b.drain(..) {
             for action in b.ingest(IFACE, &packet, 0) {
                 match action {
                     Action::Send { packet, .. } => to_a.push(packet),
-                    Action::Resource { data, .. } => delivered = Some(data),
+                    Action::Resource {
+                        link_id,
+                        data,
+                        metadata,
+                    } => delivered.push((link_id, data, metadata)),
                     _ => {}
                 }
             }
         }
         for packet in to_a {
-            to_b.extend(sender.on_packet(&packet, || derived_iv(&seed, id, &mut counter)));
+            for action in a.ingest(IFACE, &packet, 0) {
+                if let Action::Send { packet, .. } = action {
+                    to_b.push(packet);
+                }
+            }
         }
     }
-    assert_eq!(delivered, Some(data));
-    assert!(sender.is_done());
-    assert_eq!(b.dropped_metadata(), 1);
+    assert_eq!(delivered, [(id, data, Some(metadata))]);
+    assert!(!a.transfer_active(id), "the sender completed on the proof");
+
+    let plain = a
+        .publish(id, IFACE, b"bare", [0x5C; 4], &[10; 16], 0)
+        .expect("the link is free again");
+    let (_, got_b) = pump(&mut a, &mut b, plain);
+    assert_eq!(got_b, [b"bare".to_vec()]);
+}
+
+/// Metadata counts toward the outbound limit, so it cannot carry a resource past it.
+#[test]
+fn metadata_counts_toward_the_outbound_limit() {
+    let (mut a, _b, id) = linked();
+    a.payload_limits.max_outbound_resource = 64;
+    let data = vec![0; 61];
+    assert!(
+        a.publish_with_metadata(id, IFACE, &data, &[0xC0], [1; 4], &[1; 16], 0)
+            .is_none()
+    );
+    assert_eq!(a.refused_payloads(), 1);
+    assert!(
+        a.publish_with_metadata(id, IFACE, &data[1..], &[0xC0], [1; 4], &[1; 16], 0)
+            .is_some()
+    );
 }
 
 /// A Node proves a resource with the PROOF-type packet RNS accepts, and a Node sender
@@ -359,6 +375,9 @@ fn a_proof_type_resource_proof_completes_a_node_sender() {
     assert_eq!(proof.packet_type, PacketType::Proof);
     assert!(a.transfer_active(id), "a is still waiting for the receipt");
 
+    // Heard on another interface than the link's, it is refused (`Link.py` 938-941).
+    assert!(a.ingest(IFACE + 1, &proof, 0).is_empty());
+    assert!(a.transfer_active(id));
     assert!(a.ingest(IFACE, &proof, 0).is_empty());
     assert!(
         !a.transfer_active(id),
@@ -389,10 +408,10 @@ fn a_stray_resource_proof_opens_nothing() {
     assert_eq!(a.refused_offers(), 0);
 }
 
-/// A multi-segment offer is refused with a sealed cancel and holds no state, rather
-/// than being received as its first segment.
+/// A multi-segment offer whose segment count disagrees with its size is refused with a
+/// sealed cancel and holds no state, rather than being received as its first segment.
 #[test]
-fn a_multi_segment_offer_is_refused_with_a_cancel() {
+fn a_malformed_multi_segment_offer_is_refused_with_a_cancel() {
     let (a, mut b, id) = linked();
     let link = a
         .links
@@ -423,5 +442,64 @@ fn a_multi_segment_offer_is_refused_with_a_cancel() {
         "no data"
     );
     assert!(!b.transfer_active(id), "and holds no reassembly state");
+    assert_eq!(b.refused_offers(), 1);
+}
+
+/// Past one segment a resource goes as RNS segments, each advertised once the previous is
+/// proved, and arrives whole only after the last. Compressible, so each segment fits the
+/// node's part ceiling.
+#[cfg(feature = "compression")]
+#[test]
+fn a_split_resource_crosses_a_link_in_segments() {
+    let (mut a, mut b, id) = linked();
+    let payload: Vec<u8> = (0..2 * crate::resource::MAX_SEGMENT_SIZE + 5_000)
+        .map(|i| (i % 7) as u8)
+        .collect();
+    let started = a
+        .publish(
+            id,
+            IFACE,
+            &payload,
+            [0xA1; 4],
+            &[7; crate::token::IV_LEN],
+            0,
+        )
+        .expect("a can publish");
+
+    let (_, got_b) = pump(&mut a, &mut b, started);
+
+    assert_eq!(got_b.len(), 1, "one resource, not three");
+    assert!(got_b[0] == payload, "byte for byte");
+    assert!(!a.transfer_active(id) && !b.transfer_active(id));
+}
+
+/// A split offer is advertised as RNS's first segment, and one past the receiver's total
+/// cap is refused at that first advertisement.
+#[test]
+fn a_split_offer_past_the_inbound_cap_is_refused() {
+    let (mut a, mut b, id) = linked();
+    b.set_max_inbound_resource(crate::resource::MAX_SEGMENT_SIZE);
+    let payload = vec![0x5A_u8; 2 * crate::resource::MAX_SEGMENT_SIZE + 1];
+    let started = a
+        .publish(
+            id,
+            IFACE,
+            &payload,
+            [0xA2; 4],
+            &[8; crate::token::IV_LEN],
+            0,
+        )
+        .expect("a can publish");
+    let offer = sent(&started).unwrap();
+    let link = &b.links.iter().find(|(l, _, _)| l.id() == id).unwrap().0;
+    let adv = crate::resource::Advertisement::parse(&link.decrypt(&offer).unwrap()).unwrap();
+    assert_eq!((adv.i, adv.l), (1, 3));
+    assert_eq!(adv.data_size, payload.len() as u64);
+    assert_ne!(adv.flags & crate::resource::FLAG_SPLIT, 0);
+    assert_eq!(adv.original_hash, adv.resource_hash);
+
+    let answer = b.ingest(IFACE, &offer, 0);
+    assert_eq!(sent(&answer).unwrap().context, link::CTX_RESOURCE_RCL);
+    assert!(!b.transfer_active(id));
     assert_eq!(b.refused_offers(), 1);
 }

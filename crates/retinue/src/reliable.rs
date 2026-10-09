@@ -58,6 +58,9 @@ pub struct ReliableChannel<
     /// Full hash of each channel packet we sent, to its sequence. A retransmit re-seals under
     /// a fresh IV, so one sequence can hold several entries; all are released when it is proved.
     sent: FnvIndexMap<[u8; 32], u16, SENT>,
+    /// How many of `sent`'s hashes each sequence holds. Only a retransmitted sequence holds
+    /// more than one, and only its proof has siblings to sweep.
+    copies: FnvIndexMap<u16, u8, SENT>,
     /// Packets whose hash the table was too full to record. Not an error: the retransmit
     /// timer resends them under a fresh hash. Counted per the plan's rule that a full table
     /// stays operational and says so.
@@ -161,6 +164,7 @@ impl<
             prover,
             peer,
             sent: FnvIndexMap::new(),
+            copies: FnvIndexMap::new(),
             unrecorded: 0,
         }
     }
@@ -215,14 +219,23 @@ impl<
             let packet = self.link.sealed_packet(CTX_CHANNEL, &env.encode(), &iv());
             // Every hash for a sequence stays live until it is proved: either packet's proof
             // may be the one that returns.
-            if self.sent.insert(packet.full_hash(), env.sequence).is_err() {
-                self.unrecorded = self.unrecorded.saturating_add(1);
+            match self.sent.insert(packet.full_hash(), env.sequence) {
+                // `copies` never holds more keys than `sent`, so it has room.
+                Ok(None) => match self.copies.get_mut(&env.sequence) {
+                    Some(copies) => *copies = copies.saturating_add(1),
+                    None => {
+                        let _ = self.copies.insert(env.sequence, 1);
+                    }
+                },
+                Ok(Some(_)) => {}
+                Err(_) => self.unrecorded = self.unrecorded.saturating_add(1),
             }
             out.push(packet);
         }
         // A failed channel sends nothing more, so no recorded hash can be proved.
         if self.buffer.channel_error().is_some() {
             self.sent.clear();
+            self.copies.clear();
         }
         out
     }
@@ -266,8 +279,16 @@ impl<
             return false;
         };
         // Sweep the sequence's other hashes (one per retransmit), or they stay for the life
-        // of the link.
-        self.sent.retain(|_, outstanding| *outstanding != sequence);
+        // of the link. A sequence sent once, the common case, has none.
+        if self
+            .copies
+            .remove(&sequence)
+            .is_some_and(|copies| copies > 1)
+        {
+            #[cfg(test)]
+            crate::probe::hit(crate::probe::Probe::ReliableSweep);
+            self.sent.retain(|_, outstanding| *outstanding != sequence);
+        }
         self.buffer.on_proof(sequence, now);
         true
     }

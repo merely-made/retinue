@@ -1,15 +1,15 @@
 //! The packet header and its codec.
 //!
 //! A packet is a two-byte header, one or two address fields, a context byte, and a
-//! payload:
+//! non-empty payload:
 //!
 //! ```text
 //! byte 0   flags
 //! byte 1   hops
-//! 2..18    destination address hash (16)
-//! [18..34] transport address hash (16), only when header_type == Type2]
+//! 2..18    Type1: destination hash (16)   Type2: transport id (16)
+//! 18..34   Type2 only: destination hash (16)
 //! next     context byte
-//! rest     payload
+//! rest     payload, at least one byte (RNS `Packet.py` 275)
 //! ```
 //!
 //! Flag byte 0, most significant bit first:
@@ -36,6 +36,8 @@ use alloc::string::ToString;
 
 use alloc::vec::Vec;
 
+use sha2::{Digest, Sha256};
+
 use crate::hash::{ADDRESS_HASH_LEN, AddressHash};
 use crate::{Error, Result};
 
@@ -44,6 +46,12 @@ pub const HEADER_MIN_LEN: usize = 2 + ADDRESS_HASH_LEN + 1;
 
 /// Largest possible header: as above, with a second address field.
 pub const HEADER_MAX_LEN: usize = 2 + ADDRESS_HASH_LEN * 2 + 1;
+
+/// The hop ceiling, RNS `Transport.PATHFINDER_M`. A packet arriving with this many hops or
+/// more is malformed (`Packet.py` 250). RNS rebroadcasts an announce only below it
+/// (`Transport.py` 1356, 2211); it forwards other packets regardless and the next hop
+/// refuses them, so retinue drops those one hop earlier with the same outcome.
+pub const MAX_HOPS: u8 = 128;
 
 /// Maximum size of a whole packet on the wire. `RNS.Reticulum.MTU`.
 pub const MTU: usize = 500;
@@ -186,6 +194,9 @@ impl Packet {
         let destination_type = DestinationType::from_bits(flags >> 2);
         let packet_type = PacketType::from_bits(flags);
         let hops = bytes[1];
+        if hops >= MAX_HOPS {
+            return Err(Error::HopLimit);
+        }
 
         let mut off = 2;
         let transport = match header_type {
@@ -202,6 +213,9 @@ impl Packet {
 
         let context = *bytes.get(off).ok_or(Error::Truncated)?;
         off += 1;
+        if off == bytes.len() {
+            return Err(Error::Truncated);
+        }
 
         Ok(Self {
             ifac,
@@ -248,13 +262,29 @@ impl Packet {
     /// [`crate::link::Link::data_proof`]); the truncation alone is what RNS calls the
     /// packet's truncated hash. Verified against RNS 1.3.8.
     pub fn full_hash(&self) -> [u8; 32] {
-        let flags = self.encode()[0] & 0x0F;
-        let mut buf = Vec::with_capacity(1 + ADDRESS_HASH_LEN + 1 + self.payload.len());
-        buf.push(flags);
-        buf.extend_from_slice(self.destination.as_slice());
-        buf.push(self.context);
-        buf.extend_from_slice(&self.payload);
-        crate::hash::full_hash(&buf)
+        #[cfg(test)]
+        crate::probe::hit(crate::probe::Probe::PacketHash);
+        let mut sha = Sha256::new();
+        sha.update([self.flags() & 0x0F]);
+        sha.update(self.destination.as_slice());
+        sha.update([self.context]);
+        sha.update(&self.payload);
+        sha.finalize().into()
+    }
+
+    /// The flag byte as [`encode`](Self::encode) writes it, IFAC bit clear.
+    fn flags(&self) -> u8 {
+        let mut flags = self.destination_type.to_bits() << 2 | self.packet_type.to_bits();
+        if matches!(self.header_type, HeaderType::Type2) {
+            flags |= 0b0100_0000;
+        }
+        if self.context_flag {
+            flags |= 0b0010_0000;
+        }
+        if matches!(self.propagation, Propagation::Transport) {
+            flags |= 0b0001_0000;
+        }
+        flags
     }
 
     /// The encoded length of this packet on the wire.
@@ -279,21 +309,8 @@ impl Packet {
     /// [`crate::ifac::Ifac::seal`] sets it, so a forwarded copy of a received packet does
     /// not leave a plain interface carrying a flag every RNS peer drops it for.
     pub fn encode(&self) -> Vec<u8> {
-        let mut flags = 0u8;
-        if matches!(self.header_type, HeaderType::Type2) {
-            flags |= 0b0100_0000;
-        }
-        if self.context_flag {
-            flags |= 0b0010_0000;
-        }
-        if matches!(self.propagation, Propagation::Transport) {
-            flags |= 0b0001_0000;
-        }
-        flags |= self.destination_type.to_bits() << 2;
-        flags |= self.packet_type.to_bits();
-
         let mut out = Vec::with_capacity(HEADER_MAX_LEN + self.payload.len());
-        out.push(flags);
+        out.push(self.flags());
         out.push(self.hops);
         if let Some(t) = self.transport {
             out.extend_from_slice(t.as_slice());
@@ -334,7 +351,7 @@ mod tests {
     fn context_flag_is_bit_five() {
         let mut v = vec![0x21, 0x00];
         v.extend_from_slice(&[0xAA; 16]);
-        v.push(0x00);
+        v.extend_from_slice(&[0x00, 0x01]);
         let p = Packet::decode(&v).unwrap();
         assert!(p.context_flag);
         assert_eq!(p.packet_type, PacketType::Announce);
@@ -347,7 +364,7 @@ mod tests {
         // leaves with bit 7 clear; only `Ifac::seal` sets it.
         let mut v = vec![0x80 | 0x21, 0x03];
         v.extend_from_slice(&[0xAA; 16]);
-        v.push(0x00);
+        v.extend_from_slice(&[0x00, 0x01]);
         let p = Packet::decode(&v).unwrap();
         assert!(p.ifac);
         let wire = p.encode();
@@ -359,6 +376,46 @@ mod tests {
     #[test]
     fn truncated_input_is_an_error() {
         assert!(Packet::decode(&[0x01, 0x00]).is_err());
+    }
+
+    /// RNS drops a packet whose data field is empty (`Packet.py` 275), for either header type.
+    #[test]
+    fn an_empty_data_field_is_rejected() {
+        let mut v = vec![0x00, 0x00];
+        v.extend_from_slice(&[0xAA; 16]);
+        v.push(0x00);
+        assert_eq!(Packet::decode(&v), Err(Error::Truncated));
+        v.push(0x01);
+        assert_eq!(Packet::decode(&v).unwrap().payload, [0x01]);
+
+        let mut v = vec![0x40, 0x00];
+        v.extend_from_slice(&[0xAA; 32]);
+        v.push(0x00);
+        assert_eq!(Packet::decode(&v), Err(Error::Truncated));
+    }
+
+    /// Header type 2 carries the transport id first, then the destination.
+    #[test]
+    fn header_two_puts_the_transport_id_first() {
+        let mut v = vec![0x40, 0x00];
+        v.extend_from_slice(&[0x11; 16]);
+        v.extend_from_slice(&[0x22; 16]);
+        v.extend_from_slice(&[0x00, 0x01]);
+        let p = Packet::decode(&v).unwrap();
+        assert_eq!(p.transport.unwrap().as_slice(), &[0x11; 16]);
+        assert_eq!(p.destination.as_slice(), &[0x22; 16]);
+        assert_eq!(p.encode(), v);
+    }
+
+    /// RNS refuses a packet arriving with `PATHFINDER_M` hops or more (`Packet.py` 250).
+    #[test]
+    fn hops_at_the_ceiling_are_rejected() {
+        let mut v = vec![0x00, MAX_HOPS - 1];
+        v.extend_from_slice(&[0xAA; 16]);
+        v.extend_from_slice(&[0x00, 0x01]);
+        assert!(Packet::decode(&v).is_ok());
+        v[1] = MAX_HOPS;
+        assert_eq!(Packet::decode(&v), Err(Error::HopLimit));
     }
 
     #[test]
@@ -378,7 +435,7 @@ mod tests {
         let mut p = Packet::decode(&{
             let mut v = vec![0x00, 0x00];
             v.extend_from_slice(&[0xAA; 16]);
-            v.push(0x00);
+            v.extend_from_slice(&[0x00, 0x01]);
             v
         })
         .unwrap();
@@ -389,6 +446,38 @@ mod tests {
         assert!(p.within_mtu());
         p.payload = vec![0u8; MTU - HEADER_MIN_LEN + 1];
         assert!(!p.within_mtu());
+    }
+
+    /// The streamed hash matches the formula over the encoded bytes for every flag byte, and
+    /// ignores what changes in transit: hops, the transport field and the high nibble.
+    #[test]
+    fn full_hash_streams_the_masked_header() {
+        for flags in 0..=0x7Fu8 {
+            let mut raw = vec![flags, 7];
+            if flags & 0x40 != 0 {
+                raw.extend_from_slice(&[0xBB; 16]);
+            }
+            raw.extend_from_slice(&[0xAA; 16]);
+            raw.push(0x0E);
+            raw.extend_from_slice(b"payload bytes");
+            let p = Packet::decode(&raw).unwrap();
+            let wire = p.encode();
+            let mut hashable = vec![wire[0] & 0x0F];
+            hashable.extend_from_slice(&wire[wire.len() - 16 - 1 - 13..]);
+            assert_eq!(
+                p.full_hash(),
+                crate::hash::full_hash(&hashable),
+                "{flags:#04x}"
+            );
+
+            let mut moved = p.clone();
+            moved.hops = 0;
+            moved.header_type = HeaderType::Type2;
+            moved.transport = Some(AddressHash::from_bytes([0xCC; 16]));
+            moved.propagation = Propagation::Transport;
+            moved.context_flag = !moved.context_flag;
+            assert_eq!(moved.full_hash(), p.full_hash());
+        }
     }
 
     /// Known answer from `oracle/capture_reqresp_response.py`: this exact request packet

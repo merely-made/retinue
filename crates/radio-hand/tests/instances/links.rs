@@ -155,6 +155,7 @@ fn bounded_usb_report_keeps_complete_events_and_accounts_for_omissions() {
         .push(Event::Retinue(retinue::node::Action::Resource {
             link_id: retinue::hash::AddressHash::from_bytes([1; 16]),
             data: vec![255; 2048],
+            metadata: None,
         }))
         .unwrap();
     report.events.push(Event::ActionsOverflowed(2)).unwrap();

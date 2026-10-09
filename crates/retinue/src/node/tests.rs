@@ -16,10 +16,12 @@ use crate::packet::{HeaderType, PacketType};
 
 mod announces;
 mod bridges;
+mod cost;
 mod freshness;
 mod limits;
 mod links;
 mod liveness;
+mod rebroadcast;
 mod recovery;
 mod resources;
 mod routes;
@@ -39,6 +41,22 @@ fn sent<const N: usize>(actions: &Actions<N>) -> Option<Packet> {
         Action::Send { packet, .. } => Some(packet.clone()),
         _ => None,
     })
+}
+
+/// Ingest an announce at a transport node and take the rebroadcast its next due poll sends.
+fn relayed<const P: usize, const A: usize, const L: usize, const R: usize>(
+    relay: &mut Node<P, A, L, R>,
+    interface: InterfaceId,
+    announce: &Packet,
+    now: u64,
+) -> Option<Packet> {
+    relay.ingest(interface, announce, now);
+    let due = relay.next_rebroadcast()?;
+    assert!(
+        due <= now + REBROADCAST_WINDOW,
+        "first send within the window"
+    );
+    sent(&relay.poll(due, interface, None))
 }
 
 fn blob(bytes: [u8; RAND_HASH_LEN]) -> AnnounceBlob {

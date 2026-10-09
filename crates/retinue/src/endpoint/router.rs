@@ -6,7 +6,6 @@ use std::time::Instant;
 
 use tokio::sync::mpsc;
 
-use crate::announce::Announce;
 use crate::announce_admission::InterfaceVerdict;
 use crate::link::{self, Inbound, LinkMode, LinkTrailer};
 use crate::link_liveness::Liveness;
@@ -133,7 +132,21 @@ pub(super) fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
             {
                 return;
             }
-            if let Ok(a) = Announce::decode(&pkt) {
+            // A replay or stale emission needs no signature check, and a copy of an announce
+            // that verified recently skips it. A neighbour relaying the announce we hold for
+            // rebroadcast repeats its blob, so it is turned away here; it still ends our retry.
+            if shared.announce_is_stale_unverified(&pkt) {
+                if pkt.transport.is_some() {
+                    shared.hear_rebroadcast_copy(&pkt);
+                }
+                return;
+            }
+            let decoded = shared.verified_announces.lock().unwrap().decode(&pkt);
+            if let Ok(a) = decoded {
+                if pkt.transport.is_some() && !shared.address_book.lock().unwrap().key_conflicts(&a)
+                {
+                    shared.hear_rebroadcast(a.destination, pkt.hops);
+                }
                 let route_is_known = shared
                     .path_table
                     .lock()
@@ -354,17 +367,28 @@ pub(super) fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
             } else {
                 // A link-data proof, for the reliable or resource driver. Best-effort links
                 // never request proofs.
-                let packets = shared
-                    .links
-                    .lock()
-                    .unwrap()
-                    .get(&pkt.destination)
-                    .and_then(|e| match &e.kind {
+                let packets = {
+                    let links = shared.links.lock().unwrap();
+                    let entry = links.get(&pkt.destination);
+                    // RNS hands a resource proof to the link, which holds it to the link's
+                    // interface (`Link.py` 938-941); other proofs conclude receipts
+                    // wherever they arrive.
+                    if pkt.context == link::CTX_RESOURCE_PRF
+                        && entry.is_some_and(|e| e.iface != iface)
+                    {
+                        shared
+                            .routing_stats
+                            .filtered_packets
+                            .fetch_add(1, Ordering::Relaxed);
+                        return;
+                    }
+                    entry.and_then(|e| match &e.kind {
                         LinkKind::Reliable { packets } | LinkKind::Resource { packets } => {
                             Some(packets.clone())
                         }
                         LinkKind::BestEffort { .. } => None,
-                    });
+                    })
+                };
                 note_link_inbound(shared, &pkt);
                 if let Some(packets) = packets {
                     shared.queue_link_packet(&packets, pkt);
@@ -377,6 +401,17 @@ pub(super) fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
             let (link, raw, best) = {
                 let links = shared.links.lock().unwrap();
                 match links.get(&pkt.destination) {
+                    // A link's packets arrive on its own interface (`Link.py` 938-941,
+                    // `Transport.py` 2573-2574). Refused before the duplicate memory sees it,
+                    // so the genuine copy still counts when it arrives (`Transport.py`
+                    // 2585-2593).
+                    Some(e) if e.iface != iface => {
+                        shared
+                            .routing_stats
+                            .filtered_packets
+                            .fetch_add(1, Ordering::Relaxed);
+                        return;
+                    }
                     Some(e) => match &e.kind {
                         LinkKind::Reliable { packets } | LinkKind::Resource { packets } => {
                             (Some(e.link.clone()), Some(packets.clone()), None)
@@ -457,9 +492,12 @@ pub(super) fn route(shared: &Arc<Shared>, iface: InterfaceId, pkt: Packet) {
                     }
                     _ => {}
                 }
-            } else if pkt.destination_type == DestinationType::Single && shared.packet_is_new(&pkt)
-            {
-                deliver_single(shared, iface, &pkt);
+            } else if pkt.destination_type == DestinationType::Single {
+                // One hash serves the packet filter and the delivery's proof.
+                let full = pkt.full_hash();
+                if shared.packet_is_new(pkt.context, crate::proof::truncated(&full)) {
+                    deliver_single(shared, iface, &pkt, full);
+                }
             }
         }
     }

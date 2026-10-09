@@ -84,7 +84,7 @@ impl<'a, const P: usize, const A: usize, const L: usize, const R: usize> Sim<'a,
                         deliveries.push((m, frame));
                     }
                 }
-                Action::Resource { link_id, data } => effects.push(Effect::Resource {
+                Action::Resource { link_id, data, .. } => effects.push(Effect::Resource {
                     link: link_id.to_string(),
                     len: data.len() as u32,
                 }),
@@ -102,6 +102,13 @@ impl<'a, const P: usize, const A: usize, const L: usize, const R: usize> Sim<'a,
         }
         for packet in sends {
             let (origin, cause) = match heard {
+                // A relayed announce leaves from a later poll; its cause is the frame heard.
+                None if packet.packet_type == PacketType::Announce
+                    && packet.destination != self.nodes[n].destination =>
+                {
+                    let cause = self.nodes[n].heard_announces.get(&packet.hash()).copied();
+                    (Origin::Forward, cause)
+                }
                 None if packet.packet_type == PacketType::Announce => (Origin::Announce, None),
                 None => (Origin::App, None),
                 Some((frame, hash)) if packet.hash() == hash => (Origin::Forward, Some(frame)),
