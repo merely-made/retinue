@@ -1,0 +1,218 @@
+//! Resource transfers riding on links.
+
+use super::tables::derived_iv;
+use super::{Action, Actions, InterfaceId, Node, RESOURCE_REQUEST_WINDOW};
+use crate::hash::AddressHash;
+use crate::link;
+use crate::packet::Packet;
+use crate::resource_transfer::{ResourceReceiver, ResourceSender};
+
+impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES: usize>
+    Node<PEERS, ACTIONS, LINKS, ROUTES>
+{
+    /// Publish a resource on an established link.
+    ///
+    /// `random_hash` and `iv` are caller-supplied, per the same no-RNG discipline as
+    /// everything else here. Returns `None` if the link is unknown or a transfer is already
+    /// running on it: one at a time, because a board cannot hold two.
+    pub fn publish(
+        &mut self,
+        link_id: AddressHash,
+        interface: InterfaceId,
+        data: &[u8],
+        random_hash: [u8; crate::resource::RANDOM_HASH_LEN],
+        iv: &[u8; crate::token::IV_LEN],
+        now: u64,
+    ) -> Option<Actions<ACTIONS>> {
+        if data.len() > self.payload_limits.max_outbound_resource {
+            self.refused_payloads = self.refused_payloads.saturating_add(1);
+            return None;
+        }
+        if self.senders.iter().any(|(id, _, _)| *id == link_id) || self.senders.is_full() {
+            return None;
+        }
+        let (link, _, _) = self.links.iter().find(|(l, _, _)| l.id() == link_id)?;
+
+        let sender = ResourceSender::publish(link.clone(), data, random_hash, iv);
+        let advertisement = sender.advertisement(iv);
+        let _ = self.senders.push((link_id, sender, now));
+
+        let mut actions = Actions::new();
+        actions.push(Action::Send {
+            interface,
+            packet: advertisement,
+        });
+        Some(actions)
+    }
+
+    /// Whether a resource is being received or sent on this link.
+    pub fn transfer_active(&self, link_id: AddressHash) -> bool {
+        self.receivers.iter().any(|(id, _, _)| *id == link_id)
+            || self.senders.iter().any(|(id, _, _)| *id == link_id)
+    }
+
+    /// A packet belonging to a resource transfer on this link.
+    pub(super) fn on_resource(
+        &mut self,
+        interface: InterfaceId,
+        link_id: AddressHash,
+        link_index: usize,
+        packet: &Packet,
+        now: u64,
+        actions: &mut Actions<ACTIONS>,
+    ) {
+        // The IV feeds the transfer's own sealing. Derived rather than random for the same
+        // reason the responder seed is: this layer holds no RNG, and a transfer answers
+        // packets it did not ask for. The counter is node state, never reset, because an IV
+        // must not repeat under a link key and a counter local to this call would replay
+        // the whole sequence on the next call.
+        let seed = self.identity.to_secret_bytes();
+        let mut counter = self.iv_counter;
+        let mut iv = || derived_iv(&seed, link_id, &mut counter);
+
+        // An outbound transfer's replies come back on the same link, so try the sender
+        // first: only one direction can own a given context on a given link at a time.
+        if let Some(pos) = self.senders.iter().position(|(id, _, _)| *id == link_id) {
+            let replies = self.senders[pos].1.on_packet(packet, &mut iv);
+            self.iv_counter = counter;
+            self.senders[pos].2 = now;
+            let finished = self.senders[pos].1.is_done() || self.senders[pos].1.is_canceled();
+            for reply in replies {
+                actions.push(Action::Send {
+                    interface,
+                    packet: reply,
+                });
+            }
+            if finished {
+                self.senders.swap_remove(pos);
+            }
+            return;
+        }
+
+        let existing = self.receivers.iter().position(|(id, _, _)| *id == link_id);
+        let is_new = existing.is_none();
+        let pos = match existing {
+            Some(pos) => pos,
+            None => {
+                // A re-advertisement of a resource this node already proved: the sender
+                // lost the proof and, being an older retinue, offers again rather than
+                // asking with a cache request. Answer with the kept proof instead of
+                // receiving (and delivering) the whole resource a second time.
+                if packet.context == link::CTX_RESOURCE_ADV
+                    && self
+                        .resource_proofs
+                        .iter()
+                        .any(|(id, _, _, _)| *id == link_id)
+                    && let Some(advertised) = self.links[link_index]
+                        .0
+                        .decrypt(packet)
+                        .ok()
+                        .and_then(|plain| crate::resource::Advertisement::parse(&plain).ok())
+                    && let Some(proof) = self.resend_kept_proof(link_id, |proof| {
+                        crate::resource::parse_proof(&proof.payload)
+                            .is_some_and(|(hash, _)| hash[..] == advertised.resource_hash[..])
+                    })
+                {
+                    actions.push(Action::Send {
+                        interface,
+                        packet: proof,
+                    });
+                    return;
+                }
+                if self.receivers.is_full() {
+                    self.refused_offers = self.refused_offers.saturating_add(1);
+                    // Tell the sender, as RNS rejects an offer it will not take, rather than
+                    // leave it re-advertising into a full table.
+                    if packet.context == link::CTX_RESOURCE_ADV
+                        && let Some(reject) = crate::resource_transfer::reject(
+                            &self.links[link_index].0,
+                            packet,
+                            &iv(),
+                        )
+                    {
+                        self.iv_counter = counter;
+                        actions.push(Action::Send {
+                            interface,
+                            packet: reject,
+                        });
+                    }
+                    return;
+                }
+                let link = self.links[link_index].0.clone();
+                let receiver = ResourceReceiver::with_limits(
+                    link,
+                    RESOURCE_REQUEST_WINDOW,
+                    self.payload_limits.max_resource_parts,
+                );
+                let _ = self.receivers.push((link_id, receiver, now));
+                self.receivers.len() - 1
+            }
+        };
+
+        let replies = self.receivers[pos].1.on_packet(packet, &mut iv);
+        self.iv_counter = counter;
+        self.receivers[pos].2 = now;
+
+        // A receiver created for this packet that then said nothing did not accept the
+        // transfer: an advertisement past the part ceiling is refused this way. Keeping it
+        // would hold a slot, and on a board with a handful of slots that is the difference
+        // between refusing one oversized offer and refusing every peer afterwards.
+        if is_new && replies.is_empty() && self.receivers[pos].1.data().is_none() {
+            self.receivers.swap_remove(pos);
+            self.refused_offers = self.refused_offers.saturating_add(1);
+            return;
+        }
+
+        for reply in replies {
+            actions.push(Action::Send {
+                interface,
+                packet: reply,
+            });
+        }
+
+        if self.receivers[pos].1.is_complete() {
+            // Keep the proof a while, for the sender's cache request if it was lost.
+            if let Some(proof) = self.receivers[pos].1.proof_packet() {
+                self.resource_proofs.retain(|(id, _, _, _)| *id != link_id);
+                let _ = self.resource_proofs.push((link_id, proof, now, 0));
+            }
+            // Metadata the sender attached is not carried: a Node delivers the data, and
+            // counts the drop.
+            if let Some((data, metadata)) = self.receivers[pos].1.take_payload() {
+                if metadata.is_some() {
+                    self.dropped_metadata = self.dropped_metadata.saturating_add(1);
+                }
+                actions.push(Action::Resource { link_id, data });
+            }
+            self.receivers.swap_remove(pos);
+        } else if self.receivers[pos].1.failure().is_some() {
+            // An offer refused at its advertisement, or a body that failed to recover: its
+            // cancel went out above, and nothing further is held for it.
+            self.receivers.swap_remove(pos);
+            self.refused_offers = self.refused_offers.saturating_add(1);
+        } else if self.receivers[pos].1.is_canceled() {
+            self.receivers.swap_remove(pos);
+        }
+    }
+
+    /// The proof kept for `link_id`, if `matches` it and it has not yet been re-sent
+    /// [`PROOF_CACHE_ANSWERS`] times. The cap bounds what anyone who heard the cleartext
+    /// proof can make this node transmit by asking for it again.
+    ///
+    /// [`PROOF_CACHE_ANSWERS`]: crate::resource_transfer::PROOF_CACHE_ANSWERS
+    pub(super) fn resend_kept_proof(
+        &mut self,
+        link_id: AddressHash,
+        matches: impl Fn(&Packet) -> bool,
+    ) -> Option<Packet> {
+        let (_, proof, _, answers) = self
+            .resource_proofs
+            .iter_mut()
+            .find(|(id, proof, _, _)| *id == link_id && matches(proof))?;
+        if *answers >= crate::resource_transfer::PROOF_CACHE_ANSWERS {
+            return None;
+        }
+        *answers += 1;
+        Some(proof.clone())
+    }
+}
