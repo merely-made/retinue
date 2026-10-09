@@ -434,6 +434,10 @@ pub(super) fn process_verified_announce(
             if shared.gravity_repoints(&freshness.table, candidate, iface, pkt.hops) =>
         {
             shared.learn_path(announce.destination, iface, pkt.hops, pkt.transport);
+            shared
+                .routing_stats
+                .gravity_repoints
+                .fetch_add(1, Ordering::Relaxed);
             return;
         }
         AnnounceFreshnessDecision::Reject(AnnounceFreshnessReject::Replay) => {

@@ -451,8 +451,9 @@ async fn a_higher_gravity_copy_of_the_same_emission_moves_only_the_route() {
     assert_eq!(
         (
             counters.freshness_replays_rejected,
-            counters.freshness_stale_rejected
+            counters.freshness_stale_rejected,
+            counters.gravity_repoints
         ),
-        (3, 1)
+        (3, 1, 1)
     );
 }

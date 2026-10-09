@@ -174,6 +174,9 @@ pub struct RoutingCounters {
     /// Validly signed announces rejected because they name a known destination under a
     /// different public key.
     pub key_mismatch_announces: u64,
+    /// Routes moved to a higher-gravity interface by a copy of the same emission
+    /// (`Transport.py` 2229-2251).
+    pub gravity_repoints: u64,
 }
 
 /// The live counter cells behind [`RoutingCounters`].
@@ -204,6 +207,7 @@ pub(super) struct RoutingStats {
     pub(super) inbound_links_evicted: AtomicU64,
     pub(super) link_queue_dropped: AtomicU64,
     pub(super) key_mismatch_announces: AtomicU64,
+    pub(super) gravity_repoints: AtomicU64,
 }
 
 impl RoutingStats {
@@ -234,6 +238,7 @@ impl RoutingStats {
             inbound_links_evicted: self.inbound_links_evicted.load(Ordering::Relaxed),
             link_queue_dropped: self.link_queue_dropped.load(Ordering::Relaxed),
             key_mismatch_announces: self.key_mismatch_announces.load(Ordering::Relaxed),
+            gravity_repoints: self.gravity_repoints.load(Ordering::Relaxed),
         }
     }
 }
