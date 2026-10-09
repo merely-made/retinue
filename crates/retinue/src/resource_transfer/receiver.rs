@@ -31,11 +31,8 @@ pub struct ResourceReceiver {
     proved: Option<([u8; 32], [u8; 32])>,
     canceled: bool,
     request_window: usize,
-    /// The most parts this receiver will accept for one segment.
-    ///
-    /// A sender chooses the advertised part count, so without this a peer decides how much
-    /// memory this node spends on reassembly. The desktop default covers a single-segment
-    /// resource; a board sets it far lower.
+    /// The most parts this receiver will accept for one segment, so a peer's advertised
+    /// count cannot decide our reassembly memory. A board sets it far lower.
     max_parts: usize,
     /// The most bytes a compressed resource may inflate to before the transfer fails.
     max_decompressed: usize,
@@ -264,9 +261,7 @@ impl ResourceReceiver {
         {
             return Err(Error::CapacityExceeded);
         }
-        // An advertisement past this receiver's part ceiling is refused outright: the
-        // sender chose that number, so honouring it would let a peer decide how much
-        // memory this node spends.
+        // Past the part ceiling is refused outright: the peer chose that number.
         let incoming = Incoming::new_with_max_parts(adv, self.max_parts)?;
         if self.accept.as_ref().is_some_and(|accept| !accept(adv)) {
             return Err(Error::ResourceRejected);
@@ -364,9 +359,8 @@ impl ResourceReceiver {
                 vec![self.link.resource_proof_packet(&hash, &proof)]
             }
             Err(error) => {
-                // A bz2 bomb, or simply more than this node will hold; or a body that does
-                // not open or match its hash. Fail the transfer, release the parts, and
-                // tell the sender to stop.
+                // A bz2 bomb, an oversized body, or one that does not open or verify: fail,
+                // release the parts, and tell the sender to stop.
                 self.failure = Some(match error {
                     Error::DecompressionLimit | Error::Unsupported => error,
                     _ => Error::ResourceCorrupt,

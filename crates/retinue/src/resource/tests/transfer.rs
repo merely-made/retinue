@@ -36,8 +36,6 @@ fn outgoing_hmu_is_bounded_and_idempotent() {
     assert_eq!(second_hmu.hashes.len(), HASHMAP_MAX_PARTS);
 }
 
-/// A >74-part resource round-trips sender -> receiver through the windowed HMU path,
-/// entirely in-process (no RNS): advertise, request windows, solicit + ingest HMUs,
 /// A peer chooses the advertised part count, and the wire field is a `u64`. Without a
 /// ceiling this node holds reassembly state for a resource the peer simply made up.
 #[test]
@@ -71,7 +69,8 @@ fn an_advertisement_claiming_more_parts_than_the_limit_is_refused() {
     );
 }
 
-/// serve, reassemble.
+/// A >74-part resource round-trips in-process through the windowed HMU path: advertise,
+/// request windows, solicit + ingest HMUs, serve, reassemble.
 #[test]
 fn windowed_sender_receiver_round_trip() {
     use crate::destination::DestinationName;
@@ -253,8 +252,7 @@ fn the_collision_fixture_collides() {
 }
 
 /// A receiver stores parts by position, so two parts sharing a map hash both land, in
-/// order. Keyed by hash, the second was taken for a duplicate of the first and the
-/// token reassembled with the first part twice.
+/// order.
 #[test]
 fn colliding_map_hashes_are_placed_by_position() {
     let token = COLLIDING.concat();
@@ -322,8 +320,7 @@ fn the_first_segment_is_its_own_identity() {
     assert_eq!(second.original_hash, hash.to_vec());
 }
 
-/// Byte-identical parts share a map hash harmlessly. Across hashmap segments the
-/// repeat used to be dropped from the receiver's map, which then never filled.
+/// Byte-identical parts in different hashmap segments share a map hash harmlessly.
 #[test]
 fn identical_parts_in_different_hashmap_segments_complete() {
     let mut token = vec![0_u8; SDU * (HASHMAP_MAX_PARTS + 20)];
@@ -352,7 +349,6 @@ fn identical_parts_in_different_hashmap_segments_complete() {
 }
 
 /// An HMU lands at `segment * 74`, as RNS places it, whatever order HMUs arrive in.
-/// Appended in arrival order, a later segment heard first scrambled the token.
 #[test]
 fn hashmap_updates_land_by_segment() {
     let mut token = vec![0_u8; SDU * (HASHMAP_MAX_PARTS * 2 + 30)];
@@ -403,7 +399,6 @@ fn sender_and_receiver_round_trip() {
     use crate::identity::PrivateIdentity;
     use crate::link::{LinkMode, LinkTrailer, PendingLink, accept};
 
-    // A link to seal/open with.
     let dest_id = PrivateIdentity::from_secret_bytes(&[0x11; 64]);
     let (pending, req) = PendingLink::open(
         DestinationName::new("retinue", ["r"]).destination_hash(dest_id.public()),

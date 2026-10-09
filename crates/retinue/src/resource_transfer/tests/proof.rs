@@ -25,8 +25,7 @@ fn a_lost_proof_is_asked_for_by_hash() {
 }
 
 /// A receiver that already proved a resource answers a re-sent offer of it with the
-/// proof again: the sender lost it. Before, it answered nothing, and an older sender
-/// that re-advertises rather than asking its peer's cache never completed.
+/// proof again: the sender lost it.
 #[test]
 fn a_re_advertisement_of_a_proved_resource_is_answered_with_the_proof() {
     let mut ivg = iv_gen();

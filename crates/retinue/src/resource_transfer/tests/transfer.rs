@@ -15,7 +15,6 @@ fn transfers_a_small_resource() {
     let mut sender = ResourceSender::publish(send_link, &data, [0xAB, 0xCD, 0xEF, 0x01], &ivg());
     let mut receiver = ResourceReceiver::new(recv_link);
 
-    // The receiver gets the advertisement and drives to completion.
     let mut to_receiver = vec![sender.advertisement(&ivg())];
     let mut to_sender: Vec<Packet> = Vec::new();
     for _ in 0..100 {
@@ -215,9 +214,8 @@ fn metadata_round_trips_beside_the_data() {
     assert_eq!(receiver.metadata(), Some(&metadata[..]));
 }
 
-/// Byte-identical parts share a map hash, and serving one serves every slot it fills.
-/// Before, only the first slot counted as sent, so a sender holding such parts never
-/// reached `awaiting_proof` and never asked for a lost proof.
+/// Byte-identical parts share a map hash, and serving one serves every slot it fills, so
+/// the sender still reaches `awaiting_proof`.
 #[test]
 fn serving_a_repeated_part_counts_every_slot_it_fills() {
     let (send_link, recv_link) = link_pair();

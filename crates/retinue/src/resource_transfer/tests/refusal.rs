@@ -1,3 +1,4 @@
+#[cfg(feature = "compression")]
 use alloc::vec;
 use alloc::vec::Vec;
 

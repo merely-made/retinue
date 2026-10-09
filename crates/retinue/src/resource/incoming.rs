@@ -14,14 +14,11 @@ use crate::{Error, Result};
 
 /// Receiver state for one incoming resource segment.
 ///
-/// Drives the windowed transfer: parse the advertisement's first hashmap, request parts,
-/// collect them by position, solicit more hashmap via [`Hmu`] when the advertised hashes run
-/// out, and finally reassemble, decrypt, decompress, verify, and prove. One `Incoming`
-/// handles one segment (a resource up to ~1 MB is a single segment).
+/// Requests parts, solicits more hashmap via [`Hmu`] when the known hashes run out, then
+/// reassembles, decompresses, verifies, and proves. One segment is up to ~1 MB.
 ///
-/// Parts are stored by index, as RNS stores them. A received part is matched against the
-/// map hashes in the window after the last consecutively received part, so a map hash that
-/// repeats elsewhere in a large resource cannot misplace it.
+/// Parts are stored by index, as RNS stores them, and matched only within the window after
+/// the first missing part, so a map hash repeated elsewhere cannot misplace one.
 pub struct Incoming {
     hash: [u8; 32],
     random_hash: Vec<u8>,
@@ -45,11 +42,8 @@ pub struct Incoming {
     consecutive: usize,
     /// How many parts past `consecutive` are requested and matched.
     window: usize,
-    /// The most parts this receiver will accept for one segment.
-    ///
-    /// A runtime cap rather than a const generic, because the count is large and
-    /// data-dependent: a structural bound would commit the whole worst case as static
-    /// storage for every transfer, where the small tables in `channel` are fixed and tiny.
+    /// The most parts this receiver will accept for one segment. A runtime cap, not a const
+    /// generic: a structural bound would commit the worst case as static storage.
     max_parts: usize,
 }
 
@@ -66,15 +60,13 @@ impl Incoming {
         if adv.resource_hash.len() != 32 {
             return Err(Error::BadRequest);
         }
-        // `parts` is a wire u64 chosen by the peer. Without this a sender advertises an
-        // arbitrarily large resource and this node holds reassembly state for it forever.
+        // `parts` is a peer-chosen wire u64; unbounded, it sizes our reassembly state.
         if adv.parts > max_parts as u64 {
             return Err(Error::CapacityExceeded);
         }
         let total_parts = adv.parts as usize;
-        // The initial hashmap is peer input too. A small advertised count must
-        // not bypass the retained-hash ceiling before the first HMU arrives, and a
-        // partial map must name at least one part, or there is no segment length.
+        // The initial hashmap is peer input too: it may not exceed the advertised count, and
+        // a partial map must name at least one part, or there is no segment length.
         let advertised = adv.hashmap.len() / MAPHASH_LEN;
         if !adv.hashmap.len().is_multiple_of(MAPHASH_LEN)
             || advertised > total_parts
@@ -288,9 +280,8 @@ impl Incoming {
     /// [`Error::Unsupported`] if the resource is compressed but the `compression` feature is
     /// off.
     pub fn recover_with_limit(&self, decrypted: &[u8], max_decompressed: usize) -> Result<Vec<u8>> {
-        // The transferred blob is `random_hash || body`, where body is the payload,
-        // bz2-compressed if the advertisement flagged it. The random-hash prefix sits
-        // OUTSIDE the compression, so strip it first, then decompress.
+        // The blob is `random_hash || body`; the prefix sits OUTSIDE the compression, so
+        // strip it first, then decompress.
         let body = data_from_content(decrypted)?;
         let data = if self.compressed {
             #[cfg(feature = "compression")]

@@ -10,11 +10,8 @@ use super::{
 use crate::hash::full_hash;
 
 /// How many times a sender re-draws its random hash to clear a map-hash collision before it
-/// sends the map as it is. RNS only needs the hashes unique within its
-/// `COLLISION_GUARD_SIZE` (224 parts) so a window-bounded match is unambiguous; a sender
-/// here keeps them unique across the whole segment, which also keeps its own lookups
-/// unambiguous. A collision among a segment's few thousand parts is rare and repeating it
-/// vanishingly so; the bound only keeps the loop finite.
+/// sends the map as it is. RNS needs uniqueness only within `COLLISION_GUARD_SIZE` (224
+/// parts); this keeps it across the whole segment. The bound only keeps the loop finite.
 const MAX_REROLLS: usize = 8;
 
 /// Sender state for one outgoing resource segment.
@@ -126,15 +123,13 @@ impl Outgoing {
         }
     }
 
-    /// Mark this as segment `index` of `total` in a larger resource whose full payload is
-    /// `total_data_size` bytes and whose identity is `original_hash` (the FIRST segment's
-    /// hash, shared across all segments so the receiver groups them). The advertisement's
-    /// `i`/`l`/`d`/`o` fields carry these. Verified against RNS 1.3.8.
+    /// Mark this as segment `index` of `total` in a larger resource of `total_data_size`
+    /// bytes, identified by `original_hash` (carried in `i`/`l`/`d`/`o`). Verified against
+    /// RNS 1.3.8.
     ///
-    /// The first segment's identity is its own [`resource_hash`](Self::resource_hash), so
-    /// for `index == 1` that is used whatever `original_hash` says: a re-drawn random hash
-    /// changes it from one computed up front. Take the later segments' `original_hash`
-    /// from the first segment's `resource_hash()`.
+    /// Segment 1 is identified by its own [`resource_hash`](Self::resource_hash) whatever
+    /// `original_hash` says, since a re-drawn random hash changes it; take the later
+    /// segments' `original_hash` from the first segment's `resource_hash()`.
     pub fn with_segment(
         mut self,
         index: i64,
@@ -257,10 +252,9 @@ impl Outgoing {
         last_map_hash: &[u8; MAPHASH_LEN],
         hash_limit: usize,
     ) -> Vec<u8> {
-        // An HMU occupies the same window as the advertisement. Derive its segment from the
-        // requested map position instead of advancing mutable state: a repeated
-        // solicitation must reproduce the same HMU after packet loss. A receiver solicits
-        // after the last hash of a segment, so prefer that position among identical parts.
+        // Derive the segment from the requested position, not mutable state, so a repeated
+        // solicitation reproduces the same HMU after loss. A receiver solicits after a
+        // segment's last hash, so prefer that position among identical parts.
         let hash_limit = hash_limit.clamp(1, HASHMAP_MAX_PARTS);
         let start = self
             .indices_of(*last_map_hash)

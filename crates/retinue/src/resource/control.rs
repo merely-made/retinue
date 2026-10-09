@@ -97,7 +97,7 @@ pub fn build_hmu(resource_hash: &[u8; 32], segment: i64, hashes: &[[u8; MAPHASH_
     let mut out = Vec::with_capacity(32 + 4 + hashes.len() * MAPHASH_LEN);
     out.extend_from_slice(resource_hash);
     out.push(0x92); // fixarray, 2
-    // segment as a msgpack int (positive fixint covers the small counters RNS uses).
+    // Positive fixint covers the small segment counters RNS uses.
     if (0..0x80).contains(&segment) {
         out.push(segment as u8);
     } else {
@@ -105,7 +105,6 @@ pub fn build_hmu(resource_hash: &[u8; 32], segment: i64, hashes: &[[u8; MAPHASH_
         out.extend_from_slice(&segment.to_be_bytes());
     }
     let bin: Vec<u8> = hashes.iter().flat_map(|h| h.iter().copied()).collect();
-    // bin8/bin16 for the hashmap bytes.
     if bin.len() <= u8::MAX as usize {
         out.push(0xc4);
         out.push(bin.len() as u8);
