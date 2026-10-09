@@ -17,6 +17,7 @@ mod facts;
 mod inbound;
 mod interface;
 mod known_destinations;
+mod link_receipt;
 mod link_setup;
 mod paths;
 mod queue;
@@ -44,6 +45,7 @@ pub use facts::{
 };
 pub use inbound::{Accepted, AcceptedResource, InboundLinkLimits};
 pub use interface::{Interface, InterfaceId, InterfaceSink};
+pub use link_receipt::{LinkDelivery, PayloadReceipt};
 pub use queue::{
     ClassCounters, OutboundPackets, QueueCounters, QueueDepths, QueueWeights, TrafficClass,
 };

@@ -10,6 +10,11 @@ use alloc::vec::Vec;
 use hkdf::Hkdf;
 use sha2::{Digest, Sha256};
 
+#[cfg(feature = "std")]
+mod parallel;
+#[cfg(feature = "std")]
+pub use parallel::find_parallel;
+
 pub const STAMP_LEN: usize = 32;
 pub const WORKBLOCK_BYTES_PER_ROUND: usize = 256;
 pub const MESSAGE_WORKBLOCK_ROUNDS: u32 = 3_000;
@@ -134,20 +139,35 @@ impl<'a> Derivation<'a> {
         seed: &mut [u8; STAMP_LEN],
         attempts: u64,
     ) -> Option<([u8; STAMP_LEN], u16)> {
-        if !self.done() || target > 256 {
+        if !self.done() {
             return None;
         }
-        for _ in 0..attempts {
-            let mut hash = self.hash.clone();
-            hash.update(*seed);
-            let score = leading_zero_bits(&hash.finalize());
-            if score >= target {
-                return Some((*seed, score));
-            }
-            increment(seed);
-        }
-        None
+        mint_from(&self.hash, target, seed, attempts)
     }
+}
+
+/// Walk up to `attempts` nonces from `seed` against a workblock already absorbed into
+/// `midstate`, leaving `seed` where the walk stopped. Each trial clones the midstate and
+/// hashes only the nonce.
+fn mint_from(
+    midstate: &Sha256,
+    target: u16,
+    seed: &mut [u8; STAMP_LEN],
+    attempts: u64,
+) -> Option<([u8; STAMP_LEN], u16)> {
+    if target > 256 {
+        return None;
+    }
+    for _ in 0..attempts {
+        let mut hash = midstate.clone();
+        hash.update(*seed);
+        let score = leading_zero_bits(&hash.finalize());
+        if score >= target {
+            return Some((*seed, score));
+        }
+        increment(seed);
+    }
+    None
 }
 
 /// Score a stamp against a previously derived workblock.
@@ -183,25 +203,18 @@ pub fn propagation_valid(transient_id: &[u8; 32], stamp: &[u8; STAMP_LEN], targe
 
 /// Search sequential 256-bit stamp nonces, starting with `seed`.
 ///
-/// The seed does not need to be secret. The caller controls the attempt bound
-/// so embedded and interactive runtimes can enforce their own work budget.
+/// The workblock is hashed once into a midstate that every trial clones, as
+/// [`find_streamed`] does. The seed does not need to be secret. The caller controls the
+/// attempt bound so embedded and interactive runtimes can enforce their own work budget.
 pub fn find(
     workblock: &[u8],
     target: u16,
     mut seed: [u8; STAMP_LEN],
     max_attempts: u64,
 ) -> Option<([u8; STAMP_LEN], u16)> {
-    if target > 256 {
-        return None;
-    }
-    for _ in 0..max_attempts {
-        let score = value(workblock, &seed);
-        if score >= target {
-            return Some((seed, score));
-        }
-        increment(&mut seed);
-    }
-    None
+    let mut midstate = Sha256::new();
+    midstate.update(workblock);
+    mint_from(&midstate, target, &mut seed, max_attempts)
 }
 
 /// MessagePack's encoding of an unsigned integer, in the narrowest form that holds it.

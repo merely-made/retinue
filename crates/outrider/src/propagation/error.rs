@@ -40,6 +40,8 @@ pub enum PropagationError {
     InvalidStamp,
     #[error("the configured proof-of-work attempt budget was exhausted")]
     StampBudgetExhausted,
+    #[error("the propagation node rejected the submission's stamps")]
+    Rejected,
     #[error("the propagation destination does not match the recipient or node identity")]
     WrongDestination,
     #[error("the decrypted LXMF source does not match the supplied source identity")]

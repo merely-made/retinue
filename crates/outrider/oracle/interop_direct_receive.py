@@ -131,6 +131,7 @@ def main() -> int:
         announce_seen = any(line.startswith("STOCK_ANNOUNCE ") for line in lines)
         expected_transport = "Resource" if LARGE else "Data"
         transport_ok = f"TRANSPORT {expected_transport}" in lines
+        delivered_ok = "DELIVERED true" in lines
         ok = (
             complete.is_set()
             and title_ok
@@ -138,12 +139,14 @@ def main() -> int:
             and id_ok
             and announce_seen
             and transport_ok
+            and delivered_ok
         )
         print(f"stock delivery callback fired: {'PASS' if complete.is_set() else 'FAIL'}")
         print(f"stock decoded title/body: {'PASS' if title_ok and content_ok else 'FAIL'}")
         print(f"stock agreed on message id: {'PASS' if id_ok else 'FAIL'}")
         print(f"Outrider captured announce data: {'PASS' if announce_seen else 'FAIL'}")
         print(f"Outrider chose {expected_transport}: {'PASS' if transport_ok else 'FAIL'}")
+        print(f"stock proved it, Outrider reports DELIVERED: {'PASS' if delivered_ok else 'FAIL'}")
         print(f"OUTRIDER_TO_STOCK_DIRECT: {'PASS' if ok else 'FAIL'}")
         exit_code = 0 if ok else 1
         return exit_code

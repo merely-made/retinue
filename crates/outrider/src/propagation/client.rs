@@ -1,6 +1,8 @@
 //! Client lanes: prepare and submit entries, and fetch from a node.
 
-use retinue::endpoint::{Endpoint, PayloadMode, PeerAnnounce, ResourceTransferConfig};
+use retinue::endpoint::{
+    Endpoint, LinkDelivery, PayloadMode, PeerAnnounce, ResourceTransferConfig,
+};
 use retinue::hash::{AddressHash, full_hash};
 use retinue::identity::{Identity, PrivateIdentity};
 use retinue::token::{IV_LEN, encrypt_to_identity};
@@ -80,7 +82,15 @@ pub struct PropagationSubmitReceipt {
     pub transient_ids: Vec<[u8; 32]>,
     pub mode: PayloadMode,
     pub packed_batch: Vec<u8>,
+    /// Whether the node proved the transfer, stock's SENT. A node proves a data packet only
+    /// once every stamp validates, but RNS proves a Resource before the node reads it, so a
+    /// proved Resource whose stamps fail is dropped without a word (`LXMRouter.py` 2321-2329,
+    /// 2515-2523). `false` is a data packet whose proof did not arrive in time.
+    pub proved: bool,
 }
+
+/// The node's refusal of a submission's stamps (`LXMPeer.ERROR_INVALID_STAMP`).
+const ERROR_INVALID_STAMP: u64 = 0xf5;
 
 pub async fn submit(
     endpoint: &Endpoint,
@@ -121,19 +131,37 @@ pub async fn submit_with_resource_config(
         .iter()
         .map(PropagationEntry::transient_id)
         .collect();
-    let mode = endpoint
-        .send_payload_with_config(
+    let receipt = endpoint
+        .deliver_payload(
             node.destination,
             node.identity,
             &packed_batch,
             resource_config,
         )
         .await?;
+    let proved = match receipt.delivery {
+        LinkDelivery::Proved { .. } => true,
+        LinkDelivery::Answered(signal) if is_stamp_refusal(&signal) => {
+            return Err(PropagationError::Rejected);
+        }
+        LinkDelivery::Answered(_) | LinkDelivery::Unproved => false,
+    };
     Ok(PropagationSubmitReceipt {
         transient_ids,
-        mode,
+        mode: receipt.mode,
         packed_batch,
+        proved,
     })
+}
+
+/// Whether a node's answer is `[ERROR_INVALID_STAMP, ...]` (`LXMRouter.py` 2739-2749).
+fn is_stamp_refusal(signal: &[u8]) -> bool {
+    match rmpv::decode::read_value(&mut &signal[..]) {
+        Ok(Value::Array(items)) => {
+            items.first().and_then(Value::as_u64) == Some(ERROR_INVALID_STAMP)
+        }
+        _ => false,
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -258,4 +286,20 @@ pub async fn fetch_with_resource_config(
         });
     }
     Ok(PropagationFetchReceipt { offered, messages })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_stamp_refusal;
+
+    #[test]
+    fn only_an_invalid_stamp_signal_is_a_refusal() {
+        // `msgpack.packb([0xf5])` as stock sends it, and with a trailing element.
+        assert!(is_stamp_refusal(&[0x91, 0xcc, 0xf5]));
+        assert!(is_stamp_refusal(&[0x92, 0xcc, 0xf5, 0xc0]));
+        assert!(!is_stamp_refusal(&[0x91, 0xcc, 0xf6]));
+        assert!(!is_stamp_refusal(&[0xcc, 0xf5]));
+        assert!(!is_stamp_refusal(&[0x90]));
+        assert!(!is_stamp_refusal(b""));
+    }
 }

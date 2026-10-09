@@ -84,7 +84,7 @@ async fn transfer(spec: Transfer<'_>) -> Result<(), Box<dyn std::error::Error>> 
         || received.message.payload.title != spec.title
         || received.message.payload.content != spec.content
         || received.source_identity != Some(*spec.sender_identity.public())
-        || received.ratchet_id != receipt.ratchet_id
+        || received.ratchet_id != receipt.packet.ratchet_id
     {
         return Err(format!("{} did not arrive byte-exact and authenticated", spec.label).into());
     }

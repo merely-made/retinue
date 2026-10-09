@@ -1,19 +1,20 @@
 //! Direct LXMF delivery over Retinue links and Resources.
 
 use retinue::endpoint::{
-    AcceptedResource, Endpoint, InterfaceId, PayloadMode, PeerAnnounce, ProofStrategy,
-    ReceivedPayload, ResourceTransferConfig,
+    AcceptedResource, Endpoint, InterfaceId, LinkDelivery, PayloadMode, PeerAnnounce,
+    ProofStrategy, ReceivedPayload, ResourceTransferConfig,
 };
 use retinue::hash::AddressHash;
 use retinue::identity::{Identity, PrivateIdentity};
 
 use crate::announce::{AnnounceError, DeliveryAnnounce, delivery_destination, delivery_name};
 use crate::codec::{
-    CodecError, DEFAULT_MAX_MESSAGE_BYTES, DecodedLxmf, LxmfPayload, decode_bounded, prepare,
+    CodecError, DEFAULT_MAX_MESSAGE_BYTES, DecodedLxmf, LxmfPayload, PreparedLxmf, decode_bounded,
+    prepare,
 };
 use crate::delivered::DeliveredCache;
 use crate::inbound::{StampOutcome, StampRefusal, Verification, check_stamp, unix_now, verify};
-use crate::stamp::{MESSAGE_WORKBLOCK_ROUNDS, STAMP_LEN, find_streamed, valid_streamed};
+use crate::stamp::{MESSAGE_WORKBLOCK_ROUNDS, STAMP_LEN, find_parallel, valid_streamed};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DirectReceipt {
@@ -21,6 +22,10 @@ pub struct DirectReceipt {
     pub mode: PayloadMode,
     /// The complete signed LXMF object handed to Retinue.
     pub packed: Vec<u8>,
+    /// Whether the recipient proved the link packet or Resource, stock's DELIVERED. Stock
+    /// proves before it validates, so this means received rather than accepted. `false` is
+    /// a data packet whose proof did not arrive in time, which stock retries.
+    pub delivered: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -86,16 +91,7 @@ pub async fn send_with_resource_config(
     payload: &LxmfPayload,
     resource_config: ResourceTransferConfig,
 ) -> Result<DirectReceipt, DirectError> {
-    if sender.public() != endpoint.identity() {
-        return Err(DirectError::LocalIdentityMismatch);
-    }
-    if peer.destination != delivery_destination(&peer.identity) {
-        return Err(DirectError::WrongDestination);
-    }
-    let announce = DeliveryAnnounce::decode(&peer.app_data)?;
-
-    let source = delivery_destination(sender.public());
-    let prepared = prepare(*peer.destination.as_bytes(), *source.as_bytes(), payload)?;
+    let (announce, prepared) = prepare_for(endpoint, sender, peer, payload)?;
     if let Some(target) = announce.stamp_cost {
         let Some(stamp) = payload
             .stamp
@@ -138,7 +134,7 @@ pub async fn send_stamped(
 }
 
 /// Generate any required stamp, then send with explicit policy for the
-/// Resource path.
+/// Resource path. The minted stamp is attached as found rather than checked again.
 pub async fn send_stamped_with_resource_config(
     endpoint: &Endpoint,
     sender: &PrivateIdentity,
@@ -148,42 +144,62 @@ pub async fn send_stamped_with_resource_config(
     max_stamp_attempts: u64,
     resource_config: ResourceTransferConfig,
 ) -> Result<DirectReceipt, DirectError> {
-    let announce = DeliveryAnnounce::decode(&peer.app_data)?;
-    let Some(target) = announce.stamp_cost else {
-        return send_with_resource_config(endpoint, sender, peer, payload, resource_config).await;
+    let (announce, prepared) = prepare_for(endpoint, sender, peer, payload)?;
+    let prepared = match announce.stamp_cost {
+        Some(target) => {
+            let (stamp, _) = find_parallel(
+                &prepared.message_id,
+                MESSAGE_WORKBLOCK_ROUNDS,
+                u16::from(target),
+                stamp_seed,
+                max_stamp_attempts,
+            )
+            .ok_or(DirectError::StampBudgetExhausted)?;
+            prepared.with_stamp(&stamp)
+        }
+        None => prepared,
     };
-    let source = delivery_destination(sender.public());
-    let initial = prepare(*peer.destination.as_bytes(), *source.as_bytes(), payload)?;
-    let (stamp, _) = find_streamed(
-        &initial.message_id,
-        MESSAGE_WORKBLOCK_ROUNDS,
-        u16::from(target),
-        stamp_seed,
-        max_stamp_attempts,
-    )
-    .ok_or(DirectError::StampBudgetExhausted)?;
-    let mut stamped = payload.clone();
-    stamped.stamp = Some(stamp.to_vec());
-    send_with_resource_config(endpoint, sender, peer, &stamped, resource_config).await
+    finish_send(endpoint, sender, peer, prepared, resource_config).await
 }
 
+/// Check the sender and peer, and prepare the message for the peer's delivery destination.
+fn prepare_for(
+    endpoint: &Endpoint,
+    sender: &PrivateIdentity,
+    peer: &PeerAnnounce,
+    payload: &LxmfPayload,
+) -> Result<(DeliveryAnnounce, PreparedLxmf), DirectError> {
+    if sender.public() != endpoint.identity() {
+        return Err(DirectError::LocalIdentityMismatch);
+    }
+    if peer.destination != delivery_destination(&peer.identity) {
+        return Err(DirectError::WrongDestination);
+    }
+    let announce = DeliveryAnnounce::decode(&peer.app_data)?;
+    let source = delivery_destination(sender.public());
+    let prepared = prepare(*peer.destination.as_bytes(), *source.as_bytes(), payload)?;
+    Ok((announce, prepared))
+}
+
+/// Sign and deliver, waiting for the recipient's proof (`LXMessage.py` 481-497).
 async fn finish_send(
     endpoint: &Endpoint,
     sender: &PrivateIdentity,
     peer: &PeerAnnounce,
-    prepared: crate::codec::PreparedLxmf,
+    prepared: PreparedLxmf,
     resource_config: ResourceTransferConfig,
 ) -> Result<DirectReceipt, DirectError> {
     let message_id = prepared.message_id;
     let signature = sender.sign(prepared.signing_bytes());
     let packed = prepared.finish(signature);
-    let mode = endpoint
-        .send_payload_with_config(peer.destination, peer.identity, &packed, resource_config)
+    let receipt = endpoint
+        .deliver_payload(peer.destination, peer.identity, &packed, resource_config)
         .await?;
     Ok(DirectReceipt {
         message_id,
-        mode,
+        mode: receipt.mode,
         packed,
+        delivered: matches!(receipt.delivery, LinkDelivery::Proved { .. }),
     })
 }
 

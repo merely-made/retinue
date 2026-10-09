@@ -13,6 +13,7 @@ use crate::portable::{hashed_identity, parse, write_bin, write_f64, write_text};
 pub use crate::portable::{
     CodecError, DESTINATION_LEN, HEADER_LEN, SIGNATURE_LEN, SOURCE_LEN, StrParts,
 };
+use crate::stamp::STAMP_LEN;
 
 pub const DEFAULT_MAX_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
 
@@ -76,6 +77,27 @@ pub struct PreparedLxmf {
 impl PreparedLxmf {
     pub fn signing_bytes(&self) -> &[u8] {
         &self.signing_bytes
+    }
+
+    /// The finished length once a stamp is attached: the array header keeps its one byte and
+    /// the stamp adds a `bin 8` marker, its length, and its 32 bytes.
+    pub fn stamped_len(&self) -> usize {
+        HEADER_LEN + self.hashed_payload().len() + 2 + STAMP_LEN
+    }
+
+    /// The same message carrying `stamp`, which its id and signature exclude, spliced onto
+    /// the hashed payload rather than encoded again.
+    pub fn with_stamp(mut self, stamp: &[u8; STAMP_LEN]) -> Self {
+        self.packed
+            .truncate(HEADER_LEN + self.hashed_payload().len());
+        self.packed[HEADER_LEN] = 0x95; // fixarray of five, in place of the hashed four
+        write_bin(&mut self.packed, stamp);
+        self
+    }
+
+    /// The four-element payload the id hashes, held inside the signing preimage.
+    fn hashed_payload(&self) -> &[u8] {
+        &self.signing_bytes[DESTINATION_LEN + SOURCE_LEN..self.signing_bytes.len() - 32]
     }
 
     pub fn finish(mut self, signature: [u8; SIGNATURE_LEN]) -> Vec<u8> {
@@ -239,6 +261,18 @@ mod tests {
         let decoded = decode(&stamped.finish([4; 64])).unwrap();
         assert_eq!(decoded.message_id, message_id);
         assert_eq!(decoded.payload.stamp, Some(vec![3; 16]));
+    }
+
+    #[test]
+    fn a_spliced_stamp_is_the_encoded_one() {
+        let mut payload = LxmfPayload::text(1_753_603_200.5, b"title", b"body");
+        payload.stamp = Some(vec![5; 32]);
+        let spliced = prepare([1; 16], [2; 16], &payload).unwrap();
+        let spliced = spliced.with_stamp(&[3; STAMP_LEN]);
+        payload.stamp = Some(vec![3; 32]);
+        let encoded = prepare([1; 16], [2; 16], &payload).unwrap();
+        assert_eq!(spliced.stamped_len(), encoded.packed.len());
+        assert_eq!(spliced, encoded);
     }
 
     #[test]
