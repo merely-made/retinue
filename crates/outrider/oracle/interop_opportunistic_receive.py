@@ -56,7 +56,8 @@ def main() -> int:
             lines.append(line)
             print(f"  [outrider] {line}")
 
-    threading.Thread(target=pump, daemon=True).start()
+    reader = threading.Thread(target=pump, daemon=True)
+    reader.start()
     port = None
     deadline = time.time() + 180
     while time.time() < deadline and port is None:
@@ -119,6 +120,8 @@ def main() -> int:
             process.wait(timeout=10)
         except subprocess.TimeoutExpired:
             process.kill()
+        # The verdict reads the sender's last lines, so wait for the reader to drain them.
+        reader.join(timeout=5)
 
         sent_id = next(
             (
