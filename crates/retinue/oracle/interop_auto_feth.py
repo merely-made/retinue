@@ -18,7 +18,8 @@ judged on stock's state:
     answer to stock's multicast (reverse peering);
   * ifac: both sides with `network_name`/`passphrase` and stock's default size of 16;
   * mif: two links, so each side sees the other twice; Retinue must drop duplicates
-    (`mif_duplicates` > 0) and the script must still pass.
+    (`mif_duplicates` > 0), and the script must still pass with stock's packet delivered
+    and proved exactly once.
 
 The script refuses to run, failing, unless the pairs exist. The macOS application
 firewall must admit the oracle Python and the example binary.

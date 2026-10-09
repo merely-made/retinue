@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 
 use std::net::Ipv6Addr;
 
-use super::{MCAST_ECHO_TIMEOUT, MIF_LEN, MIF_TTL, PEERING_TIMEOUT, REVERSE_INTERVAL};
+use super::{MAX_PEERS, MCAST_ECHO_TIMEOUT, MIF_LEN, MIF_TTL, PEERING_TIMEOUT, REVERSE_INTERVAL};
 use crate::auto::HashRing;
 use crate::iface::udp::frame_hash;
 
@@ -25,6 +25,8 @@ pub(super) enum Token {
     New,
     /// A known peer, now refreshed.
     Refresh,
+    /// An unknown peer on an interface that already has [`MAX_PEERS`]: ignored.
+    Full,
 }
 
 /// What a data datagram means.
@@ -126,12 +128,13 @@ impl<T> Table<T> {
             }
             return Token::Echo;
         }
-        match self.peer_mut(src, index) {
-            Some(peer) => {
-                peer.last_heard = now;
-                Token::Refresh
-            }
-            None => Token::New,
+        if let Some(at) = self.position(src, index) {
+            self.peers[at].last_heard = now;
+            Token::Refresh
+        } else if self.peers.iter().filter(|p| p.index == index).count() >= MAX_PEERS {
+            Token::Full
+        } else {
+            Token::New
         }
     }
 
@@ -206,10 +209,5 @@ impl<T> Table<T> {
         self.peers
             .iter()
             .position(|p| p.addr == addr && p.index == index)
-    }
-
-    fn peer_mut(&mut self, addr: Ipv6Addr, index: u32) -> Option<&mut Peer<T>> {
-        let at = self.position(addr, index)?;
-        Some(&mut self.peers[at])
     }
 }

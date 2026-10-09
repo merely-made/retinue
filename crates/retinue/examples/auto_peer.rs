@@ -68,8 +68,8 @@ async fn main() -> Result<(), String> {
     let c = status.counters;
     let echoed = status.adopted.iter().all(|a| a.echoed);
     println!(
-        "COUNTERS rx={} tx={} mif_duplicates={} oversize={} echoed={echoed}",
-        c.rx, c.tx, c.mif_duplicates, c.oversize
+        "COUNTERS rx={} tx={} mif_duplicates={} oversize={} peers_refused={} echoed={echoed}",
+        c.rx, c.tx, c.mif_duplicates, c.oversize, c.peers_refused
     );
     endpoint.shutdown(Duration::from_secs(2)).await;
     println!("DONE");

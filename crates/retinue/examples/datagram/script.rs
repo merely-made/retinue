@@ -113,7 +113,14 @@ async fn serve_link(endpoint: &Arc<Endpoint>) -> Result<(), String> {
         .await
         .map_err(|e| format!("publish: {e}"))?;
     println!("PUBLISH_OK {}", back.len());
-    // Hold the link until stock hangs up, so its callbacks finish before any close.
-    let _ = tokio::time::timeout(Duration::from_secs(30), session.receive()).await;
+    // Hold the link until stock hangs up, so its callbacks finish before any close. A
+    // payload arriving now is a duplicate delivery, which the gates count as a failure.
+    let hold = async {
+        while let Ok(payload) = session.receive().await {
+            let (ReceivedPayload::Data(bytes) | ReceivedPayload::Resource(bytes)) = payload;
+            println!("DATA_AGAIN {}", bytes.len());
+        }
+    };
+    let _ = tokio::time::timeout(Duration::from_secs(30), hold).await;
     Ok(())
 }

@@ -179,130 +179,29 @@ fn tick_expires_reverses_and_tracks_the_carrier() {
     assert!(t.peers().is_empty());
 }
 
-/// End to end on lo0, which Darwin gives both `::1` and `fe80::1`; Linux's lo has no
-/// link-local.
-#[cfg(any(target_os = "macos", target_os = "ios"))]
-mod loopback {
-    use std::sync::Arc;
-
-    use super::*;
-    use crate::destination::DestinationName;
-    use crate::endpoint::Endpoint;
-    use crate::identity::PrivateIdentity;
-
-    fn free_v6_port() -> u16 {
-        std::net::UdpSocket::bind("[::1]:0")
-            .unwrap()
-            .local_addr()
-            .unwrap()
-            .port()
+#[test]
+fn peers_are_capped_per_interface() {
+    let mut t = table();
+    let addr = |n: usize| Ipv6Addr::from(0xfe80_u128 << 112 | 0x100 | n as u128);
+    for n in 0..MAX_PEERS {
+        assert_eq!(t.on_token(addr(n), PEER, 0), Token::New);
+        t.insert(addr(n), PEER, 0, 0);
     }
-
-    /// Two endpoints on lo0, one adopting `::1` and one `fe80::1`. Darwin drops lo0 multicast
-    /// from `fe80::1`, so only one side's tokens multicast: the other must learn it by the
-    /// reverse unicast token, and data then flows both ways.
-    #[tokio::test]
-    async fn peers_and_carries_on_loopback() {
-        let index = crate::iface::netinfo::find("lo0")
-            .unwrap()
-            .expect("lo0")
-            .index;
-        let (discovery, data) = (free_v6_port(), free_v6_port());
-        let cfg = AutoConfig {
-            group_id: b"retinue-unit".to_vec(),
-            discovery_port: discovery,
-            data_port: data,
-            ifac: Some(Ifac::for_stream(Some("auto-unit"), None).unwrap()),
-            ..AutoConfig::default()
-        };
-        let adopt = |addr: &str| Adopted {
-            name: "lo0".into(),
-            index,
-            link_local: ip(addr),
-            all: vec![ip(addr)],
-        };
-        let ep = |seed| {
-            Arc::new(Endpoint::new(PrivateIdentity::from_secret_bytes(
-                &[seed; 64],
-            )))
-        };
-        let (a, b) = (ep(0xa1), ep(0xb1));
-        let ha = run::attach_adopted(&a, cfg.clone(), vec![adopt("::1")], false).unwrap();
-        let hb = run::attach_adopted(&b, cfg, vec![adopt("fe80::1")], false).unwrap();
-
-        let peered =
-            |h: &AutoHandle, addr: &str| h.status().peers.iter().any(|p| p.addr == ip(addr));
-        for _ in 0..50 {
-            if peered(&ha, "fe80::1") && peered(&hb, "::1") {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        }
-        assert!(
-            peered(&hb, "::1"),
-            "b heard a's multicast: {:?}",
-            hb.status()
-        );
-        assert!(
-            peered(&ha, "fe80::1"),
-            "a learned b by unicast: {:?}",
-            ha.status()
-        );
-        assert!(
-            ha.status().adopted[0].echoed,
-            "a's multicast came back to it"
-        );
-
-        for (from, to, seed) in [(&a, &b, 1u8), (&b, &a, 2)] {
-            let name = DestinationName::new("retinue", ["auto-unit"]);
-            from.register(name.clone(), &[seed]);
-            from.announce(&name, &[seed]);
-            let fact =
-                tokio::time::timeout(std::time::Duration::from_secs(5), to.next_announcement())
-                    .await
-                    .expect("announce crosses the peer interface")
-                    .unwrap();
-            assert_eq!(fact.app_data, [seed]);
-        }
-        assert!(ha.status().counters.rx > 0 && hb.status().counters.rx > 0);
-
-        let peer_iface = hb.status().peers[0].interface;
-        drop(hb);
-        for _ in 0..50 {
-            if !b.interface_ids().contains(&peer_iface) {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-        }
-        assert!(
-            !b.interface_ids().contains(&peer_iface),
-            "closing detaches peers"
-        );
-    }
-
-    #[tokio::test]
-    async fn data_port_collision_is_explained() {
-        let index = crate::iface::netinfo::find("lo0")
-            .unwrap()
-            .expect("lo0")
-            .index;
-        let held = std::net::UdpSocket::bind("[::1]:0").unwrap();
-        let cfg = AutoConfig {
-            discovery_port: free_v6_port(),
-            data_port: held.local_addr().unwrap().port(),
-            ..AutoConfig::default()
-        };
-        let adopted = vec![Adopted {
-            name: "lo0".into(),
-            index,
-            link_local: ip("::1"),
-            all: vec![ip("::1")],
-        }];
-        let ep = Arc::new(Endpoint::new(PrivateIdentity::from_secret_bytes(
-            &[0xc1; 64],
-        )));
-        let error = run::attach_adopted(&ep, cfg, adopted, false).err().unwrap();
-        assert_eq!(error.kind(), std::io::ErrorKind::AddrInUse);
-        assert!(error.to_string().contains("rnsd"), "{error}");
-    }
+    assert_eq!(t.on_token(addr(MAX_PEERS), PEER, 0), Token::Full);
+    assert_eq!(
+        t.on_token(addr(0), PEER, 5),
+        Token::Refresh,
+        "known peers stay"
+    );
+    assert_eq!(
+        t.on_token(addr(MAX_PEERS), PEER + 1, 0),
+        Token::New,
+        "per interface"
+    );
+    t.tick(PEER, 30_000);
+    assert_eq!(
+        t.on_token(addr(MAX_PEERS), PEER, 30_000),
+        Token::New,
+        "room after expiry"
+    );
 }

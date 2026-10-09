@@ -134,4 +134,8 @@ def exercise(retinue: Retinue, timeout: float = 90) -> dict[str, bool]:
         and back.get("data") == payload(PUBLISH_LEN, PUBLISH_SEED))
     link.teardown()
     time.sleep(1)
+    # Retinue proves each delivery, so one delivery is one proof, even over two links (mif).
+    delivered = [line for line in retinue.lines if line.startswith(("DATA ", "DATA_AGAIN"))]
+    results[f"retinue delivered and proved the stock packet exactly once ({len(delivered)})"] = (
+        delivered == [f"DATA {PACKET_LEN} OK"])
     return results

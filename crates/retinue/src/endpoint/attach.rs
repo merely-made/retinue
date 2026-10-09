@@ -172,6 +172,19 @@ impl Endpoint {
             .expect("the Reticulum protocol MTU is a valid interface frame limit")
     }
 
+    /// Spawn a carrier task that [`Self::close`] aborts. Fails, spawning nothing, once the
+    /// endpoint has stopped.
+    #[cfg(all(feature = "auto", unix))]
+    pub(crate) fn spawn_carrier<F>(&self, task: F) -> io::Result<()>
+    where
+        F: core::future::Future<Output = ()> + Send + 'static,
+    {
+        use super::runtime::{endpoint_closed, track};
+        track(&self.shared, task)
+            .then_some(())
+            .ok_or_else(endpoint_closed)
+    }
+
     /// Detach an interface, closing its queues and forgetting its record, so a carrier that
     /// reconnects does not leave its old record behind.
     pub fn detach_interface(&self, id: InterfaceId) {

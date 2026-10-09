@@ -1,151 +1,44 @@
-//! The AutoInterface runtime: one task per adopted interface, one pump per peer.
+//! The AutoInterface carrier: one task per adopted interface, one pump per peer.
 
 use alloc::string::String;
-use alloc::vec::Vec;
 
 use std::io;
 use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, Weak};
-use std::time::Instant;
+use std::sync::{Arc, Weak};
 
 use tokio::net::UdpSocket;
 use tokio::sync::watch;
 
-use super::handle::AutoHandle;
-use super::peers::{Data, Table, Token};
+use super::attach::LinkLocals;
+use super::peers::{Data, Token};
 use super::sockets::{Sockets, scoped};
-use super::{
-    ANNOUNCE_INTERVAL, Adopted, AutoConfig, BITRATE_GUESS, HW_MTU, PEER_JOB_INTERVAL,
-    keep_link_local, select,
-};
-use crate::auto::{descope, discovery_group, peering_token, token_valid};
-use crate::endpoint::{Endpoint, IfacePolicy, InterfaceId, InterfaceSink, OutboundPackets};
+use super::state::{Peer, State, apply_policy, pump};
+use super::{ANNOUNCE_INTERVAL, AutoConfig, HW_MTU, PEER_JOB_INTERVAL, keep_link_local};
+use crate::auto::{descope, peering_token, token_valid};
+use crate::endpoint::Endpoint;
 use crate::ifac::Ifac;
-use crate::iface::netinfo;
 use crate::iface::udp::{RX_BUF, RX_ERROR_PAUSE, frame_fits};
 
 /// Stock reads discovery datagrams into 1024 bytes (`AutoInterface.py` 367).
 const TOKEN_BUF: usize = 1024;
 
-pub(super) struct Peer {
-    pub id: InterfaceId,
-    sink: InterfaceSink,
-}
-
-#[derive(Default)]
-pub(super) struct Counters {
-    pub rx: AtomicU64,
-    pub tx: AtomicU64,
-    pub mif_duplicates: AtomicU64,
-    pub oversize: AtomicU64,
-}
-
-pub(super) struct State {
-    epoch: Instant,
-    pub table: Mutex<Table<Peer>>,
-    pub names: Vec<(u32, String)>,
-    pub counters: Counters,
-}
-
-impl State {
-    pub fn now(&self) -> u64 {
-        u64::try_from(self.epoch.elapsed().as_millis()).unwrap_or(u64::MAX)
-    }
-
-    fn count(counter: &AtomicU64) {
-        counter.fetch_add(1, Ordering::Relaxed);
-    }
-}
-
-impl Endpoint {
-    /// Attach an RNS AutoInterface on every host interface [`select`] adopts.
-    ///
-    /// Fails if none can be adopted, or if the data port is taken on one: another
-    /// instance on this host shares its link-locals, so the two could never peer.
-    pub async fn attach_auto(self: &Arc<Self>, cfg: AutoConfig) -> io::Result<AutoHandle> {
-        let adopted = select(&netinfo::interfaces()?, &cfg);
-        attach_adopted(self, cfg, adopted, true)
-    }
-}
-
-/// Start discovery on `adopted`. With `follow`, each job re-reads the host's link-locals.
-pub(super) fn attach_adopted(
-    ep: &Arc<Endpoint>,
-    cfg: AutoConfig,
-    adopted: Vec<Adopted>,
-    follow: bool,
-) -> io::Result<AutoHandle> {
-    let group = discovery_group(&cfg.group_id, cfg.scope, cfg.addr_type);
-    let mut opened = Vec::new();
-    for a in adopted {
-        match Sockets::open(
-            group,
-            a.link_local,
-            a.index,
-            cfg.discovery_port,
-            cfg.data_port,
-        ) {
-            Ok(sockets) => opened.push((a, sockets)),
-            Err(e) if e.kind() == io::ErrorKind::AddrInUse => return Err(e),
-            // Stock skips an interface it cannot configure (`AutoInterface.py` 314-319).
-            Err(_) => {}
-        }
-    }
-    if opened.is_empty() {
-        let why = "no interface with an IPv6 link-local address could be adopted";
-        return Err(io::Error::new(io::ErrorKind::NotFound, why));
-    }
-    let state = Arc::new(State {
-        epoch: Instant::now(),
-        table: Mutex::new(Table::default()),
-        names: opened
-            .iter()
-            .map(|(a, _)| (a.index, a.name.clone()))
-            .collect(),
-        counters: Counters::default(),
-    });
-    let (stop, stopped) = watch::channel(false);
-    let cfg = Arc::new(cfg);
-    for (a, sockets) in opened {
-        state
-            .table
-            .lock()
-            .unwrap()
-            .adopt(a.index, a.link_local, &a.all, state.now());
-        let carrier = Carrier {
-            ep: Arc::downgrade(ep),
-            state: Arc::clone(&state),
-            cfg: Arc::clone(&cfg),
-            group,
-            name: a.name,
-            index: a.index,
-            link_local: a.link_local,
-            data: watch::channel(Arc::clone(&sockets.data)).0,
-            sockets,
-            follow,
-        };
-        tokio::spawn(carrier.run(stopped.clone()));
-    }
-    Ok(AutoHandle::new(state, stop))
-}
-
-struct Carrier {
-    ep: Weak<Endpoint>,
-    state: Arc<State>,
-    cfg: Arc<AutoConfig>,
-    group: Ipv6Addr,
-    name: String,
-    index: u32,
-    link_local: Ipv6Addr,
-    sockets: Sockets,
+/// One adopted interface's discovery and data task.
+pub(super) struct Carrier {
+    pub ep: Weak<Endpoint>,
+    pub state: Arc<State>,
+    pub cfg: Arc<AutoConfig>,
+    pub group: Ipv6Addr,
+    pub name: String,
+    pub index: u32,
+    pub link_local: Ipv6Addr,
+    pub sockets: Sockets,
     /// The current data socket, which every peer pump of this interface sends from.
-    data: watch::Sender<Arc<UdpSocket>>,
-    follow: bool,
+    pub data: watch::Sender<Arc<UdpSocket>>,
+    pub follow: Option<LinkLocals>,
 }
 
 impl Carrier {
-    async fn run(mut self, mut stop: watch::Receiver<bool>) {
+    pub async fn run(mut self, mut stop: watch::Receiver<bool>) {
         let mut announce = tokio::time::interval(ANNOUNCE_INTERVAL);
         let start = tokio::time::Instant::now() + PEER_JOB_INTERVAL;
         let mut job = tokio::time::interval_at(start, PEER_JOB_INTERVAL);
@@ -190,8 +83,10 @@ impl Carrier {
             .lock()
             .unwrap()
             .on_token(src, self.index, self.state.now());
-        if token == Token::New {
-            self.add_peer(src).await;
+        match token {
+            Token::New => self.add_peer(src).await,
+            Token::Full => State::count(&self.state.counters.peers_refused),
+            Token::Echo | Token::Refresh => {}
         }
     }
 
@@ -210,7 +105,12 @@ impl Carrier {
         let (out, sink) = interface.split();
         let to = scoped(addr, self.cfg.data_port, self.index);
         let state = Arc::clone(&self.state);
-        tokio::spawn(pump(out, self.data.subscribe(), to, state));
+        if ep
+            .spawn_carrier(pump(out, self.data.subscribe(), to, state))
+            .is_err()
+        {
+            return ep.detach_interface(id);
+        }
         let now = self.state.now();
         let peer = Peer { id, sink };
         self.state
@@ -255,8 +155,8 @@ impl Carrier {
         let Some(ep) = self.ep.upgrade() else {
             return false;
         };
-        if self.follow {
-            self.follow_link_local();
+        if let Some(link_locals) = self.follow {
+            self.follow_link_local(link_locals);
         }
         let tick = self
             .state
@@ -276,11 +176,11 @@ impl Carrier {
 
     /// On a new link-local, rebind all three sockets and keep the peers. Stock rebinds only
     /// the data listener and never closes the old one (`AutoInterface.py` 433-457).
-    fn follow_link_local(&mut self) {
-        let Ok(Some(netif)) = netinfo::find(&self.name) else {
+    fn follow_link_local(&mut self, link_locals: LinkLocals) {
+        let Some(now_all) = link_locals(&self.name) else {
             return;
         };
-        let Some(next) = keep_link_local(self.link_local, &netif.link_local) else {
+        let Some(next) = keep_link_local(self.link_local, &now_all) else {
             return;
         };
         if next != self.link_local {
@@ -296,35 +196,6 @@ impl Carrier {
         }
         let now = self.state.now();
         let mut table = self.state.table.lock().unwrap();
-        table.adopt(self.index, self.link_local, &netif.link_local, now);
-    }
-}
-
-fn apply_policy(ep: &Endpoint, id: InterfaceId, p: &IfacePolicy) {
-    ep.set_interface_ingress_policy(id, p.ingress);
-    ep.set_interface_announce_rate(id, p.announce_rate);
-    ep.set_announce_cap(id, p.cap_percent);
-    ep.set_interface_bitrate(id, Some(p.bitrate_bps.unwrap_or(BITRATE_GUESS)));
-    ep.set_interface_gravity(id, p.gravity);
-    ep.set_interface_outgoing(id, p.outgoing);
-    ep.set_interface_mode_flags(id, p.announces_from_internal, p.announces_to_internal);
-}
-
-/// Send a peer's packets from the interface's current data socket until the endpoint
-/// detaches it.
-async fn pump(
-    mut out: OutboundPackets,
-    data: watch::Receiver<Arc<UdpSocket>>,
-    to: SocketAddrV6,
-    state: Arc<State>,
-) {
-    while let Some(packet) = out.recv().await {
-        let Ok(wire) = out.encode(&packet) else {
-            continue;
-        };
-        let socket = Arc::clone(&data.borrow());
-        if socket.send_to(&wire, to).await.is_ok() {
-            State::count(&state.counters.tx);
-        }
+        table.adopt(self.index, self.link_local, &now_all, now);
     }
 }

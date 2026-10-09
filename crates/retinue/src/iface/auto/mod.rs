@@ -21,12 +21,16 @@ use crate::node::InterfaceMode;
 pub use crate::auto::{AddrType, DATA_PORT, DEFAULT_GROUP, DISCOVERY_PORT, Scope};
 pub use handle::{AdoptedStatus, AutoCounters, AutoHandle, AutoStatus, PeerStatus};
 
+mod attach;
 mod handle;
 mod peers;
 mod run;
 pub mod sockets;
+mod state;
 #[cfg(test)]
 mod tests;
+#[cfg(all(test, any(target_os = "macos", target_os = "ios")))]
+mod tests_loopback;
 
 /// Stock's fixed hardware MTU (`AutoInterface.py` 44-45). It bounds received frames; sent
 /// packets keep the protocol MTU.
@@ -47,6 +51,11 @@ pub const PEERING_TIMEOUT: Duration = if cfg!(target_os = "android") {
 pub const REVERSE_INTERVAL: Duration = Duration::from_millis(5200);
 /// No own token back for this long marks the carrier down (`AutoInterface.py` 64).
 pub const MCAST_ECHO_TIMEOUT: Duration = Duration::from_millis(6500);
+/// Peers kept per adopted interface; stock has no bound. A token is only a hash of the
+/// public group id and the sender's address, so without one any host on the link could
+/// spoof link-local sources and grow the table, and every announce's unicast fan-out,
+/// without limit.
+pub const MAX_PEERS: usize = 64;
 /// Multi-interface dedup depth and lifetime (`AutoInterface.py` 72-73).
 pub const MIF_LEN: usize = 48;
 pub const MIF_TTL: Duration = Duration::from_millis(750);

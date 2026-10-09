@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use tokio::sync::watch;
 
-use super::run::State;
+use super::state::State;
 use crate::endpoint::InterfaceId;
 
 /// An adopted interface as [`AutoHandle::status`] reports it.
@@ -41,6 +41,8 @@ pub struct AutoCounters {
     /// Datagrams dropped as the same bytes from another peer within 0.75 s.
     pub mif_duplicates: u64,
     pub oversize: u64,
+    /// New peers ignored because the interface already had [`super::MAX_PEERS`].
+    pub peers_refused: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -100,6 +102,7 @@ impl AutoHandle {
                 tx: c.tx.load(Ordering::Relaxed),
                 mif_duplicates: c.mif_duplicates.load(Ordering::Relaxed),
                 oversize: c.oversize.load(Ordering::Relaxed),
+                peers_refused: c.peers_refused.load(Ordering::Relaxed),
             },
         }
     }
