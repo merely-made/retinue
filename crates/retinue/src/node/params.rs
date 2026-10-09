@@ -3,6 +3,7 @@
 #[cfg(doc)]
 use super::Node;
 use crate::announce;
+pub use crate::iface_mode::InterfaceMode;
 #[cfg(doc)]
 use crate::packet::Packet;
 
@@ -187,31 +188,15 @@ pub const ACCESS_POINT_ROUTE_TTL: u64 = 86_400_000;
 /// `ROAMING_PATH_TIME` (`Transport.py` 128).
 pub const ROAMING_ROUTE_TTL: u64 = 21_600_000;
 
-/// How an interface's peers come and go, which sets how long its routes live.
-///
-/// RNS's interface modes (`Interfaces/Interface.py` 45-51). Only access-point and roaming
-/// shorten route expiry (`Transport.py` 964-969); every other RNS mode expires routes as
-/// [`Self::Full`] does, so they are not separate variants here yet.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum InterfaceMode {
-    /// Peers are stable: routes live for the configured route TTL.
-    #[default]
-    Full,
-    /// Peers are clients that come and go: routes live at most a day.
-    AccessPoint,
-    /// This node moves between peers: routes live at most six hours.
-    Roaming,
-}
-
 impl InterfaceMode {
     /// The lifetime of a route learned on an interface in this mode, given the configured
-    /// full-mode lifetime. A mode never lengthens it, so a short configured TTL still applies.
+    /// full-mode lifetime. Only access-point and roaming shorten it (`Transport.py` 964-969),
+    /// and a mode never lengthens it, so a short configured TTL still applies.
     pub const fn route_ttl(self, full: u64) -> u64 {
         let cap = match self {
-            Self::Full => return full,
             Self::AccessPoint => ACCESS_POINT_ROUTE_TTL,
             Self::Roaming => ROAMING_ROUTE_TTL,
+            _ => return full,
         };
         if full < cap { full } else { cap }
     }
@@ -307,8 +292,9 @@ pub const REBROADCAST_GRACE: u64 = 5_000;
 /// `LOCAL_REBROADCASTS_MAX` (`Transport.py` 132).
 pub const LOCAL_REBROADCASTS_MAX: u8 = 2;
 
-/// The share of an interface's bitrate relayed announces may use, in percent: RNS's
-/// `ANNOUNCE_CAP` (`Reticulum.py` 114). Applied where the interface's airtime is known.
+/// The default share of an interface's bitrate relayed announces may use, in percent: RNS's
+/// `ANNOUNCE_CAP` (`Reticulum.py` 114). Applied where the interface's airtime is known; an
+/// Endpoint sets it per interface with `Endpoint::set_announce_cap`.
 pub const ANNOUNCE_CAP_PERCENT: u64 = 2;
 
 /// How long an announce may wait for its interface's cap before it is dropped, in

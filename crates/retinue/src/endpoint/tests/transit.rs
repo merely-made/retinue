@@ -191,6 +191,28 @@ async fn a_carried_link_request_is_clamped_to_both_sides() {
     );
 }
 
+/// A carried request's proof deadline includes the outbound interface's MTU airtime
+/// (`Transport.py` 2059-2062, 3200-3202): 6 s per hop ahead plus 3.3 s, or what a configured
+/// bitrate gives in its place.
+#[tokio::test]
+async fn a_carried_request_waits_for_the_outbound_airtime() {
+    for bitrate in [None, Some(1_200)] {
+        let (endpoint, a, b, _, pending, request) = transit_fixture();
+        endpoint.set_first_hop_airtime(b.id(), Duration::from_millis(3_300));
+        if bitrate.is_some() {
+            assert!(endpoint.set_interface_bitrate(b.id(), bitrate));
+        }
+        route(&endpoint.shared, a.id(), request);
+        let bridge = endpoint.shared.link_transport.lock().unwrap()[&pending.link_id()];
+        let airtime = bitrate.map_or(3_300, crate::node::first_hop_airtime);
+        assert_eq!(
+            bridge.proof_deadline.unwrap() - bridge.seen,
+            Duration::from_millis(crate::node::LINK_ESTABLISHMENT_TIMEOUT_PER_HOP + airtime),
+            "{bitrate:?}"
+        );
+    }
+}
+
 /// A request whose MTU must be lowered under a link mode this node cannot encode is
 /// dropped and takes no slot; one that already fits is carried as it is.
 #[tokio::test]

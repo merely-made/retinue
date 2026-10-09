@@ -148,14 +148,7 @@ impl SingleQueueResult {
 impl Shared {
     fn queue_single_on(&self, iface: InterfaceId, pkt: Packet) -> QueueAdmission {
         let addressed = self.address_for(iface, pkt);
-        self.interfaces
-            .lock()
-            .unwrap()
-            .iter()
-            .find(|candidate| candidate.id == iface)
-            .map_or(QueueAdmission::Full, |candidate| {
-                candidate.push(addressed, TrafficClass::Interactive)
-            })
+        self.push_to(iface, addressed, TrafficClass::Interactive)
     }
 
     /// Queue a local single packet on its learned route, or broadcast when the cached route
