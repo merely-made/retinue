@@ -24,6 +24,10 @@ impl Derivation<'_> {
         attempts: u64,
         threads: usize,
     ) -> Option<([u8; STAMP_LEN], u16)> {
+        // Each lane's mint would refuse at once, leaving it to spin out its whole share.
+        if !self.done() || target > 256 {
+            return None;
+        }
         let threads = threads.clamp(1, 256);
         if threads == 1 {
             return self.mint(target, &mut seed, attempts);
@@ -108,6 +112,16 @@ mod tests {
     #[test]
     fn an_exhausted_budget_or_an_impossible_target_finds_nothing() {
         assert_eq!(derived(1).mint_parallel(200, [0; STAMP_LEN], 64, 4), None);
+        // Refused up front, not after spinning through an unbounded budget.
+        assert_eq!(
+            derived(1).mint_parallel(257, [0; STAMP_LEN], u64::MAX, 4),
+            None
+        );
+        let unfinished = Derivation::new(&MATERIAL, 4);
+        assert_eq!(
+            unfinished.mint_parallel(1, [0; STAMP_LEN], u64::MAX, 4),
+            None
+        );
         assert_eq!(
             find_parallel(&MATERIAL, 1, 257, [0; STAMP_LEN], 1 << 20),
             None

@@ -28,8 +28,9 @@ const LINK_RECEIPT_FLOOR: Duration = Duration::from_secs(1);
 /// How one receipted link data packet concluded.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LinkDelivery {
-    /// The peer proved the packet; `rtt` runs from sending to the valid proof.
-    Proved { rtt: Duration },
+    /// The peer proved the transfer. `elapsed` runs from sending to the valid proof: a
+    /// round trip for a data packet, the whole transfer for a Resource.
+    Proved { elapsed: Duration },
     /// The peer answered with data of its own rather than a proof, as an LXMF propagation
     /// node does to refuse a submission.
     Answered(Vec<u8>),
@@ -69,7 +70,7 @@ impl ResourceSession {
             };
             if self.link.validate_proof(&packet) == Some(hash) {
                 return Ok(LinkDelivery::Proved {
-                    rtt: sent_at.elapsed(),
+                    elapsed: sent_at.elapsed(),
                 });
             }
             match self.link.receive(&packet) {
@@ -122,7 +123,7 @@ impl Endpoint {
         Ok(PayloadReceipt {
             mode: PayloadMode::Resource,
             delivery: LinkDelivery::Proved {
-                rtt: started.elapsed(),
+                elapsed: started.elapsed(),
             },
         })
     }

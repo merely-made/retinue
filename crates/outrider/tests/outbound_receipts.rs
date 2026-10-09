@@ -88,14 +88,14 @@ async fn an_oversized_stamped_message_is_refused_before_minting() {
     let content_len = (0..mdu).rev().find(|&len| single_len(len) <= mdu).unwrap();
     let payload = LxmfPayload::text(1.5, b"", vec![0; content_len]);
 
-    // An unbounded budget at cost 250 would never return if minting started.
+    // Had minting started, this budget at cost 250 would end in StampBudgetExhausted.
     let refused = send_opportunistic_stamped(
         &pair.sender,
         &pair.sender_identity,
         &pair.receiver_announce,
         &payload,
         [0; 32],
-        u64::MAX,
+        1 << 16,
     );
     assert!(matches!(refused, Err(OpportunisticError::TooLarge)));
 }
