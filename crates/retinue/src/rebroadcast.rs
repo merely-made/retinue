@@ -199,7 +199,10 @@ impl CapRate {
     }
 
     /// From a bitrate in bits per second, which must be nonzero.
-    #[cfg(any(test, feature = "tokio"))]
+    #[cfg_attr(
+        not(feature = "tokio"),
+        allow(dead_code, reason = "used by the endpoint")
+    )]
     pub(crate) const fn from_bitrate(bps: u64, percent: u64) -> Self {
         Self {
             mtu_ms: FIRST_HOP_ALLOWANCE_BITS * 1_000,
