@@ -102,13 +102,14 @@ impl ResourceSession {
         let link = self.link.clone();
         let packets = &mut self.packets;
         let mut peer = self.identified_peer;
+        let responder = self.responder;
         let receive = async move {
             loop {
                 let packet = packets.recv().await.ok_or_else(|| {
                     io::Error::new(io::ErrorKind::BrokenPipe, "request link closed")
                 })?;
-                // The first IDENTIFY stands (`Link.py` 973-990).
-                if let Some(identity) = link.read_identify(&packet) {
+                // A responder's first IDENTIFY stands (`Link.py` 973-990).
+                if responder && let Some(identity) = link.read_identify(&packet) {
                     peer.get_or_insert(identity);
                     continue;
                 }

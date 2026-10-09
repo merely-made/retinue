@@ -78,6 +78,8 @@ pub struct ResourceSession {
     pub(super) packets: mpsc::Receiver<Packet>,
     pub(super) config: ResourceTransferConfig,
     pub(super) identified_peer: Option<Identity>,
+    /// Whether the peer opened this link. Only a responder takes an IDENTIFY (`Link.py` 973).
+    pub(super) responder: bool,
     accept: Option<Arc<ResourceAccept>>,
     metadata: Option<Vec<u8>>,
 }
@@ -353,6 +355,7 @@ impl ResourceSession {
         let packets = &mut self.packets;
         let retry = self.config.retry_interval;
         let mut identified = self.identified_peer;
+        let responder = self.responder;
         let receiving = &mut receiver;
         let transfer = async move {
             let mut interval = tokio::time::interval(retry);
@@ -367,7 +370,7 @@ impl ResourceSession {
                         // The sender's IDENTIFY, signed under the link: what authenticates a
                         // first message from a peer we have never heard announce. The first
                         // one stands (`Link.py` 973-990).
-                        if let Some(identity) = link.read_identify(&packet) {
+                        if responder && let Some(identity) = link.read_identify(&packet) {
                             identified.get_or_insert(identity);
                             continue;
                         }
@@ -503,6 +506,7 @@ pub(super) fn register_resource_session(
         packets,
         config: ResourceTransferConfig::default(),
         identified_peer: None,
+        responder: direction == LinkDirection::Inbound,
         accept: None,
         metadata: None,
     })
