@@ -236,7 +236,7 @@ async fn a_bad_stamp_is_answered_0xf5_and_its_identified_sender_throttled() {
 
     // A good stamp from the throttled sender is refused too.
     let server = serve(&pair, &node);
-    let mut session = pair
+    let session = pair
         .client
         .open_resource(pair.announce.destination, pair.announce.identity)
         .await
