@@ -7,7 +7,8 @@
 //!   64 KiB Resource, prove its 431-byte link packet, then publish one back. With IFAC
 //!   that packet, and at 64-byte codes every Resource part, is past the bare MTU.
 //! - `announce SECS` (`oracle/interop_ifac_default.py`): announce for `SECS` seconds and
-//!   report whether RNS's announce validated, to check the per-carrier default code size.
+//!   report whether RNS's announces validated, to check the per-carrier default code size
+//!   and a full-size announce.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -26,6 +27,8 @@ const RNS_SEED: [u8; 64] = [0x5e; 64];
 const RESOURCE_LEN: usize = 64 * 1024;
 /// RNS's link MDU at MTU 500: a 499-byte logical packet.
 const LINK_MDU: usize = 431;
+/// App data for RNS's `ifac_large` announce: 19 + 148 + 330 = 497 logical bytes.
+const LARGE_APP_DATA: usize = 330;
 const SEED: u32 = 0x1FAC;
 
 /// The xorshift32 stream `oracle/library_gate.py` also generates: incompressible.
@@ -106,20 +109,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     run.map_err(Into::into)
 }
 
-/// Announce `retinue.ifac-default` until `hold` ends, reporting RNS's announce once.
+/// Announce `retinue.ifac-default` until `hold` ends, reporting each RNS announce once:
+/// `ifac_stock`, and `ifac_large`, whose app data makes a 497-byte logical packet.
 async fn announce(endpoint: &Endpoint, hold: Duration) {
     let name = DestinationName::new("retinue", ["ifac-default"]);
     endpoint.register(name.clone(), b"ifac-default");
-    let rns = DestinationName::new("retinue", ["ifac_stock"])
-        .destination_hash(PrivateIdentity::from_secret_bytes(&RNS_SEED).public());
+    let rns = PrivateIdentity::from_secret_bytes(&RNS_SEED);
+    let hash = |aspect| DestinationName::new("retinue", [aspect]).destination_hash(rns.public());
+    let (stock, large) = (hash("ifac_stock"), hash("ifac_large"));
     let deadline = tokio::time::Instant::now() + hold;
-    let mut seen = false;
+    let (mut seen_stock, mut seen_large) = (false, false);
     while tokio::time::Instant::now() < deadline {
         endpoint.announce(&name, b"ifac-default");
-        let _ = tokio::time::timeout(Duration::from_secs(1), endpoint.next_announcement()).await;
-        if !seen && endpoint.resolve(rns).is_some() {
-            seen = true;
-            println!("RNS_ANNOUNCE_OK {rns}");
+        let Ok(Ok(fact)) =
+            tokio::time::timeout(Duration::from_secs(1), endpoint.next_announcement()).await
+        else {
+            continue;
+        };
+        if fact.destination == stock && !seen_stock {
+            seen_stock = true;
+            println!("RNS_ANNOUNCE_OK {stock}");
+        } else if fact.destination == large && !seen_large {
+            seen_large = true;
+            let ok = fact.app_data == payload(LARGE_APP_DATA, SEED + 3);
+            let verdict = if ok { "OK" } else { "MISMATCH" };
+            println!("RNS_LARGE_ANNOUNCE {} {verdict}", fact.app_data.len());
         }
     }
 }
