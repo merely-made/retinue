@@ -168,7 +168,8 @@ def main() -> int:
         import RNS
 
         code = report(f"RNODE AIR {sys.argv[1]}", SCENARIOS[sys.argv[1]]())
-        RNS.exit(code)
+        if RNS.Reticulum.get_instance() is not None:  # `error` runs without stock
+            RNS.exit(code)
         return code
     codes = [subprocess.run([sys.executable, "-u", __file__, name]).returncode
              for name in SCENARIOS]
