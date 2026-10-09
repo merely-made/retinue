@@ -33,21 +33,42 @@ impl DestinationName {
     /// Build from an app name and aspects. They are joined with `.`.
     ///
     /// `DestinationName::new("retinue", ["test"])` expands to `retinue.test`.
+    ///
+    /// # Panics
+    ///
+    /// If the app name or an aspect contains a dot, as RNS raises (`Destination.py` 104-107,
+    /// 151). [`try_new`](Self::try_new) returns `None` instead.
     pub fn new<I, S>(app_name: &str, aspects: I) -> Self
     where
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
+        Self::try_new(app_name, aspects).expect("dots can't be used in app names or aspects")
+    }
+
+    /// [`new`](Self::new), or `None` if the app name or an aspect contains a dot.
+    pub fn try_new<I, S>(app_name: &str, aspects: I) -> Option<Self>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        if app_name.contains('.') {
+            return None;
+        }
         let mut expanded = String::from(app_name);
         for aspect in aspects {
+            let aspect = aspect.as_ref();
+            if aspect.contains('.') {
+                return None;
+            }
             expanded.push('.');
-            expanded.push_str(aspect.as_ref());
+            expanded.push_str(aspect);
         }
         let name_hash = NameHash::of(expanded.as_bytes());
-        Self {
+        Some(Self {
             expanded,
             name_hash,
-        }
+        })
     }
 
     /// The dotted name, e.g. `retinue.test`.
@@ -102,6 +123,24 @@ mod tests {
     fn aspects_join_with_dots() {
         let n = DestinationName::new("example_utilities", ["announcesample", "fruits"]);
         assert_eq!(n.expanded(), "example_utilities.announcesample.fruits");
+    }
+
+    #[test]
+    fn dots_are_refused_in_app_names_and_aspects() {
+        assert!(DestinationName::try_new("a.b", ["c"]).is_none());
+        assert!(DestinationName::try_new("a", ["b.c"]).is_none());
+        assert_eq!(
+            DestinationName::try_new("a", ["b", "c"])
+                .unwrap()
+                .expanded(),
+            "a.b.c"
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "dots")]
+    fn new_panics_on_a_dotted_aspect() {
+        let _ = DestinationName::new("a", ["b.c"]);
     }
 
     #[test]

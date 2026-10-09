@@ -243,8 +243,15 @@ impl Announce {
     ///
     /// Returns [`Error::BadSignature`] if the signature does not check out, which is the
     /// only thing standing between us and a peer that announces someone else's identity.
+    /// A PLAIN or GROUP announce is [`Error::NotAnAnnounce`], as RNS's packet filter drops
+    /// it (`Transport.py` 1653-1668).
     pub fn decode(packet: &Packet) -> Result<Self> {
-        if packet.packet_type != PacketType::Announce {
+        if packet.packet_type != PacketType::Announce
+            || matches!(
+                packet.destination_type,
+                DestinationType::Plain | DestinationType::Group
+            )
+        {
             return Err(Error::NotAnAnnounce);
         }
 
@@ -390,6 +397,25 @@ const _: () = assert!(RATCHET_LEN == KEY_LEN);
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// RNS drops PLAIN and GROUP announces (`Transport.py` 1653-1668), even signed ones.
+    #[test]
+    fn only_single_destinations_announce() {
+        let id = PrivateIdentity::from_secret_bytes(&[0x51; 64]);
+        let name = crate::DestinationName::new("retinue", ["kind"]).name_hash();
+        let mut packet = build(
+            &id,
+            name,
+            &AnnounceBlob::from_wire([7; RAND_HASH_LEN]),
+            None,
+            b"",
+        );
+        assert!(Announce::decode(&packet).is_ok());
+        for kind in [DestinationType::Plain, DestinationType::Group] {
+            packet.destination_type = kind;
+            assert_eq!(Announce::decode(&packet).err(), Some(Error::NotAnAnnounce));
+        }
+    }
 
     #[test]
     fn minted_blob_writes_nonce_then_big_endian_timebase() {
