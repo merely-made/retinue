@@ -139,7 +139,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
                 .saturating_add(1);
             return true;
         }
-        if packet.hops >= self.transport.max_hops {
+        if packet.hops.saturating_add(1) >= self.transport.max_hops {
             self.transport_counters.hop_limit_dropped =
                 self.transport_counters.hop_limit_dropped.saturating_add(1);
             return true;
@@ -184,7 +184,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         {
             return false;
         }
-        if packet.hops >= self.transport.max_hops {
+        if packet.hops.saturating_add(1) >= self.transport.max_hops {
             self.transport_counters.hop_limit_dropped =
                 self.transport_counters.hop_limit_dropped.saturating_add(1);
             return true;
@@ -346,7 +346,7 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
         {
             return;
         }
-        if packet.hops >= self.transport.max_hops {
+        if packet.hops.saturating_add(1) >= self.transport.max_hops {
             self.transport_counters.hop_limit_dropped =
                 self.transport_counters.hop_limit_dropped.saturating_add(1);
             return;

@@ -419,7 +419,7 @@ pub(super) fn process_verified_announce(
             .fetch_add(1, Ordering::Relaxed);
         return;
     }
-    if pkt.hops >= policy.max_hops {
+    if pkt.hops.saturating_add(1) >= policy.max_hops {
         shared
             .routing_stats
             .hop_limit_dropped

@@ -178,16 +178,17 @@ async fn max_hops_bounds_what_is_carried() {
         ..RoutingPolicy::transit()
     });
 
-    // Under the ceiling: carried.
-    assert!(a.sink().deliver(transit_packet(&hub, dest, 2)));
+    // Forwarded under the ceiling: carried.
+    assert!(a.sink().deliver(transit_packet(&hub, dest, 1)));
     let carried = tokio::time::timeout(Duration::from_secs(2), b.next_outbound())
         .await
         .expect("a packet under the ceiling should be carried")
         .expect("interface open");
-    assert_eq!(carried.hops, 3);
+    assert_eq!(carried.hops, 2);
 
-    // At the ceiling: dropped and counted distinctly from a policy refusal.
-    assert!(a.sink().deliver(transit_packet(&hub, dest, 3)));
+    // Forwarded, it would reach the ceiling, which RNS never transmits: dropped and counted
+    // distinctly from a policy refusal.
+    assert!(a.sink().deliver(transit_packet(&hub, dest, 2)));
     let dropped = tokio::time::timeout(Duration::from_millis(300), b.next_outbound()).await;
     assert!(
         dropped.is_err(),

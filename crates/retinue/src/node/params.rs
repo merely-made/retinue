@@ -301,8 +301,8 @@ pub const TRANSPORT_DEDUP_HASHES: usize = 32;
 /// (`Transport.py` 1847-1856).
 pub const PATH_REQUEST_TAGS: usize = 8;
 
-/// The Reticulum transport hop ceiling.
-pub const DEFAULT_TRANSPORT_MAX_HOPS: u8 = 128;
+/// The Reticulum transport hop ceiling, RNS's `PATHFINDER_M`.
+pub const DEFAULT_TRANSPORT_MAX_HOPS: u8 = crate::packet::MAX_HOPS;
 
 /// How long a carried packet's return path is kept for its delivery proof (RNS
 /// `Transport.REVERSE_TIMEOUT`, eight minutes).
@@ -317,7 +317,8 @@ pub struct TransportConfig {
     pub relay_announces: bool,
     /// Carry header-type-2 packets addressed to this node, and packets on remembered links.
     pub relay_packets: bool,
-    /// Packets at or above this hop count are dropped instead of relayed.
+    /// A packet is relayed only while its forwarded hop count stays below this, as RNS
+    /// transmits only below `PATHFINDER_M` (`Transport.py` 1356).
     pub max_hops: u8,
     /// Lifetime of a route learned from a verified announce.
     pub route_ttl: u64,
