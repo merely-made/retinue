@@ -101,12 +101,11 @@ impl<'a, const P: usize, const A: usize, const L: usize, const R: usize> Sim<'a,
             } else {
                 TransportConfig::none()
             };
-            let node = Node::new(
-                identity,
-                DestinationName::new("retinue", ["sim", spec.name.as_str()]).name_hash(),
-            )
-            .with_announce_interval(scenario.timing.announce_interval)
-            .with_transport_config(transport);
+            let name = DestinationName::try_new("retinue", ["sim", spec.name.as_str()])
+                .ok_or_else(|| SimError::BadNodeName(spec.name.clone()))?;
+            let node = Node::new(identity, name.name_hash())
+                .with_announce_interval(scenario.timing.announce_interval)
+                .with_transport_config(transport);
             nodes.push(SimNode {
                 name: spec.name.clone(),
                 destination: node.destination(),

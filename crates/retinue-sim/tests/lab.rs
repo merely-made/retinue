@@ -6,7 +6,7 @@ mod scenarios;
 
 use retinue::node::{DEFAULT_ROUTE_TTL, link_request_timeout};
 use retinue_sim::trace::{Event, FaceEventKind, Origin, PacketKind, Refusal};
-use retinue_sim::{SCHEMA, Send, Trace, run};
+use retinue_sim::{SCHEMA, Send, SimError, Trace, run};
 
 fn path(names: &[&str]) -> Vec<String> {
     names.iter().map(|name| (*name).to_owned()).collect()
@@ -400,5 +400,16 @@ fn open_link_expiries_precede_the_send_that_freed_them() {
             .map(|(_, t, _, m)| (*t, *m))
             .collect::<Vec<_>>(),
         [(205_000, Some(4)), (220_000, Some(5))]
+    );
+}
+
+/// A node name is a destination aspect, so a dot in it is a scenario error, not a panic.
+#[test]
+fn a_dotted_node_name_is_refused() {
+    let mut scenario = scenarios::cold();
+    scenario.topology.nodes[0].name = "fire.station".into();
+    assert_eq!(
+        run(&scenario).err(),
+        Some(SimError::BadNodeName("fire.station".into()))
     );
 }

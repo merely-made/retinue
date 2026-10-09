@@ -28,7 +28,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut seed = [0u8; 64];
     seed[0] = label.as_bytes()[0];
     let identity = PrivateIdentity::from_secret_bytes(&seed);
-    let name = DestinationName::new("retinue", [label.as_str()]);
+    let name = DestinationName::try_new("retinue", [label.as_str()])
+        .ok_or("RETINUE_LABEL cannot contain a dot")?;
     let our_dest = name.destination_hash(identity.public());
     println!("SELF {label} {our_dest}");
 
