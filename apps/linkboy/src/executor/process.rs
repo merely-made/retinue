@@ -1,3 +1,5 @@
+//! External helper processes and their failures.
+
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -49,10 +51,8 @@ impl ProcessRunner for SystemProcessRunner {
             .verified_helpers
             .get(program)
             .cloned()
-            // A non-writing loader probe happens before package planning, so it
-            // cannot yet have a manifest requirement to verify. It must still
-            // use the same installed helper location as the later write rather
-            // than silently falling back to PATH.
+            // A loader probe runs before planning, so it has no manifest requirement yet. It
+            // still uses the installed helper location of the later write, never PATH.
             .unwrap_or(crate::helper::resolve_program(program)?);
         let output = Command::new(executable)
             .args(args)

@@ -1,3 +1,5 @@
+//! Terminal rendering of flash events.
+
 use linkboy::FlashEvent;
 
 pub(super) fn render_event(event: FlashEvent) {

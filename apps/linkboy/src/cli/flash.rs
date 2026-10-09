@@ -1,3 +1,5 @@
+//! Device helpers and the expert raw-image flash route.
+
 use linkboy::{
     Board, DeviceObservation, Error, enter_bootloader, have_tool, identify, ports, require_image,
     run,
@@ -58,9 +60,8 @@ pub(super) fn ensure_post_write_recovery_matches(
 pub(super) fn flash(port: &str, image: &str, declared: Option<Board>) -> Result<(), Error> {
     // Everything that can be checked before something irreversible starts, is.
     require_image(image)?;
-    // A declared board wins over the probe. A board running somebody else's firmware, or
-    // none at all, answers nothing, and refusing to flash it was exactly backwards:
-    // recovering a board that has stopped talking is the job.
+    // A declared board wins over the probe: a board running foreign firmware, or none, answers
+    // nothing, and recovering such a board is the job.
     let board = match declared {
         Some(board) => {
             println!("{port}: taking your word for it, {board:?}");

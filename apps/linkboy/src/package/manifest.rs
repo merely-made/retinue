@@ -1,3 +1,5 @@
+//! The strict on-disk manifest shape and its helper requirements.
+
 use serde::{Deserialize, Serialize};
 
 use super::{
@@ -130,10 +132,9 @@ pub struct RecoveryInstructions {
     pub after_failure: String,
 }
 
-/// Compatibility evidence for a firmware image that can safely continue a durable native-node
-/// announce sequence after a reset. An absent declaration means that the image makes no such
-/// claim. The declaration is intentionally small and additive so schema-2 manifests remain
-/// readable by older Linkboy builds.
+/// Evidence that an image can safely continue a durable native-node announce sequence after a
+/// reset. Absent means no such claim; it stays small and additive so older Linkboy builds can
+/// still read schema-2 manifests.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PersistentStateCompatibility {

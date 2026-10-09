@@ -1,3 +1,5 @@
+//! Packages whose part bytes have been read and checked against the manifest.
+
 use std::fs;
 use std::path::{Path, PathBuf};
 

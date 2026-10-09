@@ -1,3 +1,5 @@
+//! Execution stages, events, errors, and the recovery path.
+
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 

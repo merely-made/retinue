@@ -1,3 +1,5 @@
+//! Subcommand dispatch.
+
 use linkboy::{
     Board, BoardFamily, DeviceObservation, Error, FlashEvent, FlashPackage, LiveDeviceRunner,
     SystemProcessRunner, converse, enter_bootloader, execute_plan, identify, plan_flash,

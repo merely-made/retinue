@@ -1,3 +1,5 @@
+//! Structural manifest and part validation.
+
 use super::{
     ESP_FLASH_SECTOR_SIZE, FirmwarePartKind, FlashPackageManifest, FlashRange, FlashRoute,
     NODE_TIMEBASE_PRESERVED_RANGE, PACKAGE_SCHEMA, PERSISTENT_STATE_SCHEMA, PackageError,

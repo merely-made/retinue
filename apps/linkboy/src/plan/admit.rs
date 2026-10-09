@@ -1,3 +1,5 @@
+//! The admission decision that turns an observation and a package into a plan.
+
 use crate::device::{DeviceObservation, FirmwareState, NativeNodeState};
 use crate::package::{FlashPackage, FlashRange, FlashRoute, StateImpact};
 

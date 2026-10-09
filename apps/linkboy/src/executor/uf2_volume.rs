@@ -1,3 +1,5 @@
+//! The built-in UF2 mass-storage writer route.
+
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};

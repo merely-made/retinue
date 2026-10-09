@@ -1,3 +1,5 @@
+//! Plan execution over external helper routes.
+
 use std::time::Duration;
 
 use crate::device::DeviceTransport;

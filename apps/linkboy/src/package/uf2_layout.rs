@@ -1,3 +1,5 @@
+//! UF2 block-layout validation against declared write ranges.
+
 use super::{
     FlashPackageManifest, FlashRange, FlashRoute, PackageError, ProcessorKind, VerifiedPackagePart,
 };
@@ -8,9 +10,8 @@ const UF2_MAGIC_START1: u32 = 0x9E5D_5157;
 const UF2_MAGIC_END: u32 = 0x0AB1_6F30;
 const UF2_FLAG_FAMILY_ID: u32 = 0x0000_2000;
 
-/// UF2 carries target addresses inside its fixed-size blocks. Checking them here keeps a
-/// one-file package's declared write ranges real rather than an optimistic side note beside
-/// an opaque blob.
+/// UF2 carries target addresses inside its blocks; checking them keeps a one-file package's
+/// declared write ranges real rather than a side note beside an opaque blob.
 pub(super) fn validate_uf2_layout(
     manifest: &FlashPackageManifest,
     parts: &[VerifiedPackagePart],

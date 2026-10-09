@@ -1,3 +1,5 @@
+//! Board, processor, route, and part vocabulary plus flash ranges.
+
 use std::fmt;
 
 use serde::{Deserialize, Serialize};

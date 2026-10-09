@@ -1,3 +1,5 @@
+//! Bootloader entry, application rediscovery, and application verification.
+
 use std::time::Duration;
 
 use thiserror::Error;
@@ -50,10 +52,8 @@ impl DeviceRunner for LiveDeviceRunner {
     ) -> Result<String, DeviceFailure> {
         let deadline = std::time::Instant::now() + patience;
 
-        // A serial port can enumerate before the application behind it is ready to answer.
-        // Probing during that window asserts DTR against a half-started T114 and can strand
-        // its first CDC session before the board reaches the host loop. Give the verified
-        // application image one bounded startup window before opening any returned port.
+        // A port can enumerate before its application answers. Probing then asserts DTR against
+        // a half-started T114 and can strand its first CDC session, so wait one bounded window.
         std::thread::sleep(APPLICATION_STARTUP_GRACE.min(patience));
         while std::time::Instant::now() < deadline {
             let Ok(ports) = crate::ports() else {
@@ -133,9 +133,7 @@ pub(super) fn select_application_port(
         return Ok(Some(original_port.to_string()));
     }
 
-    // A T114 can leave its bootloader and return as the application without changing its COM
-    // number. The old rediscovery filter excluded that path unconditionally, turning a
-    // successful restore into a timeout even while Retinue was already answering there.
+    // A T114 can leave its bootloader and return as the application on the same COM number.
     if bootloader_port != original_port
         && ports.iter().any(|port| port == bootloader_port)
         && identifies(bootloader_port, expected)
