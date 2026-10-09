@@ -131,6 +131,36 @@ From the Priority 1 batch (2026-10-08), same source:
   484-508.
   Targets: `src/ratchet.rs`, `src/endpoint.rs`.
 
+From the Priority 2 batch (2026-10-09), same source:
+
+- Adaptive resource request window, carried on the link. RNS `Resource.py`
+  58-100, 191-222, 568-576, 640-646, 849-935; `Link.py` 1257-1266.
+- Progress-based resource watchdog: part, advertisement and proof timers;
+  duplicate advertisements ignored. RNS `Resource.py` 124-136, 224-240, 577-683,
+  744-754, 842-848.
+- The exhausted request carries the known parts. RNS `Resource.py` 942-976,
+  990-1060.
+- Multi-segment resources: segments share the original hash, metadata rides
+  only on the first, and the receiver completes at the last. RNS `Resource.py`
+  274-339, 392-422, 702-835.
+- Requests too large for one packet go as a request Resource. RNS `Link.py`
+  473-510, 885-895, 999-1000, 1036-1043.
+- Resource part size, codec details (split flag, exhausted marker) and metadata
+  on the Node path. RNS `Resource.py` 261-272, 343-344, 707-749, 1006, 1257-1330;
+  `Reticulum.py` 151-152.
+- Address-book and received-ratchet persistence with usage-based retention. RNS
+  `Identity.py` 64-75, 100-349, 410-482.
+- Announce rebroadcast: a jittered table with one retry, local-rebroadcast
+  suppression, a per-interface announce airtime cap with queueing, and relaying
+  on the ingress interface. RNS `Transport.py` 124-132, 765-829, 1440-1447,
+  1522-1585, 2180-2203, 2338-2386; `Interfaces/Interface.py` 391-427;
+  `Reticulum.py` 111-114. The table is bounded, unlike RNS's.
+- Packet and name checks: an empty data field, link request and proof lengths
+  and modes, the hop ceiling, PLAIN/GROUP announces, and dotted names. RNS
+  `Packet.py` 259-275; `Link.py` 149, 187, 225-227, 367, 396-405, 938-941;
+  `Transport.py` 1356, 1653-1668, 2211, 2573-2593; `Destination.py` 104-107,
+  151.
+
 ## Prns
 
 Reference withdrawn September 26 over unresolved provenance concerns. Existing
