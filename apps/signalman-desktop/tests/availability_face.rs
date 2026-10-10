@@ -16,7 +16,7 @@ use signalman_desktop::availability::{
 };
 use signalman_desktop::state::{DesktopSection, DesktopState, ObservationRequest, Request};
 use signalman_desktop::views::{Child, Logic};
-use signalman_desktop::{SHEET, default_catalog_path, root};
+use signalman_desktop::{default_catalog_path, root, sheet};
 use winit::keyboard::NamedKey;
 
 fn admit(
@@ -175,7 +175,7 @@ fn normal_navigation_shows_two_board_timeline_and_uncertainty() {
         Init {
             state,
             logic: root as Logic,
-            sheet: SHEET.to_owned(),
+            sheet: sheet(),
             fonts: Vec::new(),
             images: Vec::new(),
         },
@@ -227,7 +227,7 @@ fn focused_export_path_accepts_injected_text_before_export() {
         Init {
             state,
             logic: root as Logic,
-            sheet: SHEET.to_owned(),
+            sheet: sheet(),
             fonts: Vec::new(),
             images: Vec::new(),
         },

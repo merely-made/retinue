@@ -24,7 +24,7 @@ use signalman_desktop::views::{Child, Logic};
 use signalman_desktop::worker::Worker;
 use signalman_desktop::{
     MessageStore, default_availability_settings_path, default_catalog_path,
-    default_message_store_path, flow, root, sheet, survey,
+    default_message_store_path, flow, root, survey,
 };
 
 type Ctx<'a> = AppCtx<'a, DesktopState, Logic, Child>;
@@ -37,14 +37,7 @@ fn observation_destination(
     if !enabled {
         return Ok(DurableCapture::Disabled);
     }
-    let directory = std::env::var_os("SIGNALMAN_OBSERVATION_DURABLE_DIR")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| {
-            default_availability_settings_path()
-                .parent()
-                .unwrap_or_else(|| std::path::Path::new("."))
-                .join("captures")
-        });
+    let directory = signalman_desktop::default_observation_capture_dir();
     std::fs::create_dir_all(&directory).map_err(|error| {
         format!(
             "Durable capture directory {} is unavailable: {error}",
@@ -192,11 +185,15 @@ fn main() {
     let fixture_rx = Rc::new(RefCell::new(fixture_rx));
     let wake_fixtures = fixture_rx.clone();
 
+    let mut appearance_previews = signalman_desktop::appearance_host::PreviewBindings::default();
+    let mut appearance_lane = signalman_desktop::appearance_scenario::from_env();
+    let offline_appearance_receipt = appearance_lane.is_some();
     let hooks: HostHooks<DesktopState, Logic, Child> = HostHooks {
         // Installation progress is event-driven: a Signalman worker calls the
         // host's Armillary-shaped wake callback, and the host grants this UI
         // thread a drain turn. Idle apps therefore stay asleep.
         frame: Box::new(move |ctx| {
+            appearance_previews.frame(ctx);
             let swatch = ctx.runner.state().network_swatch();
             let mut last = frame_leaf.borrow_mut();
             if last.as_ref() != Some(&swatch) {
@@ -368,6 +365,7 @@ fn main() {
         // here rather than in the handler because a device survey opens serial
         // ports, and a view must stay a pure function of state.
         after_dispatch: Box::new(move |ctx: &mut Ctx<'_>| {
+            signalman_desktop::appearance_host::after_dispatch(ctx);
             let mut worker = dispatch_worker.borrow_mut();
             let wake = ctx.wake.callback();
             let mut network_request = None;
@@ -408,7 +406,11 @@ fn main() {
             });
             disposition.expect("the runner updates close disposition")
         }),
-        after_frame: Box::new(|_ctx| {}),
+        after_frame: Box::new(move |ctx| {
+            if let Some(lane) = appearance_lane.as_mut() {
+                signalman_desktop::appearance_scenario::drive(lane, ctx);
+            }
+        }),
         focused_text: Box::new(signalman_desktop::focused_revision_field),
         key_intercept: Box::new(|_runner, _press| false),
     };
@@ -423,6 +425,7 @@ fn main() {
         options,
         move |_window, _commands, wake| {
             let mut state = DesktopState::new(&default_catalog_path());
+            signalman_desktop::appearance_host::load(&mut state);
             let settings_path = default_availability_settings_path();
             if settings_path.exists() {
                 match load_settings(&settings_path) {
@@ -439,7 +442,10 @@ fn main() {
                     }
                 }
             }
-            if let Some(paths) = std::env::var_os("SIGNALMAN_OBSERVATION_FIXTURES") {
+            if let Some(paths) = (!offline_appearance_receipt)
+                .then(|| std::env::var_os("SIGNALMAN_OBSERVATION_FIXTURES"))
+                .flatten()
+            {
                 let paths: Vec<_> = std::env::split_paths(&paths).collect();
                 let delay_ms = std::env::var("SIGNALMAN_OBSERVATION_FIXTURE_DELAY_MS")
                     .ok()
@@ -470,7 +476,10 @@ fn main() {
             // The live station is a bench activation for now: it starts only
             // when SIGNALMAN_STATION_PORT names a running Retinue board. The
             // actor's events land in after_wake like every other worker's.
-            if let Some(settings) = station::settings_from_env() {
+            if let Some(settings) = (!offline_appearance_receipt)
+                .then(station::settings_from_env)
+                .flatten()
+            {
                 state.station_notice = Some(format!(
                     "Connecting station \u{201c}{}\u{201d} on {}\u{2026}",
                     settings.name, settings.port
@@ -485,21 +494,31 @@ fn main() {
                     ));
                 }
             }
-            match audio::inventory() {
-                Ok(inventory) => state.adopt_audio_inventory(inventory),
-                Err(error) => {
-                    state.message_notice =
-                        Some(format!("Host audio devices could not be listed: {error}"));
+            if !offline_appearance_receipt {
+                match audio::inventory() {
+                    Ok(inventory) => state.adopt_audio_inventory(inventory),
+                    Err(error) => {
+                        state.message_notice =
+                            Some(format!("Host audio devices could not be listed: {error}"));
+                    }
                 }
             }
             // The first survey happens before the first frame, so the device
             // page opens with what is actually plugged in rather than with a
             // spinner that resolves a moment later.
-            state.adopt_survey(survey::devices());
+            state.adopt_survey(if offline_appearance_receipt {
+                Vec::new()
+            } else {
+                survey::devices()
+            });
+            let appearance_sheet = state
+                .appearance
+                .take_stylesheet_change()
+                .expect("initial appearance sheet");
             Init {
                 state,
                 logic: root as Logic,
-                sheet: sheet(),
+                sheet: appearance_sheet,
                 fonts: Vec::new(),
                 images: Vec::new(),
             }

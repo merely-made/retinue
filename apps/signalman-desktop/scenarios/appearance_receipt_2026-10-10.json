@@ -1,0 +1,947 @@
+{
+  "date": "2026-10-10",
+  "status": "qualified native macOS appearance integration",
+  "scope": "apps/signalman-desktop; no physical-device, microphone, collector or firmware acceptance",
+  "source_baseline": "1f530cb1fcd95212d888d9767cdb75690db4325f",
+  "shared_revisions": {
+    "mere": "7019f07d36a9da8c1a3edbbcbabad606e9cb3278",
+    "genet": "7422e90613f9017e5bb790e3acb48f61776b2eda",
+    "maintained_vello": "491c376cf2b01fc11132cf8f86419dec114ae032"
+  },
+  "source_hashes": {
+    "apps/signalman-desktop/Cargo.lock": "64f41736a078af57267d7dbd75681da0c3f27a81821683ba951c3bbb15127258",
+    "apps/signalman-desktop/Cargo.toml": "7508b195edc326fa949876215a6f2f31c913c82d4766dd6083d39f9583cc5a67",
+    "apps/signalman-desktop/src/lib.rs": "8f2e664c6bf527da5c49d07b6ddc73580083ea6fdef02f4002da825564b2dc0b",
+    "apps/signalman-desktop/src/main.rs": "4f764cd83de1e6e99ac6fcff0a58aba8d1ba69ff44ae4ce7a647ef082082c57a",
+    "apps/signalman-desktop/src/state.rs": "0b2442bd9b2bcc1a8029fa480f6442d90b51630cd0aa908028cc08d46c859677",
+    "apps/signalman-desktop/src/state/firmware.rs": "3342d4e3a4420effef51ba886380686c5c55d172fb4c8eb4f7678da38ec31fb6",
+    "apps/signalman-desktop/src/theme.rs": "496aa11c7e94d924dadc18e503fa4b5c523648d2249403aa186acc0e077207c9",
+    "apps/signalman-desktop/src/views.rs": "0967f484c8940dfde39896593e6fd7320a4cf247bf2f2d437be6f74de0bbe127",
+    "apps/signalman-desktop/tests/accessibility.rs": "17c3dccc6365f1f78c338824e56f8cd40edecf98e46be49c67c5e3de2b26cd03",
+    "apps/signalman-desktop/tests/availability_face.rs": "20d489facd778ffdafdd9871f362055bd56b95866ec1b7de9bb35274135f01b0",
+    "apps/signalman-desktop/tests/management_shell.rs": "a468b1660435a2c63cb2e2ca2c931036f2fd9caa2798290544831a7044d68e27",
+    "apps/signalman-desktop/tests/owner_flow/main.rs": "8b4b9db2370804db023751f3ecedabc48370b798ad1ce7c45bf142f0fc81ff9c",
+    "apps/signalman-desktop/tests/owner_flow/semantic_input.rs": "0b970df3104ee3bcbf03dcab5c5dcba2eb897a4f33a24e9702947c51150ba458",
+    "apps/signalman-desktop/scenarios/appearance.scn": "61046f0295861759a1c13807c4b2a292f2791b8c1ad1d273db4afa5fbb84759f",
+    "apps/signalman-desktop/scenarios/appearance_reopen.scn": "4c1b43f52c5c281a7df199e6be64811582138c7548e763b4832e288899ae42da",
+    "apps/signalman-desktop/src/appearance.rs": "0ad677618b10d57b4ce79f26ed7d3a54b92fd86c5fc0d9800034640812c4e715",
+    "apps/signalman-desktop/src/appearance_host.rs": "3a2275e1e88c5f0f6fe3bcf85f9f97a9937a18a35d096df1e5f16578bde211a5",
+    "apps/signalman-desktop/src/appearance_scenario.rs": "e5ca732605b219edaab5fb7513eb9bcf85e3fd35ec8bf256745d8c58ebc3f2dc",
+    "apps/signalman-desktop/src/appearance_view.rs": "4db45fbb5d78790480df8b34f4f5618778ddb1d429959c8cc329918df94d6b23",
+    "apps/signalman-desktop/tests/tabard_appearance.rs": "548322de1a47c3fe68070c8622e35e3414dc191f82929421b592e183f3d8d6d5"
+  },
+  "production_binary": {
+    "path": "/Users/markik/Code/targets/knot-tabard-apps/debug/signalman-desktop",
+    "sha256": "e01c0f5821122f248168c6129401f49bd03ed1bf58b699bad2bede56ff20918e",
+    "bytes": 188432528,
+    "log": "/tmp/signalman-tabard-7019-production-build.log",
+    "build_seconds": 1.7,
+    "executed": true
+  },
+  "cpu_tests": {
+    "passed": 69,
+    "failed": 0,
+    "ignored": 0,
+    "log": "/tmp/signalman-tabard-7019-signed-tests.log",
+    "command": [
+      "cargo",
+      "test",
+      "--manifest-path",
+      "apps/signalman-desktop/Cargo.toml",
+      "--all-targets",
+      "--locked",
+      "--offline",
+      "-j2"
+    ],
+    "target_dir": "/Users/markik/Code/targets/knot-tabard-apps",
+    "native_or_gpu_launch": false,
+    "startup_attempt": {
+      "status": "stopped before accessibility libtest entry; no source failure established",
+      "log": "/tmp/signalman-tabard-7019-final-tests.log",
+      "sample": "/tmp/signalman-tabard-7019-accessibility-sample.txt",
+      "report": "/tmp/signalman-tabard-7019-startup-report.json",
+      "generated_test_signing": "/tmp/signalman-tabard-7019-test-signing.json"
+    }
+  },
+  "artifact_root": "/Users/markik/Code/tabard-app-receipts/2026-10-10/signalman",
+  "native_runs": [
+    {
+      "name": "wide-01-authoring",
+      "profile": "wide-01",
+      "logical_dimensions": [
+        1280,
+        900
+      ],
+      "scenario_sha256": "61046f0295861759a1c13807c4b2a292f2791b8c1ad1d273db4afa5fbb84759f",
+      "result": "ok",
+      "launch_method": "LaunchServices temporary application bundle",
+      "elapsed_seconds": 24.535,
+      "presented_frames": 101,
+      "redraws": 104,
+      "unpresented_redraws": 3,
+      "blank_captures": 0,
+      "captures": [
+        {
+          "name": "product_default",
+          "png_path": "/Users/markik/Code/tabard-app-receipts/2026-10-10/signalman/wide-01-authoring/product_default.png",
+          "png_sha256": "45916febfb348076c9976c9c3597f584daa7132e3d828370eda996f0e1904c2c",
+          "rgba_sha256": "b9308d4c00dd9d133cbf2e54d94a7a2c057128d9c9574e3dfae69087d10fe996",
+          "physical_dimensions": [
+            2560,
+            1800
+          ],
+          "distinct_rgba_values": 2624,
+          "palette_samples": {
+            "canvas_rgba": [
+              18,
+              21,
+              27,
+              255
+            ],
+            "canvas_point": [
+              2556,
+              1796
+            ],
+            "surface_rgba": [
+              18,
+              21,
+              27,
+              255
+            ],
+            "surface_point": [
+              2556,
+              200
+            ]
+          }
+        },
+        {
+          "name": "app_light",
+          "png_path": "/Users/markik/Code/tabard-app-receipts/2026-10-10/signalman/wide-01-authoring/app_light.png",
+          "png_sha256": "7ecf4e14c33b49f9850d09bc05e7479d18e015d271eac55c446a1c132e56e4c6",
+          "rgba_sha256": "e6cbddc3bfb290d53cdeda092dc84a128f543d9d35611cb468bb502e2d4f92f7",
+          "physical_dimensions": [
+            2560,
+            1800
+          ],
+          "distinct_rgba_values": 2076,
+          "palette_samples": {
+            "canvas_rgba": [
+              225,
+              231,
+              252,
+              255
+            ],
+            "canvas_point": [
+              2556,
+              1796
+            ],
+            "surface_rgba": [
+              238,
+              245,
+              255,
+              255
+            ],
+            "surface_point": [
+              2556,
+              200
+            ]
+          }
+        },
+        {
+          "name": "app_dark",
+          "png_path": "/Users/markik/Code/tabard-app-receipts/2026-10-10/signalman/wide-01-authoring/app_dark.png",
+          "png_sha256": "4fb3b9010452ad0ea65af7cc2c49647ee0abf7b26d94438f5853a2bcbed1a0c9",
+          "rgba_sha256": "402003a3cf97d095b5064b9a5d27ff96cff76dc8766443fbc91476b7e33320f0",
+          "physical_dimensions": [
+            2560,
+            1800
+          ],
+          "distinct_rgba_values": 1673,
+          "palette_samples": {
+            "canvas_rgba": [
+              9,
+              12,
+              26,
+              255
+            ],
+            "canvas_point": [
+              2556,
+              1796
+            ],
+            "surface_rgba": [
+              19,
+              24,
+              38,
+              255
+            ],
+            "surface_point": [
+              2556,
+              200
+            ]
+          }
+        },
+        {
+          "name": "app_hc_light",
+          "png_path": "/Users/markik/Code/tabard-app-receipts/2026-10-10/signalman/wide-01-authoring/app_hc_light.png",
+          "png_sha256": "9c2112ffd6cc3682bb3b8c5b8823ebdd29e5edfd201e0cd048cf28c00fe6aa2f",
+          "rgba_sha256": "0cf76c782cea2c6ad7dc0fd392be5185d4d428e03244c0ebe0442f3c69695671",
+          "physical_dimensions": [
+            2560,
+            1800
+          ],
+          "distinct_rgba_values": 2481,
+          "palette_samples": {
+            "canvas_rgba": [
+              238,
+              245,
+              255,
+              255
+            ],
+            "canvas_point": [
+              2556,
+              1796
+            ],
+            "surface_rgba": [
+              246,
+              253,
+              255,
+              255
+            ],
+            "surface_point": [
+              2556,
+              200
+            ]
+          }
+        },
+        {
+          "name": "app_hc_dark",
+          "png_path": "/Users/markik/Code/tabard-app-receipts/2026-10-10/signalman/wide-01-authoring/app_hc_dark.png",
+          "png_sha256": "678ad4b612acb00151fa525906481e375331dbb7e27c9d8f3326dfbb4a1dfb14",
+          "rgba_sha256": "91e26168a9e2c9b49d5104a598b50fd68df53e7439ade542eea30fa1800c2eed",
+          "physical_dimensions": [
+            2560,
+            1800
+          ],
+          "distinct_rgba_values": 2801,
+          "palette_samples": {
+            "canvas_rgba": [
+              0,
+              0,
+              3,
+              255
+            ],
+            "canvas_point": [
+              2556,
+              1796
+            ],
+            "surface_rgba": [
+              2,
+              3,
+              12,
+              255
+            ],
+            "surface_point": [
+              2556,
+              200
+            ]
+          }
+        },
+        {
+          "name": "editor_light",
+          "png_path": "/Users/markik/Code/tabard-app-receipts/2026-10-10/signalman/wide-01-authoring/editor_light.png",
+          "png_sha256": "88ae3d5da4474763da09ff724fa56986d54073cfb936356b154856c7f21fb013",
+          "rgba_sha256": "952abf561d4a9738e3f530bc17f712292261871c4609bf9466a4086b55ec0232",
+          "physical_dimensions": [
+            2560,
+            1800
+          ],
+          "distinct_rgba_values": 7436
+        },
+        {
+          "name": "saved_editor",
+          "png_path": "/Users/markik/Code/tabard-app-receipts/2026-10-10/signalman/wide-01-authoring/saved_editor.png",
+          "png_sha256": "8a0c8b77822bd5564a373fb973b16adf5dc871355edad7b44f551723507f1e7e",
+          "rgba_sha256": "388dfff491932c2f1c1e2d5aae0a3d3c4b5c88031d8611d7419e52bcfef5dd45",
+          "physical_dimensions": [
+            2560,
+            1800
+          ],
+          "distinct_rgba_values": 6019
+        },
+        {
+          "name": "authored_application",
+          "png_path": "/Users/markik/Code/tabard-app-receipts/2026-10-10/signalman/wide-01-authoring/authored_application.png",
+          "png_sha256": "fd7a05af2f1f7bd1a07c5faa1ae8d2a344e2a523c9a221f41f240c6795d3bde1",
+          "rgba_sha256": "b93fefe4f22db3ba35080107db896b867ff2e8da3f3e187ffc14debc9a65eb85",
+          "physical_dimensions": [
+            2560,
+            1800
+          ],
+          "distinct_rgba_values": 2617,
+          "authored_role_colors": {
+            "canvas": [
+              20,
+              34,
+              56,
+              255
+            ],
+            "surface": [
+              27,
+              46,
+              73,
+              255
+            ],
+            "surface_2": [
+              36,
+              61,
+              94,
+              255
+            ],
+            "text": [
+              234,
+              242,
+              255,
+              255
+            ],
+            "primary": [
+              47,
+              127,
+              255,
+              255
+            ]
+          },
+          "exact_role_pixel_counts": {
+            "canvas": 2211020,
+            "surface": 2010903,
+            "surface_2": 170130,
+            "text": 46498,
+            "primary": 85381
+          }
+        },
+        {
+          "name": "narrow_application",
+          "png_path": "/Users/markik/Code/tabard-app-receipts/2026-10-10/signalman/wide-01-authoring/narrow_application.png",
+          "png_sha256": "1da7a51b76525c3ced1869d0ac46f262d5e360e2272b3d744aa3fb523048ab66",
+          "rgba_sha256": "5a923cc5ca314998b67c425029eb8a3766e5ef7e2f38b4ffc5b67ffe3fcea39f",
+          "physical_dimensions": [
+            1280,
+            1560
+          ],
+          "distinct_rgba_values": 2615,
+          "authored_role_colors": {
+            "canvas": [
+              20,
+              34,
+              56,
+              255
+            ],
+            "surface": [
+              27,
+              46,
+              73,
+              255
+            ],
+            "surface_2": [
+              36,
+              61,
+              94,
+              255
+            ],
+            "text": [
+              234,
+              242,
+              255,
+              255
+            ],
+            "primary": [
+              47,
+              127,
+              255,
+              255
+            ]
+          },
+          "exact_role_pixel_counts": {
+            "canvas": 690268,
+            "surface": 995792,
+            "surface_2": 115488,
+            "text": 41089,
+            "primary": 72749
+          }
+        }
+      ],
+      "receipt_path": "/Users/markik/Code/tabard-app-receipts/2026-10-10/signalman/wide-01-authoring/scenario.done",
+      "process_receipt_path": "/Users/markik/Code/tabard-app-receipts/2026-10-10/signalman/wide-01-authoring/process.json"
+    },
+    {
+      "name": "wide-01-reopen",
+      "profile": "wide-01",
+      "logical_dimensions": [
+        1280,
+        900
+      ],
+      "scenario_sha256": "4c1b43f52c5c281a7df199e6be64811582138c7548e763b4832e288899ae42da",
+      "result": "ok",
+      "launch_method": "LaunchServices temporary application bundle",
+      "elapsed_seconds": 12.146,
+      "presented_frames": 22,
+      "redraws": 25,
+      "unpresented_redraws": 3,
+      "blank_captures": 0,
+      "captures": [
+        {
+          "name": "reopened_application",
+          "png_path": "/Users/markik/Code/tabard-app-receipts/2026-10-10/signalman/wide-01-reopen/reopened_application.png",
+          "png_sha256": "568964a852b18c9b135966a4f54c88b27f75301c5efc5d1b25914a81396768d8",
+          "rgba_sha256": "9434f737b314fea5bd051955b8ce0ad4f97ded57e45b14f6028f874fc6e33a47",
+          "physical_dimensions": [
+            2560,
+            1800
+          ],
+          "distinct_rgba_values": 2488,
+          "authored_role_colors": {
+            "canvas": [
+              20,
+              34,
+              56,
+              255
+            ],
+            "surface": [
+              27,
+              46,
+              73,
+              255
+            ],
+            "surface_2": [
+              36,
+              61,
+              94,
+              255
+            ],
+            "text": [
+              234,
+              242,
+              255,
+              255
+            ],
+            "primary": [
+              47,
+              127,
+              255,
+              255
+            ]
+          },
+          "exact_role_pixel_counts": {
+            "canvas": 3365276,
+            "surface": 953181,
+            "surface_2": 170130,
+            "text": 9950,
+            "primary": 54958
+          }
+        },
+        {
+          "name": "reopened_editor",
+          "png_path": "/Users/markik/Code/tabard-app-receipts/2026-10-10/signalman/wide-01-reopen/reopened_editor.png",
+          "png_sha256": "29627c619d75fc8cdd37590ec917043d0a952ddaf2362c4c7668afef396e1ebc",
+          "rgba_sha256": "cdb350ad850713884aafe20c2340b934fef31d60b97c543613fc90db19e6042c",
+          "physical_dimensions": [
+            2560,
+            1800
+          ],
+          "distinct_rgba_values": 7722
+        }
+      ],
+      "receipt_path": "/Users/markik/Code/tabard-app-receipts/2026-10-10/signalman/wide-01-reopen/scenario.done",
+      "process_receipt_path": "/Users/markik/Code/tabard-app-receipts/2026-10-10/signalman/wide-01-reopen/process.json"
+    },
+    {
+      "name": "narrow-01-authoring",
+      "profile": "narrow-01",
+      "logical_dimensions": [
+        640,
+        780
+      ],
+      "scenario_sha256": "61046f0295861759a1c13807c4b2a292f2791b8c1ad1d273db4afa5fbb84759f",
+      "result": "ok",
+      "launch_method": "LaunchServices temporary application bundle",
+      "elapsed_seconds": 21.001,
+      "presented_frames": 102,
+      "redraws": 105,
+      "unpresented_redraws": 3,
+      "blank_captures": 0,
+      "captures": [
+        {
+          "name": "product_default",
+          "png_path": "/Users/markik/Code/tabard-app-receipts/2026-10-10/signalman/narrow-01-authoring/product_default.png",
+          "png_sha256": "79bf995be401751e2f3c0212d131cdf41ec2c714ce95cff96fb975c4a5c1cbaa",
+          "rgba_sha256": "5b80f2dff95019d6a19d73da263f066339684b51cea0b48eb6883c439adab1bc",
+          "physical_dimensions": [
+            1280,
+            1560
+          ],
+          "distinct_rgba_values": 2606,
+          "palette_samples": {
+            "canvas_rgba": [
+              18,
+              21,
+              27,
+              255
+            ],
+            "canvas_point": [
+              1276,
+              1556
+            ],
+            "surface_rgba": [
+              23,
+              27,
+              35,
+              255
+            ],
+            "surface_point": [
+              1276,
+              200
+            ]
+          }
+        },
+        {
+          "name": "app_light",
+          "png_path": "/Users/markik/Code/tabard-app-receipts/2026-10-10/signalman/narrow-01-authoring/app_light.png",
+          "png_sha256": "4716322ed209083a4eaa9b14a3e92bc40b20ec8f9e80b078ef8a301ff0ff7272",
+          "rgba_sha256": "248ed86cde442f30c1910fb612f46e928f60755c96436633587314838ed4e4b7",
+          "physical_dimensions": [
+            1280,
+            1560
+          ],
+          "distinct_rgba_values": 2072,
+          "palette_samples": {
+            "canvas_rgba": [
+              225,
+              231,
+              252,
+              255
+            ],
+            "canvas_point": [
+              1276,
+              1556
+            ],
+            "surface_rgba": [
+              238,
+              245,
+              255,
+              255
+            ],
+            "surface_point": [
+              1276,
+              200
+            ]
+          }
+        },
+        {
+          "name": "app_dark",
+          "png_path": "/Users/markik/Code/tabard-app-receipts/2026-10-10/signalman/narrow-01-authoring/app_dark.png",
+          "png_sha256": "314c0b25578fce00a1309bef513b3fa13f46587df679140ca9b6c212bdc7c9af",
+          "rgba_sha256": "71d57191ed2944431c006ddc729ac178fffbe9a12379dadc795e241b0d921eb6",
+          "physical_dimensions": [
+            1280,
+            1560
+          ],
+          "distinct_rgba_values": 1677,
+          "palette_samples": {
+            "canvas_rgba": [
+              9,
+              12,
+              26,
+              255
+            ],
+            "canvas_point": [
+              1276,
+              1556
+            ],
+            "surface_rgba": [
+              19,
+              24,
+              38,
+              255
+            ],
+            "surface_point": [
+              1276,
+              200
+            ]
+          }
+        },
+        {
+          "name": "app_hc_light",
+          "png_path": "/Users/markik/Code/tabard-app-receipts/2026-10-10/signalman/narrow-01-authoring/app_hc_light.png",
+          "png_sha256": "ccd2fc990af093adc0f214f631c7d54cb43369187803133cbc8c2ae8ad0b65c7",
+          "rgba_sha256": "6b19252cebda10f2ea00fe9b35c55deeaf58b79947fe56d52a6561924c680515",
+          "physical_dimensions": [
+            1280,
+            1560
+          ],
+          "distinct_rgba_values": 2479,
+          "palette_samples": {
+            "canvas_rgba": [
+              238,
+              245,
+              255,
+              255
+            ],
+            "canvas_point": [
+              1276,
+              1556
+            ],
+            "surface_rgba": [
+              246,
+              253,
+              255,
+              255
+            ],
+            "surface_point": [
+              1276,
+              200
+            ]
+          }
+        },
+        {
+          "name": "app_hc_dark",
+          "png_path": "/Users/markik/Code/tabard-app-receipts/2026-10-10/signalman/narrow-01-authoring/app_hc_dark.png",
+          "png_sha256": "a6e579f3a7d7907a118c53a294983e69d71985301786d3c675070b88b16dbef0",
+          "rgba_sha256": "8887f3a3897d744f46c2ea3774f50184a3d337cdf7720d3a374f24eb6042ba61",
+          "physical_dimensions": [
+            1280,
+            1560
+          ],
+          "distinct_rgba_values": 2792,
+          "palette_samples": {
+            "canvas_rgba": [
+              0,
+              0,
+              3,
+              255
+            ],
+            "canvas_point": [
+              1276,
+              1556
+            ],
+            "surface_rgba": [
+              2,
+              3,
+              12,
+              255
+            ],
+            "surface_point": [
+              1276,
+              200
+            ]
+          }
+        },
+        {
+          "name": "editor_light",
+          "png_path": "/Users/markik/Code/tabard-app-receipts/2026-10-10/signalman/narrow-01-authoring/editor_light.png",
+          "png_sha256": "c183e1f011439602a09709004cb7deb98970b260f1f2ef4c42c500c5157b8401",
+          "rgba_sha256": "8b12f7d8b45ee291de710f300e71ca49c9fc41f3a1f89073520b634703ecb17b",
+          "physical_dimensions": [
+            1280,
+            1560
+          ],
+          "distinct_rgba_values": 3484
+        },
+        {
+          "name": "saved_editor",
+          "png_path": "/Users/markik/Code/tabard-app-receipts/2026-10-10/signalman/narrow-01-authoring/saved_editor.png",
+          "png_sha256": "30dc82c1804f431c22af7841fa0cd610627f6c22c92862475a826302a9ae9868",
+          "rgba_sha256": "f4a383739a93a0c8010441a742f1961d441c2095ac3f2977d9e452a2b15bba83",
+          "physical_dimensions": [
+            1280,
+            1560
+          ],
+          "distinct_rgba_values": 4056
+        },
+        {
+          "name": "authored_application",
+          "png_path": "/Users/markik/Code/tabard-app-receipts/2026-10-10/signalman/narrow-01-authoring/authored_application.png",
+          "png_sha256": "b89e727de7761a636894144e15d49e2ce8e06ef6bdf511003d6128140b9f3034",
+          "rgba_sha256": "d1d0e744108f6e1fd3148ecdcab0447226aafd24efc545b030b95b6467dd9cf0",
+          "physical_dimensions": [
+            1280,
+            1560
+          ],
+          "distinct_rgba_values": 2615,
+          "authored_role_colors": {
+            "canvas": [
+              20,
+              34,
+              56,
+              255
+            ],
+            "surface": [
+              27,
+              46,
+              73,
+              255
+            ],
+            "surface_2": [
+              36,
+              61,
+              94,
+              255
+            ],
+            "text": [
+              234,
+              242,
+              255,
+              255
+            ],
+            "primary": [
+              47,
+              127,
+              255,
+              255
+            ]
+          },
+          "exact_role_pixel_counts": {
+            "canvas": 690268,
+            "surface": 995792,
+            "surface_2": 115488,
+            "text": 41089,
+            "primary": 72749
+          }
+        },
+        {
+          "name": "narrow_application",
+          "png_path": "/Users/markik/Code/tabard-app-receipts/2026-10-10/signalman/narrow-01-authoring/narrow_application.png",
+          "png_sha256": "b89e727de7761a636894144e15d49e2ce8e06ef6bdf511003d6128140b9f3034",
+          "rgba_sha256": "d1d0e744108f6e1fd3148ecdcab0447226aafd24efc545b030b95b6467dd9cf0",
+          "physical_dimensions": [
+            1280,
+            1560
+          ],
+          "distinct_rgba_values": 2615,
+          "authored_role_colors": {
+            "canvas": [
+              20,
+              34,
+              56,
+              255
+            ],
+            "surface": [
+              27,
+              46,
+              73,
+              255
+            ],
+            "surface_2": [
+              36,
+              61,
+              94,
+              255
+            ],
+            "text": [
+              234,
+              242,
+              255,
+              255
+            ],
+            "primary": [
+              47,
+              127,
+              255,
+              255
+            ]
+          },
+          "exact_role_pixel_counts": {
+            "canvas": 690268,
+            "surface": 995792,
+            "surface_2": 115488,
+            "text": 41089,
+            "primary": 72749
+          }
+        }
+      ],
+      "receipt_path": "/Users/markik/Code/tabard-app-receipts/2026-10-10/signalman/narrow-01-authoring/scenario.done",
+      "process_receipt_path": "/Users/markik/Code/tabard-app-receipts/2026-10-10/signalman/narrow-01-authoring/process.json"
+    },
+    {
+      "name": "narrow-01-reopen",
+      "profile": "narrow-01",
+      "logical_dimensions": [
+        640,
+        780
+      ],
+      "scenario_sha256": "4c1b43f52c5c281a7df199e6be64811582138c7548e763b4832e288899ae42da",
+      "result": "ok",
+      "launch_method": "LaunchServices temporary application bundle",
+      "elapsed_seconds": 11.031,
+      "presented_frames": 22,
+      "redraws": 25,
+      "unpresented_redraws": 3,
+      "blank_captures": 0,
+      "captures": [
+        {
+          "name": "reopened_application",
+          "png_path": "/Users/markik/Code/tabard-app-receipts/2026-10-10/signalman/narrow-01-reopen/reopened_application.png",
+          "png_sha256": "72f4795e00f0893e8a490b4689dfe7652aadad942e4b15019b2c88949496101b",
+          "rgba_sha256": "b84501427df40c7cb66012953a74d90f3dea9a477223443ff0598ff594d6580b",
+          "physical_dimensions": [
+            1280,
+            1560
+          ],
+          "distinct_rgba_values": 2487,
+          "authored_role_colors": {
+            "canvas": [
+              20,
+              34,
+              56,
+              255
+            ],
+            "surface": [
+              27,
+              46,
+              73,
+              255
+            ],
+            "surface_2": [
+              36,
+              61,
+              94,
+              255
+            ],
+            "text": [
+              234,
+              242,
+              255,
+              255
+            ],
+            "primary": [
+              47,
+              127,
+              255,
+              255
+            ]
+          },
+          "exact_role_pixel_counts": {
+            "canvas": 1564668,
+            "surface": 206622,
+            "surface_2": 115488,
+            "text": 9648,
+            "primary": 48566
+          }
+        },
+        {
+          "name": "reopened_editor",
+          "png_path": "/Users/markik/Code/tabard-app-receipts/2026-10-10/signalman/narrow-01-reopen/reopened_editor.png",
+          "png_sha256": "b8f8106975e05fa91f825954fe8d5cb1753cacc4f3431ed70e9b0e98c192eabb",
+          "rgba_sha256": "bb9d5131077dcc4fae7ba8e5283f6744757d03ba11f5e61f72f8c32f8bd37be9",
+          "physical_dimensions": [
+            1280,
+            1560
+          ],
+          "distinct_rgba_values": 4488
+        }
+      ],
+      "receipt_path": "/Users/markik/Code/tabard-app-receipts/2026-10-10/signalman/narrow-01-reopen/scenario.done",
+      "process_receipt_path": "/Users/markik/Code/tabard-app-receipts/2026-10-10/signalman/narrow-01-reopen/process.json"
+    }
+  ],
+  "native_totals": {
+    "presentations": 247,
+    "captures": 22,
+    "blank_captures": 0
+  },
+  "persisted_profiles": [
+    {
+      "name": "wide-01",
+      "persisted_choice": {
+        "theme_id": "theme:copy-1",
+        "theme_mode": "dark"
+      },
+      "theme_name": "Signalman-native-authored",
+      "authored_dark_css": ":root{--tabard-color-bg:#142238;--tabard-color-surface:#1B2E49;--tabard-color-surface-2:#243D5E;--tabard-color-text:#EAF2FF;--tabard-color-primary:#2F7FFF;--tabard-color-on-primary:white;}",
+      "appearance_sha256": "94cbe08be3789094f09e81aafbf50af50c3df7a4b0e0b790a71a8a47529c822b",
+      "library_sha256": "99542d1e2d579ef236a870582384951072fccde407c50a51c22f2f154a309a4a",
+      "device_free": true
+    },
+    {
+      "name": "narrow-01",
+      "persisted_choice": {
+        "theme_id": "theme:copy-1",
+        "theme_mode": "dark"
+      },
+      "theme_name": "Signalman-native-authored",
+      "authored_dark_css": ":root{--tabard-color-bg:#142238;--tabard-color-surface:#1B2E49;--tabard-color-surface-2:#243D5E;--tabard-color-text:#EAF2FF;--tabard-color-primary:#2F7FFF;--tabard-color-on-primary:white;}",
+      "appearance_sha256": "94cbe08be3789094f09e81aafbf50af50c3df7a4b0e0b790a71a8a47529c822b",
+      "library_sha256": "99542d1e2d579ef236a870582384951072fccde407c50a51c22f2f154a309a4a",
+      "device_free": true
+    }
+  ],
+  "visual_review": {
+    "original_pngs_reviewed": 22,
+    "wide_logical_size": [
+      1280,
+      900
+    ],
+    "narrow_logical_size": [
+      640,
+      780
+    ],
+    "findings": [
+      "The original product palette remains the initial selection.",
+      "The four canonical modes render distinct palettes with visible parent appearance controls.",
+      "Wide and narrow parent Back/Apply controls and workshop Undo/Redo/Save controls fit without overlap.",
+      "Narrow workshop content uses the shared vertical layout; focused fields scroll into view.",
+      "Saving keeps the applied high-contrast dark choice until explicit Apply.",
+      "Fresh processes restore the exact named authored dark choice.",
+      "Full-image display omissions were rejected using exact source pixel bytes; no paint-loss defect established."
+    ],
+    "selected_default_label_pixel_proof": [
+      {
+        "capture": "app_light",
+        "rect_physical": [
+          382,
+          248,
+          516,
+          300
+        ],
+        "rgba_sha256": "dee7599dc3d488bc505b728feb156fa8f8c446c4417645c83055c61c1bb6406a",
+        "bright_foreground_pixels": 760
+      },
+      {
+        "capture": "app_dark",
+        "rect_physical": [
+          382,
+          248,
+          516,
+          300
+        ],
+        "rgba_sha256": "dee7599dc3d488bc505b728feb156fa8f8c446c4417645c83055c61c1bb6406a",
+        "bright_foreground_pixels": 760
+      },
+      {
+        "capture": "app_hc_light",
+        "rect_physical": [
+          382,
+          248,
+          516,
+          300
+        ],
+        "rgba_sha256": "dee7599dc3d488bc505b728feb156fa8f8c446c4417645c83055c61c1bb6406a",
+        "bright_foreground_pixels": 760
+      },
+      {
+        "capture": "app_hc_dark",
+        "rect_physical": [
+          382,
+          248,
+          516,
+          300
+        ],
+        "rgba_sha256": "dee7599dc3d488bc505b728feb156fa8f8c446c4417645c83055c61c1bb6406a",
+        "bright_foreground_pixels": 760
+      }
+    ]
+  },
+  "limitations": [
+    "This is macOS native appearance qualification, not a physical radio/installer/microphone receipt.",
+    "Existing desktop G5 and DR-B gates retain their prior status."
+  ],
+  "publication_scope": "Application appearance source, scenarios, regression tests, dependency closure and appearance-only owning-plan update."
+}

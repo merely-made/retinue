@@ -137,6 +137,9 @@ fn section_tab(label: &'static str, section: DesktopSection, selected: bool) -> 
 
 /// The application root: stable sections and the selected face.
 pub fn root(state: &DesktopState) -> Child {
+    if state.appearance.editor_open {
+        return crate::appearance_view::editor(state);
+    }
     let tabs: Vec<Child> = [
         ("Devices", DesktopSection::Devices),
         ("Network", DesktopSection::Network),
@@ -152,6 +155,12 @@ pub fn root(state: &DesktopState) -> Child {
         el(
             "div",
             (
+                crate::appearance_view::chrome(state),
+                if state.appearance.open {
+                    crate::appearance_view::panel(state)
+                } else {
+                    Box::new(el("div", ())) as Child
+                },
                 el("nav", tabs)
                     .attr("class", "section-tabs")
                     .attr("aria-label", "Signalman sections"),

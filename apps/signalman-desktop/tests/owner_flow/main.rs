@@ -15,7 +15,7 @@ use linkboy::package::ProcessorKind;
 use linkboy::{BoardFamily, DeviceObservation, HardwareFacts};
 use signalman_desktop::state::{DesktopState, Request};
 use signalman_desktop::views::{Child, Logic};
-use signalman_desktop::{SHEET, default_catalog_path, root};
+use signalman_desktop::{default_catalog_path, root, sheet};
 
 type App = Harness<DesktopState, Logic, Child>;
 
@@ -71,7 +71,7 @@ fn harness(state: DesktopState) -> App {
         Init {
             state,
             logic: root as Logic,
-            sheet: SHEET.to_string(),
+            sheet: sheet(),
             fonts: Vec::new(),
             images: Vec::new(),
         },

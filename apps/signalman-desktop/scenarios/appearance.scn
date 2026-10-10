@@ -1,0 +1,57 @@
+log Signalman application appearance on the production native host
+settle 4
+assert snap theme == signalman:default
+assert snap authority_preserved == true
+capture product_default
+click role:button @data-action=toggle-appearance
+click role:button @data-appearance-theme=theme:default
+click role:button @data-appearance-mode=light
+settle 3
+assert snap mode == light
+capture app_light
+click role:button @data-appearance-mode=dark
+settle 3
+assert snap mode == dark
+capture app_dark
+captures-differ app_light app_dark
+click role:button @data-appearance-mode=hc_light
+settle 3
+assert snap mode == hc_light
+capture app_hc_light
+click role:button @data-appearance-mode=hc_dark
+settle 3
+assert snap mode == hc_dark
+capture app_hc_dark
+click role:button @data-action=edit-appearance
+settle 4
+assert snap editor == true
+assert snap mode == hc_dark
+assert snap dirty == true
+key tab-until data-field=name
+input-text Signalman-native-authored
+assert snap name == Signalman-native-authored
+click role:button @data-mode=light
+settle 3
+assert snap mode == hc_dark
+assert snap preview_mode == light
+capture editor_light
+click role:button @data-mode=dark
+click role:button @data-action=toggle-stylesheet
+key tab-until data-field=mode-sheet
+input-text :root{--tabard-color-bg:#142238;--tabard-color-surface:#1B2E49;--tabard-color-surface-2:#243D5E;--tabard-color-text:#EAF2FF;--tabard-color-primary:#2F7FFF;--tabard-color-on-primary:white;}
+click role:button @data-action=apply-stylesheet
+click role:button @data-action=save
+settle 4
+assert snap saved == true
+assert snap mode == hc_dark
+capture saved_editor
+click role:button @data-action=apply-to-signalman
+assert snap mode == dark
+click role:button @data-action=back-to-signalman
+settle 4
+assert snap editor == false
+assert snap authority_preserved == true
+capture authored_application
+resize 640 780
+settle 4
+capture narrow_application

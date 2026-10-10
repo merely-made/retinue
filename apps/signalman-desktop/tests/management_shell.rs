@@ -8,7 +8,7 @@ use signalman_desktop::state::{
     DesktopSection, DesktopState, LabelDensity, ManagementSettings, NetworkRequest, SurveyState,
 };
 use signalman_desktop::views::{Child, Logic};
-use signalman_desktop::{SHEET, default_catalog_path, root};
+use signalman_desktop::{default_catalog_path, root, sheet};
 use winit::keyboard::NamedKey;
 
 type App = Harness<DesktopState, Logic, Child>;
@@ -72,7 +72,7 @@ fn harness() -> App {
         Init {
             state,
             logic: root as Logic,
-            sheet: SHEET.to_owned(),
+            sheet: sheet(),
             fonts: Vec::new(),
             images: Vec::new(),
         },
@@ -210,6 +210,16 @@ fn keyboard_reaches_and_activates_all_six_sections_without_losing_devices() {
         ("Browse", DesktopSection::Browse),
     ];
 
+    harness.tab(true);
+    let appearance = harness
+        .focus()
+        .expect("application appearance receives focus");
+    assert_eq!(
+        harness.with_dom(|dom| label_of(dom, appearance)),
+        "Appearance"
+    );
+    assert_eq!(receipt(harness.state()), before);
+
     for (label, section) in expected {
         harness.tab(true);
         let focused = harness.focus().expect("section tab receives focus");
@@ -218,8 +228,14 @@ fn keyboard_reaches_and_activates_all_six_sections_without_losing_devices() {
         assert_eq!(harness.state().section, section);
     }
 
-    harness.tab(true); // the unavailable Browse face has no lying controls; wrap to Devices
-    let focused = harness.focus().expect("focus wraps to Devices");
+    harness.tab(true); // Browse has no unrelated controls; wrap to application chrome.
+    let appearance = harness.focus().expect("focus wraps to Appearance");
+    assert_eq!(
+        harness.with_dom(|dom| label_of(dom, appearance)),
+        "Appearance"
+    );
+    harness.tab(true);
+    let focused = harness.focus().expect("the next tab returns to Devices");
     assert_eq!(harness.with_dom(|dom| label_of(dom, focused)), "Devices");
     harness.key_named(NamedKey::Enter);
     assert_eq!(harness.state().section, DesktopSection::Devices);

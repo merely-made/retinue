@@ -17,6 +17,10 @@
 //! The library half exists so the headless page-state and keyboard tests can
 //! drive the same state machine and the same views the binary runs.
 
+pub mod appearance;
+pub mod appearance_host;
+pub mod appearance_scenario;
+pub mod appearance_view;
 pub mod audio;
 pub mod availability;
 pub mod collector;
@@ -51,6 +55,31 @@ pub fn focused_revision_field(
     use layout_dom_api::LayoutDom as _;
     let node = runner.focus()?;
     let dom = runner.dom();
+    if runner.state().appearance.editor_open {
+        let field = tabard_workshop::native_host::focused_field(
+            &dom,
+            node,
+            &runner.state().appearance.workshop,
+        )?;
+        let mutable = field.clone();
+        return Some(cambium_genet_winit_host::FocusedTextSlot {
+            node,
+            get: Box::new(move |state| {
+                state
+                    .appearance
+                    .workshop
+                    .text_field(&field)
+                    .expect("registered workshop field")
+            }),
+            get_mut: Box::new(move |state| {
+                state
+                    .appearance
+                    .workshop
+                    .text_field_mut(&mutable)
+                    .expect("registered workshop field")
+            }),
+        });
+    }
     let field = {
         let dom = dom.borrow();
         // `text_field` renders a `div` with `role="textbox"` since mere 3ee4c0ae.
@@ -146,6 +175,18 @@ pub fn default_availability_settings_path() -> std::path::PathBuf {
     root.join("Merely")
         .join("Signalman")
         .join("radio-availability.json")
+}
+
+/// The existing observation owner reserves this directory for future captures.
+pub fn default_observation_capture_dir() -> std::path::PathBuf {
+    std::env::var_os("SIGNALMAN_OBSERVATION_DURABLE_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            default_availability_settings_path()
+                .parent()
+                .unwrap_or_else(|| std::path::Path::new("."))
+                .join("captures")
+        })
 }
 
 /// Where the packaged firmware catalog lives.

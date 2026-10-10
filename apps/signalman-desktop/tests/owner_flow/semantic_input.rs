@@ -113,7 +113,7 @@ fn the_device_page_is_operable_from_the_keyboard_alone() {
 
     // The reachable controls, in document order.
     let mut order = Vec::new();
-    for _ in 0..11 {
+    for _ in 0..12 {
         h.tab(true);
         let Some(node) = h.focus() else { break };
         let label = h.with_dom(|dom| label_of(dom, node));
@@ -125,6 +125,7 @@ fn the_device_page_is_operable_from_the_keyboard_alone() {
     assert_eq!(
         order,
         vec![
+            "Appearance".to_string(),
             "Devices".to_string(),
             "Network".to_string(),
             "Messages".to_string(),
@@ -149,7 +150,8 @@ fn the_device_page_is_operable_from_the_keyboard_alone() {
     );
 
     // Walk forward to Rescan and activate it with Enter — no pointer involved.
-    h.tab(true); // wraps to Devices
+    h.tab(true); // wraps to Appearance
+    h.tab(true); // Devices
     h.tab(true); // Network
     h.tab(true); // Messages
     h.tab(true); // Radio
@@ -173,6 +175,7 @@ fn the_revision_field_takes_typing_through_the_text_seam() {
     let mut h = harness(state());
     assert!(h.click_on(&Selector::class("revision-wrap")) || true);
     // Focus it by Tab: the field is inside the `revision-wrap` wrapper.
+    h.tab(true); // Appearance
     h.tab(true); // Devices
     h.tab(true); // Network
     h.tab(true); // Messages

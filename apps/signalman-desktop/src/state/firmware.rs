@@ -275,6 +275,13 @@ impl DesktopState {
                 "Installation is still active. Keep Signalman open until it completes or shows recovery instructions.".into(),
             ]);
             cambium_genet_winit_host::CloseDisposition::KeepVisible
+        } else if self.appearance.editor_open {
+            self.appearance.close_app = true;
+            if self.appearance.workshop.request_close() {
+                cambium_genet_winit_host::CloseDisposition::Exit
+            } else {
+                cambium_genet_winit_host::CloseDisposition::KeepVisible
+            }
         } else {
             cambium_genet_winit_host::CloseDisposition::Exit
         }

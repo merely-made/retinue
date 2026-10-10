@@ -1,0 +1,13 @@
+log Signalman saved appearance in a new process
+settle 4
+assert snap mode == dark
+assert snap authority_preserved == true
+capture reopened_application
+click role:button @data-action=toggle-appearance
+click role:button @data-action=edit-appearance
+settle 4
+assert snap name == Signalman-native-authored
+assert snap saved == true
+capture reopened_editor
+click role:button @data-action=back-to-signalman
+assert snap editor == false

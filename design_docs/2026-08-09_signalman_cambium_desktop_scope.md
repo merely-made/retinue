@@ -17,6 +17,112 @@ reader who stopped at the status line got the wrong answer. G5.3 is done
 2026-08-24 accessibility note under G5 for which of their conditions have since
 been met.
 
+## Application appearance follow-up — 2026-10-09
+
+**Status: qualified 2026-10-10.** The application appearance integration uses
+Tabard's existing resolver, choice store, authored library and workshop within
+Signalman's existing Cambium host. This follow-up concerns
+`apps/signalman-desktop`; it leaves the private Signalman control port and the
+existing desktop G5/DR-B gate status unchanged. The isolated worktree preserves
+the primary Retinue checkout.
+
+The original Signalman product palette remains the initial selection. The
+reachable title-bar Appearance action offers shared definitions and all four
+canonical modes. The embedded workshop reuses the shared native preview,
+controlled-text, file/export and dirty-close seams. Saving an authored
+configuration and applying it to Signalman are separate actions. Preference
+writes complete before a new presentation is published; corrupt or failed
+preference/library operations retain their bytes and diagnostics. Exports
+protect application preferences, message and availability stores, catalog and
+observation inputs, and the observation owner’s durable directory. Installation
+and collection close refusals retain precedence over the editor's close policy.
+
+The current closure pins all 15 direct Mere edges to
+`7019f07d36a9da8c1a3edbbcbabad606e9cb3278`, the shared Genet renderer to
+`7422e90613f9017e5bb790e3acb48f61776b2eda`, and the maintained Vello,
+encoding and shader root patches to
+`491c376cf2b01fc11132cf8f86419dec114ae032`. Full online and locked offline
+metadata passed. The intentionally retained older portable `mere-comms` edge
+does not provide another UI renderer identity.
+
+### Findings and qualification — 2026-10-10
+
+All 69 application CPU tests passed, including eight mounted appearance
+regressions for four-mode rendering, authored CSS, exact choice reopening,
+Save versus Apply, corrupt stores, failed preference writes, missing-definition
+fallback, protected export destinations and dirty-close handling. The existing
+accessibility and domain owner-flow gates passed as part of the same suite.
+The locked offline production build passed. Its binary SHA256 is
+`e01c0f5821122f248168c6129401f49bd03ed1bf58b699bad2bede56ff20918e`.
+
+The first CPU attempt paused at macOS `_dyld_start` before the accessibility
+test entered libtest. Its original hash, unsigned signing report and process
+sample are preserved. Ad hoc signing only the ten generated application test
+executables resolved that startup pause; the same compiled suite then passed.
+No source or library change was needed, and no renderer failure is inferred.
+
+The actual production executable then passed four serialized, device-free
+macOS native scenarios through the shared LaunchServices helper:
+
+| Run | Initial logical size | Presented frames | Nonblank captures |
+| --- | --- | ---: | ---: |
+| Wide authoring | 1280 × 900 | 101 | 9 |
+| Wide new-process reopen | 1280 × 900 | 22 | 2 |
+| Narrow authoring | 640 × 780 | 102 | 9 |
+| Narrow new-process reopen | 640 × 780 | 22 | 2 |
+
+All four receipts report `RESULT ok`: 247 actual presentations, 22 decoded and
+reviewed original PNGs, and zero blank captures. The original product palette,
+four distinct canonical palettes, parent appearance controls and wide/narrow
+workshop layouts were reviewed. The authored application renders the exact
+canvas `#142238`, surface `#1B2E49`, second surface `#243D5E`, text `#EAF2FF`
+and primary `#2F7FFF` colors. Both independent profiles persist precisely
+`theme:copy-1` in `dark` mode and the `Signalman-native-authored` definition
+with its exact authored stylesheet; new processes reopen that selection.
+Saving preserves the applied high-contrast dark choice until explicit Apply.
+
+The scenario gate suppresses serial-board survey, audio inventory and inherited
+station/observation fixture activation. No flashing, collector start, microphone
+operation or physical-device acceptance was performed. Domain-authority
+assertions remain true. The original screenshots are retained under
+`/Users/markik/Code/tabard-app-receipts/2026-10-10/signalman/`. The checked-in
+[qualification receipt](../apps/signalman-desktop/scenarios/appearance_receipt_2026-10-10.json)
+records source/binary/scenario hashes, every original PNG hash and dimension,
+presentation totals, exact persisted choice and palette pixel proof. Display
+omissions in a full-image preview were rejected by checking the original RGBA
+bytes and a label crop; no missing-paint defect was established.
+
+### Reproducing isolated macOS appearance acceptance
+
+Build the actual application with
+`cargo build --manifest-path apps/signalman-desktop/Cargo.toml --locked --bin signalman-desktop`.
+Choose a new scratch profile and a new capture directory. The following is an
+illustrative command; replace the Mere path and binary path with the actual
+checkouts and target directory:
+
+```sh
+python3 /path/to/mere/scripts/run_macos_scenario.py \
+  --binary apps/signalman-desktop/target/debug/signalman-desktop \
+  --prefix SIGNALMAN_APPEARANCE \
+  --scenario apps/signalman-desktop/scenarios/appearance.scn \
+  --output /tmp/signalman-tabard/new-profile/fresh --timeout 120 \
+  --env SIGNALMAN_APPEARANCE_STORE=/tmp/signalman-tabard/new-profile/appearance.json \
+  --env SIGNALMAN_THEME_LIBRARY=/tmp/signalman-tabard/new-profile/themes.json \
+  --env SIGNALMAN_MESSAGE_STORE=/tmp/signalman-tabard/new-profile/messages.redb \
+  --env SIGNALMAN_AVAILABILITY_SETTINGS=/tmp/signalman-tabard/new-profile/availability.json \
+  --env SIGNALMAN_OBSERVATION_DURABLE_DIR=/tmp/signalman-tabard/new-profile/observations \
+  --env SIGNALMAN_STATION_DATA=/tmp/signalman-tabard/new-profile/station \
+  --env SIGNALMAN_CATALOG_PATH=firmware/packages/index.toml \
+  --env LOCALAPPDATA=/tmp/signalman-tabard/new-profile/fallback-appdata
+```
+
+Run `appearance_reopen.scn` in another process with the same profile and a new
+output directory. Set `SIGNALMAN_WIDTH`/`SIGNALMAN_HEIGHT` to 1280/900 and
+640/780 for independent wide and narrow profiles. Require the scenario result,
+presentation/nonblank counts, decoded original PNGs, visible parent/editor
+controls, exact saved choice and stylesheet, and unchanged-authority assertions.
+Preserve failures; launcher success alone does not qualify the application.
+
 ## Decision
 
 Use Cambium for Signalman's native desktop face. Do not put a GUI in Linkboy

@@ -262,5 +262,64 @@ pub const SHEET: &str = "
 ";
 
 pub fn sheet() -> String {
-    format!("{SHEET}\n{}", cambium::GRAPH_CANVAS_SWATCH_CSS)
+    format!(
+        "{SHEET}\n{}\n{}\n{}\n{RESPONSIVE_CSS}",
+        cambium::GRAPH_CANVAS_SWATCH_CSS,
+        cambium::TITLE_BAR_CSS,
+        crate::appearance_view::APPEARANCE_CSS
+    )
+}
+
+pub const RESPONSIVE_CSS: &str = "
+.app-shell { min-width: 0; }
+.page, .messages-page, .unavailable-page { min-width: 0; max-width: 100%; }
+.row, .hint, .refusal, .empty, .instructions, .bar, .notes, .unavailable-gate, .message-compose, .message-contact { width: 100%; max-width: 620px; }
+.message-rows, .message-row { width: 100%; max-width: 760px; }
+@media (max-width: 760px) {
+  .shell { flex-direction: column; }
+  .trail { display: flex; flex-wrap: wrap; gap: 4px; width: auto; padding: 12px; }
+  .trail-step { font-size: 12px; padding: 4px 6px; }
+  .page, .messages-page, .unavailable-page { padding: 16px; }
+  .section-tabs { flex-wrap: wrap; gap: 4px; }
+  .section-tab { width: auto; margin: 0; }
+}
+";
+
+/// Map product selectors to shared roles. Exact legacy CSS remains the
+/// default until the owner selects a Tabard appearance. Authored sheets are
+/// appended by the adapter and evaluated by the existing cascade.
+pub fn role_sheet() -> String {
+    let mut sheet = SHEET.to_owned();
+    for (color, role) in [
+        ("#0e1116", "bg"),
+        ("#12151b", "bg"),
+        ("#171b23", "surface"),
+        ("#1e2530", "surface"),
+        ("#1c222c", "surface-2"),
+        ("#222a36", "surface-2"),
+        ("#262e3a", "surface-2"),
+        ("#2b3441", "surface-2"),
+        ("#33405a", "surface-2"),
+        ("#2a1e1e", "surface"),
+        ("#232b37", "surface-hover"),
+        ("#263548", "surface-hover"),
+        ("#2f3947", "surface-hover"),
+        ("#3a6da6", "primary"),
+        ("#2f5b8c", "primary"),
+        ("#6f9fd8", "primary"),
+        ("#a8c8ee", "primary"),
+        ("#e8e6e1", "text"),
+        ("#c8ced8", "text"),
+        ("#7e8896", "text-disabled"),
+        ("#98a2b1", "text-dim"),
+        ("#f2f5f9", "on-primary"),
+        ("#75bc8b", "success"),
+        ("#8fbf9a", "success"),
+        ("#7d4040", "danger"),
+        ("#efb2b2", "danger"),
+        ("#dda45e", "tertiary"),
+    ] {
+        sheet = sheet.replace(color, &format!("var(--tabard-color-{role}, {color})"));
+    }
+    format!("{sheet}\n{}", cambium::GRAPH_CANVAS_SWATCH_CSS)
 }

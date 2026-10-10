@@ -187,6 +187,7 @@ pub enum SurveyState {
 }
 
 pub struct DesktopState {
+    pub appearance: crate::appearance::AppearanceState,
     pub section: DesktopSection,
     pub management_settings: ManagementSettings,
     pub device_mere: DeviceMere,
@@ -291,6 +292,7 @@ impl DesktopState {
             Err(error) => (None, Some(error.to_string())),
         };
         Self {
+            appearance: crate::appearance::AppearanceState::default(),
             section: DesktopSection::Devices,
             management_settings: ManagementSettings::default(),
             device_mere: DeviceMere::new(),
