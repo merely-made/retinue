@@ -103,6 +103,10 @@ impl I2pTransport {
     }
 
     /// This peer and its destination, for a dialler's [`Self::add_peer_ticket`].
+    ///
+    /// # Errors
+    ///
+    /// The session does not publish, or has ended.
     pub fn ticket(&self) -> Result<String, TransportError> {
         let address = self
             .session
@@ -116,6 +120,14 @@ impl I2pTransport {
     }
 
     /// Learn a peer's destination from its ticket, returning the peer.
+    ///
+    /// # Errors
+    ///
+    /// The ticket is not an I2P peer ticket.
+    ///
+    /// # Panics
+    ///
+    /// Never: the peer map's lock is only held for an insert or a lookup.
     pub fn add_peer_ticket(&self, ticket: &str) -> Result<PeerID, TransportError> {
         let (peer, address) = parse_ticket(ticket)?;
         self.peers
@@ -167,6 +179,10 @@ impl Drop for I2pTransport {
 }
 
 /// Split a ticket into its peer and destination.
+///
+/// # Errors
+///
+/// The ticket is not an I2P peer ticket.
 pub fn parse_ticket(ticket: &str) -> Result<(PeerID, I2pAddress), TransportError> {
     let invalid = || backend("ticket", "not an I2P peer ticket");
     let (peer, address) = ticket

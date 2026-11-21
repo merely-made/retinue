@@ -65,7 +65,7 @@ async fn a_destination_answering_as_another_peer_is_refused() {
         client.connect(claimed, Alpn::new(ALPN)),
         timeout(Duration::from_secs(5), server.accept(Alpn::new(ALPN)))
     );
-    let error = refused.err().expect("the impostor ticket is refused").to_string();
+    let error = refused.expect_err("the impostor ticket is refused").to_string();
     assert!(error.contains("another peer"), "{error}");
     assert!(parse_ticket("mi2p1.zz.nope").is_err());
     drop((client, server));
