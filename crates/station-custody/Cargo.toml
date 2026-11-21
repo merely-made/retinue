@@ -54,7 +54,7 @@ dramatis = { version = ">=0.0.5", git = "https://github.com/merely-made/dramatis
 blake3 = "1"
 ostiary = { version = ">=0.0.1", git = "https://github.com/merely-made/armillary.git", branch = "main", default-features = false }
 castellan-client = { version = ">=0.0.2", git = "https://github.com/merely-made/dramatis.git", branch = "main", default-features = false }
-personae = { version = "0.3.1", git = "https://github.com/merely-made/dramatis.git", branch = "main" }
+personae = { version = ">=0.3.1", git = "https://github.com/merely-made/dramatis.git", branch = "main" }
 insigne = { version = ">=0.0.2", git = "https://github.com/merely-made/dramatis.git", branch = "main" }
 outrider = { version = "=0.3.0", path = "../outrider" }
 postilion = { version = "=0.3.0", path = "../postilion" }
