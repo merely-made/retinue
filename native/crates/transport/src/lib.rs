@@ -53,6 +53,9 @@ mod error;
 pub mod memory;
 #[cfg(feature = "i2p")]
 pub mod i2p;
+/// I2P as a [`Transport`], each stream a Noise session (graphshell:mere-cli D12).
+#[cfg(feature = "i2p-transport")]
+pub mod i2p_transport;
 /// An encrypted session layer that composes *over* a carrier's stream, rather
 /// than being a carrier itself. See the module docs for the layering.
 #[cfg(feature = "noise")]

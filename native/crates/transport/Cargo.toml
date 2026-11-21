@@ -40,6 +40,9 @@ sync-lane = ["noise"]
 # Host-owned SAM STREAM sessions. I2P destinations are routing aliases, not
 # Personae identities; callers still authenticate application streams.
 i2p = ["dep:truchman", "dep:hkdf", "dep:sha2", "dep:x25519-dalek"]
+# I2P as a `Transport`: SAM streams each carrying a Noise session, so peers are
+# proven `PeerID`s and graphshell-host's accept and dial take it unchanged.
+i2p-transport = ["i2p", "noise"]
 
 [lib]
 name = "transport"
