@@ -343,6 +343,73 @@ mod p2panda {
 
     use super::*;
 
+    // The client holds its FIN until the holder's session has returned. This is
+    // the ordering hit by an empty reader catching up from a multi-edition log.
+    struct FinishHolder(tokio::sync::oneshot::Sender<()>);
+
+    impl StreamSession for FinishHolder {
+        async fn run<S>(
+            self,
+            mut stream: S,
+        ) -> Result<StreamSyncOutcome, murm_sync::StreamSyncError>
+        where
+            S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+        {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            assert_eq!(stream.read_u8().await.unwrap(), 1);
+            stream.write_u8(2).await.unwrap();
+            stream.shutdown().await.unwrap();
+            self.0.send(()).unwrap();
+            Ok(StreamSyncOutcome::default())
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn native_holder_waits_for_the_readers_final_close() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let alpn = Alpn::new(PROTOCOL);
+        let holder = P2pandaTransport::builder_from_seed_ref(&[36; 32])
+            .alpns(vec![alpn.clone()])
+            .bind()
+            .await
+            .unwrap();
+        let reader = P2pandaTransport::builder_from_seed_ref(&[37; 32])
+            .bind()
+            .await
+            .unwrap();
+        reader
+            .add_peer(holder.endpoint_addr().await.unwrap())
+            .await
+            .unwrap();
+        let (finished, holder_finished) = tokio::sync::oneshot::channel();
+        let serve = async {
+            let accepted = holder.accept(alpn.clone()).await.unwrap();
+            lane()
+                .serve_native(accepted, |_| true, FinishHolder(finished))
+                .await
+                .unwrap();
+        };
+        let read = async {
+            let mut stream = reader
+                .connect(holder.local_peer_id(), alpn.clone())
+                .await
+                .unwrap();
+            stream.write_u8(1).await.unwrap();
+            assert_eq!(stream.read_u8().await.unwrap(), 2);
+            holder_finished.await.unwrap();
+            stream.shutdown().await.expect("reader FIN acknowledged");
+        };
+        tokio::time::timeout(Duration::from_secs(30), async {
+            tokio::pin!(serve);
+            tokio::select! {
+                biased;
+                () = &mut serve => panic!("holder released the connection before the reader closed"),
+                () = read => {}
+            }
+            serve.await;
+        }).await.expect("release sync close timed out");
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn p2panda_peers_converge_through_native_security() {
         let (left, right) = halves().await;

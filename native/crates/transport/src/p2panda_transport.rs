@@ -111,6 +111,13 @@ pub struct P2pandaStream {
     shutdown_complete: bool,
 }
 
+#[cfg(feature = "sync-lane")]
+impl P2pandaStream {
+    pub(crate) fn connection(&self) -> &Connection {
+        &self._connection
+    }
+}
+
 impl std::fmt::Debug for P2pandaStream {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("P2pandaStream").finish_non_exhaustive()

@@ -90,6 +90,8 @@ impl SyncLane {
     }
 
     /// Serve an accepted p2panda session through native iroh security.
+    /// After the local session finishes, allow one lane timeout for the dialer
+    /// to finish its stream and close this connection normally.
     pub async fn serve_native(
         &self,
         accepted: AcceptedSession<P2pandaStream>,
@@ -98,8 +100,24 @@ impl SyncLane {
     ) -> Result<StreamSyncOutcome, SyncLaneError> {
         let policy =
             ServiceSecurityPolicy::native(self.protocol.clone(), None, self.limits.clone());
+        let connection = accepted.stream.connection().clone();
         let secured = self.gate.reserve(&policy)?.native(accepted.into_stream())?;
-        admit_and_run(secured, allow, session).await
+        let mut stream = admit(secured, allow)?;
+        let outcome = session.run(&mut stream).await?;
+        // Acknowledgement of our FIN only completes the sending half. The
+        // dialer can still be applying operations and closing its own sink.
+        // Keep the receive half and connection alive until the dialer releases them.
+        let close = tokio::time::timeout(self.limits.timeout, connection.closed())
+            .await
+            .map_err(|_| StreamSyncError::Deadline)?;
+        match close {
+            iroh::endpoint::ConnectionError::ApplicationClosed(reason)
+                if reason.error_code.into_inner() == 0 =>
+            {
+                Ok(outcome)
+            },
+            other => Err(TransportError::Io(other.into()).into()),
+        }
     }
 
     /// Serve an established stream on any ordered carrier through Noise,
@@ -119,7 +137,7 @@ impl SyncLane {
             .gate
             .noise_responder(key, stream, &self.noise_policy(None))
             .await?;
-        admit_and_run(secured, allow, session).await
+        Ok(session.run(admit(secured, allow)?).await?)
     }
 
     /// Dial `server` over p2panda, require that endpoint, then sync.
@@ -136,7 +154,7 @@ impl SyncLane {
             .run(carrier.connect_session(server, self.protocol.clone()))
             .await??;
         let secured = guard.native(outbound.stream)?;
-        admit_and_run(secured, |_| true, session).await
+        Ok(session.run(admit(secured, |_| true)?).await?)
     }
 
     /// Dial `server` on any [`Transport`], run Noise as `key`, require the
@@ -175,7 +193,7 @@ impl SyncLane {
             .run(carrier.connect_session(server, self.protocol.clone()))
             .await??;
         let secured = guard.noise_initiator(key, outbound.stream).await?;
-        admit_and_run(secured, |_| true, session).await
+        Ok(session.run(admit(secured, |_| true)?).await?)
     }
 
     /// Run Noise as `key` over a stream the caller opened (an I2P or onion
@@ -193,7 +211,7 @@ impl SyncLane {
     {
         let guard = self.gate.reserve(&self.noise_policy(expected))?;
         let secured = guard.noise_initiator(key, stream).await?;
-        admit_and_run(secured, |_| true, session).await
+        Ok(session.run(admit(secured, |_| true)?).await?)
     }
 
     /// Dial a Noise-over-TCP peer at an address the caller supplies, require
@@ -211,17 +229,16 @@ impl SyncLane {
             .await?
             .map_err(|error| TransportError::Backend(format!("connect: {error}")))?;
         let secured = guard.noise_initiator(key, tcp).await?;
-        admit_and_run(secured, |_| true, session).await
+        Ok(session.run(admit(secured, |_| true)?).await?)
     }
 }
 
-/// Apply the owner's rule to the authenticated peer, lift the setup limits and
-/// run the session. A refusal poisons the stream and frees the lease.
-async fn admit_and_run<S>(
+/// Apply the owner's rule and lift the setup limits. A refusal poisons the
+/// stream and frees the lease.
+fn admit<S>(
     (stream, facts, guard): Secured<S>,
     allow: impl FnOnce(PeerID) -> bool,
-    session: impl StreamSession,
-) -> Result<StreamSyncOutcome, SyncLaneError>
+) -> Result<PreparedStream<S>, SyncLaneError>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
@@ -234,5 +251,5 @@ where
         return Err(SyncLaneError::Refused);
     }
     guard.admitted()?;
-    Ok(session.run(stream).await?)
+    Ok(stream)
 }
