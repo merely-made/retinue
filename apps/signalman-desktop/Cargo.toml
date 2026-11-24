@@ -53,7 +53,7 @@ sprigging = { git = "https://github.com/merely-made/graphshell.git", branch = "m
 genet-probe = { package = "taproot", version = ">=0.1.0", git = "https://github.com/merely-made/genet.git", branch = "main" }
 genet-scripted-dom = { git = "https://github.com/merely-made/genet.git", branch = "main", version = ">=0.1.2" }
 layout-dom-api = { git = "https://github.com/merely-made/genet.git", branch = "main", version = ">=0.1.1" }
-winit = "0.30"
+winit = ">=0.31.0-beta.4"
 cpal = "=0.18.2"
 
 # The radio-specific custody adapter shares this repository's radio types.
