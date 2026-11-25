@@ -40,7 +40,7 @@ semantic-tag keys are test data; commissioning and production custody are not
 implemented. Only public identity and non-secret observations enter the
 receipt; the temporary journal and commit tokens are not retained.
 
-The [recorded run](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/testing/iroh-control/results/host-20261011.json) passes 16 scenarios: signed status;
+The [recorded run](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/testing/iroh-control/results/host-20261011.json) passes 16 scenarios: signed status;
 wrong command target; bad signature; transport identity versus command grant;
 outer replay; oversized stream input; verified malformed inner payload;
 apply/commit; explicit revert; conflicting armed transaction reuse; lost
@@ -48,7 +48,7 @@ response followed by a fresh-counter semantic retry; old mutation after cache
 replacement; committed reopen and replay rejection in a fresh process;
 autonomous expiry during an unfinished stream; reboot rollback; and wrong
 iroh endpoint key. The receipt identifies source and lock hashes and the
-[dependency graph](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/testing/iroh-control/results/dependencies-20261011.txt).
+[dependency graph](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/testing/iroh-control/results/dependencies-20261011.txt).
 
 The useful client finding is that the high-level mutation methods mint a new
 transaction each time. The lost-response probe retains a `Request` and uses

@@ -232,7 +232,7 @@ earns only the capability actually measured and does not close an appliance or
 hardware-family gate by inference.
 
 **2026-10-11 continuation:** the management host control now has an
-[executed receipt](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/testing/iroh-control/results/host-20261011.json), with
+[executed receipt](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/testing/iroh-control/results/host-20261011.json), with
 fresh server processes, durable signed-command state, semantic retry and
 autonomous rollback. Its physical adapters are simulations. The full device
 profile, bare-noq interop, RF coexistence and power budget remain open; the

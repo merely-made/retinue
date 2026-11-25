@@ -82,7 +82,7 @@ links, and rejected requests followed by valid retries. The cost capture
 compares exact stock thresholds and transition announce shapes; the delivery
 matrix separately exchanges integer and fractional stamped messages.
 
-The separate [September 26 signed-artifact receipt](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/testing/receipts/rns-1.5.4-signed-artifact/README.md)
+The separate [September 26 signed-artifact receipt](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/testing/receipts/rns-1.5.4-signed-artifact/README.md)
 qualifies six project-input cases against `rnid 1.5.4`. All match the retained 1.5.2
 captures byte for byte; Rust replay covers both fixture files. This does not re-pin
 the broader live suite or establish 1.5.4 transport/radio compatibility. The capture
@@ -98,7 +98,7 @@ captures, and eight JSON records differed only in recorded version metadata afte
 normalisation. Other captures carry fresh entropy or require attached RNodes, so this is
 deliberately narrower than the old 18/18 byte-identity claim. Queue saturation, I2P,
 interface-discovery metadata, and physical RNode capture remain outside the measured scope.
-See the [historical 1.5.2 receipt](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-08-29_rns_152_repin_receipt.md).
+See the [historical 1.5.2 receipt](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-08-29_rns_152_repin_receipt.md).
 
 The historical 2026-08-23 re-pin moved from `rns==1.4.2` / `lxmf==0.9.6` to RNS 1.5.0 /
 LXMF 1.1.1. Eighteen deterministic fixtures re-captured byte-identically and one live suite
@@ -163,7 +163,7 @@ The parent process removes the temporary RNS configuration after child exit.
 `radio-hand --features replay` replays the committed fixture against
 the firmware carrier, including authentication negatives and the 255-byte
 physical limit. Type2 growth tests are local transformations, not stock captures.
-See the [software receipt](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/testing/receipts/firmware-ifac/README.md);
+See the [software receipt](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/testing/receipts/firmware-ifac/README.md);
 board provisioning and physical IFAC acceptance remain separate gates.
 
 ## What the oracle settled
@@ -225,7 +225,7 @@ verifies, and validates RNS's announce on the same connection.
 `interop_reliable_stream.py` uses two links: ordinary RNS Buffer reads/writes,
 then a public RNS Channel message carrying compressed data and EOF together.
 Each direction must deliver the exact bytes and EOF, and the Retinue process
-must exit successfully. The [phase 3 receipt](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/testing/receipts/rns-1.5.4-lanes/README.md)
+must exit successfully. The [phase 3 receipt](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/testing/receipts/rns-1.5.4-lanes/README.md)
 records these observations, including initial harness teardown errors.
 
 Reliable streams default to a 65,536-byte decoded compressed-frame ceiling.

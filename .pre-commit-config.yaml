@@ -1,4 +1,4 @@
-# house hooks --no-decisions --bans . --bans native --bans apps/signalman-desktop --bans crates/station-custody --bans crates/pipit --bans crates/retained-repair --clippy-base '-p postilion -p retinue -p tulle -p selvage -p seneschal -p outrider -p radio-face -p radio-hand -p radio-mirror -p retinue-sim -p truchman --all-targets'
+# house hooks --no-decisions --bans . --bans apps/signalman-desktop --bans crates/station-custody --bans crates/pipit --clippy-base '-p postilion -p retinue -p tulle -p selvage -p seneschal -p outrider -p radio-face -p radio-hand -p radio-mirror -p retinue-sim -p truchman --all-targets'
 # Written by `house hooks` (eidetic, crates/house); `house hooks --check` fails when this file drifts from it.
 # `house` is on the PATH: cargo install --git https://github.com/merely-made/eidetic house
 fail_fast: true
@@ -27,12 +27,6 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
-      - id: dependency-bans-native
-        name: dependency bans native
-        entry: cargo deny --manifest-path native/Cargo.toml --workspace --all-features --config native/deny.toml check -D unmatched-skip bans
-        language: system
-        pass_filenames: false
-        always_run: true
       - id: dependency-bans-apps-signalman-desktop
         name: dependency bans apps/signalman-desktop
         entry: cargo deny --manifest-path apps/signalman-desktop/Cargo.toml --workspace --all-features --config apps/signalman-desktop/deny.toml check -D unmatched-skip bans
@@ -48,12 +42,6 @@ repos:
       - id: dependency-bans-crates-pipit
         name: dependency bans crates/pipit
         entry: cargo deny --manifest-path crates/pipit/Cargo.toml --workspace --all-features --config crates/pipit/deny.toml check -D unmatched-skip bans
-        language: system
-        pass_filenames: false
-        always_run: true
-      - id: dependency-bans-crates-retained-repair
-        name: dependency bans crates/retained-repair
-        entry: cargo deny --manifest-path crates/retained-repair/Cargo.toml --workspace --all-features --config crates/retained-repair/deny.toml check -D unmatched-skip bans
         language: system
         pass_filenames: false
         always_run: true

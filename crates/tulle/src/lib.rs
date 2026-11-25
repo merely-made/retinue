@@ -5,7 +5,7 @@
 //! Tulle is the seam between protocol stacks and radio hardware: RNode serial
 //! control, direct-PHY USB packets, and medium access shared by every protocol
 //! on the same radio. It sits beneath
-//! [retinue](https://github.com/merely-made/murm).
+//! [retinue](https://github.com/merely-made/retinue).
 //!
 //! A tulle is a fine net fabric: the material every protocol is woven across.
 

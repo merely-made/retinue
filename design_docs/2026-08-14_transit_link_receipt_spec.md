@@ -8,7 +8,7 @@ at the bench.
 
 ## The claim to be earned
 
-The [AIR3 on-air receipt](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-08-13_air3_t114_on_air_receipt.md) proved the
+The [AIR3 on-air receipt](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-08-13_air3_t114_on_air_receipt.md) proved the
 T114 relays signed announces, with independent physical observation of
 type-2 hop-one traffic. It explicitly did not prove the stronger
 transaction, and named it:

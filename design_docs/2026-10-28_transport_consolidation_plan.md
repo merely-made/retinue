@@ -237,7 +237,7 @@ deletion was again rejected by automatic approval review as "blocked by policy".
   rerun it on the radios. Its LoRa setup limits (a 240-second deadline, 4,096
   I/O polls) are estimates until it is. (It moved to Murm's
   `testing/murm-direct-phy` on 2026-11-12 and was removed on 2026-11-13
-  without a radio rerun; the [last tracked copy](https://github.com/merely-made/murm/tree/24ec7cba0b4bc66737686c7786c00cdef88393a8/testing/murm-direct-phy)
+  without a radio rerun; the [last tracked copy](https://github.com/merely-made/retinue/tree/24ec7cba0b4bc66737686c7786c00cdef88393a8/testing/murm-direct-phy)
   is in git history.) It had stopped resolving before this
   change, because its patch table still sent `muniment` and `mere-proofs` to
   Mere after they moved to eidetic.

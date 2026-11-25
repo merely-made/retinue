@@ -28,8 +28,8 @@ The layers below have recorded black-box RNS checks. Limited source review
 began later; each historical receipt retains its own evidence boundary. The committed byte fixtures under [`tests/fixtures/`](tests/fixtures/)
 retain their recorded producer versions, including the historical RNS 1.3.8 corpus.
 Signed-artifact fixtures separately cover 1.5.2 and 1.5.4; see the
-[six-case comparison receipt](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/testing/receipts/rns-1.5.4-signed-artifact/README.md).
-The [live mixed-runtime receipt](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/testing/receipts/rns-1.5.4-repin/README.md)
+[six-case comparison receipt](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/testing/receipts/rns-1.5.4-signed-artifact/README.md).
+The [live mixed-runtime receipt](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/testing/receipts/rns-1.5.4-repin/README.md)
 qualifies the RNS 1.5.4 pin:
 
 - **Wire vocabulary** — identities, hashes, destination naming, the packet

@@ -1,7 +1,7 @@
 # Repository layers: replication, peer, mesh
 
-**Status, 2026-11-25: layers, names and history decided; no code has moved.** This
-replaces the repository boundaries Murm, P2mere and Eidetic grew into with
+**Status, 2026-11-25: layers, names and history decided. The Murm cut landed
+the same day; Replication has not moved.** This replaces the repository boundaries Murm, P2mere and Eidetic grew into with
 three layers: Replication in `p2mere`, Peer in `murm`, Mesh in `retinue`.
 It owns the target layout and the evidence behind it. The
 [transport consolidation plan](2026-10-28_transport_consolidation_plan.md)
@@ -94,6 +94,21 @@ The existing repository takes the name `retinue` back and keeps every commit.
 
 Links: area repositories · refines D2 · summary the existing repository becomes retinue with its history; murm is cut fresh from native
 
+### repository_layers D4 — cut Murm now, on git dependencies
+
+Question (2026-11-25): Cargo fetches every git source in a graph, so while
+Murm takes `retinue` and `truchman` from `retinue.git`, each Peer consumer
+still clones Retinue's 1.94 GB. Cut now on git dependencies, publish Retinue
+0.4.0 first, build the cut locally only, or hold? Answer: "Cut now on git
+(Recommended)".
+
+The question overstated the cost. Cargo resolves a workspace member's
+optional dependencies, but a dependency's only when something asks for them.
+Only consumers that can turn on the Reticulum or I2P carrier clone Retinue;
+see "Left by the cut".
+
+Links: area repositories · refines D3 · summary Murm is cut now and takes retinue and truchman from retinue.git; a published Retinue is what makes the Reticulum-carrier consumers light
+
 ## Evidence, 2026-11-25
 
 Read from `origin/main` across `Code/repos`.
@@ -154,51 +169,55 @@ Read from `origin/main` across `Code/repos`.
   `Node` and `Endpoint` routing became one core on 2026-11-19
   ([shared transport core](2026-11-18_shared_transport_core_plan.md)).
 
-## What the Murm cut touches
+## The Murm cut, 2026-11-25
 
-Read 2026-11-25 from `origin/main`. None of it has been done.
+- **Repositories.** This repository is `merely-made/retinue` again and keeps
+  every commit, so old Murm commit ids resolve under that name.
+  `merely-made/murm` is new: `native/` at its root with
+  `crates/retained-repair` and `testing/transport-conformance`, 234 commits
+  and about 7 MB. The 114 commits that touched `native/` already carried the
+  Mere ancestry (`source-import.json`).
+- **Murm's side.** It takes `retinue` and `truchman` from `retinue.git`. Its
+  line-ceiling exceptions, dependency bans, licence policy and hooks came
+  with it.
+- **Retinue's side.** `native/`, `retained-repair` and
+  `transport-conformance` are gone. Signalman's optional `comms` feature
+  takes `mere-comms` from `murm.git`. The root workspace and
+  `apps/signalman-desktop` patch `retinue.git` back to the local crates, so
+  a build holds one `retinue`.
+- **Consumers.** Eleven repositories name `murm.git`; eight name only Peer
+  crates and changed nothing. Graphshell and Turnstone now take `retinue`
+  from `retinue.git`, and merelyllc.com takes `radio-mirror` there. The patch
+  lines that sent Mesh crates to `murm.git` are removed (Turnstone one,
+  merelyllc.com four). Patch lines that send Peer crates from `retinue.git`
+  to `murm.git` stay, and are correct now. Mere's example config and
+  transport catalog name `../retinue/crates/...`.
 
-- **Inside the repository.** Four path dependencies cross the line.
-  `mere-transport` and `murm-i2p` take `truchman`. `native`'s workspace takes
-  `retinue`: optional in `mere-transport`, required by `murm` and `murm-i2p`.
-  Signalman's optional `comms` feature takes `mere-comms`.
-- **Native's history.** 114 commits touch `native/`, and they already carry
-  the Mere ancestry under that path (`native/source-import.json`). Cut as a
-  subdirectory, the new repository keeps all of it.
-- **Consumers.** Eleven repositories name `murm.git`. Eight name only Peer
-  crates and change nothing. Three name Mesh crates there: Graphshell
-  (`retinue`), Turnstone (`retinue`, twice) and merelyllc.com (`radio-mirror`,
-  `radio-face`, `embedded-graphics` and `embedded-graphics-core`, six lines).
-- **The `retinue.git` patch tables.** Lines that send Peer crates to
-  `murm.git` are dead today and correct after the cut. Lines that send Mesh
-  crates there break the build once the new repository exists: Turnstone's
-  `retinue` and merelyllc.com's four.
-- **Cargo still clones Retinue.** Cargo fetches every git source in a graph
-  to resolve it, optional or not. While Murm takes `retinue` and `truchman`
-  from `retinue.git`, each Peer consumer clones the 1.94 GB anyway. From
-  crates.io it does not. `truchman` 0.1.1 there is current. `retinue` 0.3.0
-  there is from 2026-10-06, 250 commits back, before the shared transport
-  core and the RNS 1.6.1 stamp policy that `mere-transport` now uses.
-- **One `retinue` per graph.** Signalman with `comms` on would see Murm's
-  `retinue` beside its own, and so would Graphshell and Turnstone, which
-  pair `retinue` with `transport/reticulum`. Each needs one source for it.
-- **Locks.** Mere (two) and merelyllc.com (one) commit `Cargo.lock`. Every
-  other checkout holds a local lock whose Murm revisions will not exist in
-  the new repository, and needs `cargo update` for the Peer packages.
-- **Local.** The worktree `Code/worktrees/murm-knot-sync-close` hangs off
-  this clone. Mere's `.cargo/config.toml.example` and
-  `support/standards/transport_catalog.toml` name `../murm/crates/...` for
-  Mesh crates.
-- **Docs.** Ten plans here are Peer's by name, this one among them.
+Left by the cut:
+
+- **Some consumers still clone Retinue.** A consumer's graph holds `retinue`
+  or `truchman` only if its workspace can turn on `transport/reticulum` or
+  `transport/i2p`, or takes `murm` or `murm-i2p`. By the local locks on
+  2026-11-25, Gemot, Graphshell, Knot-editor and Turnstone do, and clone the
+  1.94 GB. Distillery, Inker, Isocosm, Mere and merelyllc.com do not, and now
+  fetch a 7 MB repository. Cleromancy and Esp had no lock here. From
+  crates.io none would clone it. `truchman` 0.1.1 there is current. `retinue`
+  0.3.0 there is from 2026-10-06, 250 commits back, before the shared
+  transport core and the RNS 1.6.1 stamp policy that `mere-transport` uses.
+- **Local locks.** No consumer tracks a live `Cargo.lock`. A checkout whose
+  local lock names Murm revisions from before the cut needs `cargo update`
+  for the Peer packages; those revisions exist only in Retinue now.
+- **Plans.** The plans that govern Peer code are still in this repository's
+  `design_docs`: transport consolidation, secure sessions, this plan. Murm's
+  README links to them.
+- **Stale links.** `firmware/packages` and `design_docs/archive_docs` still
+  say `merely-made/murm`; so do other repositories' links to
+  `merely-made/murm/blob/<commit>`, which now need `retinue`.
+- **Other machines.** A clone made as `murm` before the cut holds Retinue's
+  history. Its remote needs the `retinue` URL, and Murm needs a fresh clone.
 
 ## Open
 
-- **Taking the names.** `merely-made/retinue` redirects to Murm today, and a
-  repository created under that name ends the redirect. Eight repositories
-  carry `[patch."https://github.com/merely-made/retinue.git"]` tables
-  (cleromancy, distillery, esp, gemot, inker, isocosm, merelyllc.com,
-  turnstone). They are dead now and apply again once Mesh holds the name.
-  Graphshell takes `retinue` from `murm.git`.
 - **Dropped crates and intakes.** Upstream puts most of its work into the
   umbrella crate. Deleting the umbrella, `blobs`, `net` and `discovery` from
   the fork makes every intake that touches them a delete conflict. Left as
@@ -216,8 +235,12 @@ Read 2026-11-25 from `origin/main`. None of it has been done.
 - **Not yet judged.** Whether Gemot's `verify_site_log` duplicates
   Stickleback's editions. Whether Signalman's own message layer (about 1k
   lines, plus a 246-line adapter) duplicates `mere-comms`.
-- **History.** D3 leaves the 1.94 GB with Retinue. A later cut that follows
-  Mesh's paths can still shed it.
+- **History, then Retinue 0.4.0.** D3 leaves the 1.94 GB with Retinue. Mark,
+  2026-11-25: "we should publish 0.4.0 once we've addressed the big size of
+  2gb by archiving/cleaning. but that's for later." So the order is: archive
+  or clean the inherited history, then publish `retinue` 0.4.0, then Murm and
+  the consumers can take it from crates.io. A cut that follows Mesh's paths
+  sheds the history; Genet and Mere hold most of it already.
 
 Cleared 2026-11-25: the `repos/retinue` symlink (Mere `268c7a1f4`), the local
 Pipit clone, `merely-made/pipit` (archived), the Murm and Retinue Cargo git

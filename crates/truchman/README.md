@@ -1,7 +1,7 @@
 # truchman
 
 A SAMv3 client for I2P routers (Java I2P, i2pd, emissary), in the
-[murm](https://github.com/merely-made/murm) family. It is a sans-io core with
+[retinue](https://github.com/merely-made/retinue) family. It is a sans-io core with
 a tokio shell.
 
 - **Core**, always built: typed SAM commands that write themselves as

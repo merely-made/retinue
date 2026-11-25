@@ -5,7 +5,7 @@ edition = "2024"
 
 rust-version = "1.97.1"
 license = "MPL-2.0"
-repository = "https://github.com/merely-made/murm"
+repository = "https://github.com/merely-made/retinue"
 description = "The radio-management application of the Murm family: the signal box for a household's radios."
 keywords = ["radio", "mesh", "reticulum", "lora"]
 categories = ["network-programming"]
@@ -44,8 +44,8 @@ comms = ["dep:comms", "dep:async-trait", "dep:tempfile", "dep:getrandom", "dep:s
 tempfile = { version = "3", optional = true }
 async-trait = { version = "0.1", optional = true }
 serial2-tokio = { version = "0.1.24", optional = true }
-# The shared presentation vocabulary lives in this repository's native workspace.
-comms = { package = "mere-comms", version = "0.0.1", path = "../../native/crates/comms", optional = true }
+# The shared presentation vocabulary lives in Murm, the peer repository.
+comms = { package = "mere-comms", version = ">=0.0.1", git = "https://github.com/merely-made/murm.git", branch = "main", optional = true }
 hex = "0.4"
 getrandom = { version = "0.4", optional = true }
 linkboy = { version = "0.1.0", path = "../linkboy" }

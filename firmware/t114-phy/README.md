@@ -98,7 +98,7 @@ not alter the reservation record format.
 The September 30 current package (now built from
 [its template](../packages/t114-current.template.toml)) identified
 source `711816a8124bd58cd8cc314ec4de5009be7df166` and image `t114-native`
-in live status. Its [physical follow-up](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/testing/receipts/firmware-refresh/follow-up/README.md)
+in live status. Its [physical follow-up](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/testing/receipts/firmware-refresh/follow-up/README.md)
 records installation, retained identity/settings sequence, a 1024-byte native
 resource exchange, guarded admission and signed announce ordinals advancing
 across soft resets. Same-image UF2 recovery and physical power-cut acceptance
@@ -131,7 +131,7 @@ named fixture, the fitted button traversed STATUS, POWER, RADIO, TRAFFIC,
 IDENTITY, LINKS, and PEERS. After a five-second fixture expired, the host-only
 pages disappeared and TRAFFIC wrapped directly to STATUS.
 
-The October 16 [physical memory continuation](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/testing/receipts/protocol-parity-memory/physical/README.md)
+The October 16 [physical memory continuation](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/testing/receipts/protocol-parity-memory/physical/README.md)
 measured an attended `memory-bench` image with synthetic retained Retinue,
 Sennet and Tucket state. That feature, the Tucket-only `tucket-endpoint` service
 and its contact store were withdrawn on 2026-11-14 with the resident protocols;

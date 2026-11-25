@@ -8,13 +8,13 @@ below to harvest, adopt or prefer Prns are historical and superseded. Existing
 attribution and measured observations remain; see the Prns donor ledger.
 
 **Date:** 2026-08-25. **Status:** revision-pinned research snapshot. The
-current MC4c physical result is recorded in the [resident receipt](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-09-13_murmuration_resident_physical_receipt.json);
+current MC4c physical result is recorded in the [resident receipt](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-09-13_murmuration_resident_physical_receipt.json);
 this survey remains an architecture record, not a new delivery lane or gate receipt.
 
 **Related authority:** [mesh household](2026-07-20_mesh_household_tulle_tucket_sennet.md),
 [listener executive and protocol leases](2026-08-10_listener_executive_and_protocol_leases.md),
 [Prns harvest brief](archive_docs/2026-11-02/2026-08-09_prns_harvest_brief.md), and
-[current RNS/LXMF re-pin receipt](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-08-29_rns_152_repin_receipt.md).
+[current RNS/LXMF re-pin receipt](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-08-29_rns_152_repin_receipt.md).
 Those documents retain authority over landed architecture and gate status.
 
 **Coverage:** named projects, active public implementations found through the

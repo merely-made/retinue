@@ -14,7 +14,7 @@ edition = "2024"
 
 rust-version = "1.99"
 license = "MPL-2.0"
-repository = "https://github.com/merely-made/murm"
+repository = "https://github.com/merely-made/retinue"
 description = "Signalman's desktop face for the owner firmware flow, on the shared Cambium desktop host."
 # Private, and deliberately so. Its host rides genet packages that inherit
 # genet's `publish = false`, so this cannot be installed from crates.io no
@@ -116,6 +116,11 @@ muniment = { git = "https://github.com/merely-made/eidetic.git", branch = "main"
 # No `parley` row: since genet 5ae30cad the fork is published as
 # `genet-parley`, nothing in genet answers to `parley`, and a patch row would
 # fail resolution (mere's own [patch.crates-io] says the same).
+
+# Murm takes `retinue` from this repository's URL. Point that source back at
+# the local crate so a build holds one copy.
+[patch."https://github.com/merely-made/retinue.git"]
+retinue = { path = "../../crates/retinue" }
 
 [workspace.package]
 rust-version = "1.99"

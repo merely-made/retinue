@@ -256,7 +256,7 @@ current plan set sorts as follows.
 | [Linkboy public flashing plan](archive_docs/2026-11-02/2026-08-08_linkboy_public_flashing_plan.md) | Historical F0–F7 installer ledger. The 2026-08-20 audit closed F1 and F2 outright; F3 and F4 are complete except two physical claims (as-shipped-board plan and V4 reset/boot-control recovery). The paired V4 preservation fact closed on 2026-08-20. F5 is complete: V4 has official per-platform helper custody and physical Windows, Intel-macOS, Apple-silicon-macOS, and Linux receipts; public T114 uses built-in UF2 and has its graphical Windows real-device receipt. F7 is complete: the graphical Prns V4 and Meshtastic T114 install-and-Retinue-restore receipts landed, and the catalog was published 2026-08-20 (Retinue `05b3795`, Mer3ly `94a7d64`, live V4/T114 pages). [Successor for open work](2026-11-02_linkboy_public_flashing_plan.md). |
 | [Linkboy F5 spike](2026-08-08_linkboy_public_flashing_f5_spike.md) | Complete helper-packaging evidence. V4 selects and verifies official per-platform `espflash 4.5.0` artifacts; public T114 uses Linkboy's built-in stock-bootloader UF2 route. Ambient PATH is development-only. Cross-platform V4 receipts and the public T114 real-device receipt are recorded. |
 | [Signalman Cambium desktop scope](2026-08-09_signalman_cambium_desktop_scope.md) | Active GUI authority. G0 through G3 are complete. G4 has physical V4 and T114 cross-firmware-and-recovery receipts, and the owner supplied the manual screen-reader judgement for Windows. |
-| [Signalman G2 receipt](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-08-09_signalman_desktop_g2_receipt.md) | Evidence, not a work queue. It proves the headed shell and automated accessibility surface, not a board flash. |
+| [Signalman G2 receipt](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-08-09_signalman_desktop_g2_receipt.md) | Evidence, not a work queue. It proves the headed shell and automated accessibility surface, not a board flash. |
 | [Mesh scaling and asymmetric routing](2026-08-09_mesh_scaling_and_asymmetric_routing.md) | Active network-scaling authority. FT1 through FT5 own airtime, expiry, bidirectionality, ETX, and scope policy. |
 | [Channel murmuration](2026-08-09_channel_murmuration.md) | Framing superseded 2026-08-10 by the listener-executive doc; its rules and CM2 through CM5 survive translated and stay serial, consuming FT1, FT3, and FT5 facts. CM1 is absorbed into LE2. |
 | [Listener executive and protocol leases](2026-08-10_listener_executive_and_protocol_leases.md) | Active executive-boundary authority. LE1 through LE5 own the adapter boundary, bounded leases, and the DetectionProfile/ReceiveProfile scan plan; supersedes retinue-small decision 4's channel-ownership clause. |
@@ -313,8 +313,8 @@ stack in its own `.cargo/config.toml` and Cargo resolves that file relative to
 the working directory rather than to `--manifest-path`. Built from anywhere
 else the daemon overflows a 1 MiB stack before it can parse an argument. See the
 historical [RNS 1.5.0 peer matrix
-receipt](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-08-23_prns_peer_matrix_rns150_receipt.md) and the [current RNS
-1.5.2 re-pin receipt](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-08-29_rns_152_repin_receipt.md).
+receipt](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-08-23_prns_peer_matrix_rns150_receipt.md) and the [current RNS
+1.5.2 re-pin receipt](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-08-29_rns_152_repin_receipt.md).
 
 Item 4 is still owed: the donor ledger records that no private disclosure record
 has been sent, and no disclosure directory exists in the tree. This blocks
@@ -328,7 +328,7 @@ its closure.
 **Primary write surface:** `crates/retinue/oracle/`, oracle scripts, captured
 receipts.
 **Current receipt:** [RNS 1.5.2 re-pin and peer
-matrix](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-08-29_rns_152_repin_receipt.md), which supersedes the version claim
+matrix](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-08-29_rns_152_repin_receipt.md), which supersedes the version claim
 of both earlier peer receipts but not their lane boundary.
 
 Sequence:
@@ -363,19 +363,19 @@ and board firmware.
 **Opening software status (2026-08-12):** AIR0's bounded profile registry,
 AIR1's Reticulum announce pacing path, and AIR2's attributed ingress admission
 are implemented and host-tested; see the
-[AIR0/AIR1 receipt](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-08-12_air0_air1_software_receipt.md) and
-[AIR2 receipt](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-08-12_air2_announce_ingress_receipt.md). The
-[LE3 scan-physics receipt](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-08-20_le3_t114_scan_physics_receipt.md) now
+[AIR0/AIR1 receipt](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-08-12_air0_air1_software_receipt.md) and
+[AIR2 receipt](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-08-12_air2_announce_ingress_receipt.md). The
+[LE3 scan-physics receipt](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-08-20_le3_t114_scan_physics_receipt.md) now
 supplies the real-radio CAD, retune, handoff, acquisition, cross-sync miss,
 and exact-capture facts for the LE3a/LE3b physical slice. It does not supply
 the long-run rotating-scheduler miss-rate calibration or FT1. AIR2 is not the
 bounded firmware-state proof required by FT2/FS6. AIR3 now supplies the
 native-node route/relay model, a true T114 heap-peak instrument, and an
-[on-air bounded-state receipt](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-08-13_air3_t114_on_air_receipt.md): live
+[on-air bounded-state receipt](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-08-13_air3_t114_on_air_receipt.md): live
 route eviction, peer refusal, a stable 18,168-byte heap peak, and independently
 observed hop-one type-2 announce relays. The stronger link-request/proof relay
 transaction remains later transport coverage. See also the
-[AIR3 software receipt](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-08-12_air3_bounded_transport_software_receipt.md).
+[AIR3 software receipt](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-08-12_air3_bounded_transport_software_receipt.md).
 
 Sequence:
 

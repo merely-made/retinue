@@ -1,6 +1,6 @@
 # Channel Murmuration: Runtime Channel Scheduling
 
-**Status, 2026-09-13: MC4c retained resident traffic has a [physical receipt](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-09-13_murmuration_resident_physical_receipt.json).
+**Status, 2026-09-13: MC4c retained resident traffic has a [physical receipt](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-09-13_murmuration_resident_physical_receipt.json).
 Memory, power-cut and driver-fault acceptance remain open.** This section is the current authority for murmuration's
 product behavior and ownership. It supersedes the 2026-08-10 rejection of a
 home personality and mandatory resident-listener identity in the
@@ -118,7 +118,7 @@ coverage, and refusal to report home restored before acknowledgement. An unknown
 radio result reports recovery required; arbitrary received bytes cannot request a
 transition. State clearly that this proves controller behavior only.
 
-The [MC3a physical receipt](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-09-10_murmuration_physical_receipt.md) now proves
+The [MC3a physical receipt](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-09-10_murmuration_physical_receipt.md) now proves
 host-driven real packet codecs through existing board radio ownership: explicit
 switch/return, deadline return, pin refusal, caller-owned packet state and counted
 home receive gaps. It pins the V4 build and records the T114's live identity and
@@ -229,7 +229,7 @@ bin-packs queued entries. Grants-as-data makes the payloads legal end to end,
 since a signed grant is valid however it arrived, including via a thirty-second
 Meshtastic visit. The delivery machinery partly exists: outrider's un-stamped
 opportunistic delivery already passes both directions on hardware
-([acceptance](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-07-28_outrider_opportunistic_delivery.md)), and a visit
+([acceptance](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-07-28_outrider_opportunistic_delivery.md)), and a visit
 window is a scheduled occasion for exactly that opportunism.
 
 **7. Visits are honest citizenship, abbreviated.** The Meshtastic done

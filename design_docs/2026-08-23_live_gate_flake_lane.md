@@ -233,7 +233,7 @@ now blocks on FLK1.
 `peer_matrix.py` drives announce exchanges and transport forwarding only; it
 never runs `interop_reqresp`, `interop_resource_recv`, or `interop_ifac`. The
 seven clean runs behind the
-[RNS 1.5.0 peer matrix receipt](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-08-23_prns_peer_matrix_rns150_receipt.md)
+[RNS 1.5.0 peer matrix receipt](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-08-23_prns_peer_matrix_rns150_receipt.md)
 are not weakened by this flake, and equally say nothing about it.
 
 This lane does not own the wire-format question, the pin, or any RF behavior. It

@@ -369,7 +369,7 @@ started opportunistically.
   they do not establish a satellite position fix. The board was indoors and no
   `gnss=fix` was measured. PD3 therefore remains open pending an outdoor fix
   and loss-of-fix observation. Exact flash, preservation, probe, and control
-  facts are in [the receipt](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-09-03_v4_gnss_rx_fix_receipt.json).
+  facts are in [the receipt](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-09-03_v4_gnss_rx_fix_receipt.json).
 - **2026-11-14. PD1/PD2 code removed.** Mark, selecting the uncalled
   position ACL for removal: "Eh, it's all in git history. If needed, it'll be
   there." `radio-hand::control::position_disclosure` and its nine tests were

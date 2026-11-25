@@ -138,7 +138,7 @@ The first on-device UI hardware acceptance is recorded in
 
 The `resident-protocols` image, its contact store and the `memory-bench`
 `protocol memory` command were withdrawn on 2026-11-14: foreign LoRa meshes are
-reached through a stock companion radio, which holds the keys. The [October 16 physical receipt](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/testing/receipts/protocol-parity-memory/physical/README.md)
+reached through a stock companion radio, which holds the keys. The [October 16 physical receipt](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/testing/receipts/protocol-parity-memory/physical/README.md)
 records the exact images, identified boards, failures and application/state
 restoration. The heap campaign passes on COM6; COM7's post-flash USB failure is
 separate. The tight main-stack sample is not accepted worst-case headroom.

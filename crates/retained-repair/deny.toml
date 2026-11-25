@@ -1,6 +1,0 @@
-# cargo-deny configuration for crates/retained-repair, which is its own workspace.
-# The rule and how a skip is argued are in the root deny.toml.
-
-[bans]
-multiple-versions = "deny"
-wildcards = "allow"

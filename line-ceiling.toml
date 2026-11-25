@@ -34,58 +34,6 @@ path = "firmware/heltec-v4-phy/src/radio_owner.rs"
 reason = "The V4's single owner for live radio and durable board state. Existing source-size debt; a responsibility split must preserve V4RadioOwner, V4BootOwner, RxSetupFault and existing module visibility."
 
 [[exception]]
-path = "native/crates/murm/src/conversation_engine.rs"
-reason = "Native conversation runtime over [crate::ConversationStore]. Existing source-size debt; a responsibility split must preserve ConversationRefresh, CabalHistory, ConversationEngine and existing module visibility."
-
-[[exception]]
-path = "native/crates/murm/src/lib.rs"
-reason = "Murm Direct peer-to-peer conversation service for the mere browser. Existing source-size debt; a responsibility split must preserve Murm and existing module visibility."
-
-[[exception]]
-path = "native/crates/ocapn/src/session.rs"
-reason = "Session. Existing source-size debt; a responsibility split must preserve SessionConfig, Shared, CapInner and existing module visibility."
-
-[[exception]]
-path = "native/crates/ocapn/tests/sessions.rs"
-reason = "Sessions. Existing source-size debt; a responsibility split must preserve Subject, Echo, Factory and existing module visibility."
-
-[[exception]]
-path = "native/crates/transport/src/blobs.rs"
-reason = "Content-addressed blob store, backed by iroh-blobs. Existing source-size debt; a responsibility split must preserve BlobHash, BlobPeerAuthorizer, BlobScope and existing module visibility."
-
-[[exception]]
-path = "native/crates/transport/src/p2panda_transport.rs"
-reason = "p2panda-net-backed [Transport] implementation — the production transport. Existing source-size debt; a responsibility split must preserve P2pandaStream, QueuedStream, StreamQueueHandler and existing module visibility."
-
-[[exception]]
-path = "native/crates/transport/src/p2panda_transport/tests.rs"
-reason = "P2panda transport tests. Existing source-size debt; a responsibility split must preserve Traffic, HoldOpen, ChildPeer and existing module visibility."
-
-[[exception]]
-path = "native/crates/transport/src/security.rs"
-reason = "Exact owner-selected security profiles and bounded setup leases. Existing source-size debt; a responsibility split must preserve SecurityMode, SetupLimits, ServiceSecurityPolicy and existing module visibility."
-
-[[exception]]
-path = "native/crates/webrtc-carrier/src/browser/initiator.rs"
-reason = "The browser initiator: a web_sys::RtcPeerConnection driven from Rust. Existing source-size debt; a responsibility split must preserve IceCandidate, IceServer, IceTransportPolicy and existing module visibility."
-
-[[exception]]
-path = "native/crates/webrtc-carrier/src/invite.rs"
-reason = "Invitation identifiers and the C2 invitation payload. Existing source-size debt; a responsibility split must preserve InviteId, InviteV1 and existing module visibility."
-
-[[exception]]
-path = "native/crates/webrtc-carrier/src/native/driver.rs"
-reason = "The Sans-IO driver: the loop str0m does not write for you. Existing source-size debt; a responsibility split must preserve Wake, Driver and existing module visibility."
-
-[[exception]]
-path = "native/crates/webrtc-carrier/src/native/session.rs"
-reason = "The live session: the handles an application holds, and the state they share with the driver task. Existing source-size debt; a responsibility split must preserve DriverPlacement, SessionFingerprints, CarrierConfig and existing module visibility."
-
-[[exception]]
-path = "native/crates/webrtc-carrier/tests/native_loopback.rs"
-reason = "The native C1 receipts: two str0m peers, one loopback UDP pair, real DTLS. Existing source-size debt; a responsibility split must preserve SurvivorReport, Binds, EchoRun and existing module visibility."
-
-[[exception]]
 path = "crates/station-custody/src/control.rs"
 reason = "Signed low-bandwidth control frames for a sited station. Existing source-size debt; a responsibility split must preserve SitedStationControlSigner, SitedStationControl, SitedStationControlBody and existing module visibility."
 

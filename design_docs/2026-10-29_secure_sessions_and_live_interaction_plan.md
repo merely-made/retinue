@@ -239,7 +239,7 @@ plaintext retry. Native iroh evidence comes from
 ### N3. Qualify the same secure service on two carriers
 
 **Landed 2026-10-30** for native local process and network scope: the
-[process fixture](https://github.com/merely-made/murm/blob/24ec7cba0b4bc66737686c7786c00cdef88393a8/testing/secure-sessions-n3/README.md) ran one admitted
+[process fixture](https://github.com/merely-made/retinue/blob/24ec7cba0b4bc66737686c7786c00cdef88393a8/testing/secure-sessions-n3/README.md) ran one admitted
 service over Noise on TCP, iroh and Reticulum, and over native iroh. The
 fixture was removed on 2026-11-13; its runs are recorded in the
 [qualification record](archive_docs/2026-10-29/2026-10-29_secure_sessions_and_live_interaction_plan_receipts.md). What it
@@ -333,7 +333,7 @@ Findings from N1 to O3 that no open item needs are in the archived plan.
   stream identifier, ordered endpoint identities, selected service, actual
   negotiated TLS ALPN and profile/version. Another stream on the same TLS
   connection has a different admission binding.
-- 2026-10-30: the [native process fixture](https://github.com/merely-made/murm/blob/24ec7cba0b4bc66737686c7786c00cdef88393a8/testing/secure-sessions-n3/README.md) (removed 2026-11-13)
+- 2026-10-30: the [native process fixture](https://github.com/merely-made/retinue/blob/24ec7cba0b4bc66737686c7786c00cdef88393a8/testing/secure-sessions-n3/README.md) (removed 2026-11-13)
   exercises one admitted service with Noise over raw TCP, iroh and Reticulum
   (reliable links over a local TCP interface), and with native iroh security.
   The native stream API is above TLS, so the fixture explicitly excludes

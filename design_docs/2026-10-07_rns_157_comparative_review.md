@@ -42,7 +42,7 @@ closed on 2026-10-08, when routes moved to RNS's one-week expiry.
 
 - **Upstream:** RNS 1.5.7, from `rns-1.5.7-py3-none-any.whl` (PyPI, SHA-256
   `0e4aaf8cc47f770da34572d2215b45fea900e104b009551600eb9741a41faddf`, the wheel
-  qualified in the [1.5.7 repin](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/testing/receipts/rns-1.5.7-repin/README.md)).
+  qualified in the [1.5.7 repin](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/testing/receipts/rns-1.5.7-repin/README.md)).
   It was unpacked into a session scratchpad outside the repository. GitHub had
   no 1.5.7 tag on this date.
 - **Training condition:** the owner confirmed on 2026-10-07 that model training

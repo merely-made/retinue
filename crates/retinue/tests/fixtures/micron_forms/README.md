@@ -31,5 +31,5 @@ The server/client profiles disable instance sharing and transport and use only
 TCP loopback ports 42541/42542. All three task-owned tmux sessions were stopped.
 
 The actual API receipt is the linked section in
-[NomadNet interoperability receipts](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-09-13_nomadnet_go_resource_compression_receipt.md#typed-form-request-receipt).
+[NomadNet interoperability receipts](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-09-13_nomadnet_go_resource_compression_receipt.md#typed-form-request-receipt).
 Knot/Turnstone editable widgets and dynamic-site handlers are not qualified here.

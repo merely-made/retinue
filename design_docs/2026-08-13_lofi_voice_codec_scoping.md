@@ -196,7 +196,7 @@ legitimate route to that number today short of a black-box capture against the
 pinned LXMF 0.9.6 oracle.
 
 **Both points below were superseded on the same day by an actual capture:
-see the [LXMF field registry capture](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-08-13_lxmf_field_registry_capture.md).
+see the [LXMF field registry capture](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-08-13_lxmf_field_registry_capture.md).
 Audio is field 7, and the mode enumeration is not closed: `AM_CUSTOM` means
 "a codec outside this list", so a clip rides the stock audio field honestly
 after all. Point 2 was careful reasoning about a registry nobody had looked

@@ -1,7 +1,7 @@
 # Listener Executive and Protocol Leases
 
 **Current status, 2026-09-13:** the retained resident V4 path has the
-[MC4c physical receipt](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-09-13_murmuration_resident_physical_receipt.json).
+[MC4c physical receipt](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-09-13_murmuration_resident_physical_receipt.json).
 The older LE scan and build-only snapshots below retain their original scope.
 
 > **Product framing superseded, 2026-09-10:**
@@ -22,7 +22,7 @@ guard stand, translated below.
 
 **Receipt status, 2026-08-20:** the LE3a/LE3b physical scan slice is complete
 on one T114 with two V4 transmitters. The
-[scan-physics receipt](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-08-20_le3_t114_scan_physics_receipt.md) records two
+[scan-physics receipt](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-08-20_le3_t114_scan_physics_receipt.md) records two
 CAD groups, three exact receive profiles, measured transition/acquisition
 costs, the runtime cycle-budget refusal, the fixed `0x12`/`0x2b` miss and
 capture pair, and the driver defects found on air. The final unattended

@@ -73,10 +73,10 @@ rather than treated as cost-free public data. It contains no names, locations,
 trust decisions, routes, messages or private material. The ordinary field-relay
 build keeps the host-only rule above. `flash-policy.toml` explicitly enumerates
 every cache/scope field; the classification audit checks both record schemas.
-The [standalone contact receipt](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/testing/receipts/tucket-firmware-contacts/README.md)
+The [standalone contact receipt](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/testing/receipts/tucket-firmware-contacts/README.md)
 records the bounded backends, live V4 reboot exchange and preservation checks.
 That receipt qualified T114 storage only. The later opt-in T114
-`tucket-endpoint` profile has its own [live receipt](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/testing/receipts/tucket-t114/README.md):
+`tucket-endpoint` profile has its own [live receipt](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/testing/receipts/tucket-t114/README.md):
 scoped volatile USB setup, bounded public contacts, quiet owner-mediated writes
 and reboot recovery. It does not persist private setup or qualify the installed
 personal daemon. The default relay's host-only contact policy remains unchanged.

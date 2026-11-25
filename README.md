@@ -1,19 +1,20 @@
-# Murm: communication and device implementations
+# Retinue: radio protocols, devices and Signalman
 
-Murm brings the radio family together with the native peer carriers and
-conversation service imported from Mere. Retinue remains the Reticulum crate;
-all existing crate names and source histories are preserved. The canonical
-repository is [merely-made/murm](https://github.com/merely-made/murm). See the
-[family move plan](design_docs/2026-11-02_murm_family_move_plan.md) for the
-receiving-build and consumer-cutover status.
+Retinue is the mesh layer of the Merely stack: the Reticulum and LXMF crates,
+the radio interface layer, board firmware and the operator apps. The canonical
+repository is [merely-made/retinue](https://github.com/merely-made/retinue).
+All crate names and source histories are preserved.
 
-The radio workspace stays at the root. The separate `native/` workspace contains
-`murm`, `mere-transport`, `murm-webrtc`, [`murm-sync`](native/crates/sync/README.md),
-and the separately optional
-[`murm-ocapn`](native/crates/ocapn/README.md) package (its `native` feature
-holds the endpoint admission adapter).
-All use Rust 1.99.1 for development and declare a shared MSRV of 1.97.1. Build
-the native libraries with `cargo test --manifest-path native/Cargo.toml --lib`.
+The native peer carriers and conversation service that lived in `native/`
+moved to [merely-made/murm](https://github.com/merely-made/murm) on
+2026-11-25, with `retained-repair` and `transport-conformance`. Murm takes
+`retinue` and `truchman` from this repository, and Signalman's optional
+`comms` feature takes `mere-comms` from Murm. The
+[repository layers plan](design_docs/2026-11-25_repository_layers_plan.md)
+records the split. The
+[family move plan](design_docs/2026-11-02_murm_family_move_plan.md) keeps the
+earlier receiving-build and consumer-cutover status. Development uses Rust
+1.99.1 with a shared MSRV of 1.97.1.
 
 The HTTP and WebSocket wire engine (`murm-wire`) and the WebRTC protocol leaf
 (`murm-rtc`) that this repository once held in `wire/` moved to Genet on
@@ -71,10 +72,6 @@ Each crate has its own README with more detail, and here's a generated overview.
 
 | Crate | What it is | crates.io |
 | --- | --- | --- |
-| `murm` | Peer conversation service in `native/crates/murm`; immutable Git source, package identity preserved. | Git |
-| `mere-transport` | Native peer carriers in `native/crates/transport`. | Git |
-| `murm-webrtc` | Portable WebRTC core with optional browser/native adapters. | Git |
-| `murm-ocapn` | Optional bounded Rust CapTP runtime with a pinned interoperability subset; its non-default `native` feature adds bounded native iroh admission on the host's existing endpoint (product authority stays with its owner). | Git |
 | `retinue` | Reticulum protocol: identity, announces, links, requests, Resources, routing. `no_std + alloc` core with a tokio shell. | published |
 | `outrider` | LXMF: message codec, direct and opportunistic delivery, propagation client and server. | published |
 | `postilion` | Shared radio-host library: a Station wraps one identity, one board, an announce cadence and a peer table. | published |
@@ -111,11 +108,11 @@ index, and a staging step builds the flashable packages (see its README).
   reached through a stock companion radio that holds the keys (Mark: "Stock
   radios only"); the frame types Signalman's companion client uses live in
   `apps/signalman/src/radio_comms/companion`, and the two crates left the
-  workspace on 2026-11-14 (their names stay published at 0.0.2). The September 30 native exchanges in the [historical receipt](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/testing/receipts/sennet-tucket-current/README.md)
+  workspace on 2026-11-14 (their names stay published at 0.0.2). The September 30 native exchanges in the [historical receipt](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/testing/receipts/sennet-tucket-current/README.md)
   describe code that has since been removed.
 - **Firmware.** T114 bounded transport has an on-air receipt from August 13.
-  The [firmware refresh](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/testing/receipts/firmware-refresh/README.md) and its
-  [follow-up](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/testing/receipts/firmware-refresh/follow-up/README.md) installed
+  The [firmware refresh](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/testing/receipts/firmware-refresh/README.md) and its
+  [follow-up](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/testing/receipts/firmware-refresh/follow-up/README.md) installed
   clean-pin V4 and T114 images with preserved settings. They passed selected
   RF traffic, a 1024-byte exchange and signed announces across soft resets.
   Resident cancellation is not yet reliable: one isolated run passed and one

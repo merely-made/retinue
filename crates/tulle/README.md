@@ -2,7 +2,7 @@
 
 The shared radio interface layer for LoRa mesh stacks: serial modem control
 (RNode/KISS style framing) and medium access (listen-before-talk, duty-cycle
-accounting), beneath [retinue](https://github.com/merely-made/murm).
+accounting), beneath [retinue](https://github.com/merely-made/retinue).
 
 A tulle is a fine net fabric: the material every protocol is woven across.
 
@@ -19,9 +19,9 @@ hardware operations. The optional `personality_serial` runtime keeps an exclusiv
 direct-PHY session open, applies exact controller transitions and bounds away
 I/O while reserving return time. Uncertain or cancelled hardware operations latch
 recovery. A host-driven Retinue/Sennet packet-adapter bench now has a
-[physical receipt](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-09-10_murmuration_physical_receipt.md).
+[physical receipt](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-09-10_murmuration_physical_receipt.md).
 Host-retained Retinue links, proof-dependent resource drain and Sennet duplicate state have a
-[session receipt](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-09-11_murmuration_session_receipt.md).
+[session receipt](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-09-11_murmuration_session_receipt.md).
 Explicit Retinue session loss and V4 board-timed PHY return are also verified.
 Resident firmware protocol adapters and physical fault-injection coverage remain open; the
 [controller plan](../../design_docs/2026-11-02_murmuration_controller_plan.md)

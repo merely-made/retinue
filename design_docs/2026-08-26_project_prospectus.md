@@ -34,7 +34,7 @@ wider mesh.
 
 ## What exists today, verifiably
 
-- Public workspace at <https://github.com/merely-made/murm>, with CI
+- Public workspace at <https://github.com/merely-made/retinue>, with CI
   gates for licensing, an audited unsafe-token policy, sustained fuzzing of
   the RF ingest path, and a validation registry that refuses evidence from a
   dirty tree.

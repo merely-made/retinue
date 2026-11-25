@@ -35,11 +35,10 @@ all-features = true
 #   cargo deny --workspace --all-features check -D unmatched-skip bans
 #
 # The hook runs that here and in each nested workspace that ships, each against
-# its own deny.toml: native, apps/signalman-desktop, crates/station-custody,
-# crates/pipit and crates/retained-repair. A skip that matches nothing fails.
+# its own deny.toml: apps/signalman-desktop, crates/station-custody and
+# crates/pipit. A skip that matches nothing fails.
 # Not gated:
 #   fuzz                           a validation-manifest instrument (fuzz runs)
-#   testing/transport-conformance  a validation-manifest instrument (vectors)
 #   testing/iroh-control           a kept probe
 #   apps/pocket-nfc-probe          a kept probe, and an Xcode project, not a workspace
 #   vendor/*                       vendored upstream trees, not workspaces
@@ -129,41 +128,3 @@ license-files = [{ path = "LICENSE", hash = 0xa9865ee2 }]
 crate = "radio-hand"
 expression = "LicenseRef-Reticulum"
 license-files = [{ path = "LICENSE", hash = 0xa9865ee2 }]
-
-# Per-crate exceptions for the native/ workspace (iroh, p2panda and the embedded emissary
-# router), checked by CI's licenses-native job with this file. Each license is permissive,
-# and each is allowed only for the crates named here (owner's choice, 2026-10-22), so the
-# allow list above stays as tight as the radio and firmware graph needs, and a new crate
-# under one of these licenses still fails until it is reviewed.
-[[licenses.exceptions]]
-crate = "async_io_stream"
-allow = ["Unlicense"]
-
-[[licenses.exceptions]]
-crate = "pharos"
-allow = ["Unlicense"]
-
-[[licenses.exceptions]]
-crate = "ws_stream_wasm"
-allow = ["Unlicense"]
-
-[[licenses.exceptions]]
-crate = "foldhash"
-allow = ["Zlib"]
-
-[[licenses.exceptions]]
-crate = "spez"
-allow = ["BSD-2-Clause"]
-
-[[licenses.exceptions]]
-crate = "webpki-roots"
-allow = ["CDLA-Permissive-2.0"]
-
-[[licenses.exceptions]]
-crate = "webpki-root-certs"
-allow = ["CDLA-Permissive-2.0"]
-
-# Via emissary-core.
-[[licenses.exceptions]]
-crate = "tiny-keccak"
-allow = ["CC0-1.0"]

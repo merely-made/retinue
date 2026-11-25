@@ -1,6 +1,6 @@
 # On-device radio UI: remaining work
 
-**Status (2026-11-02): plan.** Successor to the [original UI plan](archive_docs/2026-11-02/2026-07-28_on_device_ui_implementation_plan.md), whose U0–U5 implementation and bounded receipts remain historical evidence. Design authority remains [on-device UI](2026-07-25_on_device_ui.md); physical power work also has the [display power acceptance](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-07-29_display_power_field_acceptance.md).
+**Status (2026-11-02): plan.** Successor to the [original UI plan](archive_docs/2026-11-02/2026-07-28_on_device_ui_implementation_plan.md), whose U0–U5 implementation and bounded receipts remain historical evidence. Design authority remains [on-device UI](2026-07-25_on_device_ui.md); physical power work also has the [display power acceptance](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/design_docs/2026-07-29_display_power_field_acceptance.md).
 
 ## Phases and done-conditions
 

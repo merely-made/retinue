@@ -15,18 +15,18 @@ in the same breath. The 2026-08-12 sequencing document asked for this sentence
 and the ledger's header to be fixed together, which is what this is.
 
 **Automated receipt, 2026-09-10.** At `045cb2fce237eee65412e291b95ac3e11ffac3aa`,
-the [Linux fuzz job](https://github.com/merely-made/murm/actions/runs/34440754804/job/102755113883)
+the [Linux fuzz job](https://github.com/merely-made/retinue/actions/runs/34440754804/job/102755113883)
 completed corpus-isolation checks and all three 120-second campaigns:
 `retinue-node-ingest`, `outrider-lxmf-decode`, and `retinue-command-accept`.
 ASSURE2 now has an executed smoke receipt, and ASSURE6's first green Linux
 result is satisfied. That run's separate check job failed Clippy; this fuzz
 receipt alone does not claim aggregate CI acceptance. After the check repairs,
-[aggregate CI at `0249668`](https://github.com/merely-made/murm/actions/runs/34442637387)
+[aggregate CI at `0249668`](https://github.com/merely-made/retinue/actions/runs/34442637387)
 passes all six jobs: check (format, builds, tests, Clippy and docs), firmware,
 MSRV, validation registry, licenses, and fuzz.
-The [survey integration at `e1c5630`](https://github.com/merely-made/murm/actions/runs/34444260832)
+The [survey integration at `e1c5630`](https://github.com/merely-made/retinue/actions/runs/34444260832)
 also passes aggregate CI.
-The [bounded V4 USB carrier at `e7c972d`](https://github.com/merely-made/murm/actions/runs/34447977112)
+The [bounded V4 USB carrier at `e7c972d`](https://github.com/merely-made/retinue/actions/runs/34447977112)
 passes aggregate CI; its physical observation receipt is recorded separately.
 Longer campaigns, physical security gates, and disclosure remain distinct.
 

@@ -41,10 +41,7 @@ members = [
 exclude = [
     # Dependency-free codec keeps its own no_std/MSRV workspace.
     "crates/pipit",
-    "native",
     "apps/signalman-desktop",
-    # Bounded retained-repair host prototype has its own pinned codec graph.
-    "crates/retained-repair",
     # Private Djinn-backed native adapter; qualified by its standalone root.
     "crates/station-custody",
     "vendor/embedded-graphics",
@@ -91,6 +88,12 @@ codegen-units = 1
 # are explicit because Cargo does not inherit them from Git dependencies.
 [patch.crates-io]
 # Canonical promoted families; keep registry and Git consumers type-identical.
+
+# Murm takes `retinue` and `truchman` from this repository's URL. Point that
+# source back at the local crates so a build holds one copy of each.
+[patch."https://github.com/merely-made/retinue.git"]
+retinue = { path = "crates/retinue" }
+truchman = { path = "crates/truchman" }
 
 [workspace.lints.clippy]
 missing_errors_doc = "warn"

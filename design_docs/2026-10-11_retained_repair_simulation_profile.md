@@ -63,7 +63,7 @@ sink custody. The bounded `recover` helper accepts/drop source frames and
 delivers repair frames through the real collector, with prior decoder state
 reported; it does not substitute producer originals for decoder output.
 The selected process experiment lives once at
-[`retained-live-20261012/exploration.json`](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/testing/transport-conformance/results/retained-live-20261012/exploration.json).
+[`retained-live-20261012/exploration.json`](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/testing/transport-conformance/results/retained-live-20261012/exploration.json).
 These volatile host components add no radio, persistence or application
 admission owner. The following `generation.original_hex` and checkpoint API
 continue to describe the historical scenario mode.
@@ -231,7 +231,7 @@ next implementation choice; they do not freeze the interim design into a
 conformance or regression contract. Keep smoke checks small and postpone broad
 qualification until the stack's shape is stable.
 
-The selected [exploration report](https://github.com/merely-made/murm/blob/b0e31de8b581940dcd347968585c401e3ad786ca/testing/transport-conformance/results/retained-repair-exploration-20261011.json)
+The selected [exploration report](https://github.com/merely-made/retinue/blob/b0e31de8b581940dcd347968585c401e3ad786ca/testing/transport-conformance/results/retained-repair-exploration-20261011.json)
 records four experiments on macOS aarch64. These observations describe the
 checked-in inputs, not an invariant every future scheduler must preserve:
 

@@ -1,12 +1,11 @@
-# Unanchored: native, crates/station-custody, apps/signalman-desktop and the
-# other excluded crates are their own workspaces and build beside themselves.
+# Unanchored: crates/station-custody, apps/signalman-desktop and the other
+# excluded crates are their own workspaces and build beside themselves.
 target/
 # Exact-commit validation records are local evidence artifacts.  A record is
 # valid only for the clean commit it names, so it is never source-controlled.
 /validation/results/
 /testing/receipts/
 /testing/iroh-control/results/
-/testing/transport-conformance/results/
 /validation/signalman-custody/
 /validation/signalman-refresh-*.json
 /validation/signalman-refresh-*.zip
@@ -46,7 +45,5 @@ design_docs/private/
 target-*/
 cargo-home-*/
 
-# Standalone native consumer build output.
-/native/target/
 # Not tracked: what cargo resolved is a git note on each commit (scripts/record-resolved.sh).
 Cargo.lock
