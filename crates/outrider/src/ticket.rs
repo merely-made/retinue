@@ -93,6 +93,9 @@ pub fn check_stamp(
         return Ok(StampOutcome::Ticket);
     }
     let stamp = <&[u8; STAMP_LEN]>::try_from(stamp).map_err(|_| StampFault::Invalid)?;
+    if let Some(value) = crate::stamp::bare_target(message_id, stamp, u16::from(target)) {
+        return Ok(StampOutcome::Work(value));
+    }
     let value = crate::stamp::value_streamed(message_id, MESSAGE_WORKBLOCK_ROUNDS, stamp);
     if value >= u16::from(target) {
         Ok(StampOutcome::Work(value))
@@ -116,6 +119,9 @@ pub fn check_stamp_cost(
         return Ok(StampOutcome::Ticket);
     }
     let work = <&[u8; STAMP_LEN]>::try_from(stamp).map_err(|_| StampFault::Invalid)?;
+    if let Some(value) = crate::stamp::bare_cost(message_id, work, target) {
+        return Ok(StampOutcome::Work(value));
+    }
     let mut derivation = crate::stamp::Derivation::new(message_id, MESSAGE_WORKBLOCK_ROUNDS);
     derivation.advance(MESSAGE_WORKBLOCK_ROUNDS);
     let value = derivation.value(work).expect("finished derivation");

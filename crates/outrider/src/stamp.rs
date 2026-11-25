@@ -218,6 +218,19 @@ pub fn find(
     mint_from(&midstate, target, &mut seed, max_attempts)
 }
 
+/// LXMF 1.3.1's transitional form: a stamp over the bare material, as RNS 1.6 network
+/// stamps are made, with no workblock expansion. Stock receivers try it before the
+/// expanded workblock (`LXMessage.validate_stamp`, `LXStamper.validate_pn_stamp`) until
+/// RNS 1.6.2, so a receiver here does the same. Returns the bare value when it passes.
+pub fn bare_cost(material: &[u8], stamp: &[u8; STAMP_LEN], cost: StampCost) -> Option<u16> {
+    valid_cost(material, stamp, cost).then(|| value(material, stamp))
+}
+
+/// [`bare_cost`] for an integer target.
+pub fn bare_target(material: &[u8], stamp: &[u8; STAMP_LEN], target: u16) -> Option<u16> {
+    valid(material, stamp, target).then(|| value(material, stamp))
+}
+
 /// Exact fractional cost check against a materialized workblock.
 pub fn valid_cost(workblock: &[u8], stamp: &[u8; STAMP_LEN], cost: StampCost) -> bool {
     let digest: [u8; 32] = Sha256::new()

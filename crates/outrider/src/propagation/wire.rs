@@ -288,17 +288,21 @@ impl PropagationEntry {
 
     pub fn validate_stamp(&self, target: u16) -> bool {
         let transient_id = self.transient_id();
-        valid_streamed(
-            &transient_id,
-            PROPAGATION_WORKBLOCK_ROUNDS,
-            &self.stamp,
-            target,
-        )
+        crate::stamp::bare_target(&transient_id, &self.stamp, target).is_some()
+            || valid_streamed(
+                &transient_id,
+                PROPAGATION_WORKBLOCK_ROUNDS,
+                &self.stamp,
+                target,
+            )
     }
 
     /// Derive once for node admission and its legacy integer score metadata.
     pub(super) fn score_stamp_cost(&self, cost: StampCost) -> (u16, bool) {
         let material = self.transient_id();
+        if let Some(value) = crate::stamp::bare_cost(&material, &self.stamp, cost) {
+            return (value, true);
+        }
         let mut derivation = crate::stamp::Derivation::new(&material, PROPAGATION_WORKBLOCK_ROUNDS);
         derivation.advance(PROPAGATION_WORKBLOCK_ROUNDS);
         (
@@ -311,12 +315,13 @@ impl PropagationEntry {
 
     /// Check the exact fractional threshold without rounding it down to a bit count.
     pub fn validate_stamp_cost(&self, cost: StampCost) -> bool {
-        valid_streamed_cost(
-            &self.transient_id(),
-            PROPAGATION_WORKBLOCK_ROUNDS,
-            &self.stamp,
-            cost,
-        )
+        crate::stamp::bare_cost(&self.transient_id(), &self.stamp, cost).is_some()
+            || valid_streamed_cost(
+                &self.transient_id(),
+                PROPAGATION_WORKBLOCK_ROUNDS,
+                &self.stamp,
+                cost,
+            )
     }
 
     pub fn fractional_stamp_value(&self) -> f64 {
