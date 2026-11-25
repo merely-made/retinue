@@ -1,6 +1,6 @@
 # Repository layers: replication, peer, mesh
 
-**Status, 2026-11-25: layers and names decided; no code has moved.** This
+**Status, 2026-11-25: layers, names and history decided; no code has moved.** This
 replaces the repository boundaries Murm, P2mere and Eidetic grew into with
 three layers: Replication in `p2mere`, Peer in `murm`, Mesh in `retinue`.
 It owns the target layout and the evidence behind it. The
@@ -84,6 +84,16 @@ section.
 
 Links: area repositories · refines D1 · summary Replication is p2mere, Peer is murm, Mesh is retinue; the fork stays its own repository
 
+### repository_layers D3 — Retinue keeps the old history
+
+Question (2026-11-25): which repository keeps Murm's inherited history:
+`retinue`, `murm`, or neither? Answer: "Retinue keeps it".
+
+The existing repository takes the name `retinue` back and keeps every commit.
+`murm` is a new repository cut from `native/`.
+
+Links: area repositories · refines D2 · summary the existing repository becomes retinue with its history; murm is cut fresh from native
+
 ## Evidence, 2026-11-25
 
 Read from `origin/main` across `Code/repos`.
@@ -144,6 +154,43 @@ Read from `origin/main` across `Code/repos`.
   `Node` and `Endpoint` routing became one core on 2026-11-19
   ([shared transport core](2026-11-18_shared_transport_core_plan.md)).
 
+## What the Murm cut touches
+
+Read 2026-11-25 from `origin/main`. None of it has been done.
+
+- **Inside the repository.** Four path dependencies cross the line.
+  `mere-transport` and `murm-i2p` take `truchman`. `native`'s workspace takes
+  `retinue`: optional in `mere-transport`, required by `murm` and `murm-i2p`.
+  Signalman's optional `comms` feature takes `mere-comms`.
+- **Native's history.** 114 commits touch `native/`, and they already carry
+  the Mere ancestry under that path (`native/source-import.json`). Cut as a
+  subdirectory, the new repository keeps all of it.
+- **Consumers.** Eleven repositories name `murm.git`. Eight name only Peer
+  crates and change nothing. Three name Mesh crates there: Graphshell
+  (`retinue`), Turnstone (`retinue`, twice) and merelyllc.com (`radio-mirror`,
+  `radio-face`, `embedded-graphics` and `embedded-graphics-core`, six lines).
+- **The `retinue.git` patch tables.** Lines that send Peer crates to
+  `murm.git` are dead today and correct after the cut. Lines that send Mesh
+  crates there break the build once the new repository exists: Turnstone's
+  `retinue` and merelyllc.com's four.
+- **Cargo still clones Retinue.** Cargo fetches every git source in a graph
+  to resolve it, optional or not. While Murm takes `retinue` and `truchman`
+  from `retinue.git`, each Peer consumer clones the 1.94 GB anyway. From
+  crates.io it does not. `truchman` 0.1.1 there is current. `retinue` 0.3.0
+  there is from 2026-10-06, 250 commits back, before the shared transport
+  core and the RNS 1.6.1 stamp policy that `mere-transport` now uses.
+- **One `retinue` per graph.** Signalman with `comms` on would see Murm's
+  `retinue` beside its own, and so would Graphshell and Turnstone, which
+  pair `retinue` with `transport/reticulum`. Each needs one source for it.
+- **Locks.** Mere (two) and merelyllc.com (one) commit `Cargo.lock`. Every
+  other checkout holds a local lock whose Murm revisions will not exist in
+  the new repository, and needs `cargo update` for the Peer packages.
+- **Local.** The worktree `Code/worktrees/murm-knot-sync-close` hangs off
+  this clone. Mere's `.cargo/config.toml.example` and
+  `support/standards/transport_catalog.toml` name `../murm/crates/...` for
+  Mesh crates.
+- **Docs.** Ten plans here are Peer's by name, this one among them.
+
 ## Open
 
 - **Taking the names.** `merely-made/retinue` redirects to Murm today, and a
@@ -169,9 +216,8 @@ Read from `origin/main` across `Code/repos`.
 - **Not yet judged.** Whether Gemot's `verify_site_log` duplicates
   Stickleback's editions. Whether Signalman's own message layer (about 1k
   lines, plus a 246-line adapter) duplicates `mere-comms`.
-- **History.** The weight is neither layer's. A cut that follows each layer's
-  paths sheds it for both repositories; a repository that keeps Murm's full
-  history keeps the 1.94 GB with it.
+- **History.** D3 leaves the 1.94 GB with Retinue. A later cut that follows
+  Mesh's paths can still shed it.
 
 Cleared 2026-11-25: the `repos/retinue` symlink (Mere `268c7a1f4`), the local
 Pipit clone, `merely-made/pipit` (archived), the Murm and Retinue Cargo git
