@@ -175,41 +175,52 @@ Read from `origin/main` across `Code/repos`.
   every commit, so old Murm commit ids resolve under that name.
   `merely-made/murm` is new: `native/` at its root with
   `crates/retained-repair` and `testing/transport-conformance`, 234 commits
-  and about 7 MB. The 114 commits that touched `native/` already carried the
+  and about 7 MB (Murm `3705ef3`). The 114 commits that touched `native/` already carried the
   Mere ancestry (`source-import.json`).
 - **Murm's side.** It takes `retinue` and `truchman` from `retinue.git`. Its
   line-ceiling exceptions, dependency bans, licence policy and hooks came
   with it.
-- **Retinue's side.** `native/`, `retained-repair` and
+- **Retinue's side** (`78cb1911ee3`). `native/`, `retained-repair` and
   `transport-conformance` are gone. Signalman's optional `comms` feature
   takes `mere-comms` from `murm.git`. The root workspace and
   `apps/signalman-desktop` patch `retinue.git` back to the local crates, so
   a build holds one `retinue`.
-- **Consumers.** Eleven repositories name `murm.git`; eight name only Peer
-  crates and changed nothing. Graphshell and Turnstone now take `retinue`
-  from `retinue.git`, and merelyllc.com takes `radio-mirror` there. The patch
-  lines that sent Mesh crates to `murm.git` are removed (Turnstone one,
-  merelyllc.com four). Patch lines that send Peer crates from `retinue.git`
-  to `murm.git` stay, and are correct now. Mere's example config and
-  transport catalog name `../retinue/crates/...`.
+- **Consumers.** Eleven repositories name `murm.git`; seven name only Peer
+  crates and changed nothing. Four named Mesh crates there and now take them
+  from `retinue.git`: Graphshell (`retinue`, `999fbb91`), Turnstone
+  (`retinue`, `c97fc850`), Gemot's `site-host` (`retinue`, `fc56925`) and
+  merelyllc.com (`radio-mirror`, `dbf4cfb`). Their patch lines that sent Mesh
+  crates to `murm.git` are removed. Patch lines that send Peer crates from
+  `retinue.git` to `murm.git` stay, and are correct now. Mere's example
+  config and transport catalog name `../retinue/crates/...` (`8b213189f`).
+- **Checked.** Murm's workspace and Signalman with `comms` compile. Signalman
+  desktop, Graphshell's host, Turnstone, Gemot's `site-host` and
+  merelyllc.com's `radio-mirror` resolve with one `retinue`. The other eight
+  consumers resolve from scratch at their `origin/main`. Nothing was
+  test-run: the cut moves files and three manifest lines.
 
 Left by the cut:
 
 - **Some consumers still clone Retinue.** A consumer's graph holds `retinue`
   or `truchman` only if its workspace can turn on `transport/reticulum` or
-  `transport/i2p`, or takes `murm` or `murm-i2p`. By the local locks on
-  2026-11-25, Gemot, Graphshell, Knot-editor and Turnstone do, and clone the
-  1.94 GB. Distillery, Inker, Isocosm, Mere and merelyllc.com do not, and now
-  fetch a 7 MB repository. Cleromancy and Esp had no lock here. From
-  crates.io none would clone it. `truchman` 0.1.1 there is current. `retinue`
-  0.3.0 there is from 2026-10-06, 250 commits back, before the shared
-  transport core and the RNS 1.6.1 stamp policy that `mere-transport` uses.
+  `transport/i2p`, or takes `murm` or `murm-i2p`. Resolved from scratch on
+  2026-11-25, Gemot, Graphshell, Knot-editor and Turnstone hold `retinue` and
+  clone the 1.94 GB; merelyllc.com's `radio-mirror` takes Mesh crates
+  directly. Cleromancy, Distillery, Esp, Inker, Isocosm and Mere do not, and
+  now fetch a 7 MB repository. From crates.io none would clone it. `truchman`
+  0.1.1 there is current. `retinue` 0.3.0 there is from 2026-10-06, 250
+  commits back, before the shared transport core and the RNS 1.6.1 stamp
+  policy that `mere-transport` uses.
 - **Local locks.** No consumer tracks a live `Cargo.lock`. A checkout whose
-  local lock names Murm revisions from before the cut needs `cargo update`
-  for the Peer packages; those revisions exist only in Retinue now.
+  local lock names Murm revisions from before the cut keeps building them
+  while Cargo's cache holds them. Once that cache is gone they cannot be
+  fetched from Murm, because they exist only in Retinue, and the checkout
+  needs `cargo update` for the Peer packages.
 - **Plans.** The plans that govern Peer code are still in this repository's
   `design_docs`: transport consolidation, secure sessions, this plan. Murm's
-  README links to them.
+  README links to them. The index here still calls the whole programme Murm.
+- **Licence check.** `slotmap` 1.1.1 (Zlib) reaches Murm through iroh's
+  `n0-watcher` and has no exception in Murm's policy. It predates the cut.
 - **Stale links.** `firmware/packages` and `design_docs/archive_docs` still
   say `merely-made/murm`; so do other repositories' links to
   `merely-made/murm/blob/<commit>`, which now need `retinue`.
