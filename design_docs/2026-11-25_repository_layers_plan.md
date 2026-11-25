@@ -193,6 +193,11 @@ Read from `origin/main` across `Code/repos`.
   crates to `murm.git` are removed. Patch lines that send Peer crates from
   `retinue.git` to `murm.git` stay, and are correct now. Mere's example
   config and transport catalog name `../retinue/crates/...` (`8b213189f`).
+- **The site.** merelyllc.com's registry keyed id `retinue` to
+  `merely-made/murm`, so the rename made the Pages metadata refresh fail with
+  a duplicate id. `3356f42` reverses the site's October change to Murm URLs:
+  the registry entry, device and firmware locators, radio pages and smoke
+  script say Retinue again. Its 112 tests pass.
 - **Checked.** Murm's workspace and Signalman with `comms` compile. Signalman
   desktop, Graphshell's host, Turnstone, Gemot's `site-host` and
   merelyllc.com's `radio-mirror` resolve with one `retinue`. The other eight
@@ -219,6 +224,10 @@ Left by the cut:
 - **Plans.** The plans that govern Peer code are still in this repository's
   `design_docs`: transport consolidation, secure sessions, this plan. Murm's
   README links to them. The index here still calls the whole programme Murm.
+- **The site's registry.** It has no entry for Murm, so its graph still
+  draws Mere to Retinue where the direct edge is now Mere to Murm. Five
+  evidence lines in `content/specs.toml` say `murm/native/crates/...`. Pipit
+  is listed as active and was archived on GitHub the same day.
 - **Licence check.** `slotmap` 1.1.1 (Zlib) reaches Murm through iroh's
   `n0-watcher` and has no exception in Murm's policy. It predates the cut.
 - **Stale links.** `firmware/packages` and `design_docs/archive_docs` still
