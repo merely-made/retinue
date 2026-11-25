@@ -20,7 +20,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let host = std::env::var("RETINUE_HOST").unwrap_or_else(|_| "localhost".into());
     let port: u16 = std::env::var("RETINUE_PORT")?.parse()?;
     let identity = PrivateIdentity::from_secret_bytes(&[0x5c; 64]);
-    let ep = std::sync::Arc::new(Endpoint::new(identity.clone()));
+    let ep = std::sync::Arc::new(Endpoint::with_network_stamp_policy(
+        identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     let name = DestinationName::new("retinue", ["reconnect"]);
     ep.register(name.clone(), b"reconnect");
     println!("DEST {}", name.destination_hash(identity.public()));

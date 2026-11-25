@@ -61,10 +61,14 @@ fn wire(client: &Endpoint, node: &Endpoint) -> Arc<AtomicUsize> {
 
 async fn pair(seed: u8) -> Pair {
     let client_identity = PrivateIdentity::from_secret_bytes(&[seed; 64]);
-    let node = Arc::new(Endpoint::new(PrivateIdentity::from_secret_bytes(
-        &[0x70; 64],
-    )));
-    let client = Arc::new(Endpoint::new(client_identity.clone()));
+    let node = Arc::new(Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x70; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let client = Arc::new(Endpoint::with_network_stamp_policy(
+        client_identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     let packet_proofs = wire(&client, &node);
     let announce = PropagationAnnounce {
         legacy: false,

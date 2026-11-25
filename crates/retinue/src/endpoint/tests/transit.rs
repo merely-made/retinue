@@ -6,7 +6,7 @@ use super::*;
 /// within `REVERSE_TIMEOUT`, and holds at most `REVERSE_TABLE_CAPACITY` return paths.
 #[tokio::test]
 async fn reverse_table_is_consumed_on_use_expires_and_is_bounded() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0xB1; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0xB1; 64]));
     let shared = &ep.shared;
     let packet = AddressHash::from_bytes([0xB2; 16]);
 
@@ -41,7 +41,7 @@ async fn reverse_table_is_consumed_on_use_expires_and_is_bounded() {
 
 #[tokio::test]
 async fn a_link_bridge_accepts_only_its_two_interfaces() {
-    let endpoint = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x93; 64]));
+    let endpoint = rns160(PrivateIdentity::from_secret_bytes(&[0x93; 64]));
     let a = endpoint.attach_interface();
     let b = endpoint.attach_interface();
     let c = endpoint.attach_interface();
@@ -119,7 +119,7 @@ pub(super) fn transit_fixture() -> (
     link::PendingLink,
     Packet,
 ) {
-    let endpoint = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x94; 64]));
+    let endpoint = rns160(PrivateIdentity::from_secret_bytes(&[0x94; 64]));
     let a = endpoint.attach_interface();
     let ifac = Ifac::for_serial(Some("transit"), None).unwrap();
     let b = endpoint.attach_interface_with_ifac(255, ifac).unwrap();
@@ -429,7 +429,7 @@ async fn an_idle_validated_link_yields_to_a_new_request() {
 #[tokio::test]
 async fn a_responder_clamps_the_link_to_its_receiving_interface() {
     let identity = PrivateIdentity::from_secret_bytes(&[0x9A; 64]);
-    let endpoint = Endpoint::new(identity.clone());
+    let endpoint = rns160(identity.clone());
     let name = DestinationName::new("retinue", ["clamped"]);
     endpoint.register(name.clone(), b"");
     let narrow = endpoint.attach_interface_with_frame_limit(300).unwrap();
@@ -452,7 +452,7 @@ async fn a_responder_clamps_the_link_to_its_receiving_interface() {
 #[tokio::test]
 async fn a_responder_floors_what_it_offers() {
     let identity = PrivateIdentity::from_secret_bytes(&[0x9C; 64]);
-    let endpoint = Endpoint::new(identity.clone());
+    let endpoint = rns160(identity.clone());
     let name = DestinationName::new("retinue", ["floored"]);
     endpoint.register(name.clone(), b"");
     let iface = endpoint.attach_interface();
@@ -500,7 +500,7 @@ async fn a_transit_hop_clamps_to_what_both_interfaces_signal() {
         (Some(TCP), 1 << 20, Some(16_384)),
         (None, 16_384, None),
     ] {
-        let endpoint = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0xA1; 64]));
+        let endpoint = rns160(PrivateIdentity::from_secret_bytes(&[0xA1; 64]));
         let a = endpoint.attach_interface_with_hw_mtu(TCP, None).unwrap();
         let b = match out_mtu {
             Some(mtu) => endpoint.attach_interface_with_hw_mtu(mtu, None).unwrap(),
@@ -543,7 +543,7 @@ async fn a_transit_hop_clamps_to_what_both_interfaces_signal() {
 #[tokio::test]
 async fn a_responder_offers_its_signalled_hardware_mtu() {
     let identity = PrivateIdentity::from_secret_bytes(&[0xA4; 64]);
-    let endpoint = Endpoint::new(identity.clone());
+    let endpoint = rns160(identity.clone());
     let name = DestinationName::new("retinue", ["hw-mtu"]);
     endpoint.register(name.clone(), b"");
     let auto = crate::endpoint::HwMtu::Fixed(1196);

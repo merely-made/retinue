@@ -169,8 +169,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let left_identity = PrivateIdentity::from_secret_bytes(&[0x31; 64]);
     let right_identity = PrivateIdentity::from_secret_bytes(&[0x42; 64]);
-    let left = Arc::new(Endpoint::new(left_identity.clone()));
-    let right = Arc::new(Endpoint::new(right_identity.clone()));
+    let left = Arc::new(Endpoint::with_network_stamp_policy(
+        left_identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let right = Arc::new(Endpoint::with_network_stamp_policy(
+        right_identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     let left_driver = tokio::spawn(drive(left.attach_interface(), left_radio));
     let right_driver = tokio::spawn(drive(right.attach_interface(), right_radio));
 

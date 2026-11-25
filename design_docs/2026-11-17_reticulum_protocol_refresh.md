@@ -22,13 +22,24 @@ without installation or execution. LXST is a separate live media protocol;
 this update does not add a media implementation. Its package requires RNS
 1.6 and LXMF 1.3. The stock RNode updater still names firmware 1.86.
 
+RNS 1.6.1 and LXMF 1.3.1 (November 18) were read from their PyPI wheels,
+`rns-1.6.1-0-py3-none-any.whl` (`f276cb7d…9547959`) and `lxmf-1.3.1-py3-none-any.whl`
+(`42795725…ec86d9416`). PyPI's 1.6.0 and 1.3.0 wheels are byte-identical to the
+signed pins, but the 1.6.1 pair has not been checked against a signed manifest,
+so `requirements.txt` still pins 1.6.0.
+
 ## Retinue
 
 `network_stamp::NetworkStampPolicy` controls destination/path emission,
 link stamping, enforcement, costs, generation budgets, timeouts and cache/job
-capacities. Defaults follow the qualified RNS 1.6.0 release: destination and
-path emission and enforcement are off; a known advertised link cost can
-trigger link stamp generation. Per-destination link costs can be configured.
+capacities. Defaults follow RNS 1.6.1: announces, path requests and requested
+link requests are stamped; enforcement is off. Per-destination link costs can
+be configured. Node keeps emission off until its shell provisions a stamp.
+Murm's `ReticulumTransportBuilder` takes a policy (`network_stamps`) and an
+RNS-style storage path (`stamp_storage`).
+
+Stock 1.6.1's config can only switch stamping on: `stamp_destinations = No`
+leaves the new default in place. The stock harness turns emission off in code.
 
 Signed announce extensions carry the destination stamp and fractional link
 cost. Signature validation covers the original extension, application data
@@ -40,10 +51,14 @@ ephemeral keyset. Enforcement runs before rejected traffic can learn a route,
 consume a path tag or create a transport bridge. Existing packet, announce
 rate, IFAC, route and capacity policies still apply.
 
-Endpoint generation runs in bounded blocking jobs, checking cancellation and
-the configured attempt/time budget. A completed job rechecks current policy
-and cache capacity before emission. A required stamp which cannot be generated
-does not fall back to an unstamped request or announce.
+Path and link stamps run in bounded blocking jobs under the configured
+attempt/time budget, like stock's `pr_stamp_timeout` and `lr_stamp_timeout`.
+A destination stamp is mined once on every core with no time budget, as stock
+mines it; shutdown, a policy that stops stamping at that value, or the attempt
+bound ends the search. Until it exists the destination does not announce, and
+repeated announces coalesce. A completed job rechecks current policy and cache
+capacity before emission. A required stamp which cannot be generated does not
+fall back to an unstamped request or announce.
 
 Node remains clock-free. A shell provisions its public destination stamp;
 `Node::set_destination_stamp` verifies it. Link generation derives bounded
@@ -52,9 +67,11 @@ wall-clock timeout can use the cancellation-aware primitives directly.
 `Node::try_announce` reports missing work and includes extension bytes in the
 carrier budget. The unchecked fixture builder remains available.
 
-Destination stamp caches are currently process-local. They are regenerated
-after Endpoint restart; Node provisioning and persistence belong to its shell.
-This is wire compatibility, not adoption of the Python SQLite storage backend.
+`Endpoint::set_destination_stamp_store` keeps mined stamps across restarts.
+`StampDirectory` writes stock's `storagepath/stamps/<hash>.dstamp` files, so a
+stamp mined by stock RNS on a faster machine loads here, and a loaded stamp is
+revalidated against the current material and target. Without a store, an
+endpoint mines again after each restart. Node provisioning belongs to its shell.
 
 ## Outrider
 
@@ -72,6 +89,13 @@ Propagation policy preserves configured amounts until subtraction of
 flexibility, then quantizes the resulting floor. Separately quantizing the
 operands can weaken admission by one grid step for off-grid values.
 Integer stamp utilities and tickets retain their existing behavior.
+
+LXMF 1.3.1 receivers accept a stamp over the bare material, the RNS 1.6
+network stamp form, before trying the expanded workblock; stock marks this
+transitional until RNS 1.6.2. Outrider's delivery and propagation admission do
+the same (`stamp::bare_cost`), checked against stock-mined stamps of both
+forms. Outrider still mints expanded stamps, which every stock 1.3 receiver
+accepts. LXMF 1.3.1 also adds a peering-key form; Outrider has no peering.
 
 Public delivery/admission cost fields now use `StampCost`; propagation policy
 exposes configured amounts separately from the effective stamp floor.

@@ -41,9 +41,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         [mode, port, ..] => (mode.as_str(), port.parse::<u16>()?),
         _ => return Err("usage: link_mtu_peer accept|open PORT [CEILING]".into()),
     };
-    let endpoint = Arc::new(Endpoint::new(PrivateIdentity::from_secret_bytes(
-        &[0x6d; 64],
-    )));
+    let endpoint = Arc::new(Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x6d; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     if let Some(ceiling) = args.get(2) {
         endpoint.set_link_mtu(ceiling.parse()?);
     }

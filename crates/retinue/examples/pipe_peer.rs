@@ -19,9 +19,10 @@ use retinue::iface::hdlc::{Deframer, frame};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let ep = Arc::new(Endpoint::new(PrivateIdentity::from_secret_bytes(
-        &[0x91; 64],
-    )));
+    let ep = Arc::new(Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x91; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     let argv: Vec<_> = std::env::args_os().skip(1).collect();
     if argv.first().is_some_and(|a| a == "spawn") {
         let id = ep.attach_pipe(PipeConfig::new(argv[1..].to_vec())).await?;

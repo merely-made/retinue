@@ -25,7 +25,10 @@ fn now() -> f64 {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let identity = PrivateIdentity::from_secret_bytes(&SEED);
-    let endpoint = Arc::new(Endpoint::new(identity.clone()));
+    let endpoint = Arc::new(Endpoint::with_network_stamp_policy(
+        identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     let address = endpoint.listen_tcp("127.0.0.1:0".parse()?).await?;
     let announce = DeliveryAnnounce {
         display_name: Some(b"Outrider Tickets".to_vec()),

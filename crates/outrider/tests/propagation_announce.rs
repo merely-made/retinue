@@ -27,12 +27,14 @@ async fn next(client: &Endpoint) -> PropagationAnnounce {
 
 #[tokio::test]
 async fn announces_and_path_responses_carry_a_current_timebase() {
-    let client = Arc::new(Endpoint::new(PrivateIdentity::from_secret_bytes(
-        &[0x81; 64],
-    )));
-    let node = Arc::new(Endpoint::new(PrivateIdentity::from_secret_bytes(
-        &[0x82; 64],
-    )));
+    let client = Arc::new(Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x81; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let node = Arc::new(Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x82; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     connect(&client, &node, LossModel::new(81), LossModel::new(82));
     let mut announce = PropagationAnnounce {
         legacy: false,

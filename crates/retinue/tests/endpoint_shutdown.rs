@@ -33,7 +33,10 @@ async fn await_resolve(ep: &Endpoint, dest: retinue::hash::AddressHash) {
 #[tokio::test]
 async fn a_reply_written_before_an_orderly_shutdown_reaches_the_peer() {
     let server_id = PrivateIdentity::from_secret_bytes(&[9u8; 64]);
-    let server = Endpoint::new(server_id.clone());
+    let server = Endpoint::with_network_stamp_policy(
+        server_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let addr = server
         .listen_tcp("127.0.0.1:0".parse().unwrap())
         .await
@@ -42,7 +45,10 @@ async fn a_reply_written_before_an_orderly_shutdown_reaches_the_peer() {
     let dest = name.destination_hash(server_id.public());
     server.register(name.clone(), b"svc");
 
-    let client = Endpoint::new(PrivateIdentity::from_secret_bytes(&[2u8; 64]));
+    let client = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[2u8; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     client.attach_tcp_client(addr).await.unwrap();
 
     for _ in 0..4 {
@@ -77,7 +83,10 @@ async fn a_reply_written_before_an_orderly_shutdown_reaches_the_peer() {
 /// still stop the endpoint.
 #[tokio::test]
 async fn shutdown_returns_promptly_on_an_idle_endpoint() {
-    let endpoint = Endpoint::new(PrivateIdentity::from_secret_bytes(&[5u8; 64]));
+    let endpoint = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[5u8; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     endpoint
         .listen_tcp("127.0.0.1:0".parse().unwrap())
         .await
@@ -98,8 +107,14 @@ async fn shutdown_returns_promptly_on_an_idle_endpoint() {
 async fn a_reliable_reply_drains_before_orderly_shutdown() {
     let server_id = PrivateIdentity::from_secret_bytes(&[0x39; 64]);
     let client_id = PrivateIdentity::from_secret_bytes(&[0x17; 64]);
-    let server = Arc::new(Endpoint::new(server_id.clone()));
-    let client = Endpoint::new(client_id);
+    let server = Arc::new(Endpoint::with_network_stamp_policy(
+        server_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let client = Endpoint::with_network_stamp_policy(
+        client_id,
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let name = DestinationName::new("shutdown", ["reliable"]);
     let dest = name.destination_hash(server_id.public());
     server.register_reliable(name, b"svc");
@@ -144,9 +159,10 @@ async fn a_reliable_reply_drains_before_orderly_shutdown() {
 
 #[tokio::test]
 async fn shutdown_waits_for_a_packet_held_by_the_interface_pump() {
-    let endpoint = Arc::new(Endpoint::new(PrivateIdentity::from_secret_bytes(
-        &[0x51; 64],
-    )));
+    let endpoint = Arc::new(Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x51; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     let mut interface = endpoint.attach_interface();
     let name = DestinationName::new("shutdown", ["in-flight"]);
     endpoint.register(name, b"svc");
@@ -181,8 +197,14 @@ async fn shutdown_waits_for_a_packet_held_by_the_interface_pump() {
 #[tokio::test]
 async fn shutdown_waits_for_an_active_resource_session() {
     let server_id = PrivateIdentity::from_secret_bytes(&[0x71; 64]);
-    let server = Arc::new(Endpoint::new(server_id.clone()));
-    let client = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x72; 64]));
+    let server = Arc::new(Endpoint::with_network_stamp_policy(
+        server_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let client = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x72; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let name = DestinationName::new("shutdown", ["resource"]);
     let dest = name.destination_hash(server_id.public());
     server.register_resource(name, b"svc");
@@ -222,9 +244,10 @@ async fn shutdown_waits_for_an_active_resource_session() {
 
 #[tokio::test]
 async fn an_accept_waiter_is_released_when_the_endpoint_closes() {
-    let endpoint = Arc::new(Endpoint::new(PrivateIdentity::from_secret_bytes(
-        &[0x61; 64],
-    )));
+    let endpoint = Arc::new(Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x61; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     let waiter = tokio::spawn({
         let endpoint = Arc::clone(&endpoint);
         async move { endpoint.accept_on_any().await }
@@ -245,9 +268,10 @@ async fn an_accept_waiter_is_released_when_the_endpoint_closes() {
 
 #[tokio::test]
 async fn a_pending_open_is_released_when_the_endpoint_closes() {
-    let endpoint = Arc::new(Endpoint::new(PrivateIdentity::from_secret_bytes(
-        &[0x62; 64],
-    )));
+    let endpoint = Arc::new(Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x62; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     let peer = PrivateIdentity::from_secret_bytes(&[0x63; 64]);
     let dest = DestinationName::new("shutdown", ["pending"]).destination_hash(peer.public());
     let waiter = tokio::spawn({
@@ -271,8 +295,14 @@ async fn a_pending_open_is_released_when_the_endpoint_closes() {
 #[tokio::test]
 async fn abrupt_close_releases_an_active_resource_operation() {
     let server_id = PrivateIdentity::from_secret_bytes(&[0x73; 64]);
-    let server = Arc::new(Endpoint::new(server_id.clone()));
-    let client = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x74; 64]));
+    let server = Arc::new(Endpoint::with_network_stamp_policy(
+        server_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let client = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x74; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let name = DestinationName::new("shutdown", ["resource-close"]);
     let dest = name.destination_hash(server_id.public());
     server.register_resource(name, b"svc");
@@ -329,7 +359,10 @@ mod pipe {
         let dir = std::env::temp_dir().join(format!("retinue-pipe-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let log = dir.join("spawns");
-        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x70; 64]));
+        let ep = Endpoint::with_network_stamp_policy(
+            PrivateIdentity::from_secret_bytes(&[0x70; 64]),
+            retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        );
         let script = format!("echo up >> '{}'", log.display());
         let id = ep.attach_pipe(sh(&script)).await.unwrap();
         tokio::time::sleep(Duration::from_millis(800)).await;
@@ -345,7 +378,10 @@ mod pipe {
 
     #[tokio::test]
     async fn a_command_that_cannot_start_fails_the_attach() {
-        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x71; 64]));
+        let ep = Endpoint::with_network_stamp_policy(
+            PrivateIdentity::from_secret_bytes(&[0x71; 64]),
+            retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        );
         let missing = PipeConfig::new(vec!["/nonexistent/retinue-pipe".into()]);
         assert!(ep.attach_pipe(missing).await.is_err());
         assert!(ep.attach_pipe(PipeConfig::new(Vec::new())).await.is_err());

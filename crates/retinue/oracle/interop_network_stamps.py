@@ -3,6 +3,8 @@
 Each case uses an isolated loopback-only stock profile and a prebuilt Rust peer.
 Cases cover both emission directions, authenticated app data/ratchets, stamped
 path discovery, links in both directions, and legacy/insufficient announce refusal.
+The 1.6.1 cases run Retinue on its default policy against an enforcing stock peer,
+across a restart, and with a destination stamp mined by stock RNS.
 """
 
 from __future__ import annotations
@@ -22,7 +24,11 @@ import time
 
 CASES = ("enforced", "legacy", "stock-refuses-legacy", "retinue-refuses-legacy",
          "stock-refuses-low", "retinue-refuses-low", "retinue-refuses-legacy-path",
-         "retinue-refuses-low-path", "stock-refuses-low-path", "retinue-refuses-low-link")
+         "retinue-refuses-low-path", "stock-refuses-low-path", "retinue-refuses-low-link",
+         "defaults-enforced", "defaults-restart", "stock-mined-stamp")
+SLOW_CASES = {"defaults-enforced": 300, "defaults-restart": 300, "stock-mined-stamp": 120}
+STOCK_VERSIONS = ("1.6.0", "1.6.1")
+RUST_SECRET = bytes([0x47]) * 64
 STOCK_APP = b"stock\xc1authenticated"
 RUST_APP = b"rust\xc1authenticated"
 
@@ -37,13 +43,15 @@ def wait(predicate, seconds=10):
 
 
 class Peer:
-    def __init__(self, binary: Path, emit: bool, enforce: bool, cost: float,
-                 path_cost: float = 2.5):
+    def __init__(self, binary: Path, emit, enforce: bool, cost: float,
+                 path_cost: float = 2.5, storage: Path | None = None):
         self.lines = []
+        self.started = time.monotonic()
+        mode = emit if isinstance(emit, str) else "emit" if emit else "plain"
         self.process = subprocess.Popen(
-            [str(binary), "0", "emit" if emit else "plain",
+            [str(binary), "0", mode,
              "enforce" if enforce else "permissive", str(round(cost * 256)),
-             str(round(path_cost * 256)), "896"],
+             str(round(path_cost * 256)), "896", *([str(storage)] if storage else [])],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, bufsize=1)
         threading.Thread(target=self.pump, daemon=True).start()
@@ -89,9 +97,119 @@ def stock_config(root: Path, port: int, emit: bool, enforce: bool, required: flo
         f"target_port={port}\n", encoding="ascii")
 
 
+def start_stock(root: Path, port: int, emit: bool, enforce: bool, required: float,
+                value: float, path_cost: float):
+    import RNS
+    stock_config(root, port, emit, enforce, required, value, path_cost)
+    RNS.Reticulum(configdir=str(root))
+    # 1.6.1 stamps by default and its config can only switch stamping on.
+    RNS.Transport.STAMP_DESTINATIONS = emit
+    RNS.Transport.STAMP_PRS = emit
+    assert wait(lambda: any(i.online for i in RNS.Transport.interfaces))
+
+
+def stamp_file(storage: Path, destination: bytes) -> Path:
+    return storage / "stamps" / f"{destination.hex()}.dstamp"
+
+
+def mine(root: Path) -> None:
+    """Mine the Rust peer's destination stamp with stock RNS, offline, at value 8."""
+    import RNS
+    (root / "config").write_text("[reticulum]\nshare_instance=No\n[logging]\nloglevel=2\n"
+                                 "[interfaces]\n", encoding="ascii")
+    RNS.Reticulum(configdir=str(root))
+    RNS.Transport.STAMP_DESTINATIONS = True
+    # Destination.set_value can only raise the target above the global value.
+    RNS.Transport.DESTINATION_COST = RNS.Transport.DESTINATION_VALUE = 8.0
+    destination = RNS.Destination(RNS.Identity.from_bytes(RUST_SECRET), RNS.Destination.IN,
+                                  RNS.Destination.SINGLE, "retinue", "network-stamp")
+    destination.set_value(8.0)
+    assert destination.announce(send=False) is not None
+    assert stamp_file(Path(RNS.Reticulum.storagepath), destination.hash).is_file()
+    RNS.exit()
+
+
+def defaults(binary: Path, name: str, root: Path) -> dict:
+    """Retinue's default policy against stock 1.6.1 defaults with enforcement on."""
+    import RNS
+    results = {}
+    storage = root / "rust-storage"
+    if name == "defaults-restart":
+        cold = Peer(binary, "default", False, 0.0, storage=storage)
+        try:
+            destination = bytes.fromhex(cold.matching(r"DEST ([0-9a-f]{32})")[1])
+            assert wait(lambda: stamp_file(storage, destination).is_file(), 240)
+            results["cold mining seconds"] = round(time.monotonic() - cold.started, 2)
+        finally:
+            cold.close()
+        stored = stamp_file(storage, destination).read_bytes()
+    elif name == "stock-mined-stamp":
+        miner = root / "miner"
+        miner.mkdir()
+        subprocess.run([sys.executable, "-u", __file__, "--mine", str(miner)], check=True,
+                       timeout=90)
+        storage = miner / "storage"
+    if name == "stock-mined-stamp":
+        peer = Peer(binary, True, False, 8.0, storage=storage)
+    else:
+        peer = Peer(binary, "default", False, 0.0, storage=storage)
+    try:
+        port = int(peer.matching(r"LISTENING (\d+)")[1])
+        rust_destination = bytes.fromhex(peer.matching(r"DEST ([0-9a-f]{32})")[1])
+        if name == "stock-mined-stamp":
+            stored = stamp_file(storage, rust_destination).read_bytes()
+            start_stock(root, port, True, True, 8.0, 8.0, 2.5)
+        else:
+            # Stock defaults: destination 23.5, path request 15.8 required.
+            start_stock(root, port, True, True, 23.5, 25.0, 15.8)
+        assert RNS.Transport.STAMPS_ENFORCED and RNS.Transport.LR_STAMPS_ENFORCED
+        stock = RNS.Destination(RNS.Identity.from_bytes(bytes([0x38]) * 64),
+                                RNS.Destination.IN, RNS.Destination.SINGLE,
+                                "retinue", "network-stamp")
+        # Retinue keeps a link cost only from an announce that meets its floor, as stock
+        # does; on defaults that is stock's own value of 25.
+        if name == "stock-mined-stamp":
+            stock.set_value(8.0)
+        stock.set_link_cost(3.5)
+        stock.set_default_app_data(STOCK_APP)
+        incoming = []
+        stock.set_link_established_callback(incoming.append)
+        # A fresh reader: stock has never heard the Rust destination.
+        RNS.Transport.request_path(rust_destination)
+        results["enforcing stock discovered Retinue"] = wait(
+            lambda: RNS.Transport.has_path(rust_destination), 240)
+        results["seconds to first accepted announce"] = round(time.monotonic() - peer.started, 2)
+        out = RNS.Destination(RNS.Identity.recall(rust_destination), RNS.Destination.OUT,
+                              RNS.Destination.SINGLE, "retinue", "network-stamp")
+        link = RNS.Link(out)
+        results["stock link to Retinue reached ACTIVE"] = wait(
+            lambda: link.status == RNS.Link.ACTIVE, 30)
+        peer.matching("INBOUND")
+        link.teardown()
+        peer.command(f"PATH {stock.hash.hex()}")
+        peer.matching(rf"APP {stock.hash.hex()} {STOCK_APP.hex()} \S+ 896", 180)
+        peer.command(f"LINK {stock.hash.hex()}")
+        peer.matching(rf"ACTIVE {stock.hash.hex()}", 30)
+        results["Retinue stamped link to enforcing stock"] = wait(lambda: bool(incoming))
+        if name == "defaults-enforced":
+            results["destination stamp persisted"] = stamp_file(storage, rust_destination).is_file()
+        else:
+            results["stored stamp reused unchanged"] = (
+                stamp_file(storage, rust_destination).read_bytes() == stored)
+            results["restart announced within 5 s"] = results["seconds to first accepted announce"] < 5
+        print(json.dumps(results), flush=True)
+        assert all(v for v in results.values() if isinstance(v, bool)), results
+        return results
+    finally:
+        peer.close()
+
+
 def case(binary: Path, name: str, root: Path) -> dict:
     import RNS
-    assert RNS.__version__ == "1.6.0", RNS.__version__
+    assert RNS.__version__ in STOCK_VERSIONS, RNS.__version__
+    if name in SLOW_CASES:
+        assert RNS.__version__ == "1.6.1", "default-policy cases need stock 1.6.1"
+        return defaults(binary, name, root)
     rust_emit = name not in ("legacy", "stock-refuses-legacy")
     rust_enforce = name == "enforced" or name.startswith("retinue-refuses")
     stock_emit = name not in ("legacy", "retinue-refuses-legacy",
@@ -105,10 +223,8 @@ def case(binary: Path, name: str, root: Path) -> dict:
     try:
         port = int(peer.matching(r"LISTENING (\d+)")[1])
         rust_destination = bytes.fromhex(peer.matching(r"DEST ([0-9a-f]{32})")[1])
-        stock_config(root, port, stock_emit, stock_enforce, stock_required, stock_value,
-                     path_cost=100.0 if name == "stock-refuses-low-path" else 2.5)
-        RNS.Reticulum(configdir=str(root))
-        assert wait(lambda: any(i.online for i in RNS.Transport.interfaces))
+        start_stock(root, port, stock_emit, stock_enforce, stock_required, stock_value,
+                    path_cost=100.0 if name == "stock-refuses-low-path" else 2.5)
         destination = RNS.Destination(RNS.Identity.from_bytes(bytes([0x38]) * 64),
                                       RNS.Destination.IN, RNS.Destination.SINGLE,
                                       "retinue", "network-stamp")
@@ -243,6 +359,11 @@ def main() -> int:
     parser.add_argument("--example", type=Path, required=True)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--case", choices=CASES)
+    parser.add_argument("--only", choices=CASES, action="append")
+    parser.add_argument("--mine", type=Path, help=argparse.SUPPRESS)
+    if "--mine" in sys.argv:
+        mine(Path(sys.argv[sys.argv.index("--mine") + 1]))
+        return 0
     args = parser.parse_args()
     if args.case:
         root = Path(os.environ["RETINUE_NETWORK_STAMP_CONFIG"])
@@ -252,7 +373,7 @@ def main() -> int:
         parser.error("--output is required")
     args.output.mkdir(parents=True, exist_ok=False)
     results = {}
-    for name in CASES:
+    for name in args.only or CASES:
         root = Path(tempfile.mkdtemp(prefix="retinue-network-stamp-"))
         print("START", name, flush=True)
         try:
@@ -262,7 +383,7 @@ def main() -> int:
                                         env={**os.environ, "RETINUE_NETWORK_STAMP_CONFIG": str(root)},
                                         stdout=log, stderr=subprocess.STDOUT)
                 try:
-                    results[name] = proc.wait(timeout=60)
+                    results[name] = proc.wait(timeout=SLOW_CASES.get(name, 60))
                 except subprocess.TimeoutExpired:
                     if os.name == "nt":
                         subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],

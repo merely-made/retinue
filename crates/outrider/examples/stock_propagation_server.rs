@@ -106,9 +106,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         load_store(store_path.as_deref(), limits)?,
         NodePolicy::from_announce(&announce),
     ));
-    let endpoint = Arc::new(Endpoint::new(PrivateIdentity::from_secret_bytes(
-        &NODE_SEED,
-    )));
+    let endpoint = Arc::new(Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&NODE_SEED),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     let address = endpoint.listen_tcp("127.0.0.1:0".parse()?).await?;
     let bridged = mixed_bridge::attach_bridge(&endpoint).await?;
     endpoint.enable_routing();

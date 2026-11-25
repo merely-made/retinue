@@ -93,8 +93,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let receiver_id = PrivateIdentity::from_secret_bytes(&[0x31; 64]);
     let sender_id = PrivateIdentity::from_secret_bytes(&[0x32; 64]);
-    let receiver = Endpoint::new(receiver_id);
-    let sender = Arc::new(Endpoint::new(sender_id.clone()));
+    let receiver = Endpoint::with_network_stamp_policy(
+        receiver_id,
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
+    let sender = Arc::new(Endpoint::with_network_stamp_policy(
+        sender_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     let logical_mtu = 255 - ifac.as_ref().map_or(0, Ifac::size);
     receiver.set_link_mtu(logical_mtu as u32);
     sender.set_link_mtu(logical_mtu as u32);

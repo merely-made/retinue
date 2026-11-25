@@ -17,7 +17,10 @@ enum Reply {
 /// data packet, and replies as told. Returns the receipt and the bytes the responder read.
 async fn deliver_against(data: &[u8], reply: Reply) -> (PayloadReceipt, Vec<u8>) {
     let server = PrivateIdentity::from_secret_bytes(&[0x71; 64]);
-    let client = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x72; 64]));
+    let client = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x72; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let (mut out, sink) = client.attach_interface().split();
     let dest = DestinationName::new("retinue", ["receipt"]).destination_hash(server.public());
 
@@ -80,8 +83,14 @@ async fn an_unproved_data_packet_times_out_on_its_receipt() {
 #[tokio::test]
 async fn a_resource_is_proved_by_its_own_transfer() {
     let server_id = PrivateIdentity::from_secret_bytes(&[0x74; 64]);
-    let server = Endpoint::new(server_id.clone());
-    let client = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x75; 64]));
+    let server = Endpoint::with_network_stamp_policy(
+        server_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
+    let client = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x75; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     connect(&client, &server, LossModel::new(1), LossModel::new(2));
     let name = DestinationName::new("retinue", ["receipt-resource"]);
     let dest = name.destination_hash(server_id.public());

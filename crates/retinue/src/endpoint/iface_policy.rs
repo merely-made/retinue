@@ -209,7 +209,10 @@ mod tests {
 
     #[tokio::test]
     async fn setters_store_and_detach_forgets() {
-        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x51; 64]));
+        let ep = Endpoint::with_network_stamp_policy(
+            PrivateIdentity::from_secret_bytes(&[0x51; 64]),
+            crate::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        );
         let id = ep.attach_interface().id();
         let rate = AnnounceRate::default();
         assert!(ep.set_interface_ingress_policy(id, Some(AnnounceIngressPolicy::default())));

@@ -31,8 +31,14 @@ fn peer(identity: &PrivateIdentity) -> MessagePeer {
 async fn direct_voice_keeps_field_seven_through_postilions_authenticated_event() {
     let sender_identity = PrivateIdentity::from_secret_bytes(&[0x51; 64]);
     let recipient_identity = PrivateIdentity::from_secret_bytes(&[0x52; 64]);
-    let sender = Arc::new(Endpoint::new(sender_identity.clone()));
-    let recipient = Arc::new(Endpoint::new(recipient_identity.clone()));
+    let sender = Arc::new(Endpoint::with_network_stamp_policy(
+        sender_identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let recipient = Arc::new(Endpoint::with_network_stamp_policy(
+        recipient_identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     connect(&sender, &recipient, LossModel::new(51), LossModel::new(52));
     register_delivery(&sender, &DeliveryAnnounce::named(b"Direct voice sender")).unwrap();
     wait_for_announce(
@@ -137,9 +143,18 @@ async fn file_backed_voice_crosses_a_propagation_node_once_and_retains_receipts(
     let sender_identity = PrivateIdentity::from_secret_bytes(&[0x61; 64]);
     let recipient_identity = PrivateIdentity::from_secret_bytes(&[0x62; 64]);
     let node_identity = PrivateIdentity::from_secret_bytes(&[0x70; 64]);
-    let sender = Arc::new(Endpoint::new(sender_identity.clone()));
-    let recipient = Arc::new(Endpoint::new(recipient_identity.clone()));
-    let node = Arc::new(Endpoint::new(node_identity));
+    let sender = Arc::new(Endpoint::with_network_stamp_policy(
+        sender_identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let recipient = Arc::new(Endpoint::with_network_stamp_policy(
+        recipient_identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let node = Arc::new(Endpoint::with_network_stamp_policy(
+        node_identity,
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     node.enable_routing();
     connect(&sender, &node, LossModel::new(61), LossModel::new(70));
     connect(&recipient, &node, LossModel::new(62), LossModel::new(71));

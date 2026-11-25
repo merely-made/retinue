@@ -11,7 +11,7 @@ use crate::packet::HeaderType;
 /// it came in on only. Tagless requests and requests relayed past one hop are ignored.
 #[tokio::test]
 async fn a_path_request_is_answered_once_on_its_own_interface() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x64; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x64; 64]));
     let name = crate::destination::DestinationName::new("retinue", ["pathonce"]);
     let dest = name.destination_hash(ep.identity());
     ep.register(name, b"once");
@@ -52,7 +52,7 @@ async fn a_path_request_is_answered_once_on_its_own_interface() {
 
 #[tokio::test]
 async fn answers_a_path_request_for_an_owned_destination() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[9u8; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[9u8; 64]));
     let mut iface = ep.attach_interface();
     let name = crate::destination::DestinationName::new("retinue", ["pathtest"]);
     let dest = name.destination_hash(ep.identity());
@@ -90,7 +90,7 @@ async fn answers_a_path_request_for_an_owned_destination() {
 
 #[tokio::test]
 async fn ignores_a_path_request_for_an_unknown_destination() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[10u8; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[10u8; 64]));
     let mut iface = ep.attach_interface();
     let sink = iface.sink();
     let unknown = AddressHash::from_bytes([0xCC; 16]);
@@ -108,7 +108,7 @@ async fn ignores_a_path_request_for_an_unknown_destination() {
 /// is unaffected.
 #[tokio::test]
 async fn a_path_request_is_rate_limited_per_destination() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[11u8; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[11u8; 64]));
     let mut iface = ep.attach_interface();
     let wanted = AddressHash::from_bytes([0xA1; 16]);
     let other = AddressHash::from_bytes([0xB2; 16]);
@@ -149,7 +149,7 @@ async fn a_path_request_is_rate_limited_per_destination() {
 /// held to the global cap, and refused requests do not grow the budget table.
 #[tokio::test]
 async fn fabricated_unique_destinations_hit_the_global_path_request_cap() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[12u8; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[12u8; 64]));
     let _iface = ep.attach_interface();
 
     let mut sent = 0;
@@ -181,7 +181,7 @@ async fn fabricated_unique_destinations_hit_the_global_path_request_cap() {
 /// behind an ingress burst (`Transport.py` 1815-1821).
 #[tokio::test]
 async fn a_requested_destination_is_not_held_behind_a_burst() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x66; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x66; 64]));
     let wire = ep.attach_interface().id();
     ep.set_announce_ingress_policy(AnnounceIngressPolicy {
         new_interface_hz: 1,
@@ -218,7 +218,7 @@ async fn next(iface: &mut Interface, within: Duration) -> Option<Packet> {
 
 /// A transport that learns from `source` but relays nothing, so only answers leave.
 fn quiet_transport(seed: u8, requesters: Vec<InterfaceId>) -> Endpoint {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[seed; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[seed; 64]));
     ep.set_routing_policy(RoutingPolicy {
         allowed_ingress: InterfaceSelector::Only(requesters),
         ..RoutingPolicy::transit()
@@ -461,7 +461,7 @@ async fn path_request_rates_limit_both_ways() {
 /// `recursive_prs`, `TCPInterface.py` 587-650; its `IN` flag is never read in 1.5.7).
 #[tokio::test]
 async fn spawned_interfaces_inherit_the_path_request_policy() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x7B; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x7B; 64]));
     let (spawned, mut ids) = tokio::sync::mpsc::channel(1);
     let path_requests = PathRequestPolicy {
         recursive: true,

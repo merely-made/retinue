@@ -111,3 +111,11 @@ fn single_packet(destination: AddressHash, payload: Vec<u8>) -> Packet {
         payload,
     }
 }
+
+/// An endpoint on RNS 1.6.0's stamp defaults, which these tests were written for.
+fn rns160(identity: PrivateIdentity) -> Endpoint {
+    Endpoint::with_network_stamp_policy(
+        identity,
+        crate::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    )
+}

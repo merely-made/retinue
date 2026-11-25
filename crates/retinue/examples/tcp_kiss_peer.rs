@@ -13,9 +13,10 @@ use retinue::identity::PrivateIdentity;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let ep = Arc::new(Endpoint::new(PrivateIdentity::from_secret_bytes(
-        &[0x4b; 64],
-    )));
+    let ep = Arc::new(Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x4b; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     let policy = ListenPolicy {
         kiss_framing: true,
         ..ListenPolicy::default()

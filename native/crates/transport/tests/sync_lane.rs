@@ -285,6 +285,7 @@ mod reticulum {
         let (dialer_key, server_key) = (key(23), key(24));
 
         let server_t = ReticulumTransport::builder(&server_kp)
+            .network_stamps(transport::NetworkStampPolicy::rns_1_6_0())
             .alpns(vec![alpn.clone()])
             .interfaces(vec![ReticulumInterface::TcpServer {
                 bind: format!("127.0.0.1:{port}").parse().unwrap(),
@@ -294,6 +295,7 @@ mod reticulum {
             .await
             .expect("bind server");
         let client_t = ReticulumTransport::builder(&client_kp)
+            .network_stamps(transport::NetworkStampPolicy::rns_1_6_0())
             .alpns(vec![alpn.clone()])
             .interfaces(vec![ReticulumInterface::TcpClient {
                 addr: format!("127.0.0.1:{port}").parse().unwrap(),

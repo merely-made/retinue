@@ -377,7 +377,10 @@ mod tests {
     #[tokio::test]
     async fn one_fixture_captures_the_management_boundary_without_invention() {
         let local = PrivateIdentity::from_secret_bytes(&[0x31; 64]);
-        let endpoint = Endpoint::new(local.clone());
+        let endpoint = Endpoint::with_network_stamp_policy(
+            local.clone(),
+            retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        );
         let ingress_policy = AnnounceIngressPolicy {
             enabled: false,
             ..AnnounceIngressPolicy::default()

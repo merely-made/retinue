@@ -5,8 +5,14 @@ use super::*;
 #[tokio::test]
 async fn a_tcp_link_takes_the_autoconfigured_mtu_and_carries_a_resource() {
     let server_id = PrivateIdentity::from_secret_bytes(&[0x71; 64]);
-    let server = Arc::new(Endpoint::new(server_id.clone()));
-    let client = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x72; 64]));
+    let server = Arc::new(Endpoint::with_network_stamp_policy(
+        server_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let client = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x72; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let name = DestinationName::new("retinue", ["tcp-mtu"]);
     let destination = name.destination_hash(server_id.public());
     server.register_resource(name.clone(), b"");
@@ -83,9 +89,18 @@ async fn one_endpoint_negotiates_by_interface_in_both_directions() {
     }
 
     tokio::time::timeout(Duration::from_secs(20), async {
-        let hub = Endpoint::new(PrivateIdentity::from_secret_bytes(&[1; 64]));
-        let radio = Endpoint::new(PrivateIdentity::from_secret_bytes(&[2; 64]));
-        let tcp = Endpoint::new(PrivateIdentity::from_secret_bytes(&[3; 64]));
+        let hub = Endpoint::with_network_stamp_policy(
+            PrivateIdentity::from_secret_bytes(&[1; 64]),
+            retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        );
+        let radio = Endpoint::with_network_stamp_policy(
+            PrivateIdentity::from_secret_bytes(&[2; 64]),
+            retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        );
+        let tcp = Endpoint::with_network_stamp_policy(
+            PrivateIdentity::from_secret_bytes(&[3; 64]),
+            retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        );
         let name = DestinationName::new("retinue", ["mixed-mtu"]);
         for endpoint in [&hub, &radio, &tcp] {
             endpoint.register_resource(name.clone(), b"");

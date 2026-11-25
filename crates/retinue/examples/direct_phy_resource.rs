@@ -127,8 +127,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let client_id = PrivateIdentity::from_secret_bytes(&[0x11; 64]);
     let server_id = PrivateIdentity::from_secret_bytes(&[0x22; 64]);
-    let client = Endpoint::new(client_id);
-    let server = Arc::new(Endpoint::new(server_id.clone()));
+    let client = Endpoint::with_network_stamp_policy(
+        client_id,
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
+    let server = Arc::new(Endpoint::with_network_stamp_policy(
+        server_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     let logical_mtu = 255 - ifac.as_ref().map_or(0, Ifac::size);
     client.set_link_mtu(logical_mtu as u32);
     server.set_link_mtu(logical_mtu as u32);

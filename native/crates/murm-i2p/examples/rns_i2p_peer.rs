@@ -107,9 +107,10 @@ async fn run(args: &[String]) -> i32 {
         Ifac::for_stream(Some(net), Some(pass)).expect("ifac")
     });
 
-    let ep = Arc::new(Endpoint::new(PrivateIdentity::from_secret_bytes(
-        &[seed; 64],
-    )));
+    let ep = Arc::new(Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[seed; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     let stream_name = DestinationName::new("i2p4", ["retinue"]);
     let resource_name = DestinationName::new("i2p4", ["retinue-res"]);
     ep.register(stream_name.clone(), b"stream");

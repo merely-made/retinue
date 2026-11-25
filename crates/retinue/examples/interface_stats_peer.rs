@@ -17,7 +17,10 @@ use tokio::sync::mpsc;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let spec = std::env::var("RETINUE_IFAC")?;
     let (network, passphrase) = spec.split_once(',').ok_or("RETINUE_IFAC=name,passphrase")?;
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x3C; 64]));
+    let ep = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x3C; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let ifac = Ifac::for_stream(Some(network), Some(passphrase))?;
     let addr = ep
         .listen_tcp_with_ifac("127.0.0.1:0".parse()?, ifac)

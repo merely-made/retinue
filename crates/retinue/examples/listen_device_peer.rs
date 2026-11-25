@@ -14,7 +14,10 @@ use retinue::identity::PrivateIdentity;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let device = std::env::args().nth(1).unwrap_or_else(|| "lo0".into());
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x1d; 64]));
+    let ep = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x1d; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let binds = [
         (
             "device",

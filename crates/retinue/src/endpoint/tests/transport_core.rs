@@ -5,7 +5,7 @@ use crate::packet::HeaderType;
 
 #[tokio::test]
 async fn type_two_route_misses_are_counted_once_and_filtered_before_lookup() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x71; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x71; 64]));
     let a = ep.attach_interface();
     let b = ep.attach_interface();
     ep.enable_routing();
@@ -32,7 +32,7 @@ async fn return_paths_are_transactional_with_output() {
     for state in ["empty", "full", "replace", "expired"] {
         for refusal in ["accepted", "full", "offline", "size", "egress", "outgoing"] {
             for via in [None, Some(AddressHash::from_bytes([0x7b; 16]))] {
-                let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x71; 64]));
+                let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x71; 64]));
                 let a = ep.attach_interface();
                 let b = ep.attach_interface();
                 ep.enable_routing();
@@ -145,7 +145,7 @@ async fn return_paths_are_transactional_with_output() {
 #[tokio::test]
 async fn transit_precedes_reverse_proofs_and_handles_once() {
     for bridged in [false, true] {
-        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x71; 64]));
+        let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x71; 64]));
         let a = ep.attach_interface();
         let b = ep.attach_interface();
         let c = ep.attach_interface();
@@ -180,7 +180,7 @@ async fn transit_precedes_reverse_proofs_and_handles_once() {
 #[tokio::test]
 async fn a_local_type_two_link_request_bypasses_transit_policy() {
     for routing in [false, true] {
-        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x71; 64]));
+        let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x71; 64]));
         let a = ep.attach_interface();
         if routing {
             ep.enable_routing();
@@ -214,7 +214,7 @@ async fn a_local_type_two_link_request_bypasses_transit_policy() {
 #[tokio::test]
 async fn carried_packets_filter_duplicates_only_after_bridge_admission() {
     for context in 0..=u8::MAX {
-        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x71; 64]));
+        let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x71; 64]));
         let a = ep.attach_interface();
         let b = ep.attach_interface();
         let c = ep.attach_interface();
@@ -274,7 +274,7 @@ async fn carried_links_refresh_only_on_accepted_send() {
         "proof",
         "proof-full",
     ] {
-        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x71; 64]));
+        let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x71; 64]));
         let a = ep.attach_interface();
         let b = ep.attach_interface();
         ep.enable_routing();
@@ -341,7 +341,7 @@ async fn carried_links_refresh_only_on_accepted_send() {
 #[tokio::test]
 async fn forwarded_count_tracks_only_accepted_output() {
     for refusal in ["accepted", "full", "size", "offline", "hops"] {
-        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x71; 64]));
+        let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x71; 64]));
         let a = ep.attach_interface();
         ep.enable_routing();
         let mut data = single_packet(AddressHash::from_bytes([0x75; 16]), vec![0x71; 48]);
@@ -376,7 +376,7 @@ async fn forwarded_count_tracks_only_accepted_output() {
 #[tokio::test]
 async fn a_refused_link_request_leaves_the_bridges_as_they_were() {
     for retransmission in [false, true] {
-        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x71; 64]));
+        let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x71; 64]));
         let a = ep.attach_interface();
         let b = ep.attach_interface();
         ep.enable_routing();
@@ -422,7 +422,7 @@ async fn a_refused_link_request_leaves_the_bridges_as_they_were() {
 #[tokio::test]
 async fn short_link_requests_are_bridged_and_carried() {
     for len in [1, 32, 63] {
-        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x71; 64]));
+        let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x71; 64]));
         let a = ep.attach_interface();
         let b = ep.attach_interface();
         ep.enable_routing();
@@ -462,7 +462,7 @@ async fn short_link_requests_are_bridged_and_carried() {
 
 #[tokio::test]
 async fn with_carriage_off_a_packet_is_not_transit() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x71; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x71; 64]));
     let a = ep.attach_interface();
     let b = ep.attach_interface();
     ep.enable_routing();
@@ -513,7 +513,7 @@ async fn with_carriage_off_a_packet_is_not_transit() {
 #[tokio::test]
 async fn reverse_proofs_keep_header_and_obey_hop_ceiling() {
     for hops in [2, 3] {
-        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x71; 64]));
+        let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x71; 64]));
         let a = ep.attach_interface();
         let b = ep.attach_interface();
         ep.enable_routing();

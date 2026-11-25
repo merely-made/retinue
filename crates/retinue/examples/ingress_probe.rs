@@ -88,9 +88,10 @@ mod probe {
     }
 
     pub(super) async fn run() -> Result<(), Error> {
-        let ep = Arc::new(Endpoint::new(PrivateIdentity::from_secret_bytes(
-            &[0x1C; 64],
-        )));
+        let ep = Arc::new(Endpoint::with_network_stamp_policy(
+            PrivateIdentity::from_secret_bytes(&[0x1C; 64]),
+            retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        ));
         if let Ok(spec) = std::env::var("RETINUE_INGRESS") {
             ep.set_announce_ingress_policy(ingress_policy(&spec)?);
         }

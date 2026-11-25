@@ -25,7 +25,7 @@ fn relayed_by(packet: &Packet, relay: u8, hops: u8) -> Packet {
 #[tokio::test(start_paused = true)]
 async fn relayed_announces_require_a_live_route_at_release() {
     for expired in [false, true] {
-        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x8E; 64]));
+        let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x8E; 64]));
         let mut radio = ep.attach_interface();
         ep.enable_routing();
         ep.set_relay_jitter(Duration::ZERO);
@@ -48,7 +48,7 @@ async fn relayed_announces_require_a_live_route_at_release() {
 
 #[tokio::test(start_paused = true)]
 async fn relayed_announces_set_the_complete_transport_header() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x90; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x90; 64]));
     let mut radio = ep.attach_interface();
     ep.enable_routing();
     ep.set_relay_jitter(Duration::ZERO);
@@ -72,7 +72,7 @@ async fn relayed_announces_set_the_complete_transport_header() {
 /// interface, and retries once after the grace (`Transport.py` 765-829).
 #[tokio::test(start_paused = true)]
 async fn a_relay_sends_after_a_jitter_on_every_known_interface_then_retries_once() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x91; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x91; 64]));
     let mut radio = ep.attach_interface();
     ep.enable_routing();
     let (packet, announce) = peer_announce(0x92, "single-radio");
@@ -111,7 +111,7 @@ async fn heard_neighbour_rebroadcasts_cancel_our_retry() {
         (vec![(0xB1, 1), (0xB2, 1)], "neighbours"),
         (vec![(0xB3, 2)], "onward"),
     ] {
-        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x93; 64]));
+        let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x93; 64]));
         let mut radio = ep.attach_interface();
         ep.enable_routing();
         let (packet, _) = peer_announce(0x94, "suppressed");
@@ -135,7 +135,7 @@ async fn heard_neighbour_rebroadcasts_cancel_our_retry() {
 /// than dropped (`Transport.py` 1522-1585).
 #[tokio::test(start_paused = true)]
 async fn the_announce_cap_queues_rather_than_drops() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x95; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x95; 64]));
     let mut radio = ep.attach_interface();
     ep.enable_routing();
     ep.set_relay_jitter(Duration::ZERO);
@@ -169,7 +169,7 @@ async fn the_announce_cap_queues_rather_than_drops() {
 /// were heard on (`Transport.py` 1458-1516).
 #[tokio::test(start_paused = true)]
 async fn interface_modes_gate_own_and_relayed_announces() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x9A; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x9A; 64]));
     let mut full = ep.attach_interface();
     let mut access = ep.attach_interface();
     let mut roaming = ep.attach_interface();
@@ -216,7 +216,7 @@ async fn interface_modes_gate_own_and_relayed_announces() {
 /// (`Transport.py` 1449).
 #[tokio::test(start_paused = true)]
 async fn a_receive_only_interface_stays_silent() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x9D; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x9D; 64]));
     let mut open = ep.attach_interface();
     let mut silent = ep.attach_interface();
     assert!(ep.set_interface_outgoing(silent.id(), false));
@@ -248,7 +248,7 @@ async fn a_receive_only_interface_stays_silent() {
 /// RNS blocks a broadcast with no next-hop interface (`Transport.py` 1461-1469).
 #[tokio::test(start_paused = true)]
 async fn a_lapsed_path_blocks_the_relay() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0xA4; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0xA4; 64]));
     let mut radio = ep.attach_interface();
     ep.enable_routing();
     ep.set_relay_jitter(Duration::ZERO);
@@ -273,7 +273,7 @@ async fn a_lapsed_path_blocks_the_relay() {
 /// 10 % of 62.5 kbps spaces 167-byte announces 214 ms apart (`Transport.py` 1522-1585).
 #[tokio::test(start_paused = true)]
 async fn a_configured_bitrate_and_share_set_the_cap() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x9F; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x9F; 64]));
     let mut radio = ep.attach_interface();
     ep.enable_routing();
     ep.set_relay_jitter(Duration::ZERO);

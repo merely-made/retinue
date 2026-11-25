@@ -55,6 +55,7 @@ async fn unassociated_key_binds_reticulum_with_its_own_peer() {
     let provider = InMemoryProvider::from_seed([63; 32]);
     let key = UnassociatedKeypair::generate();
     let transport = ReticulumTransport::builder_for(&key)
+        .network_stamps(transport::NetworkStampPolicy::rns_1_6_0())
         .alpns(vec![Alpn::new("mere/test/v1")])
         .bind()
         .await

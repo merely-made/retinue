@@ -84,6 +84,16 @@ impl Endpoint {
             .expect("default announce freshness policy is valid")
     }
 
+    /// Create an endpoint whose stamp policy is in place before anything announces.
+    pub fn with_network_stamp_policy(
+        identity: PrivateIdentity,
+        policy: crate::network_stamp::NetworkStampPolicy,
+    ) -> Self {
+        let endpoint = Self::new(identity);
+        endpoint.set_network_stamp_policy(policy);
+        endpoint
+    }
+
     /// Create an endpoint with an explicit bounded receive-freshness policy.
     ///
     /// Invalid zero capacities are refused before any router task is started.

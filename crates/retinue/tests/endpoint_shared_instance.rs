@@ -17,7 +17,10 @@ use retinue::packet::{HeaderType, Packet, PacketType};
 /// An announce for `name`, re-emitted by an instance as rnsd does: header-type 2 through
 /// `instance` at `hops` (`Transport.py` 2398-2425).
 async fn relayed_announce(name: &DestinationName, instance: AddressHash, hops: u8) -> Packet {
-    let peer = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x77; 64]));
+    let peer = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x77; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let mut raw = peer.attach_interface();
     peer.register(name.clone(), b"");
     peer.announce(name, b"");
@@ -63,7 +66,10 @@ async fn wait_for(mut done: impl FnMut() -> bool) -> bool {
 async fn tcp_instance_routes_through_rnsd_without_counting_its_hop() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x11; 64]));
+    let ep = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x11; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let instance = SharedInstance {
         port,
         kind: SharedInstanceKind::Tcp,
@@ -123,7 +129,10 @@ async fn first_connect_failure_is_reported() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         listener.local_addr().unwrap().port()
     };
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x12; 64]));
+    let ep = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x12; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let instance = SharedInstance {
         port,
         kind: SharedInstanceKind::Tcp,
@@ -143,7 +152,10 @@ async fn linux_abstract_socket_is_reached_by_instance_name() {
     let name = format!("retinue-test-{}", std::process::id());
     let addr = SocketAddr::from_abstract_name(format!("rns/{name}")).unwrap();
     let listener = UnixListener::bind_addr(&addr).unwrap();
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x13; 64]));
+    let ep = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x13; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     for kind in [SharedInstanceKind::Unix, SharedInstanceKind::Auto] {
         let instance = SharedInstance {
             instance_name: name.clone(),

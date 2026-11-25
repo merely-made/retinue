@@ -193,7 +193,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         other => return Err(format!("unknown leg {other}").into()),
     }
 
-    let endpoint = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x41; 64]));
+    let endpoint = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x41; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     endpoint.set_link_mtu(255);
     let interface = endpoint.attach_interface();
     let driver = tokio::spawn(drive(interface, radio));

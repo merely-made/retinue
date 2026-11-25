@@ -127,9 +127,15 @@ fn identity(seed: u8) -> PrivateIdentity {
 
 /// A best-effort link from A to B: `(a, b, wire, a_stream, b_stream)`.
 async fn best_effort() -> (Endpoint, Endpoint, Wire, LinkStream, LinkStream) {
-    let a = Endpoint::new(identity(0x11));
+    let a = Endpoint::with_network_stamp_policy(
+        identity(0x11),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let b_id = identity(0x22);
-    let b = Endpoint::new(b_id.clone());
+    let b = Endpoint::with_network_stamp_policy(
+        b_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let name = DestinationName::new("retinue", ["echo"]);
     let dest = name.destination_hash(b_id.public());
     b.register(name, b"");
@@ -147,9 +153,15 @@ async fn best_effort() -> (Endpoint, Endpoint, Wire, LinkStream, LinkStream) {
 
 /// A reliable (Channel) link from A to B: `(a, b, wire, a_stream, b_stream)`.
 async fn reliable() -> (Endpoint, Endpoint, Wire, LinkStream, LinkStream) {
-    let a = Endpoint::new(identity(0x11));
+    let a = Endpoint::with_network_stamp_policy(
+        identity(0x11),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let b_id = identity(0x22);
-    let b = Endpoint::new(b_id.clone());
+    let b = Endpoint::with_network_stamp_policy(
+        b_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let name = DestinationName::new("retinue", ["echo"]);
     let dest = name.destination_hash(b_id.public());
     b.register_reliable(name, b"");

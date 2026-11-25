@@ -230,6 +230,7 @@ mod reticulum {
             let expected_subject = member().master_public_key().to_bytes();
 
             let server = ReticulumTransport::builder(&server_carrier)
+                .network_stamps(transport::NetworkStampPolicy::rns_1_6_0())
                 .alpns(vec![alpn.clone()])
                 .interfaces(vec![iface_server(port)])
                 .announce_interval(Duration::from_millis(200))
@@ -238,6 +239,7 @@ mod reticulum {
                 .await
                 .unwrap();
             let client = ReticulumTransport::builder(&client_carrier)
+                .network_stamps(transport::NetworkStampPolicy::rns_1_6_0())
                 .alpns(vec![alpn.clone()])
                 .interfaces(vec![iface_client(port)])
                 .announce_interval(Duration::from_millis(200))
@@ -349,6 +351,7 @@ mod reticulum {
         let server_peer = PeerID::from_public_key(server_kp.public_key());
 
         let server = ReticulumTransport::builder(&server_kp)
+            .network_stamps(transport::NetworkStampPolicy::rns_1_6_0())
             .alpns(vec![alpn.clone()])
             .interfaces(vec![iface_server(port)])
             .announce_interval(Duration::from_millis(500))
@@ -356,6 +359,7 @@ mod reticulum {
             .await
             .expect("bind server");
         let client = ReticulumTransport::builder(&client_kp)
+            .network_stamps(transport::NetworkStampPolicy::rns_1_6_0())
             .alpns(vec![alpn.clone()])
             .interfaces(vec![iface_client(port)])
             .announce_interval(Duration::from_millis(500))

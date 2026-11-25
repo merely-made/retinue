@@ -50,12 +50,12 @@ mod alpn;
 pub mod blob_source;
 pub mod blobs;
 mod error;
-pub mod memory;
 #[cfg(feature = "i2p")]
 pub mod i2p;
 /// I2P as a [`Transport`], each stream a Noise session (graphshell:mere-cli D12).
 #[cfg(feature = "i2p-transport")]
 pub mod i2p_transport;
+pub mod memory;
 /// An encrypted session layer that composes *over* a carrier's stream, rather
 /// than being a carrier itself. See the module docs for the layering.
 #[cfg(feature = "noise")]
@@ -99,6 +99,9 @@ pub use crate::reticulum_transport::{
 };
 pub use crate::transport::Transport;
 pub use p2panda_net::gossip::GossipHandle;
+/// Network stamp policy and cost for [`ReticulumTransportBuilder::network_stamps`].
+#[cfg(feature = "reticulum")]
+pub use retinue::{endpoint::NetworkStampPolicy, stamp::StampCost};
 
 // Re-export commonly-used identity types so consumers don't need a direct
 // dependency on `identity` for the basic identity-into-transport flow.

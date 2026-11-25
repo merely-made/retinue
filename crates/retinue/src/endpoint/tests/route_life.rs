@@ -6,7 +6,7 @@ use super::*;
 /// (RNS `Transport.py` 2510, 2726). A new destination starts never used.
 #[tokio::test]
 async fn an_announce_that_replaces_a_route_keeps_its_used_mark() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x64; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x64; 64]));
     let a = ep.attach_interface();
     let entry = |dest| ep.shared.path_table.lock().unwrap()[&dest];
     let [dest, fresh] = [0xB4, 0xB5].map(|n| AddressHash::from_bytes([n; 16]));
@@ -30,7 +30,7 @@ async fn an_announce_that_replaces_a_route_keeps_its_used_mark() {
 #[tokio::test]
 async fn carrying_across_a_bridge_marks_the_destination_route_used() {
     for accepted in [false, true] {
-        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x73; 64]));
+        let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x73; 64]));
         let a = ep.attach_interface();
         let b = ep.attach_interface();
         ep.enable_routing();
@@ -114,7 +114,7 @@ async fn a_verified_carried_link_proof_proves_its_destination_alive() {
 /// and it is marked used.
 #[tokio::test]
 async fn an_own_link_proves_its_destination_alive() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x65; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x65; 64]));
     let a = ep.attach_interface();
     let responder = PrivateIdentity::from_secret_bytes(&[0x66; 64]);
     let (_, announce) = freshness_announce(&responder, "alive", 0, 1, 1, 0);
@@ -146,7 +146,7 @@ async fn an_own_link_proves_its_destination_alive() {
 /// that would expire soonest first, and then the route used longest ago (D30).
 #[tokio::test]
 async fn a_full_table_drops_never_used_then_least_recently_used() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x77; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x77; 64]));
     let a = ep.attach_interface();
     let peers = [1, 2, 3, 4, 5, 6, 7].map(|n| AddressHash::from_bytes([n; 16]));
     let aged = Instant::now() - Duration::from_secs(60);
@@ -198,7 +198,7 @@ async fn a_full_table_drops_never_used_then_least_recently_used() {
 /// ten times that on an interface slower than 25 kbit/s. A used route keeps its lifetime.
 #[tokio::test]
 async fn a_never_used_route_is_culled_after_its_linger() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x78; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x78; 64]));
     let fast = ep.attach_interface();
     let slow = ep.attach_interface();
     assert!(ep.set_interface_bitrate(slow.id(), Some(24_999)));
@@ -254,7 +254,7 @@ async fn a_never_used_route_is_culled_after_its_linger() {
 /// over 160 ms for one 500-byte MTU is under 25 kbit/s. With neither it is not slow.
 #[tokio::test]
 async fn a_slow_interface_is_known_by_bitrate_else_airtime() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x79; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x79; 64]));
     let airtime = |ms| {
         let iface = ep.attach_interface();
         ep.set_first_hop_airtime(iface.id(), Duration::from_millis(ms));

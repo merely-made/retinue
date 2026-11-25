@@ -48,7 +48,10 @@ fn command(ep: &Endpoint, line: &str) {
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let identity = PrivateIdentity::from_secret_bytes(&[0x7B; 64]);
-    let ep = Arc::new(Endpoint::new(identity.clone()));
+    let ep = Arc::new(Endpoint::with_network_stamp_policy(
+        identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     println!("UP {}", ep.identity().hash());
     println!(
         "PUBKEY {}",

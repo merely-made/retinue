@@ -22,9 +22,10 @@ const PASSPHRASE: &str = "serial-and-radio";
 const WAIT: Duration = Duration::from_secs(180);
 
 pub fn endpoint() -> Arc<Endpoint> {
-    Arc::new(Endpoint::new(PrivateIdentity::from_secret_bytes(
-        &IDENTITY_SEED,
-    )))
+    Arc::new(Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&IDENTITY_SEED),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ))
 }
 
 /// The gate's IFAC credentials at `bits` (an RNS `ifac_size`).

@@ -16,9 +16,10 @@ use tokio::sync::mpsc;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let ep = Arc::new(Endpoint::new(PrivateIdentity::from_secret_bytes(
-        &[0x3B; 64],
-    )));
+    let ep = Arc::new(Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x3B; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     let addr = ep.listen_tcp("127.0.0.1:0".parse()?).await?;
     println!("LISTENING {}", addr.port());
     let name = DestinationName::new("retinue", ["priority"]);

@@ -88,9 +88,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let data = payload(len.parse()?, seed.parse()?);
 
-    let endpoint = Arc::new(Endpoint::new(PrivateIdentity::from_secret_bytes(
-        &IDENTITY_SEED,
-    )));
+    let endpoint = Arc::new(Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&IDENTITY_SEED),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     let inner = endpoint.listen_tcp("127.0.0.1:0".parse()?).await?;
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     println!("LISTENING {}", listener.local_addr()?.port());

@@ -37,7 +37,10 @@ fn hash(hex: &str) -> Option<AddressHash> {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0xD5; 64]));
+    let ep = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0xD5; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     ep.enable_routing();
     for (index, peer) in std::env::args().skip(1).enumerate() {
         let (port, name) = peer.split_once(':').ok_or("expected port:mode")?;

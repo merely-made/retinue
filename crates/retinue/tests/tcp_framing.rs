@@ -142,7 +142,10 @@ mod carriers {
     #[tokio::test]
     async fn kiss_framed_endpoints_hear_each_other() {
         let server_id = PrivateIdentity::from_secret_bytes(&[0x4b; 64]);
-        let server = Endpoint::new(server_id.clone());
+        let server = Endpoint::with_network_stamp_policy(
+            server_id.clone(),
+            retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        );
         let policy = ListenPolicy {
             kiss_framing: true,
             ..ListenPolicy::default()
@@ -151,7 +154,10 @@ mod carriers {
             .listen_tcp_with("127.0.0.1:0".parse().unwrap(), policy)
             .await
             .unwrap();
-        let client = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x4c; 64]));
+        let client = Endpoint::with_network_stamp_policy(
+            PrivateIdentity::from_secret_bytes(&[0x4c; 64]),
+            retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        );
         let dial = TcpClient {
             kiss_framing: true,
             ..TcpClient::new("127.0.0.1", listener.local_addr().port())
@@ -178,7 +184,10 @@ mod carriers {
     /// is still served (`BackboneInterface.py` 807-835, 1084-1109).
     #[tokio::test]
     async fn fast_flapping_addresses_are_refused() {
-        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x66; 64]));
+        let ep = Endpoint::with_network_stamp_policy(
+            PrivateIdentity::from_secret_bytes(&[0x66; 64]),
+            retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        );
         let (spawned, mut ids) = mpsc::channel(16);
         let policy = ListenPolicy {
             flap: Some(FlapPolicy::default()),

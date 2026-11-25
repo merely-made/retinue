@@ -29,7 +29,11 @@ impl<const PEERS: usize, const ACTIONS: usize, const LINKS: usize, const ROUTES:
             logical_mtu: LINK_MTU,
             refused_payloads: 0,
             transport: TransportConfig::none(),
+            // A node cannot mine a destination stamp in this clock-free layer; its shell
+            // provisions one and opts in. Path stamps likewise wait for the shell.
             stamp_policy: crate::network_stamp::NetworkStampPolicy {
+                stamp_destinations: false,
+                stamp_path_requests: false,
                 max_attempts: super::DEFAULT_LINK_STAMP_ATTEMPTS,
                 ..Default::default()
             },

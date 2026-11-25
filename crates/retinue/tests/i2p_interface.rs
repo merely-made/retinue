@@ -209,16 +209,20 @@ fn quick() -> I2pTimers {
 #[tokio::test]
 async fn a_hub_learns_a_leaf_over_i2p_and_links_to_it() {
     let (bridge, router) = fake_router().await;
-    let hub = Endpoint::new(PrivateIdentity::from_secret_bytes(&[1u8; 64]));
+    let hub = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[1u8; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let hub_key = PrivateKey::from_base64(&keypair(1).1).unwrap();
     let listener = hub
         .listen_i2p(I2pListen::new(bridge, hub_key.clone()))
         .unwrap();
     assert_eq!(listener.destination(), hub_key.destination());
 
-    let leaf = Arc::new(Endpoint::new(PrivateIdentity::from_secret_bytes(
-        &[2u8; 64],
-    )));
+    let leaf = Arc::new(Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[2u8; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     let mut peer = I2pPeer::new(bridge, "I2P", listener.destination().b32());
     peer.timers = quick();
     let leaf_iface = leaf.attach_i2p_peer(peer).unwrap();
@@ -302,7 +306,10 @@ async fn a_silent_peer_gets_keepalives_then_is_dropped_and_redialed() {
     .await
     .unwrap();
 
-    let node = Endpoint::new(PrivateIdentity::from_secret_bytes(&[3u8; 64]));
+    let node = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[3u8; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let mut peer = I2pPeer::new(bridge, "I2P", far_key.destination().to_base64());
     peer.timers = I2pTimers {
         keepalive_after: Duration::from_millis(200),
@@ -368,7 +375,10 @@ async fn a_silent_peer_gets_keepalives_then_is_dropped_and_redialed() {
 #[tokio::test]
 async fn an_unreachable_peer_stays_offline_and_keeps_retrying() {
     let (bridge, router) = fake_router().await;
-    let node = Endpoint::new(PrivateIdentity::from_secret_bytes(&[4u8; 64]));
+    let node = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[4u8; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let nobody = PrivateKey::from_base64(&keypair(7).1).unwrap();
     let mut peer = I2pPeer::new(bridge, "I2P", nobody.destination().to_base64());
     peer.timers = quick();

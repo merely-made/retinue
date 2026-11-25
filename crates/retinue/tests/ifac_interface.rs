@@ -14,7 +14,10 @@ fn access(name: &str) -> Ifac {
 
 #[tokio::test]
 async fn routing_verifies_ingress_and_reapplies_the_egress_ifac() {
-    let router = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x31; 64]));
+    let router = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x31; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     router.enable_routing();
 
     let ingress_access = access("ingress");
@@ -95,7 +98,10 @@ async fn tcp_interface_authenticates_both_directions() {
 /// endpoint, counting it, and the unflagged frame still routes and leaves unflagged.
 #[tokio::test]
 async fn plain_interface_refuses_the_ifac_flag_and_forwards_unflagged() {
-    let router = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x35; 64]));
+    let router = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x35; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     router.enable_routing();
     let (_ingress_outbound, ingress_sink) = router.attach_interface().split();
     let (mut egress_outbound, _egress_sink) = router.attach_interface().split();
@@ -144,7 +150,10 @@ async fn plain_interface_refuses_the_ifac_flag_and_forwards_unflagged() {
 /// A plain endpoint TCP interface refuses a flagged frame in its router.
 #[tokio::test]
 async fn plain_tcp_endpoint_refuses_the_ifac_flag() {
-    let router = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x36; 64]));
+    let router = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x36; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let address = router
         .listen_tcp(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
         .await

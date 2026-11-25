@@ -6,7 +6,10 @@ use crate::destination::DestinationName;
 use crate::identity::PrivateIdentity;
 
 fn endpoint(seed: u8) -> Endpoint {
-    Endpoint::new(PrivateIdentity::from_secret_bytes(&[seed; 64]))
+    Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[seed; 64]),
+        crate::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    )
 }
 
 fn free_port() -> u16 {

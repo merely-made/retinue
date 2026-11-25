@@ -74,7 +74,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::time::timeout(Duration::from_secs(15), radio.wait_online()).await??;
     println!("modem online: {modem_port} at SF11/250kHz sync 2b");
 
-    let endpoint = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x41; 64]));
+    let endpoint = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x41; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     endpoint.set_link_mtu(255);
     // Retries must clear the round trip at SF11, as node_link found: the transfer retry
     // past request+part.

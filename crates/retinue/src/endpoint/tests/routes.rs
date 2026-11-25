@@ -4,7 +4,7 @@ use super::*;
 
 #[tokio::test]
 async fn a_learned_route_expires_and_is_evicted() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[1u8; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[1u8; 64]));
     let dest = AddressHash::from_bytes([0xAB; 16]);
     let learned = Instant::now();
     ep.shared.learn_path_at(dest, 7, 2, None, learned);
@@ -27,7 +27,7 @@ async fn a_learned_route_expires_and_is_evicted() {
 
 #[tokio::test]
 async fn route_facts_are_ordered_current_and_read_only() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x12; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x12; 64]));
     let interface = ep.attach_interface().id();
     let later = AddressHash::from_bytes([0xBB; 16]);
     let earlier = AddressHash::from_bytes([0x11; 16]);
@@ -69,7 +69,7 @@ async fn route_facts_are_ordered_current_and_read_only() {
 
 #[tokio::test]
 async fn diagnostic_capture_waits_for_an_inflight_writer() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x19; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x19; 64]));
     let initial_generation = ep.diagnostic_generation();
     let destination = AddressHash::from_bytes([0x66; 16]);
     let (writer_entered_tx, writer_entered_rx) = std::sync::mpsc::channel();
@@ -128,7 +128,7 @@ async fn diagnostic_capture_waits_for_an_inflight_writer() {
 /// The path table is capped, and forgets the never-used route soonest to expire.
 #[tokio::test]
 async fn a_full_path_table_forgets_the_never_used_route_soonest_to_expire() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x34; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x34; 64]));
     let iface = InterfaceId::from(1_u32);
     let quiet = AddressHash::from_bytes([0x01; 16]);
 
@@ -165,7 +165,7 @@ async fn a_full_path_table_forgets_the_never_used_route_soonest_to_expire() {
 /// A peer that keeps announcing keeps its route: re-announcing refreshes `learned`.
 #[tokio::test]
 async fn a_peer_that_keeps_announcing_keeps_its_route() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x35; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x35; 64]));
     let iface = InterfaceId::from(1_u32);
     let talkative = AddressHash::from_bytes([0x01; 16]);
 
@@ -192,7 +192,7 @@ async fn a_peer_that_keeps_announcing_keeps_its_route() {
 
 #[tokio::test]
 async fn two_destinations_on_one_interface_keep_their_own_transports() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x31; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x31; 64]));
     let iface = InterfaceId::from(3_u32);
     let a = AddressHash::from_bytes([0xAA; 16]);
     let b = AddressHash::from_bytes([0xBB; 16]);
@@ -215,7 +215,7 @@ async fn two_destinations_on_one_interface_keep_their_own_transports() {
 /// had fewer hops: freshness owns ordering.
 #[tokio::test]
 async fn a_newer_worse_route_replaces_the_incumbent() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x32; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x32; 64]));
     let dest = AddressHash::from_bytes([0xCC; 16]);
     let good = InterfaceId::from(1_u32);
     let worse = InterfaceId::from(2_u32);
@@ -248,7 +248,7 @@ async fn routes_live_a_week_unless_their_interface_mode_shortens_them() {
         AnnounceFreshnessPolicy::default().route_ttl,
         Duration::from_secs(7 * 24 * 60 * 60)
     );
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x61; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x61; 64]));
     let full = ep.attach_interface();
     let roaming = ep.attach_interface();
     let access_point = ep.attach_interface();
@@ -282,7 +282,7 @@ async fn routes_live_a_week_unless_their_interface_mode_shortens_them() {
 /// route to expire when it was due.
 #[tokio::test]
 async fn a_route_in_use_is_marked_not_extended() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x62; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x62; 64]));
     let a = ep.attach_interface();
     let b = ep.attach_interface();
     ep.enable_routing();
@@ -336,7 +336,7 @@ async fn a_route_in_use_is_marked_not_extended() {
 /// a send to that destination falls back to broadcast on what is left.
 #[tokio::test]
 async fn forgetting_an_interface_culls_its_routes_and_bridges() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x63; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x63; 64]));
     let gone = ep.attach_interface();
     let kept = ep.attach_interface();
     let dest = AddressHash::from_bytes([0xC1; 16]);

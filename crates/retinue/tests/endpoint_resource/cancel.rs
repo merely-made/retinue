@@ -7,8 +7,14 @@ use super::*;
 #[tokio::test]
 async fn a_rejected_offer_stops_the_publisher_promptly() {
     let server_id = PrivateIdentity::from_secret_bytes(&[0x31; 64]);
-    let server = Arc::new(Endpoint::new(server_id.clone()));
-    let client = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x32; 64]));
+    let server = Arc::new(Endpoint::with_network_stamp_policy(
+        server_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let client = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x32; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let name = DestinationName::new("retinue", ["resource-reject"]);
     let destination = name.destination_hash(server_id.public());
     server.register_resource(name, b"");
@@ -49,8 +55,14 @@ async fn a_rejected_offer_stops_the_publisher_promptly() {
 #[tokio::test]
 async fn a_receive_timeout_cancels_the_publisher() {
     let server_id = PrivateIdentity::from_secret_bytes(&[0x33; 64]);
-    let server = Arc::new(Endpoint::new(server_id.clone()));
-    let client = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x34; 64]));
+    let server = Arc::new(Endpoint::with_network_stamp_policy(
+        server_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let client = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x34; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let name = DestinationName::new("retinue", ["resource-receive-timeout"]);
     let destination = name.destination_hash(server_id.public());
     server.register_resource(name, b"");
@@ -97,8 +109,14 @@ async fn a_receive_timeout_cancels_the_publisher() {
 #[tokio::test]
 async fn a_publish_timeout_cancels_the_receiver() {
     let server_id = PrivateIdentity::from_secret_bytes(&[0x35; 64]);
-    let server = Arc::new(Endpoint::new(server_id.clone()));
-    let client = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x36; 64]));
+    let server = Arc::new(Endpoint::with_network_stamp_policy(
+        server_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let client = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x36; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let name = DestinationName::new("retinue", ["resource-publish-timeout"]);
     let destination = name.destination_hash(server_id.public());
     server.register_resource(name, b"");
@@ -140,8 +158,14 @@ async fn a_publish_timeout_cancels_the_receiver() {
 #[tokio::test]
 async fn a_response_past_max_response_size_is_rejected() {
     let server_id = PrivateIdentity::from_secret_bytes(&[0x37; 64]);
-    let server = Arc::new(Endpoint::new(server_id.clone()));
-    let client = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x38; 64]));
+    let server = Arc::new(Endpoint::with_network_stamp_policy(
+        server_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let client = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x38; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let name = DestinationName::new("retinue", ["resource-response-cap"]);
     let destination = name.destination_hash(server_id.public());
     server.register_resource(name, b"");

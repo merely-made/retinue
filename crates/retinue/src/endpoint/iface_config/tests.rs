@@ -414,7 +414,10 @@ fn shared_instance_keys_map() {
 
 #[tokio::test]
 async fn settings_apply_through_the_public_setters() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x3c; 64]));
+    let ep = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x3c; 64]),
+        crate::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let id = ep.attach_interface().id();
     let s = tcp_client("    mode = gateway\n    announce_cap = 5\n    gravity = 2\n").settings;
     assert!(ep.apply_interface_settings(id, &s));

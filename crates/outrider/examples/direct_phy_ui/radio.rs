@@ -57,8 +57,14 @@ impl RadioPair {
         tokio::time::timeout(Duration::from_secs(15), left_radio.wait_online()).await??;
         tokio::time::timeout(Duration::from_secs(15), right_radio.wait_online()).await??;
 
-        let left = Arc::new(Endpoint::new(left_identity.clone()));
-        let right = Arc::new(Endpoint::new(right_identity.clone()));
+        let left = Arc::new(Endpoint::with_network_stamp_policy(
+            left_identity.clone(),
+            retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        ));
+        let right = Arc::new(Endpoint::with_network_stamp_policy(
+            right_identity.clone(),
+            retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        ));
         let frame_limit = left_radio.max_frame_len().min(right_radio.max_frame_len());
         let logical_mtu = frame_limit - ifac.as_ref().map_or(0, Ifac::size);
         println!("frame limit={frame_limit} logical link MTU={logical_mtu}");

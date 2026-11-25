@@ -28,7 +28,7 @@ async fn a_restarted_endpoint_sends_to_a_restored_peer() {
     let dest = announced.destination;
 
     let snapshot = {
-        let ep = Endpoint::new(identity.clone());
+        let ep = rns160(identity.clone());
         let wire = ep.attach_interface();
         process_verified_announce(&ep.shared, wire.id(), packet, announced);
         let persisted: Arc<Mutex<Vec<Vec<u8>>>> = Arc::default();
@@ -49,7 +49,7 @@ async fn a_restarted_endpoint_sends_to_a_restored_peer() {
             .expect("the hook got a snapshot")
     };
 
-    let ep = Endpoint::new(identity);
+    let ep = rns160(identity);
     let wire = ep.attach_interface();
     let unknown = ep.send_single(dest, b"hello").unwrap_err();
     assert_eq!(unknown.kind(), io::ErrorKind::NotFound);
@@ -58,7 +58,7 @@ async fn a_restarted_endpoint_sends_to_a_restored_peer() {
     tampered[20] ^= 0x01;
     let refused = ep.restore_address_book(&tampered).unwrap_err();
     assert_eq!(refused.kind(), io::ErrorKind::InvalidData);
-    let stranger = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0xC5; 64]));
+    let stranger = rns160(PrivateIdentity::from_secret_bytes(&[0xC5; 64]));
     assert!(stranger.restore_address_book(&snapshot).is_err());
     assert!(
         ep.resolve(dest).is_none(),

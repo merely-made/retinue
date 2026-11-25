@@ -192,8 +192,14 @@ mod tests {
     async fn zero_loss_link_is_faithful() {
         // The control: a lossless model is an ordinary in-memory link. Discovery
         // over the attach_interface seam works exactly like TCP.
-        let a = Endpoint::new(PrivateIdentity::from_secret_bytes(&[1u8; 64]));
-        let b = Endpoint::new(PrivateIdentity::from_secret_bytes(&[2u8; 64]));
+        let a = Endpoint::with_network_stamp_policy(
+            PrivateIdentity::from_secret_bytes(&[1u8; 64]),
+            crate::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        );
+        let b = Endpoint::with_network_stamp_policy(
+            PrivateIdentity::from_secret_bytes(&[2u8; 64]),
+            crate::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        );
         connect(&a, &b, LossModel::new(1), LossModel::new(2));
 
         let name = DestinationName::new("test", ["cap"]);
@@ -207,8 +213,14 @@ mod tests {
     async fn announces_survive_moderate_drop() {
         // Loss is really injected, and repetition-based discovery survives it: at
         // 40% packet loss each way, a re-announced destination still gets through.
-        let a = Endpoint::new(PrivateIdentity::from_secret_bytes(&[3u8; 64]));
-        let b = Endpoint::new(PrivateIdentity::from_secret_bytes(&[4u8; 64]));
+        let a = Endpoint::with_network_stamp_policy(
+            PrivateIdentity::from_secret_bytes(&[3u8; 64]),
+            crate::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        );
+        let b = Endpoint::with_network_stamp_policy(
+            PrivateIdentity::from_secret_bytes(&[4u8; 64]),
+            crate::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        );
         connect(
             &a,
             &b,

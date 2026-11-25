@@ -11,8 +11,14 @@ use retinue::ratchet::RatchetStore;
 
 async fn ratcheted_pair() -> (Endpoint, Endpoint, PrivateIdentity, DestinationName) {
     let receiver_id = PrivateIdentity::from_secret_bytes(&[0x52; 64]);
-    let receiver = Endpoint::new(receiver_id.clone());
-    let sender = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x25; 64]));
+    let receiver = Endpoint::with_network_stamp_policy(
+        receiver_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
+    let sender = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x25; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     connect(&sender, &receiver, LossModel::new(3), LossModel::new(4));
     let name = DestinationName::new("retinue", ["sealed"]);
     receiver

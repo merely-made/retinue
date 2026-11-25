@@ -102,7 +102,7 @@ fn ifac_overhead_counts_against_interface_frame_admission() {
 
 #[tokio::test]
 async fn an_inbound_link_fact_keeps_unknown_remote_unknown() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x15; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x15; 64]));
     let interface = ep.attach_interface().id();
     let destination =
         DestinationName::new("retinue", ["management-link"]).destination_hash(ep.identity());
@@ -145,7 +145,7 @@ async fn an_inbound_link_fact_keeps_unknown_remote_unknown() {
 /// A peer that connects and drops repeatedly leaves no interface record behind.
 #[tokio::test]
 async fn a_dropped_tcp_peer_leaves_no_interface_behind() {
-    let server = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x36; 64]));
+    let server = rns160(PrivateIdentity::from_secret_bytes(&[0x36; 64]));
     let addr = server
         .listen_tcp("127.0.0.1:0".parse().unwrap())
         .await
@@ -153,7 +153,7 @@ async fn a_dropped_tcp_peer_leaves_no_interface_behind() {
     let settled = server.shared.interfaces.lock().unwrap().len();
 
     for _ in 0..6 {
-        let client = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x37; 64]));
+        let client = rns160(PrivateIdentity::from_secret_bytes(&[0x37; 64]));
         client.attach_tcp_client(addr).await.expect("connect");
         // Dropping the client closes its socket, which the server's reader observes.
         drop(client);
@@ -171,7 +171,7 @@ async fn a_dropped_tcp_peer_leaves_no_interface_behind() {
 /// Detaching forgets the interface, so reconnects do not accumulate records.
 #[tokio::test]
 async fn detaching_an_interface_forgets_it() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x33; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x33; 64]));
     let before = ep.shared.interfaces.lock().unwrap().len();
 
     let iface = ep.attach_interface();
@@ -251,7 +251,7 @@ async fn stream_sockets_take_the_rns_keepalive_profile() {
 async fn a_dialed_interface_keeps_its_id_and_routes_across_reconnects() {
     let hub = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = hub.local_addr().unwrap().port();
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x61; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x61; 64]));
     let id = ep
         .attach_tcp(TcpClient {
             reconnect_wait: Duration::from_millis(50),
@@ -299,17 +299,17 @@ async fn a_dialed_interface_keeps_its_id_and_routes_across_reconnects() {
 /// after an outage discards a backlog.
 #[tokio::test]
 async fn an_announce_queued_right_after_attaching_is_sent() {
-    let hub = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x69; 64]));
+    let hub = rns160(PrivateIdentity::from_secret_bytes(&[0x69; 64]));
     let addr = hub
         .listen_tcp("127.0.0.1:0".parse().unwrap())
         .await
         .unwrap();
     let name = DestinationName::new("retinue", ["attach-then-announce"]);
-    let dialer = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x6a; 64]));
+    let dialer = rns160(PrivateIdentity::from_secret_bytes(&[0x6a; 64]));
     dialer.register(name.clone(), b"");
     dialer.attach_tcp_client(addr).await.unwrap();
     dialer.announce(&name, b"dialed");
-    let streamed = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x6b; 64]));
+    let streamed = rns160(PrivateIdentity::from_secret_bytes(&[0x6b; 64]));
     streamed.register(name.clone(), b"");
     streamed.attach_stream(TcpStream::connect(addr).await.unwrap());
     streamed.announce(&name, b"streamed");
@@ -331,12 +331,12 @@ async fn an_announce_queued_right_after_attaching_is_sent() {
 #[tokio::test]
 async fn tcp_interfaces_with_ifac_carry_the_full_mtu() {
     let ifac = Ifac::for_stream(Some("mtu"), None).unwrap();
-    let hub = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x6c; 64]));
+    let hub = rns160(PrivateIdentity::from_secret_bytes(&[0x6c; 64]));
     let addr = hub
         .listen_tcp_with_ifac("127.0.0.1:0".parse().unwrap(), ifac.clone())
         .await
         .unwrap();
-    let dialer = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x6d; 64]));
+    let dialer = rns160(PrivateIdentity::from_secret_bytes(&[0x6d; 64]));
     let dialed = dialer
         .attach_tcp_client_with_ifac(addr, ifac.clone())
         .await
@@ -362,7 +362,7 @@ async fn tcp_interfaces_with_ifac_carry_the_full_mtu() {
 #[tokio::test]
 async fn an_unreachable_hub_is_retried_then_given_up() {
     let port = dead_port().await;
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x63; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x63; 64]));
     let addr = ([127, 0, 0, 1], port).into();
     assert!(
         ep.attach_tcp_client(addr).await.is_err(),
@@ -387,7 +387,7 @@ async fn an_unreachable_hub_is_retried_then_given_up() {
 /// A peer that stops reading ends the pump after the dead time; EOF ends it at once.
 #[tokio::test(start_paused = true)]
 async fn a_stalled_writer_or_a_closed_reader_ends_the_pump() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x64; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x64; 64]));
     let iface = ep.attach_interface();
     let id = iface.id();
     let (mut out, _sink) = iface.split();
@@ -435,7 +435,7 @@ async fn a_stalled_writer_or_a_closed_reader_ends_the_pump() {
 /// A queued packet that cannot be encoded is dropped and counted, and the next one is sent.
 #[tokio::test]
 async fn an_unencodable_packet_is_counted_and_skipped() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x65; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x65; 64]));
     let ifac = Ifac::for_stream(Some("pump"), None).unwrap();
     let iface = ep.attach_interface_with_ifac(600, ifac.clone()).unwrap();
     let id = iface.id();
@@ -486,7 +486,7 @@ async fn an_unencodable_packet_is_counted_and_skipped() {
 /// closed listener releases its port.
 #[tokio::test]
 async fn a_listener_spawns_interfaces_with_its_policy_and_closes() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x67; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x67; 64]));
     let (spawned, mut ids) = tokio::sync::mpsc::channel(4);
     let iface = IfacePolicy {
         cap_percent: 10,
@@ -561,7 +561,7 @@ fn a_listener_survives_descriptor_exhaustion() {
         .build()
         .unwrap();
     runtime.block_on(async {
-        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x68; 64]));
+        let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x68; 64]));
         let addr = ep.listen_tcp("127.0.0.1:0".parse().unwrap()).await.unwrap();
         let mut hoard = Vec::new();
         while let Ok(file) = std::fs::File::open("/dev/null") {

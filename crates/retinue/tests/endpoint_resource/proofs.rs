@@ -9,8 +9,14 @@ use super::*;
 async fn endpoint_publish_survives_a_lost_completion_proof() {
     let server_id = PrivateIdentity::from_secret_bytes(&[0x24; 64]);
     let client_id = PrivateIdentity::from_secret_bytes(&[0x13; 64]);
-    let server = Arc::new(Endpoint::new(server_id.clone()));
-    let client = Endpoint::new(client_id);
+    let server = Arc::new(Endpoint::with_network_stamp_policy(
+        server_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let client = Endpoint::with_network_stamp_policy(
+        client_id,
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
 
     let name = DestinationName::new("retinue", ["resource-proof-replay"]);
     let destination = name.destination_hash(server_id.public());
@@ -60,8 +66,14 @@ async fn endpoint_publish_survives_a_lost_completion_proof() {
 async fn endpoint_publish_recovers_a_lost_proof_with_a_cache_request() {
     let server_id = PrivateIdentity::from_secret_bytes(&[0x25; 64]);
     let client_id = PrivateIdentity::from_secret_bytes(&[0x14; 64]);
-    let server = Arc::new(Endpoint::new(server_id.clone()));
-    let client = Endpoint::new(client_id);
+    let server = Arc::new(Endpoint::with_network_stamp_policy(
+        server_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let client = Endpoint::with_network_stamp_policy(
+        client_id,
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
 
     let name = DestinationName::new("retinue", ["resource-proof-cache"]);
     let destination = name.destination_hash(server_id.public());
@@ -116,8 +128,14 @@ async fn endpoint_publish_recovers_a_lost_proof_with_a_cache_request() {
 async fn endpoint_resource_proof_is_proof_typed_and_completes_the_publisher() {
     let server_id = PrivateIdentity::from_secret_bytes(&[0x26; 64]);
     let client_id = PrivateIdentity::from_secret_bytes(&[0x15; 64]);
-    let server = Arc::new(Endpoint::new(server_id.clone()));
-    let client = Endpoint::new(client_id);
+    let server = Arc::new(Endpoint::with_network_stamp_policy(
+        server_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let client = Endpoint::with_network_stamp_policy(
+        client_id,
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
 
     let name = DestinationName::new("retinue", ["resource-proof-type"]);
     let destination = name.destination_hash(server_id.public());
@@ -182,8 +200,14 @@ async fn endpoint_resource_proof_is_proof_typed_and_completes_the_publisher() {
 #[tokio::test(start_paused = true)]
 async fn a_publish_whose_proof_never_arrives_gives_up_after_its_cache_requests() {
     let server_id = PrivateIdentity::from_secret_bytes(&[0x37; 64]);
-    let server = Arc::new(Endpoint::new(server_id.clone()));
-    let client = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x38; 64]));
+    let server = Arc::new(Endpoint::with_network_stamp_policy(
+        server_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let client = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x38; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let name = DestinationName::new("retinue", ["resource-proof-never"]);
     let destination = name.destination_hash(server_id.public());
     server.register_resource(name, b"");
@@ -240,8 +264,14 @@ async fn a_session_proves_the_data_packet_it_received() {
     use std::sync::Mutex;
 
     let server_id = PrivateIdentity::from_secret_bytes(&[0x2a; 64]);
-    let server = Arc::new(Endpoint::new(server_id.clone()));
-    let client = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x1a; 64]));
+    let server = Arc::new(Endpoint::with_network_stamp_policy(
+        server_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let client = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x1a; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let name = DestinationName::new("retinue", ["data-proof"]);
     let destination = name.destination_hash(server_id.public());
     server.register_resource(name, b"");

@@ -80,7 +80,10 @@ already end-to-end encrypted, and the destination hash is the peer's identity.
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ── The capsule: a gemini responder served over Reticulum ──
     let server_id = PrivateIdentity::from_secret_bytes(&[0x2a; 64]);
-    let server = Endpoint::new(server_id.clone());
+    let server = Endpoint::with_network_stamp_policy(
+        server_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let addr = server.listen_tcp("127.0.0.1:0".parse()?).await?;
     let name = DestinationName::new("gemini", ["capsule"]);
     let dest = name.destination_hash(server_id.public());
@@ -116,7 +119,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // ── The client: resolve the capsule BY NAME, then fetch over the link ──
-    let client = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x18; 64]));
+    let client = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x18; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     client.attach_tcp_client(addr).await?;
 
     // Named addressing: gemini://capsule/ -> DestinationName::new("gemini", ["capsule"]).

@@ -8,7 +8,10 @@ async fn exchange(
     limits: ResourceReceiveLimits,
 ) -> (io::Result<Vec<u8>>, io::Result<PayloadMode>) {
     tokio::time::timeout(Duration::from_secs(10), async {
-        let server = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x66; 64]));
+        let server = Endpoint::with_network_stamp_policy(
+            PrivateIdentity::from_secret_bytes(&[0x66; 64]),
+            crate::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        );
         let node = StaticNode::new();
         let destination = node.destination(server.identity());
         let peer = *server.identity();
@@ -26,7 +29,10 @@ async fn exchange(
                 .await;
             (result, accepted, server)
         });
-        let client = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x67; 64]));
+        let client = Endpoint::with_network_stamp_policy(
+            PrivateIdentity::from_secret_bytes(&[0x67; 64]),
+            crate::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        );
         client.attach_tcp_client(address).await.unwrap();
         let result = fetch_page_with_limits(
             &client,
@@ -109,7 +115,10 @@ async fn native_encoded_and_decoded_envelope_limits_reject_independently() {
 #[tokio::test]
 async fn refused_resource_releases_request_for_a_fresh_read_on_the_same_endpoint() {
     tokio::time::timeout(Duration::from_secs(10), async {
-        let server = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x66; 64]));
+        let server = Endpoint::with_network_stamp_policy(
+            PrivateIdentity::from_secret_bytes(&[0x66; 64]),
+            crate::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        );
         let node = StaticNode::new();
         let destination = node.destination(server.identity());
         let peer = *server.identity();
@@ -134,7 +143,10 @@ async fn refused_resource_releases_request_for_a_fresh_read_on_the_same_endpoint
             }
             (outcomes, held, server)
         });
-        let client = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x67; 64]));
+        let client = Endpoint::with_network_stamp_policy(
+            PrivateIdentity::from_secret_bytes(&[0x67; 64]),
+            crate::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        );
         client.attach_tcp_client(address).await.unwrap();
         let config = FetchPageConfig {
             max_page_bytes: 4000,

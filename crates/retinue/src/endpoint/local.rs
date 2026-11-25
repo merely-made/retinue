@@ -361,7 +361,10 @@ mod tests {
     /// when it forwards (`Transport.py` 451-454).
     #[tokio::test]
     async fn a_shared_instance_client_lingers_as_a_leaf() {
-        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[5; 64]));
+        let ep = Endpoint::with_network_stamp_policy(
+            PrivateIdentity::from_secret_bytes(&[5; 64]),
+            crate::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        );
         let local = ep.attach_interface().id();
         ep.shared.local.insert(local);
         ep.enable_routing();
@@ -378,7 +381,10 @@ mod tests {
 
     #[tokio::test]
     async fn shared_instance_hops_are_transparent_and_saturate() {
-        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[3; 64]));
+        let ep = Endpoint::with_network_stamp_policy(
+            PrivateIdentity::from_secret_bytes(&[3; 64]),
+            crate::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        );
         let plain = ep.attach_interface().id();
         let local = ep.attach_interface().id();
         ep.shared.local.insert(local);
@@ -396,7 +402,10 @@ mod tests {
     /// reached with header type 1 (1428-1437).
     #[tokio::test]
     async fn routes_through_the_instance_are_addressed_as_a_stock_client_does() {
-        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[4; 64]));
+        let ep = Endpoint::with_network_stamp_policy(
+            PrivateIdentity::from_secret_bytes(&[4; 64]),
+            crate::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        );
         let local = ep.attach_interface().id();
         ep.shared.local.insert(local);
         let beyond = ep
@@ -425,7 +434,10 @@ mod tests {
 
     #[tokio::test]
     async fn loss_drops_routes_and_links_on_that_interface_only() {
-        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[5; 64]));
+        let ep = Endpoint::with_network_stamp_policy(
+            PrivateIdentity::from_secret_bytes(&[5; 64]),
+            crate::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        );
         let local = ep.attach_interface().id();
         let other = ep.attach_interface().id();
         let (a, b) = (
@@ -446,7 +458,10 @@ mod tests {
     #[cfg(not(any(target_os = "linux", target_os = "android")))]
     #[tokio::test]
     async fn unix_kind_is_unsupported_off_linux() {
-        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[6; 64]));
+        let ep = Endpoint::with_network_stamp_policy(
+            PrivateIdentity::from_secret_bytes(&[6; 64]),
+            crate::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        );
         let instance = SharedInstance {
             kind: SharedInstanceKind::Unix,
             ..SharedInstance::default()

@@ -23,9 +23,10 @@ const PUBLISH_SEED: u32 = 0xDA7A_0003;
 const PUBLISH_LEN: usize = 4096;
 
 pub fn endpoint() -> Arc<Endpoint> {
-    Arc::new(Endpoint::new(PrivateIdentity::from_secret_bytes(
-        &IDENTITY_SEED,
-    )))
+    Arc::new(Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&IDENTITY_SEED),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ))
 }
 
 /// The gate's credentials at stock's datagram default, 16 bytes.

@@ -43,7 +43,10 @@ fn child_process_entry() {
 async fn receiver(dir: &Path) {
     progress(dir, "receiver", "starting");
     let identity = PrivateIdentity::from_secret_bytes(&[0x42; 64]);
-    let endpoint = Arc::new(Endpoint::new(identity.clone()));
+    let endpoint = Arc::new(Endpoint::with_network_stamp_policy(
+        identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     let announce = DeliveryAnnounce::named(b"Receiver".to_vec());
     register_delivery(&endpoint, &announce).unwrap();
     let bound = endpoint
@@ -115,7 +118,10 @@ async fn sender(dir: &Path, address: std::net::SocketAddr) {
     progress(dir, "sender", "starting");
     let identity = PrivateIdentity::from_secret_bytes(&[0x31; 64]);
     let receiver_identity = PrivateIdentity::from_secret_bytes(&[0x42; 64]);
-    let endpoint = Arc::new(Endpoint::new(identity.clone()));
+    let endpoint = Arc::new(Endpoint::with_network_stamp_policy(
+        identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     endpoint.attach_tcp_client(address).await.unwrap();
     progress(dir, "sender", "connected");
     let announce = DeliveryAnnounce::named(b"Sender".to_vec());

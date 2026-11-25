@@ -14,8 +14,14 @@ use retinue::ratchet::{RatchetError, RatchetPolicy, RatchetStore};
 #[tokio::test]
 async fn current_and_retained_ratchets_deliver_without_opening_a_link() {
     let receiver_id = PrivateIdentity::from_secret_bytes(&[0x42; 64]);
-    let receiver = Endpoint::new(receiver_id.clone());
-    let sender = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x24; 64]));
+    let receiver = Endpoint::with_network_stamp_policy(
+        receiver_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
+    let sender = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x24; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     connect(&sender, &receiver, LossModel::new(1), LossModel::new(2));
 
     let name = DestinationName::new("retinue", ["single"]);
@@ -86,8 +92,14 @@ async fn current_and_retained_ratchets_deliver_without_opening_a_link() {
 #[tokio::test]
 async fn outbound_single_falls_back_to_the_identity_key_and_enforces_the_mdu() {
     let receiver_id = PrivateIdentity::from_secret_bytes(&[0x52; 64]);
-    let receiver = Endpoint::new(receiver_id.clone());
-    let sender = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x25; 64]));
+    let receiver = Endpoint::with_network_stamp_policy(
+        receiver_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
+    let sender = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x25; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     connect(&sender, &receiver, LossModel::new(3), LossModel::new(4));
 
     let name = DestinationName::new("retinue", ["plain-single"]);
@@ -129,8 +141,14 @@ async fn outbound_single_falls_back_to_the_identity_key_and_enforces_the_mdu() {
 #[tokio::test]
 async fn single_packet_receipt_requires_a_frame_capable_interface() {
     let receiver_id = PrivateIdentity::from_secret_bytes(&[0x62; 64]);
-    let receiver = Endpoint::new(receiver_id.clone());
-    let sender = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x26; 64]));
+    let receiver = Endpoint::with_network_stamp_policy(
+        receiver_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
+    let sender = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x26; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let mut sender_wire = sender.attach_interface_with_frame_limit(255).unwrap();
     let sender_sink = sender_wire.sink();
     let mut receiver_wire = receiver.attach_interface();
@@ -199,8 +217,14 @@ struct Wired {
 
 async fn wired(seed: u8, ratchets: Option<&RatchetStore>) -> Wired {
     let receiver_id = PrivateIdentity::from_secret_bytes(&[seed; 64]);
-    let receiver = Endpoint::new(receiver_id.clone());
-    let sender = Endpoint::new(PrivateIdentity::from_secret_bytes(&[seed ^ 0xFF; 64]));
+    let receiver = Endpoint::with_network_stamp_policy(
+        receiver_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
+    let sender = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[seed ^ 0xFF; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let sender_wire = sender.attach_interface();
     let sender_sink = sender_wire.sink();
     let mut receiver_wire = receiver.attach_interface();
@@ -393,12 +417,21 @@ async fn ratchet_enforcement_is_opt_in() {
 /// (RNS `Transport.py` 2104-2110, 2733-2744).
 #[tokio::test]
 async fn a_proof_crosses_an_endpoint_transport_hop() {
-    let hub = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x81; 64]));
+    let hub = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x81; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     hub.enable_routing();
-    let sender = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x82; 64]));
+    let sender = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x82; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     connect(&sender, &hub, LossModel::new(1), LossModel::new(2));
     let receiver_id = PrivateIdentity::from_secret_bytes(&[0x83; 64]);
-    let receiver = Endpoint::new(receiver_id.clone());
+    let receiver = Endpoint::with_network_stamp_policy(
+        receiver_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     connect(&receiver, &hub, LossModel::new(3), LossModel::new(4));
 
     let name = DestinationName::new("retinue", ["relayed"]);
@@ -439,13 +472,19 @@ fn host_seconds() -> f64 {
 #[tokio::test]
 async fn persisted_ratchets_survive_a_restart_and_tampering_is_refused() {
     let receiver_id = PrivateIdentity::from_secret_bytes(&[0x72; 64]);
-    let sender = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x27; 64]));
+    let sender = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x27; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let name = DestinationName::new("retinue", ["persisted-single"]);
     let destination = name.destination_hash(receiver_id.public());
     let disk: Arc<Mutex<Option<Vec<u8>>>> = Arc::default();
 
     let first = {
-        let receiver = Endpoint::new(receiver_id.clone());
+        let receiver = Endpoint::with_network_stamp_policy(
+            receiver_id.clone(),
+            retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        );
         let persisted = Arc::clone(&disk);
         receiver.set_ratchet_persistence(move |dest, snapshot| {
             assert_eq!(dest, destination);
@@ -498,7 +537,10 @@ async fn persisted_ratchets_survive_a_restart_and_tampering_is_refused() {
     assert_eq!(receipt.loaded, 1);
     // Announce freshness is keyed on whole host seconds; restart in a later one.
     tokio::time::sleep(Duration::from_millis(1_050)).await;
-    let receiver = Endpoint::new(receiver_id.clone());
+    let receiver = Endpoint::with_network_stamp_policy(
+        receiver_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     connect(&sender, &receiver, LossModel::new(7), LossModel::new(8));
     receiver
         .register_resource_with_ratchets(name.clone(), b"persisted", restored)

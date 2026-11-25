@@ -80,7 +80,10 @@ async fn submit(
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let sender = PrivateIdentity::from_secret_bytes(&SENDER_SEED);
-    let endpoint = Arc::new(Endpoint::new(sender.clone()));
+    let endpoint = Arc::new(Endpoint::with_network_stamp_policy(
+        sender.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     let address = endpoint.listen_tcp("127.0.0.1:0".parse()?).await?;
     endpoint.enable_routing();
     println!("LISTENING {}", address.port());

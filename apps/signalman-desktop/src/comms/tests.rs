@@ -32,8 +32,14 @@ async fn real_lxmf_delivery_reaches_the_shared_comms_journal_and_reopens_without
         DeliveryStatus::Queued(DeliveryQueueReason::Offline)
     );
     let outgoing = a.records().next().unwrap().message;
-    let sender = Arc::new(Endpoint::new(alice_key.clone()));
-    let receiver = Arc::new(Endpoint::new(bob_key.clone()));
+    let sender = Arc::new(Endpoint::with_network_stamp_policy(
+        alice_key.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let receiver = Arc::new(Endpoint::with_network_stamp_policy(
+        bob_key.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     connect(&sender, &receiver, LossModel::new(31), LossModel::new(42));
     outrider::register_delivery(
         &sender,

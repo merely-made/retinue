@@ -23,7 +23,10 @@ use retinue::node::InterfaceMode;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let modes = std::env::var("RETINUE_LISTENERS").unwrap_or_else(|_| "full".into());
     let identity = PrivateIdentity::from_secret_bytes(&[0x4d; 64]);
-    let ep = Arc::new(Endpoint::new(identity.clone()));
+    let ep = Arc::new(Endpoint::with_network_stamp_policy(
+        identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     ep.enable_routing();
     let name = DestinationName::new("retinue", ["listener"]);
     ep.register(name.clone(), b"listener");
@@ -86,7 +89,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             ["ANNOUNCER", port] => {
                 let id = PrivateIdentity::from_secret_bytes(&[0x7a; 64]);
-                let announcer = Endpoint::new(id.clone());
+                let announcer = Endpoint::with_network_stamp_policy(
+                    id.clone(),
+                    retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+                );
                 announcer
                     .attach_tcp_client(([127, 0, 0, 1], port.parse()?).into())
                     .await?;

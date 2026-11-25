@@ -129,8 +129,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let client_id = PrivateIdentity::from_secret_bytes(&[0x11; 64]);
     let server_id = PrivateIdentity::from_secret_bytes(&[0x22; 64]);
-    let client = Endpoint::new(client_id);
-    let server = Arc::new(Endpoint::new(server_id.clone()));
+    let client = Endpoint::with_network_stamp_policy(
+        client_id,
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
+    let server = Arc::new(Endpoint::with_network_stamp_policy(
+        server_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     client.set_reliable_initial_rtt(Duration::from_secs(5));
     server.set_reliable_initial_rtt(Duration::from_secs(5));
     client.set_reliable_max_window(1);

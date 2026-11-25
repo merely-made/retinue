@@ -420,10 +420,14 @@ mod tests {
     #[tokio::test]
     async fn a_silent_link_does_not_hold_later_deliveries() {
         let sender_identity = PrivateIdentity::from_secret_bytes(&[0x51; 64]);
-        let sender = Arc::new(Endpoint::new(sender_identity.clone()));
-        let receiver = Arc::new(Endpoint::new(PrivateIdentity::from_secret_bytes(
-            &[0x61; 64],
-        )));
+        let sender = Arc::new(Endpoint::with_network_stamp_policy(
+            sender_identity.clone(),
+            retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        ));
+        let receiver = Arc::new(Endpoint::with_network_stamp_policy(
+            PrivateIdentity::from_secret_bytes(&[0x61; 64]),
+            retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        ));
         connect(&sender, &receiver);
         let sender_announce = DeliveryAnnounce::named(b"Sender".to_vec());
         let receiver_announce = DeliveryAnnounce::named(b"Receiver".to_vec());

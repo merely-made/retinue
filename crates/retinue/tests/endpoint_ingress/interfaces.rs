@@ -8,7 +8,10 @@ use super::*;
 #[tokio::test]
 async fn accepted_links_report_their_own_interface() {
     let hub_id = PrivateIdentity::from_secret_bytes(&[9u8; 64]);
-    let hub = Endpoint::new(hub_id.clone());
+    let hub = Endpoint::with_network_stamp_policy(
+        hub_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let addr = hub
         .listen_tcp("127.0.0.1:0".parse().unwrap())
         .await
@@ -18,9 +21,15 @@ async fn accepted_links_report_their_own_interface() {
     hub.register(hub_name.clone(), b"svc");
 
     // Two leaves, each its own TCP connection => its own hub-side interface.
-    let a = Endpoint::new(PrivateIdentity::from_secret_bytes(&[2u8; 64]));
+    let a = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[2u8; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     a.attach_tcp_client(addr).await.unwrap();
-    let b = Endpoint::new(PrivateIdentity::from_secret_bytes(&[3u8; 64]));
+    let b = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[3u8; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     b.attach_tcp_client(addr).await.unwrap();
 
     for _ in 0..4 {
@@ -68,7 +77,10 @@ async fn accepted_links_report_their_own_interface() {
 #[tokio::test]
 async fn links_from_one_peer_share_an_interface() {
     let hub_id = PrivateIdentity::from_secret_bytes(&[11u8; 64]);
-    let hub = Endpoint::new(hub_id.clone());
+    let hub = Endpoint::with_network_stamp_policy(
+        hub_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let addr = hub
         .listen_tcp("127.0.0.1:0".parse().unwrap())
         .await
@@ -77,7 +89,10 @@ async fn links_from_one_peer_share_an_interface() {
     let hub_dest = hub_name.destination_hash(hub_id.public());
     hub.register(hub_name.clone(), b"twice");
 
-    let leaf = Endpoint::new(PrivateIdentity::from_secret_bytes(&[12u8; 64]));
+    let leaf = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[12u8; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     leaf.attach_tcp_client(addr).await.unwrap();
     for _ in 0..4 {
         hub.announce(&hub_name, b"twice");
@@ -110,7 +125,10 @@ async fn links_from_one_peer_share_an_interface() {
 #[tokio::test]
 async fn reliable_accept_preserves_the_same_ingress_as_best_effort() {
     let hub_id = PrivateIdentity::from_secret_bytes(&[21u8; 64]);
-    let hub = Endpoint::new(hub_id.clone());
+    let hub = Endpoint::with_network_stamp_policy(
+        hub_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let addr = hub
         .listen_tcp("127.0.0.1:0".parse().unwrap())
         .await
@@ -126,7 +144,10 @@ async fn reliable_accept_preserves_the_same_ingress_as_best_effort() {
     let rel_dest = rel_name.destination_hash(hub_id.public());
     hub.register_reliable(rel_name.clone(), b"rel");
 
-    let leaf = Endpoint::new(PrivateIdentity::from_secret_bytes(&[22u8; 64]));
+    let leaf = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[22u8; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let leaf_iface = leaf.attach_tcp_client(addr).await.unwrap();
     for _ in 0..4 {
         hub.announce(&be_name, b"be");
@@ -174,7 +195,10 @@ async fn reliable_accept_preserves_the_same_ingress_as_best_effort() {
 #[tokio::test]
 async fn outbound_stream_reports_its_interface() {
     let hub_id = PrivateIdentity::from_secret_bytes(&[31u8; 64]);
-    let hub = Endpoint::new(hub_id.clone());
+    let hub = Endpoint::with_network_stamp_policy(
+        hub_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let addr = hub
         .listen_tcp("127.0.0.1:0".parse().unwrap())
         .await
@@ -183,7 +207,10 @@ async fn outbound_stream_reports_its_interface() {
     let hub_dest = hub_name.destination_hash(hub_id.public());
     hub.register(hub_name.clone(), b"out");
 
-    let leaf = Endpoint::new(PrivateIdentity::from_secret_bytes(&[32u8; 64]));
+    let leaf = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[32u8; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let iface = leaf.attach_tcp_client(addr).await.unwrap();
     for _ in 0..4 {
         hub.announce(&hub_name, b"out");

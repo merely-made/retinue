@@ -51,6 +51,7 @@ mod sealing;
 mod shared;
 mod single;
 mod sockopt;
+mod stamp_store;
 mod stream;
 #[cfg(test)]
 mod tests;
@@ -100,6 +101,7 @@ pub use resource_session::{
 pub use routing::{InterfaceSelector, RoutingCounters, RoutingPolicy};
 pub use runtime::Endpoint;
 pub use single::{ProofStrategy, ReceivedSingle, SingleDelivery, SinglePacketReceipt};
+pub use stamp_store::{DestinationStampStore, StampDirectory};
 pub use stream::LinkStream;
 
 // The desktop's table sizes, which the shared transport tests also run at.

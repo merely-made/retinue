@@ -80,9 +80,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ifac = access(size)?;
     println!("IFAC_SIZE {}", ifac.size());
 
-    let endpoint = Arc::new(Endpoint::new(PrivateIdentity::from_secret_bytes(
-        &RETINUE_SEED,
-    )));
+    let endpoint = Arc::new(Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&RETINUE_SEED),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     endpoint
         .attach_tcp_client_with_ifac(([127, 0, 0, 1], port).into(), ifac)
         .await?;

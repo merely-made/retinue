@@ -62,7 +62,10 @@ async fn relay(mut from: OwnedReadHalf, mut to: OwnedWriteHalf, to_rns: Option<&
 }
 
 async fn run_endpoint(listeners: Vec<TcpListener>) -> Result<(), Box<dyn std::error::Error>> {
-    let endpoint = Endpoint::new(PrivateIdentity::from_secret_bytes(&IDENTITY_SEED));
+    let endpoint = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&IDENTITY_SEED),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     // Registered with no interface attached, so its announce reaches nobody.
     endpoint.register(DestinationName::new("retinue", ["pathgate"]), b"endpoint");
     let inner: SocketAddr = endpoint.listen_tcp("127.0.0.1:0".parse()?).await?;

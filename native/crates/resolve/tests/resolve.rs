@@ -435,6 +435,7 @@ async fn reticulum_reader_finds_the_holder_that_announced_the_keys_name() {
     let port = 47_863u16;
     let (holder_carrier, reader_carrier) = (key(51), key(52));
     let holder_t = ReticulumTransport::builder(&holder_carrier)
+        .network_stamps(enforcing_low_cost())
         .alpns(vec![alpn.clone()])
         .interfaces(vec![ReticulumInterface::TcpServer {
             bind: format!("127.0.0.1:{port}").parse().unwrap(),
@@ -444,6 +445,7 @@ async fn reticulum_reader_finds_the_holder_that_announced_the_keys_name() {
         .await
         .unwrap();
     let reader_t = ReticulumTransport::builder(&reader_carrier)
+        .network_stamps(enforcing_low_cost())
         .watch_alpns(vec![alpn.clone()])
         .interfaces(vec![ReticulumInterface::TcpClient {
             addr: format!("127.0.0.1:{port}").parse().unwrap(),
@@ -479,6 +481,18 @@ async fn reticulum_reader_finds_the_holder_that_announced_the_keys_name() {
     let resolved = resolved.unwrap();
     assert_eq!(resolved.via.0, "reticulum");
     assert_eq!(resolved.selected.seq_num, 1);
+}
+
+/// Both ends stamp and enforce, as an RNS 1.6.2 network will; a low destination value
+/// keeps mining quick in debug builds. Path and link stamps keep stock's default costs.
+#[cfg(feature = "reticulum")]
+fn enforcing_low_cost() -> transport::NetworkStampPolicy {
+    transport::NetworkStampPolicy {
+        enforce: true,
+        destination_cost: transport::StampCost::from_integer(8),
+        destination_value: transport::StampCost::from_integer(8),
+        ..Default::default()
+    }
 }
 
 #[cfg(feature = "reticulum")]

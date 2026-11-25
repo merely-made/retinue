@@ -19,7 +19,10 @@ const RECEIVER_SEED: [u8; 64] = [0x62; 64];
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let identity = PrivateIdentity::from_secret_bytes(&RECEIVER_SEED);
-    let endpoint = Endpoint::new(identity.clone());
+    let endpoint = Endpoint::with_network_stamp_policy(
+        identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     if !mixed_bridge::attach_bridge(&endpoint).await? {
         endpoint
             .attach_tcp_client(std::env::var("RETINUE_ADDR")?.parse()?)

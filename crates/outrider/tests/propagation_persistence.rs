@@ -114,9 +114,18 @@ async fn a_host_snapshot_survives_restart_and_preserves_owner_scoping_and_acknow
     let node_identity = PrivateIdentity::from_secret_bytes(&[0x70; 64]);
     let first_recipient_identity = PrivateIdentity::from_secret_bytes(&[0x62; 64]);
     let second_recipient_identity = PrivateIdentity::from_secret_bytes(&[0x63; 64]);
-    let node = Arc::new(Endpoint::new(node_identity.clone()));
-    let first_recipient = Arc::new(Endpoint::new(first_recipient_identity.clone()));
-    let second_recipient = Arc::new(Endpoint::new(second_recipient_identity.clone()));
+    let node = Arc::new(Endpoint::with_network_stamp_policy(
+        node_identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let first_recipient = Arc::new(Endpoint::with_network_stamp_policy(
+        first_recipient_identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let second_recipient = Arc::new(Endpoint::with_network_stamp_policy(
+        second_recipient_identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     connect(
         &first_recipient,
         &node,

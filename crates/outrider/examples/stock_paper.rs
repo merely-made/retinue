@@ -49,7 +49,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         ["decode", uri, sender] => {
             // Opened as a fetched message is, through the registered delivery destination.
-            let endpoint = Endpoint::new(me.clone());
+            let endpoint = Endpoint::with_network_stamp_policy(
+                me.clone(),
+                retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+            );
             outrider::register_delivery(&endpoint, &DeliveryAnnounce::named(b"Outrider Paper"))?;
             let (message, _) = PropagationMessage::from_uri(uri, outrider::PAPER_MDU)?
                 .decrypt_for(&endpoint, outrider::DEFAULT_MAX_MESSAGE_BYTES)?;

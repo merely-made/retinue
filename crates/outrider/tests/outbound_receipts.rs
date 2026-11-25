@@ -26,10 +26,14 @@ struct Pair {
 /// (and, being registered for Resources, for direct delivery too).
 async fn pair(announce: DeliveryAnnounce) -> Pair {
     let sender_identity = PrivateIdentity::from_secret_bytes(&[0x51; 64]);
-    let sender = Arc::new(Endpoint::new(sender_identity.clone()));
-    let receiver = Arc::new(Endpoint::new(PrivateIdentity::from_secret_bytes(
-        &[0x52; 64],
-    )));
+    let sender = Arc::new(Endpoint::with_network_stamp_policy(
+        sender_identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let receiver = Arc::new(Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x52; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     connect(&sender, &receiver, LossModel::new(5), LossModel::new(6));
     let ratchets = RatchetStore::new(RatchetPolicy::default()).unwrap();
     let destination = register_opportunistic(&receiver, &announce, ratchets).unwrap();

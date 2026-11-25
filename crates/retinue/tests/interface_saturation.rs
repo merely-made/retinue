@@ -22,7 +22,10 @@ fn probe(seq: u8) -> Packet {
 
 #[tokio::test]
 async fn a_full_router_queue_drops_packets_without_detaching_the_interface() {
-    let endpoint = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x11; 64]));
+    let endpoint = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x11; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let sink = endpoint.attach_interface().sink();
 
     // Far more than the path-request lane holds, delivered without yielding, so the router has no
@@ -57,7 +60,10 @@ async fn a_dropped_endpoint_does_stop_the_interface() {
     // The other half of the distinction: `false` must still mean something, and it means
     // this. Without it the fix above would just be "never stop", which would spin a carrier
     // against an endpoint that no longer exists.
-    let endpoint = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x22; 64]));
+    let endpoint = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x22; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let sink = endpoint.attach_interface().sink();
     assert!(sink.deliver(probe(1)), "alive while the endpoint lives");
 

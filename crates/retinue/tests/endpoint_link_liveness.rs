@@ -113,8 +113,14 @@ fn response_data_packing_to(len: usize) -> Vec<u8> {
 #[tokio::test]
 async fn a_431_byte_request_and_response_each_fit_one_packet() {
     let server_id = identity(0x41);
-    let server = Arc::new(Endpoint::new(server_id.clone()));
-    let client = Endpoint::new(identity(0x42));
+    let server = Arc::new(Endpoint::with_network_stamp_policy(
+        server_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let client = Endpoint::with_network_stamp_policy(
+        identity(0x42),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let name = DestinationName::new("retinue", ["mdu"]);
     let destination = name.destination_hash(server_id.public());
     server.register_resource(name, b"");
@@ -186,8 +192,14 @@ async fn a_431_byte_request_and_response_each_fit_one_packet() {
 #[tokio::test(start_paused = true)]
 async fn an_idle_reliable_link_is_kept_alive_for_ten_minutes() {
     let server_id = identity(0x51);
-    let server = Endpoint::new(server_id.clone());
-    let client = Endpoint::new(identity(0x52));
+    let server = Endpoint::with_network_stamp_policy(
+        server_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
+    let client = Endpoint::with_network_stamp_policy(
+        identity(0x52),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let name = DestinationName::new("retinue", ["idle"]);
     let destination = name.destination_hash(server_id.public());
     server.register_reliable(name, b"");
@@ -233,8 +245,14 @@ async fn an_idle_reliable_link_is_kept_alive_for_ten_minutes() {
 #[tokio::test(start_paused = true)]
 async fn a_vanished_peer_times_out_both_stream_kinds() {
     let server_id = identity(0x61);
-    let server = Endpoint::new(server_id.clone());
-    let client = Endpoint::new(identity(0x62));
+    let server = Endpoint::with_network_stamp_policy(
+        server_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
+    let client = Endpoint::with_network_stamp_policy(
+        identity(0x62),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let best = DestinationName::new("retinue", ["vanish-best"]);
     let reliable = DestinationName::new("retinue", ["vanish-reliable"]);
     let best_dest = best.destination_hash(server_id.public());
@@ -290,7 +308,10 @@ async fn a_vanished_peer_times_out_both_stream_kinds() {
 #[tokio::test(start_paused = true)]
 async fn an_inbound_link_without_an_rtt_is_dropped_at_the_handshake_deadline() {
     let server_id = identity(0x71);
-    let server = Endpoint::new(server_id.clone());
+    let server = Endpoint::with_network_stamp_policy(
+        server_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let name = DestinationName::new("retinue", ["no-rtt"]);
     let destination = name.destination_hash(server_id.public());
     server.register(name, b"");
@@ -338,7 +359,10 @@ async fn an_inbound_link_without_an_rtt_is_dropped_at_the_handshake_deadline() {
 /// fixed 15 s. On timeout the endpoint asks for a path to the destination.
 #[tokio::test(start_paused = true)]
 async fn link_setup_uses_the_node_deadline_then_requests_a_path() {
-    let client = Endpoint::new(identity(0x81));
+    let client = Endpoint::with_network_stamp_policy(
+        identity(0x81),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let interface = client.attach_interface();
     let id = interface.id();
     let (out, _into) = interface.split();

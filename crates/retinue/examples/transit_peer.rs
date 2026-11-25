@@ -199,7 +199,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         REQUESTER_SEED
     };
-    let endpoint = Endpoint::new(PrivateIdentity::from_secret_bytes(&seed));
+    let endpoint = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&seed),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     endpoint.set_link_mtu(LINK_MTU as u32);
     let interface = endpoint.attach_interface();
     let driver = tokio::spawn(drive(interface, radio));

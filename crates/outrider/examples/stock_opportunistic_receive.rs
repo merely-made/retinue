@@ -15,9 +15,10 @@ const RECEIVER_SEED: [u8; 64] = [0x66; 64];
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let endpoint = Arc::new(Endpoint::new(PrivateIdentity::from_secret_bytes(
-        &RECEIVER_SEED,
-    )));
+    let endpoint = Arc::new(Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&RECEIVER_SEED),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     let address = endpoint.listen_tcp("127.0.0.1:0".parse()?).await?;
     let delivery_announce = DeliveryAnnounce {
         display_name: Some(b"Outrider Opportunistic Receiver".to_vec()),

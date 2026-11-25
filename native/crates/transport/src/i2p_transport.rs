@@ -137,7 +137,11 @@ impl I2pTransport {
         Ok(peer)
     }
 
-    async fn open(&self, peer: PeerID, alpn: &Alpn) -> Result<NoiseStream<I2pStream>, TransportError> {
+    async fn open(
+        &self,
+        peer: PeerID,
+        alpn: &Alpn,
+    ) -> Result<NoiseStream<I2pStream>, TransportError> {
         let address = self
             .peers
             .lock()
@@ -164,7 +168,10 @@ impl I2pTransport {
         .await
         .map_err(|_| backend("handshake", "timed out"))??;
         if facts.peer() != peer {
-            return Err(backend("handshake", "the destination answered as another peer"));
+            return Err(backend(
+                "handshake",
+                "the destination answered as another peer",
+            ));
         }
         Ok(stream)
     }
@@ -200,7 +207,11 @@ fn to_hex(bytes: &[u8]) -> String {
 }
 
 fn from_hex(text: &str) -> Option<[u8; 32]> {
-    if text.len() != 64 || !text.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) {
+    if text.len() != 64
+        || !text
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
         return None;
     }
     let mut bytes = [0u8; 32];
@@ -220,8 +231,11 @@ async fn accept_loop(
         let identity = Arc::clone(&identity);
         let routes = Arc::clone(&routes);
         tokio::spawn(async move {
-            let Ok(Ok((stream, facts))) =
-                timeout(HANDSHAKE_TIMEOUT, secure_responder_with_facts(&identity, stream)).await
+            let Ok(Ok((stream, facts))) = timeout(
+                HANDSHAKE_TIMEOUT,
+                secure_responder_with_facts(&identity, stream),
+            )
+            .await
             else {
                 return;
             };

@@ -40,8 +40,14 @@ async fn single(endpoint: &Endpoint) -> ReceivedSingle {
 async fn a_held_ticket_replaces_proof_of_work_on_the_reply() {
     let alice_identity = PrivateIdentity::from_secret_bytes(&[0x51; 64]);
     let bob_identity = PrivateIdentity::from_secret_bytes(&[0x52; 64]);
-    let alice = Arc::new(Endpoint::new(alice_identity.clone()));
-    let bob = Arc::new(Endpoint::new(bob_identity.clone()));
+    let alice = Arc::new(Endpoint::with_network_stamp_policy(
+        alice_identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let bob = Arc::new(Endpoint::with_network_stamp_policy(
+        bob_identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     connect(&alice, &bob, LossModel::new(51), LossModel::new(52));
     let ratchets = || RatchetStore::new(RatchetPolicy::default()).unwrap();
     let alice_destination =

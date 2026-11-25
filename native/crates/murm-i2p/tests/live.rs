@@ -39,9 +39,10 @@ struct Exchange {
 
 /// An endpoint with an echo destination and a resource destination, serving both.
 fn node(seed: u8, tag: &'static str) -> (Arc<Endpoint>, [DestinationName; 2]) {
-    let ep = Arc::new(Endpoint::new(PrivateIdentity::from_secret_bytes(
-        &[seed; 64],
-    )));
+    let ep = Arc::new(Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[seed; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     let echo = DestinationName::new("receipt", ["echo", tag]);
     let resource = DestinationName::new("receipt", ["resource", tag]);
     ep.register(echo.clone(), b"echo");

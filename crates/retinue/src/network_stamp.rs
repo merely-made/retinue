@@ -1,4 +1,4 @@
-//! Network stamp wire primitives, adapted from stock RNS 1.6.0.
+//! Network stamp wire primitives, adapted from stock RNS 1.6.1.
 //!
 //! RNS Stamps.py, Destination.py, Transport.py and Link.py, copyright 2016-2026
 //! Mark Qvist, under the Reticulum License. See this crate's LICENSE and NOTICE.
@@ -121,9 +121,15 @@ pub fn generate_link_seed(
     None
 }
 
-/// Operator-selected network stamp policy. Defaults match the RNS 1.6.0 transition:
-/// recognize and generate requested link stamps, but do not emit destination/path
-/// stamps or enforce admission until explicitly enabled.
+/// Operator-selected network stamp policy. Defaults match RNS 1.6.1: stamp emitted
+/// announces, path requests and requested link requests, but do not enforce admission
+/// until explicitly enabled.
+///
+/// `generation_timeout` bounds path and link request stamps, as RNS's `pr_stamp_timeout`
+/// and `lr_stamp_timeout` do. A destination stamp is generated once and runs to
+/// completion, as in RNS, stopped only by shutdown, a policy change or `max_attempts`;
+/// the endpoint's [`DestinationStampStore`](crate::endpoint::DestinationStampStore)
+/// keeps it across restarts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct NetworkStampPolicy {
     pub stamp_destinations: bool,
@@ -143,11 +149,24 @@ pub struct NetworkStampPolicy {
     /// Maximum simultaneous destination, path and link generation jobs.
     pub generation_capacity: usize,
 }
-impl Default for NetworkStampPolicy {
-    fn default() -> Self {
+impl NetworkStampPolicy {
+    /// RNS 1.6.0's transition defaults: link stamps when a peer asks for them, no
+    /// destination or path-request stamps. Retinue's tests and oracle peers written for
+    /// 1.6.0 keep these explicitly.
+    pub fn rns_1_6_0() -> Self {
         Self {
             stamp_destinations: false,
             stamp_path_requests: false,
+            ..Self::default()
+        }
+    }
+}
+
+impl Default for NetworkStampPolicy {
+    fn default() -> Self {
+        Self {
+            stamp_destinations: true,
+            stamp_path_requests: true,
             stamp_link_requests: true,
             always_stamp_links: false,
             enforce: false,

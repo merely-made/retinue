@@ -2,6 +2,7 @@
 use super::entropy::{ephemeral_seed, fill_random};
 use super::runtime::{Endpoint, track};
 use super::shared::Shared;
+use super::stamp_store::DestinationStampStore;
 use crate::announce::Announce;
 use crate::network_stamp::{
     NetworkStamp, NetworkStampPolicy, destination_material, generate_detached, generate_link_seed,
@@ -9,9 +10,11 @@ use crate::network_stamp::{
 };
 use crate::stamp::StampCost;
 use crate::{AddressHash, DestinationName};
+use alloc::vec::Vec;
 use std::collections::{HashMap, HashSet};
 use std::io;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 pub(super) struct NetworkStamps {
@@ -20,6 +23,7 @@ pub(super) struct NetworkStamps {
     pub costs: HashMap<AddressHash, StampCost>,
     pub peer_costs: HashMap<AddressHash, StampCost>,
     pending: HashSet<AddressHash>,
+    store: Option<Arc<dyn DestinationStampStore>>,
 }
 impl Default for NetworkStamps {
     fn default() -> Self {
@@ -29,6 +33,7 @@ impl Default for NetworkStamps {
             costs: HashMap::new(),
             peer_costs: HashMap::new(),
             pending: HashSet::new(),
+            store: None,
         }
     }
 }
@@ -66,6 +71,15 @@ impl Endpoint {
     }
     pub fn network_stamp_policy(&self) -> NetworkStampPolicy {
         self.shared.network_stamps.lock().unwrap().policy
+    }
+    /// Keep mined destination stamps across restarts. Set it before registering: a
+    /// destination's first announce consults the store before mining.
+    ///
+    /// # Panics
+    ///
+    /// If another thread panicked while holding the stamp state.
+    pub fn set_destination_stamp_store(&self, store: impl DestinationStampStore + 'static) {
+        self.shared.network_stamps.lock().unwrap().store = Some(Arc::new(store));
     }
     /// Set a destination's announced and enforced link request cost. Applies to
     /// its next announce; a caller should announce again after changing it.
@@ -158,8 +172,9 @@ impl Shared {
     }
 }
 
-/// Queue bounded generation; return true when this method owns the announce emission.
-/// Duplicate concurrent announces for the destination coalesce until its first stamp is ready.
+/// Queue generation; return true when this method owns the announce emission. As in
+/// RNS, a destination without a stamp announces once its stamp is ready, and duplicate
+/// announces coalesce until then. A stored stamp that still meets the target is reused.
 pub(super) fn announce_stamped(
     endpoint: &Endpoint,
     name: &DestinationName,
@@ -172,7 +187,7 @@ pub(super) fn announce_stamped(
         return false;
     }
     let material = destination_material(destination, endpoint.identity(), name.name_hash());
-    {
+    let store = {
         let mut stamps = shared.network_stamps.lock().unwrap();
         if stamps.own.get(&destination).is_some_and(|stamp| {
             crate::stamp::detached_valid(&material, &stamp.stamp, policy.destination_value)
@@ -186,61 +201,145 @@ pub(super) fn announce_stamped(
             return true;
         }
         stamps.pending.insert(destination);
-    }
-    let name = name.clone();
-    let data = app_data.to_vec();
-    let owner = Arc::clone(shared);
+        stamps.store.clone()
+    };
     let guard = GenerationGuard {
         owner: Arc::clone(shared),
         key: destination,
     };
+    if let Some(stamp) = store.as_ref().and_then(|store| store.load(destination))
+        && crate::stamp::detached_valid(&material, &stamp, policy.destination_value)
+    {
+        drop(guard);
+        return !install_own_stamp(shared, destination, &material, stamp);
+    }
+    let name = name.clone();
+    let data = app_data.to_vec();
+    let owner = Arc::clone(shared);
     track(shared, async move {
         let worker = Arc::clone(&owner);
         let generated = tokio::task::spawn_blocking(move || {
-            let start = Instant::now();
-            let generated = generate_detached(
-                &material,
-                policy.destination_value,
-                policy.max_attempts,
-                fill_random,
-                || start.elapsed() >= policy.generation_timeout || !worker.is_running(),
-            );
-            (generated, guard)
+            (mine_destination(&worker, &material, policy), guard)
         })
         .await;
-        let Ok((generated, _guard)) = generated else {
+        let Ok((Some(stamp), _guard)) = generated else {
             return;
         };
-        let mut stamps = owner.network_stamps.lock().unwrap();
-        let current = stamps.policy;
-        if let Some(stamp) = generated
-            && owner.is_running()
-            && current.stamp_destinations
-            && crate::stamp::detached_valid(&material, &stamp, current.destination_value)
-        {
-            // Dispatch reservations do not reserve cache rows. Other workers may
-            // have completed, or the operator may have lowered the cap meanwhile.
-            if !stamps.own.contains_key(&destination)
-                && stamps.own.len() >= current.destination_capacity
-            {
-                return;
-            }
-            let link_cost = stamps
-                .costs
-                .get(&destination)
-                .copied()
-                .unwrap_or(current.link_cost);
-            stamps
-                .own
-                .insert(destination, NetworkStamp { stamp, link_cost });
-            drop(stamps);
-            let seconds = super::registration::host_announce_seconds();
-            let ratchet = owner.advertised_ratchet(destination, seconds);
-            let packet = owner.build_announce_at(&name, ratchet.as_ref(), &data, seconds);
-            owner.broadcast(packet);
+        if !owner.is_running() || !install_own_stamp(&owner, destination, &material, stamp) {
+            return;
         }
+        if let Some(store) = store {
+            // As stock, a store failure costs only the next restart's work.
+            let _ = store.store(destination, &stamp, detached_value(&material, &stamp));
+        }
+        let seconds = super::registration::host_announce_seconds();
+        let ratchet = owner.advertised_ratchet(destination, seconds);
+        let packet = owner.build_announce_at(&name, ratchet.as_ref(), &data, seconds);
+        owner.broadcast(packet);
     });
     true
+}
+
+/// Cache a stamp that meets the current policy; false if the policy or cache refuses it.
+fn install_own_stamp(
+    shared: &Shared,
+    destination: AddressHash,
+    material: &[u8],
+    stamp: [u8; crate::network_stamp::STAMP_LEN],
+) -> bool {
+    let mut stamps = shared.network_stamps.lock().unwrap();
+    let current = stamps.policy;
+    if !current.stamp_destinations
+        || !crate::stamp::detached_valid(material, &stamp, current.destination_value)
+    {
+        return false;
+    }
+    // Dispatch reservations do not reserve cache rows. Other workers may
+    // have completed, or the operator may have lowered the cap meanwhile.
+    if !stamps.own.contains_key(&destination) && stamps.own.len() >= current.destination_capacity {
+        return false;
+    }
+    let link_cost = stamps
+        .costs
+        .get(&destination)
+        .copied()
+        .unwrap_or(current.link_cost);
+    stamps
+        .own
+        .insert(destination, NetworkStamp { stamp, link_cost });
+    true
+}
+
+/// Mine on every core, as stock does where it can. No wall-clock budget: the search
+/// stops for shutdown, a policy that no longer stamps at this value, or `max_attempts`.
+///
+/// A destination stamp is public, so each worker walks a counter from its own fresh
+/// random start, and the material is absorbed once: one compression per candidate.
+fn mine_destination(
+    shared: &Arc<Shared>,
+    material: &[u8],
+    policy: NetworkStampPolicy,
+) -> Option<[u8; crate::network_stamp::STAMP_LEN]> {
+    use sha2::{Digest, Sha256};
+    let workers = std::thread::available_parallelism().map_or(1, |n| n.get()) as u64;
+    let workers = workers.clamp(1, policy.max_attempts.max(1));
+    let done = AtomicBool::new(false);
+    let absorbed = Sha256::new().chain_update(material);
+    std::thread::scope(|scope| {
+        let jobs: Vec<_> = (0..workers)
+            .map(|index| {
+                let attempts = policy.max_attempts / workers
+                    + u64::from(index < policy.max_attempts % workers);
+                let (done, absorbed) = (&done, &absorbed);
+                scope.spawn(move || {
+                    let mut candidate = [0; crate::network_stamp::STAMP_LEN];
+                    fill_random(&mut candidate);
+                    for n in 0..attempts {
+                        if n % 4096 == 0
+                            && (done.load(Ordering::Relaxed)
+                                || (n % 65_536 == 0 && !still_wanted(shared, policy)))
+                        {
+                            return None;
+                        }
+                        let digest: [u8; 32] =
+                            absorbed.clone().chain_update(candidate).finalize().into();
+                        if policy.destination_value.accepts_digest(&digest) {
+                            done.store(true, Ordering::Relaxed);
+                            return Some(candidate);
+                        }
+                        for byte in candidate.iter_mut().rev() {
+                            *byte = byte.wrapping_add(1);
+                            if *byte != 0 {
+                                break;
+                            }
+                        }
+                    }
+                    None
+                })
+            })
+            .collect();
+        jobs.into_iter()
+            .filter_map(|job| job.join().ok().flatten())
+            .next()
+    })
+}
+
+fn still_wanted(shared: &Shared, mining: NetworkStampPolicy) -> bool {
+    let current = shared.stamp_policy();
+    shared.is_running()
+        && current.stamp_destinations
+        && current.destination_value.to_fp() <= mining.destination_value.to_fp()
+}
+
+/// Stock's recorded value of a detached stamp.
+fn detached_value(material: &[u8], stamp: &[u8]) -> f64 {
+    use sha2::{Digest, Sha256};
+    let digest: [u8; 32] = Sha256::new()
+        .chain_update(material)
+        .chain_update(stamp)
+        .finalize()
+        .into();
+    crate::stamp::value_of_digest(&digest)
 }
 
 pub(super) async fn link_seed(

@@ -102,9 +102,15 @@ impl PacketRadio for MemoryRadio {
 
 #[tokio::test]
 async fn endpoint_announces_cross_the_tulle_packet_boundary() {
-    let alice = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x11; 64]));
+    let alice = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x11; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let bob_id = PrivateIdentity::from_secret_bytes(&[0x22; 64]);
-    let bob = Endpoint::new(bob_id.clone());
+    let bob = Endpoint::with_network_stamp_policy(
+        bob_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let (alice_radio, bob_radio) = radio_pair(500);
     let bob_announcement_sends = Arc::clone(&bob_radio.announcement_sends);
 
@@ -133,7 +139,10 @@ async fn endpoint_announces_cross_the_tulle_packet_boundary() {
 
 #[tokio::test]
 async fn physical_frame_limit_is_applied_before_the_driver_runs() {
-    let endpoint = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x33; 64]));
+    let endpoint = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x33; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let (radio, _peer) = radio_pair(20);
     let interface = endpoint.attach_interface();
     let task = tokio::spawn(drive(interface, radio));
@@ -152,9 +161,15 @@ async fn physical_frame_limit_is_applied_before_the_driver_runs() {
 
 #[tokio::test]
 async fn negotiated_radio_mtu_chunks_a_best_effort_stream() {
-    let client = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x44; 64]));
+    let client = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x44; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let server_id = PrivateIdentity::from_secret_bytes(&[0x55; 64]);
-    let server = Arc::new(Endpoint::new(server_id.clone()));
+    let server = Arc::new(Endpoint::with_network_stamp_policy(
+        server_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     client.set_link_mtu(255);
     server.set_link_mtu(255);
 
@@ -214,9 +229,15 @@ async fn negotiated_radio_mtu_chunks_a_best_effort_stream() {
 
 #[tokio::test]
 async fn negotiated_ifac_radio_mtu_keeps_resource_parts_within_frame() {
-    let client = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x66; 64]));
+    let client = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x66; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let server_id = PrivateIdentity::from_secret_bytes(&[0x77; 64]);
-    let server = Arc::new(Endpoint::new(server_id.clone()));
+    let server = Arc::new(Endpoint::with_network_stamp_policy(
+        server_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     client.set_link_mtu(247);
     server.set_link_mtu(247);
 

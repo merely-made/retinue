@@ -6,7 +6,7 @@ use super::*;
 /// culled and says so (RNS `Transport.py` 744-749).
 #[tokio::test]
 async fn the_oldest_receipt_is_culled_at_capacity() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0xB3; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0xB3; 64]));
     let _wire = ep.attach_interface();
     let (_, peer) = peer_announce(0xB4, "receipts");
     ep.shared.address_book.lock().unwrap().ingest(&peer);
@@ -26,7 +26,7 @@ async fn the_oldest_receipt_is_culled_at_capacity() {
 /// link request naming one of our own destinations.
 #[tokio::test]
 async fn a_type_two_packet_for_another_transport_is_not_dispatched() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x65; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x65; 64]));
     let name = crate::destination::DestinationName::new("retinue", ["elsewhere"]);
     let dest = name.destination_hash(ep.identity());
     ep.register(name, b"");
@@ -62,7 +62,7 @@ async fn a_type_two_packet_for_another_transport_is_not_dispatched() {
 /// packet heard twice is carried once.
 #[tokio::test]
 async fn repeated_single_and_transit_packets_are_filtered() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x67; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x67; 64]));
     let name = crate::destination::DestinationName::new("retinue", ["single"]);
     let dest = name.destination_hash(ep.identity());
     ep.register(name, b"");
@@ -109,7 +109,7 @@ async fn repeated_single_and_transit_packets_are_filtered() {
 /// same packet arriving on the right interface is still delivered (`Transport.py` 2585-2593).
 #[tokio::test]
 async fn link_data_counts_only_on_the_links_interface() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x67; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x67; 64]));
     let name = crate::destination::DestinationName::new("retinue", ["bound"]);
     let dest = name.destination_hash(ep.identity());
     let (a, b) = (ep.attach_interface(), ep.attach_interface());
@@ -155,7 +155,7 @@ fn identify_fixture(
 ) {
     use super::super::resource_session::register_resource_session;
 
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x6B; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x6B; 64]));
     let iface = ep.attach_interface();
     let name = crate::destination::DestinationName::new("retinue", ["identify"]);
     let trailer = LinkTrailer {
@@ -236,7 +236,7 @@ fn data_packet(seq: u8) -> Packet {
 /// requests, and only the last are marked ingress-limited (`Transport.py` 70-80).
 #[tokio::test]
 async fn inbound_lanes_drain_in_priority_order() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x50; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x50; 64]));
     let (calm, bursting) = (ep.attach_interface(), ep.attach_interface());
     bursting
         .stats
@@ -277,7 +277,7 @@ async fn inbound_lanes_drain_in_priority_order() {
 /// interface in a path-request burst takes the ingress-limited lane.
 #[tokio::test]
 async fn a_full_lane_drops_only_its_own_class() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x52; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x52; 64]));
     let wire = ep.attach_interface();
     let queue = &ep.shared.inbound_queue;
     let (announce, _) = peer_announce(0x53, "flood");
@@ -337,7 +337,7 @@ async fn only_the_data_lane_backpressures_a_sender() {
 /// The interface counters see frames both ways, classified, with the carrier's state.
 #[tokio::test]
 async fn interface_counters_classify_traffic() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x55; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x55; 64]));
     let wire = ep.attach_interface();
     let id = wire.id();
     let (out, sink) = wire.split();
@@ -372,7 +372,7 @@ async fn interface_counters_classify_traffic() {
 /// right key, is a protocol one.
 #[tokio::test]
 async fn frame_failures_are_classified_as_stock_does() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x55; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x55; 64]));
     let ifac = crate::ifac::Ifac::for_stream(Some("stats"), None).unwrap();
     let wire = ep.attach_interface_with_ifac(2048, ifac).unwrap();
     let sink = wire.sink();

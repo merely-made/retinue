@@ -10,7 +10,7 @@ async fn oversized_reliable_frame_closes_without_proof_and_errors_at_host_reader
 
     let server_id = PrivateIdentity::from_secret_bytes(&[0x61; 64]);
     let client_id = PrivateIdentity::from_secret_bytes(&[0x62; 64]);
-    let endpoint = Endpoint::new(server_id.clone());
+    let endpoint = rns160(server_id.clone());
     endpoint.set_reliable_decoded_frame_limit(32).unwrap();
     let mut iface = endpoint.attach_interface();
     let dest =
@@ -107,7 +107,7 @@ async fn a_forged_link_close_leaves_a_reliable_stream_open() {
     use crate::link::{PendingLink, accept};
 
     let server_id = PrivateIdentity::from_secret_bytes(&[0x71; 64]);
-    let endpoint = Endpoint::new(server_id.clone());
+    let endpoint = rns160(server_id.clone());
     let iface = endpoint.attach_interface();
     let dest =
         DestinationName::new("retinue", ["forged-close"]).destination_hash(server_id.public());

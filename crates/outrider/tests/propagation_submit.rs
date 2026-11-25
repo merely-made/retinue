@@ -20,8 +20,14 @@ async fn stamped_submission_crosses_the_propagation_boundary() {
     let sender_identity = PrivateIdentity::from_secret_bytes(&[0x61; 64]);
     let recipient_identity = PrivateIdentity::from_secret_bytes(&[0x62; 64]);
     let node_identity = PrivateIdentity::from_secret_bytes(&[0x70; 64]);
-    let sender = Arc::new(Endpoint::new(sender_identity.clone()));
-    let node = Arc::new(Endpoint::new(node_identity));
+    let sender = Arc::new(Endpoint::with_network_stamp_policy(
+        sender_identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let node = Arc::new(Endpoint::with_network_stamp_policy(
+        node_identity,
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     connect(&sender, &node, LossModel::new(61), LossModel::new(70));
 
     let announce = PropagationAnnounce {

@@ -19,8 +19,14 @@ async fn round_trip(
 ) {
     let sender_identity = PrivateIdentity::from_secret_bytes(&[0x31; 64]);
     let receiver_identity = PrivateIdentity::from_secret_bytes(&[0x42; 64]);
-    let sender = Arc::new(Endpoint::new(sender_identity.clone()));
-    let receiver = Arc::new(Endpoint::new(receiver_identity.clone()));
+    let sender = Arc::new(Endpoint::with_network_stamp_policy(
+        sender_identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let receiver = Arc::new(Endpoint::with_network_stamp_policy(
+        receiver_identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     connect(&sender, &receiver, LossModel::new(31), LossModel::new(42));
 
     register_delivery(
@@ -161,8 +167,14 @@ async fn direct_delivery_uses_a_resource_when_the_message_does_not_fit() {
 async fn an_unknown_sender_is_held_and_asked_about() {
     let sender_identity = PrivateIdentity::from_secret_bytes(&[0x51; 64]);
     let receiver_identity = PrivateIdentity::from_secret_bytes(&[0x62; 64]);
-    let sender = Arc::new(Endpoint::new(sender_identity.clone()));
-    let receiver = Arc::new(Endpoint::new(receiver_identity.clone()));
+    let sender = Arc::new(Endpoint::with_network_stamp_policy(
+        sender_identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let receiver = Arc::new(Endpoint::with_network_stamp_policy(
+        receiver_identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
 
     // Registered before there is any interface to carry it, so the announce reaches nobody.
     // That is the whole setup: the receiver will meet this sender for the first time as an
@@ -269,8 +281,14 @@ async fn a_sender_that_identifies_on_the_link_is_accepted_without_any_announce()
 
     let sender_identity = PrivateIdentity::from_secret_bytes(&[0x73; 64]);
     let receiver_identity = PrivateIdentity::from_secret_bytes(&[0x84; 64]);
-    let sender = Arc::new(Endpoint::new(sender_identity.clone()));
-    let receiver = Arc::new(Endpoint::new(receiver_identity.clone()));
+    let sender = Arc::new(Endpoint::with_network_stamp_policy(
+        sender_identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let receiver = Arc::new(Endpoint::with_network_stamp_policy(
+        receiver_identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
 
     // Registered before any interface exists, so this announce reaches nobody and the
     // receiver never learns the sender from the air.
@@ -345,10 +363,14 @@ async fn a_sender_that_identifies_on_the_link_is_accepted_without_any_announce()
 #[tokio::test]
 async fn a_resent_message_is_a_duplicate() {
     let sender_identity = PrivateIdentity::from_secret_bytes(&[0x35; 64]);
-    let sender = Arc::new(Endpoint::new(sender_identity.clone()));
-    let receiver = Arc::new(Endpoint::new(PrivateIdentity::from_secret_bytes(
-        &[0x46; 64],
-    )));
+    let sender = Arc::new(Endpoint::with_network_stamp_policy(
+        sender_identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let receiver = Arc::new(Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x46; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     connect(&sender, &receiver, LossModel::new(35), LossModel::new(46));
     register_delivery(&sender, &DeliveryAnnounce::named(b"Sender".to_vec())).unwrap();
     register_delivery(&receiver, &DeliveryAnnounce::named(b"Receiver".to_vec())).unwrap();
@@ -433,8 +455,14 @@ fn connect_dropping_link_requests(a: &Endpoint, b: &Endpoint, drop: usize) {
 async fn a_lost_link_request_is_recovered_on_a_fresh_link() {
     let sender_identity = PrivateIdentity::from_secret_bytes(&[0x33; 64]);
     let receiver_identity = PrivateIdentity::from_secret_bytes(&[0x44; 64]);
-    let sender = Arc::new(Endpoint::new(sender_identity.clone()));
-    let receiver = Arc::new(Endpoint::new(receiver_identity));
+    let sender = Arc::new(Endpoint::with_network_stamp_policy(
+        sender_identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let receiver = Arc::new(Endpoint::with_network_stamp_policy(
+        receiver_identity,
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     connect_dropping_link_requests(&sender, &receiver, 1);
     register_delivery(&sender, &DeliveryAnnounce::named(b"Sender".to_vec())).unwrap();
     register_delivery(&receiver, &DeliveryAnnounce::named(b"Receiver".to_vec())).unwrap();
@@ -508,8 +536,14 @@ fn connect_dropping_advertisements(a: &Endpoint, b: &Endpoint, drop: usize) {
 async fn an_unanswered_offer_is_made_again_on_a_fresh_link() {
     let sender_identity = PrivateIdentity::from_secret_bytes(&[0x35; 64]);
     let receiver_identity = PrivateIdentity::from_secret_bytes(&[0x46; 64]);
-    let sender = Arc::new(Endpoint::new(sender_identity.clone()));
-    let receiver = Arc::new(Endpoint::new(receiver_identity));
+    let sender = Arc::new(Endpoint::with_network_stamp_policy(
+        sender_identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let receiver = Arc::new(Endpoint::with_network_stamp_policy(
+        receiver_identity,
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     // One attempt's whole offer: the advertisement and its four re-advertisements.
     connect_dropping_advertisements(&sender, &receiver, 5);
     register_delivery(&sender, &DeliveryAnnounce::named(b"Sender".to_vec())).unwrap();

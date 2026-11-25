@@ -44,9 +44,10 @@ fn adopt(addr: &str) -> Vec<Adopted> {
 }
 
 fn endpoint(seed: u8) -> Arc<Endpoint> {
-    Arc::new(Endpoint::new(PrivateIdentity::from_secret_bytes(
-        &[seed; 64],
-    )))
+    Arc::new(Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[seed; 64]),
+        crate::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ))
 }
 
 fn ports(group: &[u8]) -> AutoConfig {

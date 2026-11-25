@@ -20,8 +20,14 @@ use retinue::packet::{DestinationType, HeaderType, Packet, PacketType, Propagati
 async fn a_forged_proof_does_not_strand_link_setup() {
     let server_id = PrivateIdentity::from_secret_bytes(&[0x22; 64]);
     let client_id = PrivateIdentity::from_secret_bytes(&[0x11; 64]);
-    let server = Endpoint::new(server_id.clone());
-    let client = Endpoint::new(client_id.clone());
+    let server = Endpoint::with_network_stamp_policy(
+        server_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
+    let client = Endpoint::with_network_stamp_policy(
+        client_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
 
     let name = DestinationName::new("retinue", ["dos"]);
     let dest = name.destination_hash(server_id.public());
@@ -91,7 +97,10 @@ async fn a_forged_proof_does_not_strand_link_setup() {
 #[tokio::test]
 async fn dropping_the_endpoint_releases_its_tasks() {
     let mut iface = {
-        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[7u8; 64]));
+        let ep = Endpoint::with_network_stamp_policy(
+            PrivateIdentity::from_secret_bytes(&[7u8; 64]),
+            retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        );
         ep.attach_interface()
         // `ep` drops here: its Drop aborts the router, so `Shared` — and the interface's
         // outbound sender it holds — is released.

@@ -6,8 +6,14 @@ use super::*;
 async fn endpoint_publishes_and_fetches_a_resource() {
     let server_id = PrivateIdentity::from_secret_bytes(&[0x22; 64]);
     let client_id = PrivateIdentity::from_secret_bytes(&[0x11; 64]);
-    let server = Arc::new(Endpoint::new(server_id.clone()));
-    let client = Endpoint::new(client_id);
+    let server = Arc::new(Endpoint::with_network_stamp_policy(
+        server_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let client = Endpoint::with_network_stamp_policy(
+        client_id,
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
 
     let name = DestinationName::new("retinue", ["resource"]);
     let destination = name.destination_hash(server_id.public());
@@ -56,8 +62,14 @@ async fn endpoint_publishes_and_fetches_a_resource() {
 async fn resource_registration_also_receives_best_effort_data() {
     let server_id = PrivateIdentity::from_secret_bytes(&[0x66; 64]);
     let client_id = PrivateIdentity::from_secret_bytes(&[0x55; 64]);
-    let server = Arc::new(Endpoint::new(server_id.clone()));
-    let client = Endpoint::new(client_id);
+    let server = Arc::new(Endpoint::with_network_stamp_policy(
+        server_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let client = Endpoint::with_network_stamp_policy(
+        client_id,
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
 
     let name = DestinationName::new("retinue", ["mixed"]);
     let destination = name.destination_hash(server_id.public());
@@ -90,8 +102,14 @@ async fn resource_registration_also_receives_best_effort_data() {
 async fn resource_session_carries_a_matching_request_and_response() {
     let server_id = PrivateIdentity::from_secret_bytes(&[0x76; 64]);
     let client_id = PrivateIdentity::from_secret_bytes(&[0x75; 64]);
-    let server = Arc::new(Endpoint::new(server_id.clone()));
-    let client = Endpoint::new(client_id);
+    let server = Arc::new(Endpoint::with_network_stamp_policy(
+        server_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let client = Endpoint::with_network_stamp_policy(
+        client_id,
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
 
     let name = DestinationName::new("retinue", ["request"]);
     let destination = name.destination_hash(server_id.public());
@@ -143,8 +161,14 @@ async fn resource_session_carries_a_matching_request_and_response() {
 async fn a_large_response_degrades_to_a_matching_resource() {
     let server_id = PrivateIdentity::from_secret_bytes(&[0x78; 64]);
     let client_id = PrivateIdentity::from_secret_bytes(&[0x77; 64]);
-    let server = Arc::new(Endpoint::new(server_id.clone()));
-    let client = Endpoint::new(client_id);
+    let server = Arc::new(Endpoint::with_network_stamp_policy(
+        server_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let client = Endpoint::with_network_stamp_policy(
+        client_id,
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
 
     let name = DestinationName::new("retinue", ["large-response"]);
     let destination = name.destination_hash(server_id.public());
@@ -189,8 +213,14 @@ async fn a_large_response_degrades_to_a_matching_resource() {
 async fn endpoint_fetches_a_resource_published_by_peer() {
     let server_id = PrivateIdentity::from_secret_bytes(&[0x44; 64]);
     let client_id = PrivateIdentity::from_secret_bytes(&[0x33; 64]);
-    let server = Arc::new(Endpoint::new(server_id.clone()));
-    let client = Endpoint::new(client_id);
+    let server = Arc::new(Endpoint::with_network_stamp_policy(
+        server_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let client = Endpoint::with_network_stamp_policy(
+        client_id,
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
 
     let name = DestinationName::new("retinue", ["resource-fetch"]);
     let destination = name.destination_hash(server_id.public());
@@ -229,8 +259,14 @@ async fn endpoint_fetches_a_resource_published_by_peer() {
 #[tokio::test]
 async fn resource_metadata_reaches_the_receiver() {
     let server_id = PrivateIdentity::from_secret_bytes(&[0x39; 64]);
-    let server = Arc::new(Endpoint::new(server_id.clone()));
-    let client = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x3a; 64]));
+    let server = Arc::new(Endpoint::with_network_stamp_policy(
+        server_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let client = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x3a; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let name = DestinationName::new("retinue", ["resource-metadata"]);
     let destination = name.destination_hash(server_id.public());
     server.register_resource(name, b"");
@@ -266,8 +302,14 @@ async fn resource_metadata_reaches_the_receiver() {
 #[tokio::test]
 async fn a_packet_mid_resource_leaves_the_transfer_running() {
     let server_id = PrivateIdentity::from_secret_bytes(&[0x78; 64]);
-    let server = Arc::new(Endpoint::new(server_id.clone()));
-    let client = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x77; 64]));
+    let server = Arc::new(Endpoint::with_network_stamp_policy(
+        server_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let client = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x77; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let name = DestinationName::new("retinue", ["interleaved"]);
     let destination = name.destination_hash(server_id.public());
     server.register_resource(name, b"");

@@ -1,5 +1,5 @@
 //! Local-only stock network stamp qualification peer. Driven by oracle/interop_network_stamps.py.
-use retinue::endpoint::{Endpoint, NetworkStampPolicy};
+use retinue::endpoint::{Endpoint, NetworkStampPolicy, StampDirectory};
 use retinue::stamp::StampCost;
 use retinue::{AddressHash, DestinationName, PrivateIdentity, RatchetPolicy, RatchetStore};
 use std::sync::Arc;
@@ -22,29 +22,44 @@ fn unhex(text: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = std::env::args().skip(1).collect();
-    if args.len() != 6 {
-        return Err("PORT emit|plain enforce|permissive DEST_COST_FP PR_COST_FP LR_COST_FP".into());
+    if !(6..=7).contains(&args.len()) {
+        return Err(
+            "PORT emit|plain|default enforce|permissive DEST_COST_FP PR_COST_FP LR_COST_FP [STORAGE]"
+                .into(),
+        );
     }
-    let endpoint = Arc::new(Endpoint::new(PrivateIdentity::from_secret_bytes(
-        &[0x47; 64],
-    )));
+    let endpoint = Arc::new(Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x47; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     let cost = |i: usize| -> Result<StampCost, std::num::ParseIntError> {
         Ok(StampCost::from_fp(args[i].parse()?))
     };
-    let policy = NetworkStampPolicy {
-        stamp_destinations: args[1] == "emit",
-        stamp_path_requests: args[1] == "emit",
-        enforce: args[2] == "enforce",
-        destination_cost: cost(3)?,
-        destination_value: cost(3)?,
-        path_cost: cost(4)?,
-        path_value: cost(4)?,
-        link_cost: cost(5)?,
-        generation_timeout: Duration::from_secs(3),
-        max_attempts: 10_000_000,
-        ..Default::default()
+    let policy = if args[1] == "default" {
+        // The stock 1.6.1 defaults; only enforcement is chosen.
+        NetworkStampPolicy {
+            enforce: args[2] == "enforce",
+            ..Default::default()
+        }
+    } else {
+        NetworkStampPolicy {
+            stamp_destinations: args[1] == "emit",
+            stamp_path_requests: args[1] == "emit",
+            enforce: args[2] == "enforce",
+            destination_cost: cost(3)?,
+            destination_value: cost(3)?,
+            path_cost: cost(4)?,
+            path_value: cost(4)?,
+            link_cost: cost(5)?,
+            generation_timeout: Duration::from_secs(3),
+            max_attempts: 10_000_000,
+            ..Default::default()
+        }
     };
     endpoint.set_network_stamp_policy(policy);
+    if let Some(storage) = args.get(6) {
+        endpoint.set_destination_stamp_store(StampDirectory::in_storage(storage.as_ref()));
+    }
     let name = DestinationName::new("retinue", ["network-stamp"]);
     endpoint.set_destination_link_cost(&name, cost(5)?)?;
     let port: u16 = args[0].parse()?;

@@ -7,7 +7,10 @@ async fn signed_announce(
     aspect: &'static str,
 ) -> (retinue::hash::AddressHash, retinue::Packet) {
     let identity = PrivateIdentity::from_secret_bytes(&[seed; 64]);
-    let sender = Endpoint::new(identity.clone());
+    let sender = Endpoint::with_network_stamp_policy(
+        identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let mut wire = sender.attach_interface();
     let name = DestinationName::new("flood", [aspect]);
     let destination = name.destination_hash(identity.public());
@@ -27,7 +30,10 @@ async fn signed_announce(
 /// against a 20 ms interface period is exact on every OS.
 #[tokio::test(start_paused = true)]
 async fn announce_ingress_burst_is_bounded_attributed_and_does_not_silence_a_neighbor() {
-    let hub = Endpoint::new(PrivateIdentity::from_secret_bytes(&[71u8; 64]));
+    let hub = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[71u8; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     hub.enable_routing();
     let noisy = hub.attach_interface();
     let noisy_id = noisy.id();
@@ -113,7 +119,10 @@ async fn announce_ingress_burst_is_bounded_attributed_and_does_not_silence_a_nei
     );
 
     let repeat_identity = PrivateIdentity::from_secret_bytes(&[99; 64]);
-    let repeat_sender = Endpoint::new(repeat_identity.clone());
+    let repeat_sender = Endpoint::with_network_stamp_policy(
+        repeat_identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let mut repeat_wire = repeat_sender.attach_interface();
     let repeat_name = DestinationName::new("flood", ["repeat"]);
     let repeat_destination = repeat_name.destination_hash(repeat_identity.public());

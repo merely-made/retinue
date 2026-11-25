@@ -373,7 +373,10 @@ mod tests {
     use crate::endpoint::router::route;
 
     fn endpoint() -> Endpoint {
-        Endpoint::new(PrivateIdentity::from_secret_bytes(&[9; 64]))
+        Endpoint::with_network_stamp_policy(
+            PrivateIdentity::from_secret_bytes(&[9; 64]),
+            crate::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        )
     }
 
     fn dest(byte: u8) -> AddressHash {

@@ -34,7 +34,7 @@ const RATCHET_INTERVAL: u64 = 30 * 60;
 
 #[tokio::test]
 async fn announces_and_path_responses_rotate_a_due_ratchet() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x93; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x93; 64]));
     let name = DestinationName::new("retinue", ["ratchet-rotation"]);
     let dest = register_ratcheted_at(&ep, &name, 10_000);
     let first = ep.current_ratchet_id(&name).unwrap();
@@ -63,7 +63,7 @@ async fn announces_and_path_responses_rotate_a_due_ratchet() {
 #[tokio::test]
 async fn a_rotated_ratchet_is_persisted_before_it_is_advertised() {
     let identity = PrivateIdentity::from_secret_bytes(&[0x94; 64]);
-    let ep = Endpoint::new(identity.clone());
+    let ep = rns160(identity.clone());
     let name = DestinationName::new("retinue", ["ratchet-persist"]);
     let dest = register_ratcheted_at(&ep, &name, 10_000);
     let first = ep.current_ratchet_id(&name).unwrap();
@@ -127,7 +127,7 @@ async fn a_rotated_ratchet_is_persisted_before_it_is_advertised() {
 #[tokio::test]
 async fn an_epoch_superseded_at_announce_still_decrypts() {
     let identity = PrivateIdentity::from_secret_bytes(&[0x95; 64]);
-    let ep = Endpoint::new(identity.clone());
+    let ep = rns160(identity.clone());
     let name = DestinationName::new("retinue", ["ratchet-retained"]);
     let dest = register_ratcheted_at(&ep, &name, 10_000);
     let first = ep.current_ratchet_id(&name).unwrap();

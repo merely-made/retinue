@@ -180,10 +180,14 @@ impl Drop for Bench {
 }
 
 fn bench(transport: TransportConfig, direct: bool) -> Bench {
-    let requester = Endpoint::new(PrivateIdentity::from_secret_bytes(&REQUESTER_SEED));
-    let responder = Arc::new(Endpoint::new(PrivateIdentity::from_secret_bytes(
-        &RESPONDER_SEED,
-    )));
+    let requester = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&REQUESTER_SEED),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
+    let responder = Arc::new(Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&RESPONDER_SEED),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     requester.set_link_mtu(FRAME as u32);
     responder.set_link_mtu(FRAME as u32);
 

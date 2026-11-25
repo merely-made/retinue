@@ -24,8 +24,14 @@ async fn reliable_request_response_end_to_end() {
     let client_id = PrivateIdentity::from_secret_bytes(&[0x11; 64]);
     // The endpoint owns its tasks and tears them down on drop, so the server must outlive the
     // client's read. Hold it in an Arc kept alive in this scope past the exchange.
-    let server = Arc::new(Endpoint::new(server_id.clone()));
-    let client = Endpoint::new(client_id.clone());
+    let server = Arc::new(Endpoint::with_network_stamp_policy(
+        server_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let client = Endpoint::with_network_stamp_policy(
+        client_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
 
     let name = DestinationName::new("retinue", ["reliable"]);
     let dest = name.destination_hash(server_id.public());
@@ -96,8 +102,14 @@ async fn reliable_request_response_end_to_end() {
 async fn reliable_exchange_survives_loss_including_identify() {
     let server_id = PrivateIdentity::from_secret_bytes(&[0x42; 64]);
     let client_id = PrivateIdentity::from_secret_bytes(&[0x24; 64]);
-    let server = Arc::new(Endpoint::new(server_id.clone()));
-    let client = Endpoint::new(client_id.clone());
+    let server = Arc::new(Endpoint::with_network_stamp_policy(
+        server_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let client = Endpoint::with_network_stamp_policy(
+        client_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
 
     let name = DestinationName::new("retinue", ["reliable-lossy"]);
     let dest = name.destination_hash(server_id.public());
@@ -179,8 +191,14 @@ async fn a_vanished_peer_fails_the_stream_and_closes_the_link() {
 
     let server_id = PrivateIdentity::from_secret_bytes(&[0x52; 64]);
     let client_id = PrivateIdentity::from_secret_bytes(&[0x25; 64]);
-    let server = Arc::new(Endpoint::new(server_id.clone()));
-    let client = Endpoint::new(client_id);
+    let server = Arc::new(Endpoint::with_network_stamp_policy(
+        server_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let client = Endpoint::with_network_stamp_policy(
+        client_id,
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
 
     let name = DestinationName::new("retinue", ["reliable-vanish"]);
     let dest = name.destination_hash(server_id.public());

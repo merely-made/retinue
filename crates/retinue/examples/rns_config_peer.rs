@@ -17,9 +17,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .nth(1)
         .ok_or("usage: rns_config_peer CONFIG")?;
     let config = RnsConfig::parse(&std::fs::read_to_string(path)?)?;
-    let endpoint = Arc::new(Endpoint::new(PrivateIdentity::from_secret_bytes(
-        &[0x5c; 64],
-    )));
+    let endpoint = Arc::new(Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x5c; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     // Hold listeners and UDP handles for the life of the run.
     let mut attached = Vec::new();
     for section in config.interfaces {

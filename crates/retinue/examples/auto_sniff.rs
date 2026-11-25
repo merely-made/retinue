@@ -78,8 +78,9 @@ async fn main() -> Result<(), String> {
     println!("SNIFF_OK {matched}");
 
     if self_test {
-        let endpoint = Arc::new(retinue::endpoint::Endpoint::new(
+        let endpoint = Arc::new(retinue::endpoint::Endpoint::with_network_stamp_policy(
             retinue::identity::PrivateIdentity::from_secret_bytes(&[0x5f; 64]),
+            retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
         ));
         let private = AutoConfig {
             group_id: format!("retinue-sniff-{}", std::process::id()).into_bytes(),

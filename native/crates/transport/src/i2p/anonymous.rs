@@ -42,7 +42,8 @@ pub fn anonymous_i2p_key(key: &UnassociatedKeypair) -> PrivateKey {
     let hk = Hkdf::<Sha256>::new(None, &seed);
     seed.zeroize();
     let expand = |info: &[u8], out: &mut [u8]| {
-        hk.expand(info, out).expect("HKDF-SHA256 output length is valid");
+        hk.expand(info, out)
+            .expect("HKDF-SHA256 output length is valid");
     };
 
     let mut signing_seed = [0u8; 32];
@@ -52,7 +53,9 @@ pub fn anonymous_i2p_key(key: &UnassociatedKeypair) -> PrivateKey {
     expand(ENCRYPTION_INFO, &mut encryption_secret);
     expand(PADDING_INFO, &mut padding);
 
-    let signing_public = Ed25519Keypair::from_seed(signing_seed).public_key().to_bytes();
+    let signing_public = Ed25519Keypair::from_seed(signing_seed)
+        .public_key()
+        .to_bytes();
     let encryption_public = x25519(encryption_secret, X25519_BASEPOINT_BYTES);
     let (encryption_pad, signing_pad) = padding.split_at(ENCRYPTION_FIELD - 32);
 
@@ -101,7 +104,9 @@ mod tests {
         let signing_seed: [u8; 32] = raw[raw.len() - 32..].try_into().unwrap();
         assert_eq!(
             signing,
-            Ed25519Keypair::from_seed(signing_seed).public_key().to_bytes()
+            Ed25519Keypair::from_seed(signing_seed)
+                .public_key()
+                .to_bytes()
         );
 
         // Neither the carrier key, nor any persona key, appears anywhere in
@@ -115,7 +120,15 @@ mod tests {
         ] {
             assert!(!raw.windows(32).any(|w| w == known), "no shared key bytes");
         }
-        assert!(!raw.windows(32).any(|w| w == key.to_seed()), "the seed is not the destination's");
-        assert_ne!(first.destination().b32(), anonymous_i2p_key(&UnassociatedKeypair::generate()).destination().b32());
+        assert!(
+            !raw.windows(32).any(|w| w == key.to_seed()),
+            "the seed is not the destination's"
+        );
+        assert_ne!(
+            first.destination().b32(),
+            anonymous_i2p_key(&UnassociatedKeypair::generate())
+                .destination()
+                .b32()
+        );
     }
 }

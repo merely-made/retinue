@@ -9,8 +9,14 @@ use retinue::resource::MAX_SEGMENT_SIZE;
 #[tokio::test]
 async fn a_two_segment_resource_survives_a_lost_segment_proof() {
     let server_id = PrivateIdentity::from_secret_bytes(&[0x81; 64]);
-    let server = Arc::new(Endpoint::new(server_id.clone()));
-    let client = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x82; 64]));
+    let server = Arc::new(Endpoint::with_network_stamp_policy(
+        server_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let client = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x82; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let name = DestinationName::new("retinue", ["segments"]);
     let destination = name.destination_hash(server_id.public());
     server.register_resource(name, b"");
@@ -44,8 +50,14 @@ async fn a_two_segment_resource_survives_a_lost_segment_proof() {
 #[tokio::test]
 async fn a_resource_past_the_size_cap_is_refused() {
     let server_id = PrivateIdentity::from_secret_bytes(&[0x83; 64]);
-    let server = Arc::new(Endpoint::new(server_id.clone()));
-    let client = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x84; 64]));
+    let server = Arc::new(Endpoint::with_network_stamp_policy(
+        server_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let client = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x84; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let name = DestinationName::new("retinue", ["segments-cap"]);
     let destination = name.destination_hash(server_id.public());
     server.register_resource(name, b"");
@@ -77,8 +89,14 @@ async fn a_resource_past_the_size_cap_is_refused() {
 async fn large_requests_and_responses_travel_as_resources() {
     tokio::time::timeout(Duration::from_secs(60), async {
         let server_id = PrivateIdentity::from_secret_bytes(&[0x85; 64]);
-        let server = Endpoint::new(server_id.clone());
-        let client = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x86; 64]));
+        let server = Endpoint::with_network_stamp_policy(
+            server_id.clone(),
+            retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        );
+        let client = Endpoint::with_network_stamp_policy(
+            PrivateIdentity::from_secret_bytes(&[0x86; 64]),
+            retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        );
         let name = DestinationName::new("retinue", ["big-request"]);
         let destination = name.destination_hash(server_id.public());
         server.register_resource(name, b"");
@@ -127,8 +145,14 @@ async fn large_requests_and_responses_travel_as_resources() {
 async fn a_request_packet_past_max_request_size_is_ignored() {
     tokio::time::timeout(Duration::from_secs(30), async {
         let server_id = PrivateIdentity::from_secret_bytes(&[0x87; 64]);
-        let server = Endpoint::new(server_id.clone());
-        let client = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x88; 64]));
+        let server = Endpoint::with_network_stamp_policy(
+            server_id.clone(),
+            retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        );
+        let client = Endpoint::with_network_stamp_policy(
+            PrivateIdentity::from_secret_bytes(&[0x88; 64]),
+            retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        );
         let name = DestinationName::new("retinue", ["small-request"]);
         let destination = name.destination_hash(server_id.public());
         server.register_resource(name, b"");

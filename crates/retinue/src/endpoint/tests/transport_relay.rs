@@ -4,7 +4,7 @@ use super::*;
 
 #[tokio::test(start_paused = true)]
 async fn interface_removal_purges_return_paths_and_pending_relays() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x71; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x71; 64]));
     let a = ep.attach_interface();
     let b = ep.attach_interface();
     ep.enable_routing();
@@ -68,7 +68,7 @@ async fn interface_removal_purges_return_paths_and_pending_relays() {
 
 #[tokio::test(start_paused = true)]
 async fn interface_removal_purges_cap_queues_by_recorded_interface() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x71; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x71; 64]));
     let a = ep.attach_interface();
     let b = ep.attach_interface();
     ep.enable_routing();
@@ -102,7 +102,7 @@ async fn interface_removal_purges_cap_queues_by_recorded_interface() {
 
 #[tokio::test(start_paused = true)]
 async fn a_repeated_announce_over_the_hop_ceiling_is_remembered_before_it_is_counted() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x71; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x71; 64]));
     let a = ep.attach_interface();
     let b = ep.attach_interface();
     ep.enable_routing();
@@ -125,7 +125,7 @@ async fn a_repeated_announce_over_the_hop_ceiling_is_remembered_before_it_is_cou
 
 #[tokio::test(start_paused = true)]
 async fn a_relay_leaves_on_every_permitted_interface_the_arrival_one_included() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x71; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x71; 64]));
     let a = ep.attach_interface();
     let b = ep.attach_interface();
     let c = ep.attach_interface();

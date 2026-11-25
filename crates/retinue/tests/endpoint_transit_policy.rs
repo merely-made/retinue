@@ -15,7 +15,10 @@ use retinue::packet::{DestinationType, HeaderType, Packet, PacketType, Propagati
 
 /// A hub with two raw interfaces: `(endpoint, a, b)`.
 fn hub() -> (Endpoint, Interface, Interface) {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[9u8; 64]));
+    let ep = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[9u8; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let a = ep.attach_interface();
     let b = ep.attach_interface();
     (ep, a, b)
@@ -51,7 +54,10 @@ async fn teach_route(
     let dest = name.destination_hash(peer.public());
 
     // Build the announce with a peer-side endpoint, then inject it as if it arrived on `via`.
-    let peer_ep = Endpoint::new(peer.clone());
+    let peer_ep = Endpoint::with_network_stamp_policy(
+        peer.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let mut peer_iface = peer_ep.attach_interface();
     peer_ep.register(name, aspect.as_bytes());
     let announce = tokio::time::timeout(Duration::from_secs(2), peer_iface.next_outbound())

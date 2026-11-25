@@ -28,7 +28,10 @@ fn mode(name: &str) -> Result<InterfaceMode, String> {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0xE3; 64]));
+    let ep = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0xE3; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     ep.enable_routing();
     for peer in std::env::var("RETINUE_PEERS")?.split(',') {
         let (port, name) = peer.split_once(':').ok_or("expected port:mode")?;

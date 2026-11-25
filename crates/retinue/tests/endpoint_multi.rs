@@ -16,7 +16,10 @@ use retinue::identity::PrivateIdentity;
 /// Spawn a leaf: connect to `hub_addr`, register `aspect`, and echo on any inbound stream.
 async fn spawn_leaf(seed: [u8; 64], aspect: &'static str, hub_addr: std::net::SocketAddr) {
     let id = PrivateIdentity::from_secret_bytes(&seed);
-    let ep = Endpoint::new(id);
+    let ep = Endpoint::with_network_stamp_policy(
+        id,
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     ep.attach_tcp_client(hub_addr).await.unwrap();
     ep.register(DestinationName::new("leaf", [aspect]), aspect.as_bytes());
     // Re-announce a couple of times, then serve inbound streams by echoing.
@@ -55,7 +58,10 @@ async fn transport_node_forwards_announces() {
         enabled: false,
         ..AnnounceIngressPolicy::default()
     };
-    let hub = Endpoint::new(PrivateIdentity::from_secret_bytes(&[9u8; 64]));
+    let hub = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[9u8; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     hub.set_announce_ingress_policy(no_ingress);
     let addr = hub
         .listen_tcp("127.0.0.1:0".parse().unwrap())
@@ -64,14 +70,20 @@ async fn transport_node_forwards_announces() {
     hub.enable_routing();
 
     let a_id = PrivateIdentity::from_secret_bytes(&[2u8; 64]);
-    let a = Endpoint::new(a_id.clone());
+    let a = Endpoint::with_network_stamp_policy(
+        a_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     a.set_announce_ingress_policy(no_ingress);
     a.attach_tcp_client(addr).await.unwrap();
     let a_name = DestinationName::new("leaf", ["a"]);
     let a_dest = a_name.destination_hash(a_id.public());
 
     let b_id = PrivateIdentity::from_secret_bytes(&[3u8; 64]);
-    let b = Endpoint::new(b_id.clone());
+    let b = Endpoint::with_network_stamp_policy(
+        b_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     b.set_announce_ingress_policy(no_ingress);
     b.attach_tcp_client(addr).await.unwrap();
     let b_name = DestinationName::new("leaf", ["b"]);
@@ -111,7 +123,10 @@ async fn transport_node_forwards_announces() {
 /// exchanges bytes both ways. Exercises header-type-2 forwarding + link transport.
 #[tokio::test]
 async fn link_forwards_through_transport_node() {
-    let hub = Endpoint::new(PrivateIdentity::from_secret_bytes(&[9u8; 64]));
+    let hub = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[9u8; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let addr = hub
         .listen_tcp("127.0.0.1:0".parse().unwrap())
         .await
@@ -120,7 +135,10 @@ async fn link_forwards_through_transport_node() {
 
     // Responder B: register + announce, echo inbound streams.
     let b_id = PrivateIdentity::from_secret_bytes(&[3u8; 64]);
-    let b = Endpoint::new(b_id.clone());
+    let b = Endpoint::with_network_stamp_policy(
+        b_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     b.attach_tcp_client(addr).await.unwrap();
     let b_name = DestinationName::new("leaf", ["b"]);
     let b_dest = b_name.destination_hash(b_id.public());
@@ -151,7 +169,10 @@ async fn link_forwards_through_transport_node() {
     // Initiator A: also registers + announces, so the hub forwards A's announce to B and B
     // learns the hub is its transport node (needed for B's proof + replies to route back).
     let a_id = PrivateIdentity::from_secret_bytes(&[2u8; 64]);
-    let a = Endpoint::new(a_id.clone());
+    let a = Endpoint::with_network_stamp_policy(
+        a_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     a.attach_tcp_client(addr).await.unwrap();
     let a_name = DestinationName::new("leaf", ["a"]);
     a.register(a_name.clone(), b"a");
@@ -187,7 +208,10 @@ async fn link_forwards_through_transport_node() {
 #[tokio::test]
 async fn hub_reaches_two_leaves_over_two_interfaces() {
     let hub_id = PrivateIdentity::from_secret_bytes(&[1u8; 64]);
-    let hub = Endpoint::new(hub_id);
+    let hub = Endpoint::with_network_stamp_policy(
+        hub_id,
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let addr = hub
         .listen_tcp("127.0.0.1:0".parse().unwrap())
         .await

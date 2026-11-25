@@ -69,7 +69,10 @@ fn command(ep: &Arc<Endpoint>, iface: InterfaceId, line: &str, held: &Arc<Mutex<
 async fn main() -> Result<(), Error> {
     let port: u16 = std::env::var("RETINUE_SHARED_PORT")?.parse()?;
     let identity = PrivateIdentity::from_secret_bytes(&[0x5A; 64]);
-    let ep = Arc::new(Endpoint::new(identity.clone()));
+    let ep = Arc::new(Endpoint::with_network_stamp_policy(
+        identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     let instance = SharedInstance {
         port,
         kind: SharedInstanceKind::Tcp,

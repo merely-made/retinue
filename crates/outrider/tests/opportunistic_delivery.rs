@@ -33,8 +33,14 @@ async fn peer(endpoint: &Endpoint, destination: retinue::AddressHash) -> PeerAnn
 async fn stamped_opportunistic_delivery_authenticates_without_a_link() {
     let sender_identity = PrivateIdentity::from_secret_bytes(&[0x31; 64]);
     let receiver_identity = PrivateIdentity::from_secret_bytes(&[0x42; 64]);
-    let sender = Arc::new(Endpoint::new(sender_identity.clone()));
-    let receiver = Arc::new(Endpoint::new(receiver_identity.clone()));
+    let sender = Arc::new(Endpoint::with_network_stamp_policy(
+        sender_identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let receiver = Arc::new(Endpoint::with_network_stamp_policy(
+        receiver_identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     connect(&sender, &receiver, LossModel::new(31), LossModel::new(42));
 
     let sender_destination =
@@ -88,15 +94,24 @@ async fn stamped_opportunistic_delivery_authenticates_without_a_link() {
 
 #[tokio::test]
 async fn opportunistic_delivery_crosses_a_transport_node() {
-    let hub = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x61; 64]));
+    let hub = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x61; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     hub.enable_routing();
 
     let sender_identity = PrivateIdentity::from_secret_bytes(&[0x62; 64]);
-    let sender = Endpoint::new(sender_identity.clone());
+    let sender = Endpoint::with_network_stamp_policy(
+        sender_identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     connect(&sender, &hub, LossModel::new(1), LossModel::new(2));
 
     let receiver_identity = PrivateIdentity::from_secret_bytes(&[0x63; 64]);
-    let receiver = Endpoint::new(receiver_identity.clone());
+    let receiver = Endpoint::with_network_stamp_policy(
+        receiver_identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     connect(&receiver, &hub, LossModel::new(3), LossModel::new(4));
 
     let sender_destination =
@@ -178,8 +193,14 @@ async fn receive(
 #[tokio::test]
 async fn a_verified_packet_is_proved_and_its_retry_is_a_proved_duplicate() {
     let sender_identity = PrivateIdentity::from_secret_bytes(&[0x71; 64]);
-    let sender = Endpoint::new(sender_identity.clone());
-    let receiver = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x72; 64]));
+    let sender = Endpoint::with_network_stamp_policy(
+        sender_identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
+    let receiver = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x72; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     connect(&sender, &receiver, LossModel::new(71), LossModel::new(72));
     let sender_destination =
         register_opportunistic(&sender, &DeliveryAnnounce::named(b"Sender"), ratchets()).unwrap();
@@ -216,8 +237,14 @@ async fn a_verified_packet_is_proved_and_its_retry_is_a_proved_duplicate() {
 #[tokio::test]
 async fn an_unknown_source_is_returned_unproved_until_it_verifies() {
     let sender_identity = PrivateIdentity::from_secret_bytes(&[0x73; 64]);
-    let sender = Endpoint::new(sender_identity.clone());
-    let receiver = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x74; 64]));
+    let sender = Endpoint::with_network_stamp_policy(
+        sender_identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
+    let receiver = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x74; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     // Registered before any interface, so its announce reaches nobody.
     register_opportunistic(&sender, &DeliveryAnnounce::named(b"Stranger"), ratchets()).unwrap();
     connect(&sender, &receiver, LossModel::new(73), LossModel::new(74));
@@ -265,8 +292,14 @@ async fn an_unknown_source_is_returned_unproved_until_it_verifies() {
 #[tokio::test]
 async fn an_unratcheted_packet_is_accepted() {
     let sender_identity = PrivateIdentity::from_secret_bytes(&[0x75; 64]);
-    let sender = Endpoint::new(sender_identity.clone());
-    let receiver = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x76; 64]));
+    let sender = Endpoint::with_network_stamp_policy(
+        sender_identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
+    let receiver = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x76; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     connect(&sender, &receiver, LossModel::new(75), LossModel::new(76));
     let sender_destination =
         register_opportunistic(&sender, &DeliveryAnnounce::named(b"Sender"), ratchets()).unwrap();

@@ -10,7 +10,7 @@ use super::super::announces::{HeldAnnounce, HeldAnnounces};
 /// known key stays, and no route or announcement follows (RNS `Identity.py` 569-577).
 #[tokio::test]
 async fn an_announce_with_a_different_key_for_a_known_destination_is_rejected() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0xB5; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0xB5; 64]));
     let wire = ep.attach_interface();
     let (packet, announce) = peer_announce(0xB6, "mismatch");
     // A real impostor would need a hash collision; stand one in by swapping the key.
@@ -46,7 +46,7 @@ fn emitted_timebase(packet: &Packet) -> u64 {
 
 #[tokio::test]
 async fn endpoint_announce_advances_within_one_source_second() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x90; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x90; 64]));
     let name = DestinationName::new("retinue", ["endpoint-same-second"]);
 
     let first = ep.build_announce_at(&name, b"cap", 4_000);
@@ -58,7 +58,7 @@ async fn endpoint_announce_advances_within_one_source_second() {
 
 #[tokio::test]
 async fn endpoint_announce_ignores_a_backward_source_clock() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x91; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x91; 64]));
     let name = DestinationName::new("retinue", ["endpoint-backward-clock"]);
 
     let first = ep.build_announce_at(&name, b"cap", 9_000);
@@ -70,7 +70,7 @@ async fn endpoint_announce_ignores_a_backward_source_clock() {
 
 #[tokio::test]
 async fn endpoint_and_owned_path_response_keep_timebases_per_destination() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x92; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x92; 64]));
     let first_name = DestinationName::new("retinue", ["endpoint-first"]);
     let second_name = DestinationName::new("retinue", ["endpoint-second"]);
     let second_destination = second_name.destination_hash(ep.identity());
@@ -107,7 +107,7 @@ async fn endpoint_and_owned_path_response_keep_timebases_per_destination() {
 /// that response's time (RNS's callable default app data).
 #[tokio::test]
 async fn a_path_response_builds_app_data_from_the_registered_source() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x93; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x93; 64]));
     let name = DestinationName::new("retinue", ["app-data-source"]);
     let dest = name.destination_hash(ep.identity());
     ep.register(name.clone(), b"fixed");
@@ -131,7 +131,7 @@ async fn a_path_response_builds_app_data_from_the_registered_source() {
 
 #[tokio::test]
 async fn announce_facts_retain_ingress_route_and_observation_order() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x13; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x13; 64]));
     let interface = ep.attach_interface().id();
     let peer = PrivateIdentity::from_secret_bytes(&[0x14; 64]);
     let name = DestinationName::new("retinue", ["management-fact"]);
@@ -157,7 +157,7 @@ async fn announce_facts_retain_ingress_route_and_observation_order() {
 /// RNS learns from a path response but never rebroadcasts it: it answers one requester.
 #[tokio::test]
 async fn a_path_response_is_learned_but_not_relayed() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x4C; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x4C; 64]));
     let a = ep.attach_interface();
     let b = ep.attach_interface();
     ep.enable_routing();
@@ -184,7 +184,7 @@ async fn a_path_response_is_learned_but_not_relayed() {
 /// publish ourselves as a peer, or be relayed again.
 #[tokio::test]
 async fn an_echo_of_our_own_announce_is_dropped() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x4E; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x4E; 64]));
     let name = DestinationName::new("retinue", ["own-echo"]);
     let destination = name.destination_hash(ep.identity());
     ep.register(name.clone(), b"own");
@@ -266,7 +266,7 @@ fn a_block_runs_from_the_last_relay_and_violations_decay() {
 /// rate rule, else the endpoint's; a blocked one is still learned (`Transport.py` 2303-2338).
 #[tokio::test]
 async fn the_relay_rate_follows_the_ingress_interface_and_blocked_announces_are_learned() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x52; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x52; 64]));
     ep.enable_routing();
     let strict = ep.attach_interface().id();
     let plain = ep.attach_interface().id();
@@ -301,7 +301,7 @@ async fn the_relay_rate_follows_the_ingress_interface_and_blocked_announces_are_
 async fn a_copy_of_a_verified_announce_is_not_verified_again() {
     use crate::probe::{Probe, take};
 
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x5C; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x5C; 64]));
     let a = ep.attach_interface();
     let (packet, announce) = peer_announce(0x5D, "copies");
     take(Probe::AnnounceVerify);
@@ -329,7 +329,7 @@ async fn a_copy_of_a_verified_announce_is_not_verified_again() {
 #[tokio::test(start_paused = true)]
 async fn an_announce_is_relayed_only_below_the_hop_ceiling() {
     for (hops, relayed) in [(MAX_HOPS - 2, true), (MAX_HOPS - 1, false)] {
-        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x4F; 64]));
+        let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x4F; 64]));
         let a = ep.attach_interface();
         let mut b = ep.attach_interface();
         ep.enable_routing();
@@ -357,7 +357,7 @@ async fn an_announce_is_relayed_only_below_the_hop_ceiling() {
 /// nothing (`Interface.py` 270-297; `Reticulum.py` 904-905).
 #[tokio::test(start_paused = true)]
 async fn held_announces_are_per_interface_and_released_fewest_hops_first() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x55; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x55; 64]));
     let noisy = ep.attach_interface().id();
     let other = ep.attach_interface().id();
     let serial = ep.attach_interface().id();
@@ -418,7 +418,7 @@ async fn held_announces_are_per_interface_and_released_fewest_hops_first() {
 /// before it decides to rebroadcast (`Transport.py` 2299-2333).
 #[tokio::test]
 async fn the_relay_rate_counts_announces_from_a_filtered_ingress() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x56; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x56; 64]));
     let filtered = ep.attach_interface().id();
     let allowed = ep.attach_interface().id();
     let _out = ep.attach_interface();
@@ -469,7 +469,7 @@ async fn held_announces_have_an_endpoint_ceiling_and_leave_with_their_row() {
     assert!(held.take_nearest(2).is_some() && held.held(2) == 0);
 
     // A row evicted by a newcomer takes its held announces with it.
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x58; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x58; 64]));
     let noisy = ep.attach_interface().id();
     ep.set_announce_ingress_policy(AnnounceIngressPolicy {
         interface_capacity: 1,

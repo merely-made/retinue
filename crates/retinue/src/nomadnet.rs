@@ -377,7 +377,10 @@ mod tests {
         node.insert_page(INDEX_PATH, b"nil page\n".to_vec())
             .unwrap();
 
-        let server = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x68; 64]));
+        let server = Endpoint::with_network_stamp_policy(
+            PrivateIdentity::from_secret_bytes(&[0x68; 64]),
+            crate::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        );
         let destination = node.destination(server.identity());
         let peer = *server.identity();
         let addr = server
@@ -403,7 +406,10 @@ mod tests {
             (raw.packed, accepted.session, server)
         });
 
-        let client = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x69; 64]));
+        let client = Endpoint::with_network_stamp_policy(
+            PrivateIdentity::from_secret_bytes(&[0x69; 64]),
+            crate::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        );
         client.attach_tcp_client(addr).await.unwrap();
         let body = fetch_page(&client, destination, peer, INDEX_PATH)
             .await
@@ -428,7 +434,10 @@ mod tests {
         node.insert_page(b"/page/large.mu", vec![b'x'; 128 * 1024])
             .unwrap();
 
-        let server = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x66; 64]));
+        let server = Endpoint::with_network_stamp_policy(
+            PrivateIdentity::from_secret_bytes(&[0x66; 64]),
+            crate::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        );
         let destination = node.destination(server.identity());
         let peer = *server.identity();
         let addr = server
@@ -444,7 +453,10 @@ mod tests {
             results
         });
 
-        let client = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x67; 64]));
+        let client = Endpoint::with_network_stamp_policy(
+            PrivateIdentity::from_secret_bytes(&[0x67; 64]),
+            crate::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        );
         client.attach_tcp_client(addr).await.unwrap();
         let fetch_config = FetchPageConfig {
             max_page_bytes: 4 * 1024 * 1024,

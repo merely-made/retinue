@@ -99,8 +99,14 @@ async fn carry_conversation_drop(count: usize, body_len: usize) {
     provider.close().await.unwrap();
 
     let server_id = PrivateIdentity::from_secret_bytes(&[0xa4; 64]);
-    let server = Arc::new(Endpoint::new(server_id.clone()));
-    let client = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0xa5; 64]));
+    let server = Arc::new(Endpoint::with_network_stamp_policy(
+        server_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let client = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0xa5; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let name = DestinationName::new("murm", ["drop-fixture"]);
     let destination = name.destination_hash(server_id.public());
     server.register_resource(name.clone(), b"");

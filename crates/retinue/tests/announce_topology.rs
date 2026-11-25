@@ -78,7 +78,10 @@ async fn equivalent_announce_rebroadcasts_on_the_radio_or_every_interface() {
     assert_eq!(sends[0].1.transport, Some(node_identity.hash()));
     assert_eq!(node.route_to(destination, 0), Some((17, 0)));
 
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x62; 64]));
+    let ep = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x62; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let mut ingress = ep.attach_interface();
     let mut other_a = ep.attach_interface();
     let mut other_b = ep.attach_interface();
@@ -126,7 +129,10 @@ async fn equivalent_announce_rebroadcasts_on_the_radio_or_every_interface() {
 async fn endpoint_egress_policy_selects_recipients_without_changing_learning() {
     let announce = signed_announce(20);
     let destination = announce.destination;
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x63; 64]));
+    let ep = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x63; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let ingress = ep.attach_interface();
     let mut allowed = ep.attach_interface();
     let mut refused = ep.attach_interface();

@@ -315,7 +315,10 @@ mod tests {
 
     /// Frames sent within `wait` of one announce, with the radio dropping `offline_ids` IDs.
     async fn beacon_run(offline_ids: usize, wait: Duration) -> Vec<Vec<u8>> {
-        let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x61; 64]));
+        let ep = Endpoint::with_network_stamp_policy(
+            PrivateIdentity::from_secret_bytes(&[0x61; 64]),
+            crate::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        );
         let (radio, mut frames) = recorder(offline_ids);
         let beacon = Beacon::rnode(b"N0CALL", Duration::from_millis(300));
         tokio::spawn(drive_with_beacon(ep.attach_interface(), radio, beacon));

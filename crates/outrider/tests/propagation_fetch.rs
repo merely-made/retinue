@@ -67,8 +67,14 @@ struct Pair {
 async fn ratcheted_pair() -> Pair {
     let node_identity = PrivateIdentity::from_secret_bytes(&[0x70; 64]);
     let recipient_identity = PrivateIdentity::from_secret_bytes(&[0x62; 64]);
-    let node = Arc::new(Endpoint::new(node_identity.clone()));
-    let recipient = Arc::new(Endpoint::new(recipient_identity));
+    let node = Arc::new(Endpoint::with_network_stamp_policy(
+        node_identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let recipient = Arc::new(Endpoint::with_network_stamp_policy(
+        recipient_identity,
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     connect(&recipient, &node, LossModel::new(62), LossModel::new(70));
 
     let propagation = register_propagation(&node, &node_announce()).unwrap();
@@ -472,7 +478,10 @@ async fn wants_are_capped_past_held_ids_and_an_unregistered_fetch_asks_for_nothi
     assert!(matches!(receipt.acknowledgement, Acknowledgement::NotSent));
 
     // Nothing could be opened, and all of it would be acknowledged: refused up front.
-    let unregistered = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x64; 64]));
+    let unregistered = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x64; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let refused = fetch_propagation(&unregistered, &pair.node_seen, 1.0, |_| false, &policy).await;
     assert!(matches!(
         refused,

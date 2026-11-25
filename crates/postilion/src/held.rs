@@ -129,10 +129,14 @@ mod tests {
     #[tokio::test]
     async fn a_held_message_is_released_once_its_sender_announces() {
         let sender_identity = PrivateIdentity::from_secret_bytes(&[0x53; 64]);
-        let sender = Arc::new(Endpoint::new(sender_identity.clone()));
-        let receiver = Arc::new(Endpoint::new(PrivateIdentity::from_secret_bytes(
-            &[0x63; 64],
-        )));
+        let sender = Arc::new(Endpoint::with_network_stamp_policy(
+            sender_identity.clone(),
+            retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        ));
+        let receiver = Arc::new(Endpoint::with_network_stamp_policy(
+            PrivateIdentity::from_secret_bytes(&[0x63; 64]),
+            retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+        ));
         let from = delivery_destination(sender_identity.public());
         let heard = Arc::new(AtomicBool::new(false));
         connect_muting(&sender, &receiver, from, Arc::clone(&heard));

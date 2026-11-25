@@ -4,7 +4,7 @@ use super::*;
 
 #[tokio::test]
 async fn freshness_replay_and_stale_rejection_leave_all_announce_effects_unchanged() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x41; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x41; 64]));
     let iface = ep.attach_interface().id();
     ep.enable_routing();
     let peer = PrivateIdentity::from_secret_bytes(&[0x42; 64]);
@@ -73,7 +73,7 @@ async fn freshness_replay_and_stale_rejection_leave_all_announce_effects_unchang
 
 #[tokio::test]
 async fn held_older_announce_cannot_publish_after_newer_direct_ingress() {
-    let hub = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0xA1; 64]));
+    let hub = rns160(PrivateIdentity::from_secret_bytes(&[0xA1; 64]));
     hub.enable_routing();
     hub.set_relay_jitter(Duration::ZERO);
     let noisy = hub.attach_interface();
@@ -191,7 +191,7 @@ async fn held_older_announce_cannot_publish_after_newer_direct_ingress() {
 
 #[tokio::test]
 async fn newer_equal_and_worse_routes_replace_the_incumbent() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x43; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x43; 64]));
     let first_iface = ep.attach_interface().id();
     let equal_iface = ep.attach_interface().id();
     let worse_iface = ep.attach_interface().id();
@@ -321,7 +321,7 @@ async fn a_cached_path_response_restores_an_expired_route() {
 /// freshness committed: a book's capacity never decides what the router can reach.
 #[tokio::test]
 async fn address_book_refusal_still_learns_the_path() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x47; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x47; 64]));
     let iface = ep.attach_interface().id();
     let peer = PrivateIdentity::from_secret_bytes(&[0x48; 64]);
     let (packet, announcement) = freshness_announce(&peer, "freshness-refusal", 0, 1, 10, 1);
@@ -342,7 +342,7 @@ async fn address_book_refusal_still_learns_the_path() {
 /// has gone stale, and the newcomer is relayed whether or not the book takes it.
 #[tokio::test]
 async fn a_full_book_evicts_a_peer_whose_route_expired() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x4B; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x4B; 64]));
     let a = ep.attach_interface();
     ep.enable_routing();
     *ep.shared.address_book.lock().unwrap() = AddressBook::with_max_peers(2);
@@ -417,7 +417,7 @@ async fn freshness_capacity_eviction_is_visible() {
 /// (`Transport.py` 2229-2251, 2335-2395).
 #[tokio::test]
 async fn a_higher_gravity_copy_of_the_same_emission_moves_the_route_and_relays() {
-    let ep = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x45; 64]));
+    let ep = rns160(PrivateIdentity::from_secret_bytes(&[0x45; 64]));
     let low = ep.attach_interface().id();
     let high = ep.attach_interface().id();
     let lower = ep.attach_interface().id();

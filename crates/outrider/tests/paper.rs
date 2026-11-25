@@ -25,10 +25,14 @@ async fn heard(endpoint: &Endpoint, destination: AddressHash) {
 #[tokio::test]
 async fn a_paper_message_is_sealed_to_the_recipients_ratchet_and_opens_with_it() {
     let sender_identity = PrivateIdentity::from_secret_bytes(&[0x23; 64]);
-    let sender = Arc::new(Endpoint::new(sender_identity.clone()));
-    let recipient = Arc::new(Endpoint::new(PrivateIdentity::from_secret_bytes(
-        &[0x43; 64],
-    )));
+    let sender = Arc::new(Endpoint::with_network_stamp_policy(
+        sender_identity.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
+    let recipient = Arc::new(Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x43; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    ));
     connect(&sender, &recipient, LossModel::new(23), LossModel::new(43));
     let source = register_delivery(&sender, &DeliveryAnnounce::named(b"Paper Sender")).unwrap();
     heard(&recipient, source).await;

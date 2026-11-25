@@ -35,11 +35,13 @@ async fn derived_identity_is_stable_and_peer_id_matches() {
     let expected = PeerID::from_public_key(kp.public_key());
 
     let a = ReticulumTransport::builder(&kp)
+        .network_stamps(crate::NetworkStampPolicy::rns_1_6_0())
         .alpns(vec![alpn.clone()])
         .bind()
         .await
         .expect("bind a");
     let b = ReticulumTransport::builder(&kp)
+        .network_stamps(crate::NetworkStampPolicy::rns_1_6_0())
         .alpns(vec![alpn])
         .bind()
         .await
@@ -83,9 +85,16 @@ async fn announce_identity_is_the_peer_and_fits_a_direct_phy_frame() {
         "the verified Reticulum signing key is Mere's PeerID"
     );
 
+    // Stamped, as RNS 1.6.1 emits by default: the extension must fit the frame too.
+    let stamped = crate::NetworkStampPolicy {
+        destination_cost: crate::StampCost::from_integer(8),
+        destination_value: crate::StampCost::from_integer(8),
+        ..Default::default()
+    };
     let transport = ReticulumTransport::builder(&kp)
         .alpns(vec![alpn])
         .announce_interval(Duration::from_secs(60))
+        .network_stamps(stamped)
         .bind()
         .await
         .expect("bind");
@@ -95,6 +104,11 @@ async fn announce_identity_is_the_peer_and_fits_a_direct_phy_frame() {
         .await
         .expect("announce timed out")
         .expect("endpoint closed");
+    let announce = retinue::announce::Announce::decode(&packet).expect("an announce");
+    assert!(
+        announce.stamp_valid(stamped.destination_cost),
+        "the announce is stamped"
+    );
     let encoded_len = packet.encode().len();
     assert!(
         encoded_len <= 255,
@@ -106,6 +120,7 @@ async fn announce_identity_is_the_peer_and_fits_a_direct_phy_frame() {
 async fn accept_unregistered_alpn_errors() {
     let kp = Ed25519Keypair::from_seed([9u8; 32]);
     let t = ReticulumTransport::builder(&kp)
+        .network_stamps(crate::NetworkStampPolicy::rns_1_6_0())
         .alpns(vec![Alpn::new("mere/cable/v1")])
         .bind()
         .await
@@ -125,6 +140,7 @@ async fn bilateral_round_trip_over_tcp_loopback() {
     let server_peer = PeerID::from_public_key(server_kp.public_key());
 
     let server = ReticulumTransport::builder(&server_kp)
+        .network_stamps(crate::NetworkStampPolicy::rns_1_6_0())
         .alpns(vec![alpn.clone()])
         .interfaces(vec![iface_server(port)])
         .announce_interval(Duration::from_millis(500))
@@ -133,6 +149,7 @@ async fn bilateral_round_trip_over_tcp_loopback() {
         .expect("bind server");
 
     let client = ReticulumTransport::builder(&client_kp)
+        .network_stamps(crate::NetworkStampPolicy::rns_1_6_0())
         .alpns(vec![alpn.clone()])
         .interfaces(vec![iface_client(port)])
         .announce_interval(Duration::from_millis(500))
@@ -207,6 +224,7 @@ async fn bilateral_round_trip_over_attached_packet_interfaces() {
     let server_peer = PeerID::from_public_key(server_kp.public_key());
 
     let server = ReticulumTransport::builder(&server_kp)
+        .network_stamps(crate::NetworkStampPolicy::rns_1_6_0())
         .alpns(vec![alpn.clone()])
         .announce_interval(Duration::from_secs(60))
         .link_mtu(255)
@@ -218,6 +236,7 @@ async fn bilateral_round_trip_over_attached_packet_interfaces() {
         .expect("bind server");
 
     let client = ReticulumTransport::builder(&client_kp)
+        .network_stamps(crate::NetworkStampPolicy::rns_1_6_0())
         .alpns(vec![alpn.clone()])
         .announce_interval(Duration::from_secs(60))
         .connect_timeout(Duration::from_secs(10))

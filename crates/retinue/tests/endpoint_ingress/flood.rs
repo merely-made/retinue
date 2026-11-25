@@ -123,7 +123,10 @@ async fn a_link_request_flood_stays_at_the_inbound_caps() {
     use retinue::endpoint::InboundLinkLimits;
 
     let hub_id = PrivateIdentity::from_secret_bytes(&[0x61; 64]);
-    let hub = Endpoint::new(hub_id.clone());
+    let hub = Endpoint::with_network_stamp_policy(
+        hub_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     hub.set_inbound_link_limits(InboundLinkLimits {
         total: 5,
         per_destination: 3,
@@ -194,7 +197,10 @@ async fn half_open_requests_cannot_lock_out_a_genuine_initiator() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     let hub_id = PrivateIdentity::from_secret_bytes(&[0x63; 64]);
-    let hub = Endpoint::new(hub_id.clone());
+    let hub = Endpoint::with_network_stamp_policy(
+        hub_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     hub.set_inbound_link_limits(InboundLinkLimits {
         total: 8,
         per_destination: 4,
@@ -214,7 +220,10 @@ async fn half_open_requests_cannot_lock_out_a_genuine_initiator() {
     assert_eq!(wire.proofs().await.len(), 4);
     assert_eq!(inbound_links(&hub), 4, "the destination is at its cap");
 
-    let client = Endpoint::new(PrivateIdentity::from_secret_bytes(&[0x64; 64]));
+    let client = Endpoint::with_network_stamp_policy(
+        PrivateIdentity::from_secret_bytes(&[0x64; 64]),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     client.attach_tcp_client(addr).await.unwrap();
     for _ in 0..4 {
         hub.announce(&name, b"");
@@ -270,7 +279,10 @@ async fn unaccepted_links_are_bounded_per_destination() {
     use retinue::endpoint::InboundLinkLimits;
 
     let hub_id = PrivateIdentity::from_secret_bytes(&[0x62; 64]);
-    let hub = Endpoint::new(hub_id.clone());
+    let hub = Endpoint::with_network_stamp_policy(
+        hub_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     hub.set_inbound_link_limits(InboundLinkLimits {
         total: 1_000,
         per_destination: 1_000,
@@ -315,7 +327,10 @@ async fn reliable_links_are_capped_and_free_their_slot_when_the_driver_gives_up(
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     let hub_id = PrivateIdentity::from_secret_bytes(&[0x65; 64]);
-    let hub = Endpoint::new(hub_id.clone());
+    let hub = Endpoint::with_network_stamp_policy(
+        hub_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     hub.set_inbound_link_limits(InboundLinkLimits {
         total: 8,
         per_destination: 2,
@@ -370,7 +385,10 @@ async fn an_overrun_best_effort_stream_fails_instead_of_losing_bytes_silently() 
     use tokio::io::AsyncReadExt;
 
     let hub_id = PrivateIdentity::from_secret_bytes(&[0x66; 64]);
-    let hub = Endpoint::new(hub_id.clone());
+    let hub = Endpoint::with_network_stamp_policy(
+        hub_id.clone(),
+        retinue::network_stamp::NetworkStampPolicy::rns_1_6_0(),
+    );
     let name = DestinationName::new("flood", ["slow-reader"]);
     let dest = name.destination_hash(hub_id.public());
     hub.register(name, b"");
