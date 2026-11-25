@@ -226,8 +226,7 @@ Left by the cut:
   README links to them. The index here still calls the whole programme Murm.
 - **The site's registry.** It has no entry for Murm, so its graph still
   draws Mere to Retinue where the direct edge is now Mere to Murm. Five
-  evidence lines in `content/specs.toml` say `murm/native/crates/...`. Pipit
-  is listed as active and was archived on GitHub the same day.
+  evidence lines in `content/specs.toml` say `murm/native/crates/...`.
 - **Licence check.** `slotmap` 1.1.1 (Zlib) reaches Murm through iroh's
   `n0-watcher` and has no exception in Murm's policy. It predates the cut.
 - **Stale links.** `firmware/packages` and `design_docs/archive_docs` still
@@ -261,6 +260,12 @@ Left by the cut:
   or clean the inherited history, then publish `retinue` 0.4.0, then Murm and
   the consumers can take it from crates.io. A cut that follows Mesh's paths
   sheds the history; Genet and Mere hold most of it already.
+
+Deleted on GitHub 2026-11-25, at Mark's instruction, once each was confirmed
+rehomed with its history: `merely-made/mora` (in Knot-editor), `turquet` (in
+Cleromancy) and `pipit` (here). Full bundles are in
+`Code/output/retired-repos-20261125`. The site's registry and relations
+dropped them in merelyllc.com `e4aa7f1`.
 
 Cleared 2026-11-25: the `repos/retinue` symlink (Mere `268c7a1f4`), the local
 Pipit clone, `merely-made/pipit` (archived), the Murm and Retinue Cargo git
