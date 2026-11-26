@@ -264,8 +264,10 @@ rehomed with its history: `merely-made/mora` (in Knot-editor), `turquet` (in
 Cleromancy), `pipit` (here) and `wavicle` (in Woodshed). Full bundles are in
 `Code/output/retired-repos-20261125`. The site's registry and relations
 dropped them in merelyllc.com `e4aa7f1` and `187aafe`; Wavicle's seven spec
-claims moved under Woodshed, while the 42 claims filed under Mora, Turquet
-and Pipit still name the deleted repositories.
+claims moved under Woodshed, and the 42 filed under Mora, Turquet and Pipit
+moved under Knot-editor, Cleromancy and Retinue (`614defb`). The four crates
+were republished from their new homes on 2026-11-26 so crates.io links
+there: wavicle 0.2.0, mora 0.2.0, pipit 0.2.1 and turquet 0.17.0.
 
 Cleared 2026-11-25: the `repos/retinue` symlink (Mere `268c7a1f4`), the local
 Pipit clone, `merely-made/pipit` (archived), the Murm and Retinue Cargo git
