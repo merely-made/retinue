@@ -128,3 +128,9 @@ license-files = [{ path = "LICENSE", hash = 0xa9865ee2 }]
 crate = "radio-hand"
 expression = "LicenseRef-Reticulum"
 license-files = [{ path = "LICENSE", hash = 0xa9865ee2 }]
+
+# Linkboy's ureq bundles the Mozilla root set. The licence is permissive and is
+# allowed for this crate only.
+[[licenses.exceptions]]
+crate = "webpki-roots"
+allow = ["CDLA-Permissive-2.0"]
