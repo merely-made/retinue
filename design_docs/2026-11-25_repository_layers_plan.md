@@ -227,8 +227,6 @@ Left by the cut:
 - **The site's registry.** It has no entry for Murm, so its graph still
   draws Mere to Retinue where the direct edge is now Mere to Murm. Five
   evidence lines in `content/specs.toml` say `murm/native/crates/...`.
-- **Licence check.** `slotmap` 1.1.1 (Zlib) reaches Murm through iroh's
-  `n0-watcher` and has no exception in Murm's policy. It predates the cut.
 - **Stale links.** `firmware/packages` and `design_docs/archive_docs` still
   say `merely-made/murm`; so do other repositories' links to
   `merely-made/murm/blob/<commit>`, which now need `retinue`.
@@ -263,11 +261,14 @@ Left by the cut:
 
 Deleted on GitHub 2026-11-25, at Mark's instruction, once each was confirmed
 rehomed with its history: `merely-made/mora` (in Knot-editor), `turquet` (in
-Cleromancy) and `pipit` (here). Full bundles are in
+Cleromancy), `pipit` (here) and `wavicle` (in Woodshed). Full bundles are in
 `Code/output/retired-repos-20261125`. The site's registry and relations
-dropped them in merelyllc.com `e4aa7f1`.
+dropped them in merelyllc.com `e4aa7f1` and `187aafe`; Wavicle's seven spec
+claims moved under Woodshed, while the 42 claims filed under Mora, Turquet
+and Pipit still name the deleted repositories.
 
 Cleared 2026-11-25: the `repos/retinue` symlink (Mere `268c7a1f4`), the local
 Pipit clone, `merely-made/pipit` (archived), the Murm and Retinue Cargo git
 caches, and Eidetic's unused `mere-transport` workspace dependency (Eidetic
-`16430c3`).
+`16430c3`). Murm's licence policy now allows Zlib (Murm `9780caa`, Mark's
+choice), which settles `slotmap` from iroh's `n0-watcher`.
