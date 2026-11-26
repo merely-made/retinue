@@ -1,7 +1,7 @@
 [package]
 rust-version = "1.97.1"
 name = "pipit"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "A small speech codec for voices that travel light: an LPC vocoder at 1.6 or 2.5 kbps plus framed IMA ADPCM, in self-describing clips. no_std, zero dependencies."

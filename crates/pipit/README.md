@@ -2,9 +2,15 @@
 
 A small speech codec for voices that travel light.
 
-## Status (2026-08-13)
+Pipit is maintained in
+[Retinue](https://github.com/merely-made/retinue/tree/main/crates/pipit) as
+`crates/pipit`; its own repository was retired on 2026-11-25 and its history
+came along.
 
-Published as `pipit` 0.2.0. All three rungs of the plan are implemented
+## Status (2026-11-26)
+
+Published as `pipit` 0.2.1, which changes only where the crate lives; the
+codec is the one 0.2.0 shipped. All three rungs of the plan are implemented
 and tested.
 
 Three codecs, one for each kind of link:
@@ -53,8 +59,7 @@ codebook the encoder searched, so an implementation written from the
 literature cannot reach compatibility at all. FFmpeg, which prefers native
 decoders, still requires libcodec2 for the same reason. Interop, if it is
 ever wanted, belongs in an application that links the real library under a
-compatible licence, not in this crate. The reasoning is recorded in the
-sibling Retinue repository, in
+compatible licence, not in this crate. The reasoning is recorded in Retinue's
 `design_docs/2026-08-13_rung2_codec2_class_decision.md`, alongside the rung
 plan in `design_docs/2026-08-13_lofi_voice_codec_scoping.md`.
 
