@@ -1,9 +1,9 @@
 //! ESP32-S3 GPIO wait adapter that preserves DIO1 as a Light-sleep wake source.
 //!
-//! ESP-HAL deliberately separates the global [`GpioWakeupSource`] from each pin's
-//! `wakeup_enable` bit. Its async `wait_for_high` configures the CPU interrupt and waker, but
-//! rewrites the pin register with wake disabled. DIO1 needs both at once: the level must wake
-//! the CPU and the GPIO interrupt must resume the LoRa IRQ waiter and receive path.
+//! ESP-HAL 1.2 makes a listening pin a Light-sleep wake source (one register write sets the
+//! interrupt enable and the pad's wake enable), so its async `wait_for_high` already gives DIO1
+//! both at once: the level wakes the CPU and the GPIO interrupt resumes the LoRa IRQ waiter and
+//! receive path. This adapter keeps the armed-state bookkeeping and the wake-bit lease.
 //!
 //! [`GpioWakeupSource`]: esp_hal::rtc_cntl::sleep::GpioWakeupSource
 
@@ -14,7 +14,7 @@ use core::task::Poll;
 
 use embedded_hal::digital::ErrorType;
 use embedded_hal_async::digital::Wait;
-use esp_hal::gpio::{Input, WakeEvent};
+use esp_hal::gpio::Input;
 
 use crate::wake_lease::{WakeRegister, arm_and_check};
 
@@ -118,10 +118,11 @@ impl Wait for V4Input {
             .await;
         }
         drop(wake_lease);
-        // The S3's GPIO wake enable is level-sensitive and persists after wake. Tear it down
-        // before the SX1262 IRQ is processed and later re-armed, otherwise a stale high/status
-        // can make the following Light-sleep request return immediately.
-        let _ = self.input.wakeup_enable(false, WakeEvent::HighLevel);
+        // The S3's GPIO wake enable is level-sensitive and must be down before the SX1262 IRQ
+        // is processed and later re-armed, otherwise a stale high/status can make the following
+        // Light-sleep request return immediately. ESP-HAL 1.2 ties the pad's wake bit to
+        // listening: its interrupt handler (or the future's drop) clears int_ena and the wake
+        // bit in one write, so the explicit teardown the 1.1 API needed is done by then.
         self.input.clear_interrupt();
         RADIO_WAKE_ARMED.store(false, Ordering::Release);
         Ok(())

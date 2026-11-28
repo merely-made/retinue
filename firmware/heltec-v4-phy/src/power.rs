@@ -55,23 +55,24 @@ pub use low_power::*;
 mod low_power {
     use core::cell::RefCell;
     use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
-    #[cfg(feature = "rf-sleep-proof")]
-    use core::time::Duration;
 
     use critical_section::Mutex;
-    use esp_hal::rtc_cntl::Rtc;
     #[cfg(feature = "rf-sleep-proof")]
-    use esp_hal::rtc_cntl::sleep::TimerWakeupSource;
-    use esp_hal::rtc_cntl::sleep::{
-        GpioWakeupSource, RtcSleepConfig, Uart0WakeupSource, WakeSource,
-    };
+    use esp_hal::rtc_cntl::Rtc;
+    use esp_hal::rtc_cntl::sleep::{LowPower, RtcSleepConfig};
+    #[cfg(feature = "rf-sleep-proof")]
+    use esp_hal::time::{Duration, Instant};
 
     /// Rising edges on UART0 RXD needed to wake the chip.
     ///
     /// The wake itself consumes the edges that triggered it, so the bytes carrying them are lost.
     /// That is why the host sends a run of [`selvage::WAKE_BYTE`] before a command rather than the
     /// command itself: the preamble is what gets eaten.
-    const UART_WAKE_THRESHOLD: u16 = 3;
+    ///
+    /// ESP-HAL 1.1 took the raw ESP32-S3 `active_threshold` register value (3), to which the
+    /// hardware adds 3 edges; ESP-HAL 1.2 takes the edge count itself, so the same register
+    /// value is 6 edges. `main` hands this to `UartRx::enable_wakeup`.
+    pub const UART_WAKE_EDGES: u16 = 6;
 
     /// Open holds on the gate. Sleeping is permitted only at zero.
     ///
@@ -90,26 +91,22 @@ mod low_power {
     ///
     /// A critical section rather than a `static mut`: the hook runs from the scheduler and the
     /// setup path writes this once, and the two must not race on a dual-core part.
-    static RTC: Mutex<RefCell<Option<Rtc<'static>>>> = Mutex::new(RefCell::new(None));
+    static RTC: Mutex<RefCell<Option<LowPower<'static>>>> = Mutex::new(RefCell::new(None));
 
-    /// ESP-HAL 1.1.1 predates esp-rs/esp-hal#5777. Its ESP32-S3 default leaves the
-    /// XTAL-down regulator/bias state incomplete, which resets the chip on Light-sleep.
-    fn sleep_light(rtc: &mut Rtc<'static>, wake_sources: &[&dyn WakeSource]) {
-        let mut config = RtcSleepConfig::default();
-        config.set_rtc_regulator_fpu(true);
-        config.set_bias_sleep_monitor(true);
-        config.set_pd_cur_monitor(true);
-        config.set_bias_sleep_slp(true);
-        config.set_pd_cur_slp(true);
-        rtc.sleep(&config, wake_sources);
+    /// Enter Light-sleep. ESP-HAL 1.2 takes no wake-source list: the sources are the pads that
+    /// listen (DIO1), UART0's `enable_wakeup` (set in `main`) and, in the proof, the standing
+    /// timer deadline. Its ESP32-S3 default config now carries the XTAL-down regulator/bias
+    /// settings that esp-rs/esp-hal#5777 added and 1.1.1 lacked, so no overrides remain here.
+    fn sleep_light(lp: &mut LowPower<'static>) {
+        lp.sleep_light(RtcSleepConfig::default());
     }
 
     /// Hand the RTC to the idle hook and open the gate for the first time.
     ///
     /// Call once, after the radio is armed for receive and before the command loop starts.
-    pub fn arm(rtc: Rtc<'static>) {
+    pub fn arm(lp: LowPower<'static>) {
         critical_section::with(|cs| {
-            RTC.borrow(cs).replace(Some(rtc));
+            RTC.borrow(cs).replace(Some(lp));
         });
         release();
     }
@@ -144,15 +141,16 @@ mod low_power {
     /// The five-second timer is a safety ceiling and a diagnostic: a much shorter elapsed
     /// interval means GPIO activity woke the CPU before the timer did.
     #[cfg(feature = "rf-sleep-proof")]
-    pub fn sleep_once(rtc: &mut Rtc<'static>) -> u32 {
-        let gpio = GpioWakeupSource::new();
+    pub fn sleep_once(lp: &mut LowPower<'static>, rtc: &Rtc<'static>) -> u32 {
         // Deliberately longer than the witness's RF challenge interval. A shorter reported
-        // sleep therefore identifies GPIO wake rather than timer fallback.
-        let timer = TimerWakeupSource::new(Duration::from_secs(5));
+        // sleep therefore identifies GPIO wake rather than timer fallback. The deadline is a
+        // standing request in ESP-HAL 1.2, so it is cleared again after the sleep.
+        lp.set_wakeup_deadline(Instant::now() + Duration::from_secs(5));
         let started = rtc.current_time_us();
         // A scheduler interrupt may not context-switch through the ROM's blocking sleep
         // transition. Hold the current task in place until the clocks and CPU state are restored.
-        critical_section::with(|_| sleep_light(rtc, &[&gpio, &timer]));
+        critical_section::with(|_| sleep_light(lp));
+        lp.clear_wakeup_deadline();
         let elapsed = rtc
             .current_time_us()
             .saturating_sub(started)
@@ -200,21 +198,18 @@ mod low_power {
             }
 
             // Wake on radio activity (DIO1 is a GPIO interrupt) or on the host talking to us.
-            let gpio = GpioWakeupSource::new();
-            let uart = Uart0WakeupSource::new(UART_WAKE_THRESHOLD);
-            #[cfg(feature = "rf-sleep-proof")]
-            let timer = TimerWakeupSource::new(Duration::from_millis(500));
             let slept = critical_section::with(|cs| {
                 let mut slot = RTC.borrow(cs).borrow_mut();
                 match slot.as_mut() {
-                    Some(rtc) => {
-                        #[cfg(not(feature = "rf-sleep-proof"))]
-                        sleep_light(rtc, &[&gpio, &uart]);
+                    Some(lp) => {
                         // Proof-only recovery source. It distinguishes actual Light-sleep plus
                         // retained radio receive from the stricter claim that DIO1 itself woke
                         // the CPU. Production remains GPIO + UART only.
                         #[cfg(feature = "rf-sleep-proof")]
-                        sleep_light(rtc, &[&gpio, &uart, &timer]);
+                        lp.set_wakeup_deadline(Instant::now() + Duration::from_millis(500));
+                        sleep_light(lp);
+                        #[cfg(feature = "rf-sleep-proof")]
+                        lp.clear_wakeup_deadline();
                         true
                     }
                     // Not armed yet: nothing to sleep with.

@@ -29,7 +29,6 @@ use esp_hal::Config;
 use esp_hal::delay::Delay as BlockingDelay;
 use esp_hal::gpio::{Input, InputConfig, Level, Output, OutputConfig, Pull};
 use esp_hal::i2c::master::{Config as I2cConfig, I2c};
-use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::spi::{
     Mode,
     master::{Config as SpiConfig, Spi},
@@ -39,7 +38,7 @@ use esp_hal::timer::timg::TimerGroup;
 #[cfg(feature = "host-uart-low-power")]
 use esp_hal::uart::{Config as UartConfig, Uart};
 #[cfg(all(feature = "host-usb", not(feature = "host-uart-low-power")))]
-use esp_hal::usb_serial_jtag::UsbSerialJtag;
+use esp_hal::usb::usb_serial_jtag::UsbSerialJtag;
 use lora_modulation::{Bandwidth, CodingRate, SpreadingFactor};
 use lora_phy::LoRa;
 use lora_phy::iv::GenericSx126xInterfaceVariant;
@@ -160,7 +159,6 @@ async fn main(spawner: Spawner) {
         }
     };
 
-    let sw_int = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     let timg0 = TimerGroup::new(peripherals.TIMG0);
 
     // The USB personality keeps the stock idle loop: its host link cannot survive Light-sleep,
@@ -169,12 +167,12 @@ async fn main(spawner: Spawner) {
         all(feature = "host-usb", not(feature = "host-uart-low-power")),
         feature = "rf-sleep-proof"
     ))]
-    esp_rtos::start(timg0.timer0, sw_int.software_interrupt0);
+    esp_rtos::start(timg0.timer0, peripherals.FROM_CPU_INTR0);
 
     // The low-power personality installs a gated idle hook instead. It only sleeps once
     // `power::arm` hands it the RTC, which happens after the radio is receiving.
     #[cfg(all(feature = "host-uart-low-power", not(feature = "rf-sleep-proof")))]
-    esp_rtos::start_with_idle_hook(timg0.timer0, sw_int.software_interrupt0, power::idle);
+    esp_rtos::start_with_idle_hook(timg0.timer0, peripherals.FROM_CPU_INTR0, power::idle);
 
     // The host link. Both personalities implement `embedded_io_async::{Read, Write}`, so
     // everything below is written once and built twice.
@@ -186,7 +184,7 @@ async fn main(spawner: Spawner) {
     // UART0 on the exposed header: GPIO44 RX, GPIO43 TX. Unlike USB Serial/JTAG this survives
     // Light-sleep and can wake the chip, which is what the low-power personality needs.
     #[cfg(feature = "host-uart-low-power")]
-    let (usb_rx, mut usb_tx) = {
+    let (mut usb_rx, mut usb_tx) = {
         let uart = Uart::new(
             peripherals.UART0,
             UartConfig::default().with_baudrate(HOST_UART_BAUD),
@@ -197,6 +195,14 @@ async fn main(spawner: Spawner) {
         .into_async();
         uart.split()
     };
+    // UART0 rising edges end Light-sleep; ESP-HAL 1.2 enables this on the receiver (1.1 passed
+    // a wake source to each sleep). The setting persists across sleeps.
+    #[cfg(feature = "host-uart-low-power")]
+    usb_rx
+        .enable_wakeup(
+            &esp_hal::uart::WakeupConfig::default().with_rising_edges(power::UART_WAKE_EDGES),
+        )
+        .unwrap();
 
     let i2c = I2c::new(
         peripherals.I2C0,
@@ -520,14 +526,16 @@ async fn main(spawner: Spawner) {
     // The proof enters Light-sleep from the radio task itself. This preserves the pending
     // receive future across sleep rather than asking the scheduler's idle hook to do so.
     #[cfg(all(feature = "host-uart-low-power", feature = "rf-sleep-proof"))]
-    let mut proof_rtc = esp_hal::rtc_cntl::Rtc::new(peripherals.LPWR);
+    let proof_rtc = esp_hal::rtc_cntl::Rtc::new(peripherals.RTC_TIMER);
+    #[cfg(all(feature = "host-uart-low-power", feature = "rf-sleep-proof"))]
+    let mut proof_lp = esp_hal::rtc_cntl::sleep::LowPower::new(peripherals.LPWR);
     #[cfg(all(feature = "host-uart-low-power", feature = "rf-sleep-proof"))]
     let mut proof_sleep_enabled = false;
 
     // Hand the RTC to the idle hook. Only now is sleeping meaningful: the radio is about to be
     // armed for continuous receive, so a sleeping CPU still hears packets.
     #[cfg(all(feature = "host-uart-low-power", not(feature = "rf-sleep-proof")))]
-    power::arm(esp_hal::rtc_cntl::Rtc::new(peripherals.LPWR));
+    power::arm(esp_hal::rtc_cntl::sleep::LowPower::new(peripherals.LPWR));
 
     loop {
         // This check runs before every RX/host operation, so a busy USB stream or repeated
@@ -634,7 +642,7 @@ async fn main(spawner: Spawner) {
             poll_fn(|cx| match receive.as_mut().poll(cx) {
                 Poll::Ready(outcome) => Poll::Ready(outcome),
                 Poll::Pending if wake_input::radio_wake_armed() && !wake_input::radio_is_high() => {
-                    let elapsed = power::sleep_once(&mut proof_rtc);
+                    let elapsed = power::sleep_once(&mut proof_lp, &proof_rtc);
                     if elapsed >= 4_500_000 {
                         // The RTC safety timer has no Embassy future to wake. GPIO and rejected
                         // sleeps already have their own pending interrupt or radio waiter.
