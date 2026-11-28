@@ -5,7 +5,6 @@
 multiple-versions = "deny"
 wildcards = "allow"
 skip = [
-  { crate = "bitflags@1.3.2", reason = "png 0.17.16 requires it, via png 0.17.16 (latest) under mandrake (graphshell); goes when png moves to bitflags 2" },
   { crate = "downcast-rs@1.2.1", reason = "wayland-backend 0.3.17 requires it, via smithay-client-toolkit 0.21.1 and wayland-client 0.31.15 under winit-wayland 0.31.0-beta.4 (winit); goes when wayland-backend moves to downcast-rs 2" },
   { crate = "foldhash@0.1.5", reason = "hashbrown 0.15.5 requires it, via petgraph 0.8.3 (latest) under inker (inker), portolan (eidetic), seiche (seiche) and others; goes when hashbrown moves to foldhash 0.2" },
   { crate = "getrandom@0.2.17", reason = "ring 0.17.14 requires it; ring 0.17.14 (latest) under rustls 0.23 and rustls-webpki 0.103 via ureq 3.5 in linkboy holds it; goes when ring moves to getrandom 0.4 or the family ports ring" },
@@ -20,7 +19,6 @@ skip = [
   { crate = "objc2@0.5.3", reason = "accesskit_macos 0.27.2, objc2-app-kit 0.2.2, objc2-foundation 0.2.2 require it, via accesskit_macos 0.27.2 under genet-winit (genet); goes when accesskit_macos moves to objc2 0.6" },
   { crate = "objc2-app-kit@0.2.2", reason = "accesskit_macos 0.27.2 requires it, via accesskit_macos 0.27.2 under genet-winit (genet); goes when accesskit_macos moves to objc2-app-kit 0.3" },
   { crate = "objc2-foundation@0.2.2", reason = "accesskit_macos 0.27.2, objc2-app-kit 0.2.2 require it, via accesskit_macos 0.27.2 under genet-winit (genet); goes when accesskit_macos moves to objc2-foundation 0.3" },
-  { crate = "png@0.17.16", reason = "mandrake 0.1.0 (graphshell) names png 0.17 directly; goes when mandrake moves to png 0.18" },
   { crate = "quick-xml@0.41.0", reason = "wayland-scanner 0.31.11 requires it, via smithay-client-toolkit 0.21.1 and wayland-client 0.31.15 under winit-wayland 0.31.0-beta.4 (winit); goes when wayland-scanner moves to quick-xml 0.42" },
   { crate = "redox_syscall@0.5.18", reason = "parking_lot_core 0.9.12 requires it, via html5ever 0.40.1 under genet-static-dom (genet); markup5ever 0.40.0 under genet-scripted-dom (genet), layout-dom-api (genet); wgpu 30.0.2 under cambium-desktop (graphshell), cambium-rootstock (graphshell), genet-presenter (genet) and others; goes when parking_lot_core moves to redox_syscall 0.9" },
   { crate = "syn@2.0.119", reason = "most proc-macros (arg_enum_proc_macro, curve25519-dalek-derive, enumflags2_derive, num-derive 0.4, pin-project-internal, thiserror-impl, tracing-attributes, zerocopy-derive and others) still require syn 2; goes as they move to syn 3" },
