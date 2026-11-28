@@ -42,7 +42,7 @@ rustdoc-args = [
 ]
 
 [dependencies.defmt]
-version = "0.3"
+version = "1"
 
 [dependencies.embedded-hal]
 version = "1"
